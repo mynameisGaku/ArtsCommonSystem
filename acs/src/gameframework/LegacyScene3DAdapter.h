@@ -221,7 +221,8 @@ struct FScene3DClouds {
      * 雲種と降水成分。既定は手続き生成した天候場を変更しない。
      *
      * @details `CloudTypeInfluence` と `PrecipitationInfluence` を 0 にすると、
-     * エンジンが生成した天候場を加工せずに使う。
+     * エンジンが生成した天候場を加工せずに使う。雲種と降水成分を高くすると、
+     * 雲柱の高さ変動と上部のかなとこ形状を作る。
      */
     FVolumetricCloudWeather Weather{};
 

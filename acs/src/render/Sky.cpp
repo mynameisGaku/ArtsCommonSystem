@@ -1135,6 +1135,21 @@ float2 cloudProfileTypeWeights(float cloudType){
         smoothstep(0.18,0.52,cloudType),
         smoothstep(0.50,0.84,cloudType));
 }
+// 積雲の塔状成長を有効にする強さ。雲種だけでなく降水成分も見るため、
+// 積乱雲は雲量と独立して選べる。通常の層積雲にはほぼ影響しない。
+float cloudToweringStrength(float cloudType,float precipitation){
+    float typeTower=smoothstep(0.72,0.98,saturate(cloudType));
+    float precipitationTower=smoothstep(0.25,0.85,saturate(precipitation));
+    return max(typeTower,precipitationTower);
+}
+// 塔の上部だけ被覆しきい値を下げ、中心から横へ張り出すかなとこを作る。
+// 追加の天候採取は行わず、既に採取した雲種と降水成分だけで全描画経路を揃える。
+float cloudAnvilCoverageExpansion(float layerHeight,float cloudType,float precipitation){
+    float tower=cloudToweringStrength(cloudType,precipitation);
+    float anvilBand=smoothstep(0.50,0.66,saturate(layerHeight))
+                   *(1.0-smoothstep(0.80,0.97,saturate(layerHeight)));
+    return 0.12*tower*anvilBand;
+}
 // 柔らかく密な底面と列ごとにずれた上面により、切断された水平な棚を避ける。
 // 呼び出し元は詳細侵食でも使う正規化高度を保持する。
 float cloudProfileFromTypeWeights(
@@ -1153,6 +1168,11 @@ float cloudProfileFromTypeWeights(
     float profile=lerp(stratus,stratocumulus,typeWeights.x);
     profile=lerp(profile,cumulus,typeWeights.y);
     float storm=rise.w*fall.w;
+    // 降水域の上部を横へ広げるため、塔の終端に薄いかなとこ形状を足す。
+    // 上端へ急に切らず、雲頂側の密度を残して高さの連続性を保つ。
+    float anvil=smoothstep(0.52,0.72,h)
+               *(1.0-smoothstep(0.84,0.99,h))*0.94;
+    storm=max(storm,anvil);
     return saturate(lerp(profile,storm,precipitation*0.72));
 }
 float cloudProfile(float h,float cloudType,float precipitation){
@@ -1184,6 +1204,7 @@ float cloudColumnHeightShift(float4 weather,float cloudInterior){
     float core=smoothstep(0.08,0.92,saturate(cloudInterior));
     float verticalType=saturate(max(weather.g,weather.b));
     float amplitude=lerp(0.025,0.18,verticalType);
+    amplitude*=lerp(1.0,1.9,cloudToweringStrength(weather.g,weather.b));
     float evolvingWarp=clamp(
         weather.a-0.5+cloudLocalConvectionPhase(weather)*0.45,-0.5,0.5);
     float signal=clamp(
@@ -1197,6 +1218,7 @@ float cloudColumnBaseLift(float4 weather,float cloudInterior){
     float broadPattern=smoothstep(0.18,0.82,weather.a);
     float edgePattern=1.0-smoothstep(0.08,0.86,saturate(cloudInterior));
     float amplitude=lerp(0.045,0.12,verticalType);
+    amplitude*=lerp(1.0,2.0,cloudToweringStrength(weather.g,weather.b));
     float signal=saturate(0.08+broadPattern*0.62+edgePattern*0.30);
     return amplitude*signal;
 }
@@ -1427,6 +1449,27 @@ float cloudWeatherMaskFromTerms(
     float t=saturate((weather.r-threshold)*inverseTransitionWidth);
     return t*t*(3.0-2.0*t);
 }
+// 積乱雲の上部では被覆の下側だけを横へ広げ、雲底と雲頂の境界は動かさない。
+// smoothstep の幅は元の被覆と同じにして、かなとこだけを急な板へしない。
+float cloudWeatherMaskFromTermsForLayer(
+    float4 weather,float threshold,float inverseTransitionWidth,
+    float layerHeight){
+    float baseMask=cloudWeatherMaskFromTerms(
+        weather,threshold,inverseTransitionWidth);
+    float expansion=cloudAnvilCoverageExpansion(
+        layerHeight,weather.g,weather.b);
+    float anvilThreshold=threshold-expansion;
+    float anvilMask=cloudWeatherMaskFromTerms(
+        weather,anvilThreshold,inverseTransitionWidth);
+    return max(baseMask,anvilMask);
+}
+float cloudWeatherMaskForLayer(float4 weather,float coverage,float layerHeight){
+    float threshold=cloudWeatherThreshold(coverage);
+    float upper=min(threshold+0.14,0.98);
+    float inverseTransitionWidth=1.0/max(upper-threshold,0.001);
+    return cloudWeatherMaskFromTermsForLayer(
+        weather,threshold,inverseTransitionWidth,layerHeight);
+}
 float cloudWeatherMask(float4 weather,float coverage){
     return cloudWeatherMaskFromThreshold(
         weather,cloudWeatherThreshold(coverage));
@@ -1548,15 +1591,16 @@ CloudMacroSample sampleCloudMacro(
     float layerHeight=heightFractionFromAltitude(
         altitude,upperBand);
     macro.weather=cloudWeatherData(p,layerHeight,upperBand);
-    macro.weatherMask=cloudWeatherMaskFromTerms(
-        macro.weather,coverageTerms.x,cloudCoverageReciprocals.x);
+    macro.weatherMask=cloudWeatherMaskFromTermsForLayer(
+        macro.weather,coverageTerms.x,cloudCoverageReciprocals.x,layerHeight);
     macro.upperBand=upperBand?1.0:0.0;
     // 形状による空間棄却も上層の被覆倍率に合わせ、空を一様な二層目で閉じない。
     if(upperBand) macro.weatherMask*=cloudUpperTerms.x;
     if(macro.weatherMask>0.001){
         // 空領域判定の広い被覆ではなく、最終密度と同じ境界から柱内の位置を求める。
         // 後段の密度でもこの値を再利用し、被覆計算を重ねない。
-        macro.densityWeatherMask=cloudWeatherMaskFromTerms(macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
+        macro.densityWeatherMask=cloudWeatherMaskFromTermsForLayer(
+            macro.weather,coverageTerms.y,cloudCoverageReciprocals.y,layerHeight);
         macro.height=cloudColumnHeight(
             layerHeight,
             cloudColumnHeightShift(
@@ -1609,8 +1653,8 @@ CloudMacroSample sampleCloudMacroLighting(
     float layerHeight=heightFractionFromAltitude(
         altitude,upperBand);
     macro.weather=cloudWeatherData(p,layerHeight,upperBand);
-    macro.weatherMask=cloudWeatherMask(
-        macro.weather,weatherCoverage);
+    macro.weatherMask=cloudWeatherMaskForLayer(
+        macro.weather,weatherCoverage,layerHeight);
     macro.densityWeatherMask=macro.weatherMask;
     macro.upperBand=upperBand?1.0:0.0;
     if(macro.weatherMask>0.001){
@@ -1699,7 +1743,8 @@ float2 sampleCloudFarLightingDensityAndScale(
     float layerHeight=heightFractionFromAltitude(
         altitude,upperBand);
     float4 weather=cloudWeatherData(p,layerHeight,upperBand);
-    float weatherMask=cloudWeatherMask(weather,weatherCoverage);
+    float weatherMask=cloudWeatherMaskForLayer(
+        weather,weatherCoverage,layerHeight);
     if(weatherMask>0.001){
         float sampleHeight=cloudColumnHeight(
             layerHeight,cloudColumnHeightShift(weather,weatherMask),
