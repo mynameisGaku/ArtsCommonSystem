@@ -1004,6 +1004,15 @@ float cloudAltitude(float3 p){
     float q=radialXz2*inverseRadialY;
     return local.y+q*(0.5-q*inverseRadialY*0.125);
 }
+// 雲層内のカメラでは、地平線より下の視線にもカメラ直前の雲が存在する。
+// 下層・上層のどちらに入っているかを一度だけ判定し、地面の地平線除外を後回しにする。
+bool cloudCameraInsideCloudLayer(){
+    float cameraAltitude=cloudAltitude(camPos.xyz);
+    bool insideLower=cameraAltitude>=layer.x&&cameraAltitude<layer.y;
+    bool insideUpper=cloudUpperLayer.w>0.5&&
+        cameraAltitude>=cloudUpperLayer.x&&cameraAltitude<cloudUpperLayer.y;
+    return insideLower||insideUpper;
+}
 // 上層に居るか。高度だけで決まるので、視線側と光側で同じ判定になる。
 bool inUpperCloudBandFromAltitude(float altitude){
     return cloudUpperLayer.w>0.5 && altitude>=cloudUpperLayer.x;
@@ -1148,7 +1157,16 @@ float cloudAnvilCoverageExpansion(float layerHeight,float cloudType,float precip
     float tower=cloudToweringStrength(cloudType,precipitation);
     float anvilBand=smoothstep(0.50,0.66,saturate(layerHeight))
                    *(1.0-smoothstep(0.80,0.97,saturate(layerHeight)));
-    return 0.12*tower*anvilBand;
+    return 0.16*tower*anvilBand;
+}
+// 積乱雲の中層だけを少し細くし、雲底から雲頂まで同じ被覆が続く柱を避ける。
+// かなとこの追加被覆は別経路で残し、本体のくびれだけを視線・光・雲影へ共有する。
+float cloudConvectiveWaistScale(
+    float layerHeight,float cloudType,float precipitation){
+    float tower=cloudToweringStrength(cloudType,precipitation);
+    float waist=smoothstep(0.28,0.44,saturate(layerHeight))
+               *(1.0-smoothstep(0.58,0.74,saturate(layerHeight)));
+    return saturate(1.0-0.34*tower*waist);
 }
 // 柔らかく密な底面と列ごとにずれた上面により、切断された水平な棚を避ける。
 // 呼び出し元は詳細侵食でも使う正規化高度を保持する。
@@ -1170,15 +1188,16 @@ float cloudProfileFromTypeWeights(
     // 積乱雲本体は中層で一度細くし、上部のかなとこを別の山として作る。
     // 全高を同じ密度で埋めると、雲底から雲頂まで均一な筒になるため、
     // 本体の上端を先に絞ってからかなとこへ滑らかにつなぐ。
-    float stormBody=smoothstep(0.06,0.22,h)
-                   *(1.0-0.42*smoothstep(0.48,0.82,h))
-                   *(1.0-smoothstep(0.84,0.98,h));
-    float anvil=smoothstep(0.58,0.72,h)
-               *(1.0-smoothstep(0.90,0.99,h))*0.84;
-    float storm=max(stormBody,anvil);
+    float stormBody=smoothstep(0.06,0.18,h)
+                   *(1.0-smoothstep(0.42,0.68,h))*0.96;
+    float stormShoulder=smoothstep(0.18,0.30,h)
+                       *(1.0-smoothstep(0.46,0.62,h))*0.50;
+    float anvil=smoothstep(0.54,0.68,h)
+               *(1.0-smoothstep(0.84,0.99,h))*0.58;
+    float storm=max(stormBody,max(stormShoulder,anvil));
     float stormMix=max(
-        precipitation*0.72,
-        cloudToweringStrength(typeWeights.y,precipitation)*0.92);
+        precipitation*0.52,
+        cloudToweringStrength(typeWeights.y,precipitation)*0.78);
     return saturate(lerp(profile,storm,stormMix));
 }
 float cloudProfile(float h,float cloudType,float precipitation){
@@ -1271,6 +1290,11 @@ float cloudWeatherVerticalBend(float layerHeight,bool upperBand){
         0.35,1.0,abs(centeredHeight));
     return bend*(upperBand?0.25:1.0);
 }
+// 厚い雲層ほど高さ方向の雲塊移動を増やし、薄い層では雲の連続性を優先する。
+float cloudWeatherVerticalBendScale(){
+    float layerThickness=max(layer.y-layer.x,0.0);
+    return lerp(0.45,1.0,smoothstep(2600.0,9400.0,layerThickness));
+}
 float4 cloudWeatherData(
     float3 p,float layerHeight,bool upperBand){
     float2 xz=p.xz-cloudWindWorld();
@@ -1282,11 +1306,13 @@ float4 cloudWeatherData(
     float4 weatherUv=
         rotated/float4(65536.0,65536.0,9127.0,9127.0)
        +float4(0.173,0.417,0.619,0.281);
-    // 総観規模と地域規模を別方向へ曲げる。下端から上端までの移動量は約400～750 mで、
-    // 2.6 km層を直立した2D柱へせず、かつ雲塊そのものを別地点へ飛ばさない範囲に収める。
+    // 総観規模と地域規模を別方向へ曲げる。下端から上端までの移動量は約1.0～1.5 kmで、
+    // 厚い積乱雲でも同じ2D被覆をそのまま押し出さず、雲塊の上下面を別の位置へずらす。
     float verticalBend=cloudWeatherVerticalBend(
         layerHeight,upperBand);
-    weatherUv+=verticalBend*float4(0.004,-0.003,-0.032,0.041);
+    float verticalBendScale=cloudWeatherVerticalBendScale();
+    weatherUv+=verticalBend*verticalBendScale
+              *float4(0.012,-0.009,-0.090,0.130);
     // 飛行規模の総観領域と回転した地域領域を混ぜ、短い繰り返し周期を隠す。
     float4 a=weatherMap.SampleLevel(
         weatherMap_sampler,weatherUv.xy,0);
@@ -1343,7 +1369,7 @@ float3 cloudUVW(
     // XZ follows physical world scale.  Y uses normalized altitude so lowering
     // the horizontal frequency cannot collapse the volume into one stretched
     // slice.
-    float canonicalY=cachedHeight*1.25
+    float canonicalY=cachedHeight*2.75
                     +weather.g*0.09+weather.a*0.05+0.07;
     return float3((xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
                   canonicalY,
@@ -1462,6 +1488,8 @@ float cloudWeatherMaskFromTermsForLayer(
     float layerHeight){
     float baseMask=cloudWeatherMaskFromTerms(
         weather,threshold,inverseTransitionWidth);
+    baseMask*=cloudConvectiveWaistScale(
+        layerHeight,weather.g,weather.b);
     float expansion=cloudAnvilCoverageExpansion(
         layerHeight,weather.g,weather.b);
     float anvilThreshold=threshold-expansion;
@@ -1724,7 +1752,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
                 macro.weatherMask,macro.height,upperBand);
         macro.heightProfile=saturate(sampledProfile);
         // 共有した天候と渦の変換は光円すい内で線形なので、視線側の座標から採取点を復元する。
-        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*1.25,(p.z-referenceP.z)*shapeScale);
+        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*2.75,(p.z-referenceP.z)*shapeScale);
         cloudBaseShapeLighting(
             lightingUvw,
             macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
@@ -2321,6 +2349,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float3 dir=CloudViewDirection(clip.xy);
     float3 localUp=groundHorizon.xyz;
     float signedElevation=dot(dir,localUp);
+    bool cameraInsideCloudLayer=cloudCameraInsideCloudLayer();
     // The planet/ground occlusion boundary has no rasterizer coverage because
     // clouds are traced in compute. A hard angular compare therefore exposes
     // one quarter-resolution occupancy decision as a white, stair-stepped row
@@ -2329,7 +2358,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // coverage, not a post blur, and remains stable across TSR phases.
     float groundHorizonCoverage=1.0;
     float groundCutoff=groundHorizon.w;
-    if(groundCutoff>=-1.0) {
+    if(groundCutoff>=-1.0&&!cameraInsideCloudLayer) {
         // The camera-local up vector and physical ground tangent are invariant
         // for the complete frame. CPU-side evaluation mirrors cloudAltitude
         // exactly and avoids repeating its divisions/normalization/sqrt in
@@ -2360,7 +2389,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 signedElevation);
         }
     }
-    if(groundHorizonCoverage<=0.001){
+    if(groundHorizonCoverage<=0.001&&!cameraInsideCloudLayer){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -3165,8 +3194,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                         }
                     } else {
                         float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
+                        // 等倍追跡では現在フレームが全画素を持つため、履歴を強く混ぜると
+                        // 移動する雲縁が前フレームへ引っ張られてぼやける。低解像度の時間再構成とは分ける。
                         float feedback=lerp(
-                            0.76,0.91,edgeConfidence);
+                            0.42,0.62,edgeConfidence);
                         resolved=lerp(current,histPacked,feedback);
                     }
                     historyAccepted=true;
@@ -3228,6 +3259,23 @@ cbuffer CloudCB : register(b0) {
     float4 shadowGrid;
     float4 shadowState;
     float4 groundHorizon;
+    float4 cloudFrameTerms;
+    float4 cloudLightTangent;
+    float4 cloudLightBitangent;
+    float4 cloudCoverage;
+    float4 cloudCoverageReciprocals;
+    float4 cloudShellRayOrigin;
+    float4 cloudShellTerms;
+    float4 cloudLightingExtinction;
+    float4 cloudLightingPhase;
+    float4 cloudLightingMulti;
+    float4 cloudLightingAmbient;
+    float4 cloudLightingGround;
+    float4 cloudSunTransmittance;
+    float4 cloudSkyZenith;
+    float4 cloudMultiPhase;
+    float4 cloudRange;
+    float4 cloudUpperLayer;
 };
 Texture2D<float4> cloudTex : register(t0);
 Texture2D<float> sceneDepth : register(t1);
@@ -3245,10 +3293,26 @@ float3 CloudCompositeViewDirection(float4 farHomogeneous) {
     return lengthSquared>1.0e-12&&lengthSquared<3.0e38
         ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
 }
+static const float CLOUD_PLANET_RADIUS=6360000.0;
+float CloudCameraAltitude(){
+    float3 local=camPos.xyz-worldOrigin.xyz;
+    float radialY=max(CLOUD_PLANET_RADIUS+local.y,1.0);
+    float radialXzSquared=dot(local.xz,local.xz);
+    float q=radialXzSquared/radialY;
+    return local.y+q*(0.5-q/radialY*0.125);
+}
+bool CloudCameraInsideCloudLayer(){
+    float cameraAltitude=CloudCameraAltitude();
+    bool insideLower=cameraAltitude>=layer.x&&cameraAltitude<layer.y;
+    bool insideUpper=cloudUpperLayer.w>0.5&&
+        cameraAltitude>=cloudUpperLayer.x&&cameraAltitude<cloudUpperLayer.y;
+    return insideLower||insideUpper;
+}
 // 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
 float CloudGroundCoverage(VSOut v) {
     float result=1.0;
-    if(groundHorizon.w>=-1.0) {
+    bool cameraInsideCloudLayer=CloudCameraInsideCloudLayer();
+    if(groundHorizon.w>=-1.0&&!cameraInsideCloudLayer) {
         uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
         float centerElevation=dot(
@@ -3328,6 +3392,23 @@ cbuffer CloudCB : register(b0) {
     float4 shadowGrid;
     float4 shadowState;
     float4 groundHorizon;
+    float4 cloudFrameTerms;
+    float4 cloudLightTangent;
+    float4 cloudLightBitangent;
+    float4 cloudCoverage;
+    float4 cloudCoverageReciprocals;
+    float4 cloudShellRayOrigin;
+    float4 cloudShellTerms;
+    float4 cloudLightingExtinction;
+    float4 cloudLightingPhase;
+    float4 cloudLightingMulti;
+    float4 cloudLightingAmbient;
+    float4 cloudLightingGround;
+    float4 cloudSunTransmittance;
+    float4 cloudSkyZenith;
+    float4 cloudMultiPhase;
+    float4 cloudRange;
+    float4 cloudUpperLayer;
 };
 cbuffer CloudAtmosphereCB : register(b1) {
     float4 atmosphereParams; // x=maximum camera-volume distance
@@ -3352,10 +3433,26 @@ float3 CloudCompositeViewDirection(float4 farHomogeneous) {
     return lengthSquared>1.0e-12&&lengthSquared<3.0e38
         ?candidate*rsqrt(lengthSquared):float3(0.0,0.0,1.0);
 }
+static const float CLOUD_PLANET_RADIUS=6360000.0;
+float CloudCameraAltitude(){
+    float3 local=camPos.xyz-worldOrigin.xyz;
+    float radialY=max(CLOUD_PLANET_RADIUS+local.y,1.0);
+    float radialXzSquared=dot(local.xz,local.xz);
+    float q=radialXzSquared/radialY;
+    return local.y+q*(0.5-q/radialY*0.125);
+}
+bool CloudCameraInsideCloudLayer(){
+    float cameraAltitude=CloudCameraAltitude();
+    bool insideLower=cameraAltitude>=layer.x&&cameraAltitude<layer.y;
+    bool insideUpper=cloudUpperLayer.w>0.5&&
+        cameraAltitude>=cloudUpperLayer.x&&cameraAltitude<cloudUpperLayer.y;
+    return insideLower||insideUpper;
+}
 // 履歴へ混ぜず、表示する全解像度画素で地平線被覆を一度だけ求める。
 float CloudGroundCoverage(VSOut v) {
     float result=1.0;
-    if(groundHorizon.w>=-1.0) {
+    bool cameraInsideCloudLayer=CloudCameraInsideCloudLayer();
+    if(groundHorizon.w>=-1.0&&!cameraInsideCloudLayer) {
         uint2 fullSize=max(uint2(dims.zw),uint2(1,1));
         uint2 pixel=min(uint2(v.pos.xy),fullSize-1u);
         float centerElevation=dot(
