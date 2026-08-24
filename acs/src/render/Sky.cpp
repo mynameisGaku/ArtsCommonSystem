@@ -3002,6 +3002,9 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float2 uv=(float2(tid.xy)+0.5)/dims.zw;
     bool temporalSuperRes=IsTemporalSuperResolution();
     float evolutionMismatch=CloudTemporalEvolutionMismatch();
+    // 対流差が小さい静止視点でも、履歴だけを完全に再利用しない。
+    // 最小8%を現在値へ戻し、雲の下面と細部が古い位相へ固定されるのを防ぐ。
+    float temporalCurrentWeight=max(evolutionMismatch,0.08);
     uint phaseIndex=(uint)temporal.z&15u;
     uint2 pixelBlock=min(tid.xy>>2u,uint2(dims.xy)-1u);
     uint2 phaseOffset=CloudTemporalPhaseOffset4(pixelBlock,phaseIndex);
@@ -3116,8 +3119,15 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                             }
                             stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);
                         }
-                        resolved=stableHistPacked;
-                        resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);
+                        resolved=lerp(
+                            stableHistPacked,stableReferencePacked,
+                            temporalCurrentWeight);
+                        float stableCurrentDepth=refD.x<=250000.0
+                            ?refD.x:sameScreenDepth.x;
+                        resolvedDepth=float2(
+                            lerp(sameScreenDepth.x,stableCurrentDepth,
+                                 temporalCurrentWeight),
+                            resolved.a);
                         stableHistoryResolved=true;
                     }
                 }
@@ -3260,8 +3270,13 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                             // 未採取画素は、他の15位相で得た等倍標本をワールド移動だけ補正して保つ。
                             // 4x4領域の代表レイを混ぜると、正確な履歴を低解像度補間へ毎回戻して雲頂差を面状に拡散する。
                             resolved=lerp(
-                                histPacked,current,evolutionMismatch);
-                            resolvedDepth=float2(reprojectionDepth,histD.y);
+                                histPacked,current,temporalCurrentWeight);
+                            float currentDepthForResolve=curDepth<=250000.0
+                                ?curDepth:reprojectionDepth;
+                            resolvedDepth=float2(
+                                lerp(reprojectionDepth,currentDepthForResolve,
+                                     temporalCurrentWeight),
+                                resolved.a);
                         }
                     } else {
                         // 等倍追跡では全画素が現在フレームの実レイを持つため、履歴を

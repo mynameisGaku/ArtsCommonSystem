@@ -421,6 +421,11 @@ f32 CloudTemporalEvolutionMismatchForTest(FVec4 current, FVec4 previous) noexcep
     return SaturateForTest(delta * 220.0f);
 }
 
+// 対流差が小さい静止視点でも現在の密度を最低限反映する重みを求める。
+f32 CloudTemporalCurrentWeightForTest(f32 evolutionMismatch) noexcept {
+    return evolutionMismatch > 0.08f ? evolutionMismatch : 0.08f;
+}
+
 // 現在近傍から外れた履歴成分だけを制限し、範囲内の細部は変更しない。
 f32 CloudTemporalClipChannelForTest(f32 historyValue, f32 currentMinimum, f32 currentMaximum, f32 minimumRange) noexcept {
     const f32 measuredRange = currentMaximum - currentMinimum;
@@ -6131,8 +6136,13 @@ ACS_TEST(VolumetricClouds,
         "resolvedDepth=float2(curDepth,curA);"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "resolved=lerp(histPacked,current,evolutionMismatch);"
-        "resolvedDepth=float2(reprojectionDepth,histD.y);"));
+        "resolved=lerp(histPacked,current,temporalCurrentWeight);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floattemporalCurrentWeight=max(evolutionMismatch,0.08);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "resolved=lerp(histPacked,current,temporalCurrentWeight);"));
     EXPECT_TRUE(Contains(resolveShader, "float4spatialCurrent=float4(gatheredPremul,gatheredA);float2spatialDepth=float2(gatheredDepth,gatheredA);"));
     EXPECT_TRUE(Contains(resolveShader, "if(temporalSuperRes&&scheduled&&!historyAccepted){resolved=spatialCurrent;resolvedDepth=spatialDepth;}"));
     EXPECT_TRUE(CloudTemporalUsesSpatialFallbackForTest(true, true, false));
@@ -6215,7 +6225,7 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalSampleResponse"));
-    EXPECT_FALSE(Contains(shader, "CloudTemporalCurrentWeight"));
+    EXPECT_TRUE(Contains(shader, "floattemporalCurrentWeight=max(evolutionMismatch,0.08);"));
     EXPECT_EQ(CountOccurrences(shader, "resolved=current;"), 3u);
     EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,"));
     EXPECT_TRUE(Contains(shader, "if(!temporalSuperRes){histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);}"));
@@ -6229,7 +6239,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "float2slowDelta=abs(cloudEvolution.xy-cloudPreviousEvolution.xy);"));
     EXPECT_TRUE(Contains(shader, "floatevolutionMismatch=CloudTemporalEvolutionMismatch();"));
     EXPECT_TRUE(Contains(shader, "!scheduled&&worldOrigin.w>0.5&&evolutionMismatch<0.08"));
-    EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,evolutionMismatch);"));
+    EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,temporalCurrentWeight);"));
     EXPECT_NEAR(
         CloudTemporalEvolutionMismatchForTest(
             FVec4{0.010f, 0.0f, 0.0f, 0.0f},
@@ -6242,6 +6252,8 @@ ACS_TEST(VolumetricClouds,
             FVec4{0.0f, 0.0f, 0.0f, 0.0f}),
         0.022f,
         1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.022f), 0.08f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.35f), 0.35f, 1e-6f);
 }
 
 ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {
@@ -6290,8 +6302,8 @@ ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodO
     EXPECT_TRUE(Contains(shader, "return(CloudTemporalBlockPhase4(pixel,phaseIndex)&7u)==0u;"));
     EXPECT_TRUE(Contains(shader, "constint2stableOffsets[4]={int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};"));
     EXPECT_TRUE(Contains(shader, "if(CloudTemporalNeighborhoodClipScheduled(tid.xy,phaseIndex)&&CloudTemporalNeedsNeighborhoodClip(stableHistPacked,stableReferencePacked)){"));
-    EXPECT_TRUE(Contains(shader, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=stableHistPacked;"));
-    EXPECT_TRUE(Contains(shader, "resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);"));
+    EXPECT_TRUE(Contains(shader, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=lerp(stableHistPacked,stableReferencePacked,temporalCurrentWeight);"));
+    EXPECT_TRUE(Contains(shader, "resolvedDepth=float2(lerp(sameScreenDepth.x,stableCurrentDepth,temporalCurrentWeight),resolved.a);"));
     EXPECT_FALSE(Contains(shader, "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
 }
 
@@ -6907,8 +6919,8 @@ ACS_TEST(VolumetricClouds, StableHistoryStoresUnmaskedCloudUntilFinalComposite) 
 
     if (stableAccept != std::string::npos && fallbackGate != std::string::npos && stableAccept < fallbackGate) {
         const std::string stableAcceptPath = resolveShader.substr(stableAccept, fallbackGate - stableAccept);
-        EXPECT_TRUE(Contains(stableAcceptPath, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=stableHistPacked;"));
-        EXPECT_TRUE(Contains(stableAcceptPath, "resolvedDepth=float2(sameScreenDepth.x,stableHistPacked.a);"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "stableHistPacked=CloudTemporalClipHistory(stableHistPacked,stableCurrentMin,stableCurrentMax);}" "resolved=lerp(stableHistPacked,stableReferencePacked,temporalCurrentWeight);"));
+        EXPECT_TRUE(Contains(stableAcceptPath, "resolvedDepth=float2(lerp(sameScreenDepth.x,stableCurrentDepth,temporalCurrentWeight),resolved.a);"));
         EXPECT_TRUE(Contains(stableAcceptPath, "stableHistoryResolved=true;"));
         EXPECT_FALSE(Contains(stableAcceptPath, "historyColorOut[tid.xy]=stableHist;"));
         EXPECT_FALSE(Contains(stableAcceptPath, "return;"));
