@@ -26,8 +26,9 @@
 矩形の海、湖、プールには`CreateAdaptivePlaneMesh`で一度だけ正規化XZ格子を作り、
 `DrawAdaptivePlane`で描画します。既定の96×96格子は頂点数を増やさず、cameraを水面へ
 射影した位置へX/Zそれぞれの密度を連続的に寄せます。端点と全体寸法は維持されるため、
-数mのプールと広い海でも同じmeshとmodel matrixを使い、camera近傍の密度を保てます。Editorの標準Plane水面も
-この経路を使います。
+数mのプールと広い海でも同じmeshとmodel matrixを使い、camera近傍の密度を保てます。Editorと
+`ALegacyScene3DAdapter`の標準Plane水面もこの経路を使います。格子の作成または保持に失敗した場合、
+Legacy場面は初期化を続け、既存Plane meshを`DrawMesh`へ渡す代替処理で水面を残します。
 
 輪郭を持つ水たまりや蛇行する川は、従来どおりlocal XZの任意meshを`DrawMesh`へ渡します。
 法線、UV、非一様X/Z scale、回転、平行移動は維持されます。任意meshは輪郭を変形しないため、
@@ -82,5 +83,6 @@ Editorはopaque geometryの後、大気・雲・local fogの前に水を描き�
 
 `water3d_ripple_lifetime_tests.cpp`はsurface分離、capacity、寿命、航跡energy、profile、
 砕波、法線、適応格子の契約を検証します。適応格子のGPU upload、境界、profile既定値も
-同じ水面testで検証します。raw DX12とDiligentの実pipeline初期化により、embedded HLSLと
-RHI resource bindingを確認します。
+同じ水面testで検証します。`legacy_scene3d_water_adaptive_contract_tests.cpp`は標準Planeの
+適応描画、任意XZ meshの形状維持、格子失敗時の代替処理、reload/release所有権を固定します。
+raw DX12とDiligentの実pipeline初期化により、embedded HLSLとRHI resource bindingを確認します。
