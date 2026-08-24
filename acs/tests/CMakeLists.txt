@@ -68,6 +68,7 @@ add_executable(acs_unit_tests
     post_effect_workload_tests.cpp
     node3d_tests.cpp
     legacy_scene3d_water_runtime_tests.cpp
+    legacy_scene3d_water_adaptive_contract_tests.cpp
     subsystem_tests.cpp
     provider_thread_safety_tests.cpp
     objectref_runtime_tests.cpp

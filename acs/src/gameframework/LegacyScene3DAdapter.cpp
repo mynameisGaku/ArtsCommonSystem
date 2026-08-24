@@ -2589,6 +2589,15 @@ u32 FLegacyScene3DAdapter::CollectWaterDraws(
         return 0u;
     }
 
+    // Componentを持たないentryは、このadapterが一度だけ作る標準Plane用の適応格子。
+    const FGpuMesh* adaptive_plane = nullptr;
+    for (u32 index = 0u; index < m_CustomMeshes.Size(); ++index) {
+        if (m_CustomMeshes[index].Component == nullptr) {
+            adaptive_plane = &m_CustomMeshes[index].Mesh;
+            break;
+        }
+    }
+
     struct FEntry {
         const ANode* Node = nullptr;
         bool ParentVisible = true;
@@ -2624,7 +2633,14 @@ u32 FLegacyScene3DAdapter::CollectWaterDraws(
             || !IsPlanarWaterMesh(*mesh)) {
             continue;
         }
-        const FGpuMesh* gpu = GpuMeshFor(*mesh);
+        // 標準Planeだけ格子密度をcamera近傍へ寄せる。生成失敗時と任意Meshは従来経路を保つ。
+        const bool use_adaptive_plane =
+            mesh->Primitive() == EMeshPrimitive3D::Plane
+            && adaptive_plane != nullptr
+            && adaptive_plane->vertex_buffer
+            && adaptive_plane->index_buffer;
+        const FGpuMesh* gpu = use_adaptive_plane
+            ? adaptive_plane : GpuMeshFor(*mesh);
         if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer)
             continue;
         draws[count++] = FWaterDraw{node, mesh, water, gpu};
@@ -2649,17 +2665,34 @@ void FLegacyScene3DAdapter::DrawWaterScene(
         m_Sky.ZenithColor(),
         m_Sky.HorizonColor(),
         m_Sky.GroundColor());
+    // pointer一致でadapter所有格子を識別し、authoring済みMeshの形状を変えない。
+    const FGpuMesh* adaptive_plane = nullptr;
+    for (u32 index = 0u; index < m_CustomMeshes.Size(); ++index) {
+        if (m_CustomMeshes[index].Component == nullptr) {
+            adaptive_plane = &m_CustomMeshes[index].Mesh;
+            break;
+        }
+    }
     for (u32 index = 0u; index < water_count; ++index) {
         const FWaterDraw& draw = water_draws[index];
-        if (draw.Node == nullptr || draw.Water == nullptr
+        if (draw.Node == nullptr || draw.Mesh == nullptr
+            || draw.Water == nullptr
             || draw.Gpu == nullptr) {
             continue;
         }
         m_Water.SetParams(draw.Water->ToRenderParams());
-        m_Water.DrawMesh(
-            context.Cmd(), *draw.Gpu, draw.Node->World().ToMat4(),
-            &background, &opaque_depth_snapshot, nullptr,
-            static_cast<u64>(draw.Node->Id().m_Packed), true);
+        if (draw.Mesh->Primitive() == EMeshPrimitive3D::Plane
+            && draw.Gpu == adaptive_plane) {
+            m_Water.DrawAdaptivePlane(
+                context.Cmd(), *draw.Gpu, draw.Node->World().ToMat4(),
+                &background, &opaque_depth_snapshot, nullptr,
+                static_cast<u64>(draw.Node->Id().m_Packed), true);
+        } else {
+            m_Water.DrawMesh(
+                context.Cmd(), *draw.Gpu, draw.Node->World().ToMat4(),
+                &background, &opaque_depth_snapshot, nullptr,
+                static_cast<u64>(draw.Node->Id().m_Packed), true);
+        }
     }
 }
 
@@ -2696,6 +2729,7 @@ bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     m_CustomMeshes.Clear();
     if (!m_CustomMeshes.TryReserve(m_Graph.NodeCount()))
         return false;
+
     TArray<ANode*> stack;
     if (!stack.TryPushBack(&m_Graph.Root())) return false;
     while (!stack.IsEmpty()) {
@@ -2717,6 +2751,23 @@ bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
         for (u32 index = 0u; index < node->ChildCount(); ++index)
             if (!stack.TryPushBack(node->Child(index))) return false;
     }
+
+    // 必須の任意Meshを先に保持し、標準Plane用格子の失敗をscene初期化へ波及させない。
+    FCustomGpuMesh adaptive_plane;
+    auto adaptive_upload =
+        FWaterSurface3D::CreateAdaptivePlaneMesh(
+            device, adaptive_plane.Mesh);
+    if (adaptive_upload.IsErr()) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: adaptive water plane unavailable; "
+            "standard plane water will use the existing mesh: %s",
+            adaptive_upload.Error().message);
+    } else if (!m_CustomMeshes.TryPushBack(Move(adaptive_plane))) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: adaptive water plane storage failed; "
+            "standard plane water will use the existing mesh");
+    }
+
     return true;
 }
 
