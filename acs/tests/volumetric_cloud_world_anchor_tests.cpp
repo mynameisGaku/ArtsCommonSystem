@@ -489,8 +489,8 @@ f32 CloudColumnBaseLiftForTest(f32 cloudInterior, f32 cloudType, f32 precipitati
     const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     const f32 toweringStrength = typeTower > precipitationTower ? typeTower : precipitationTower;
-    f32 amplitude = 0.025f + (0.075f - 0.025f) * verticalType;
-    amplitude *= 1.0f + 0.40f * toweringStrength;
+    f32 amplitude = 0.025f + (0.105f - 0.025f) * verticalType;
+    amplitude *= 1.0f + 0.55f * toweringStrength;
     const f32 signal = SaturateForTest(0.08f + broadPattern * 0.62f + edgePattern * 0.30f);
     return amplitude * signal;
 }
@@ -536,16 +536,22 @@ f32 CloudConvectiveWaistScaleForTest(
     return SaturateForTest(1.0f - 0.34f * toweringStrength * waist);
 }
 
-// 積乱雲の中層だけ低密度の尾を締め、かなとこの薄い縁は残す。
+// 雲底と積乱雲の中層だけ低密度の尾を締め、かなとこの薄い縁は残す。
 f32 CloudConvectiveBodyDensityForTest(
     f32 baseDensity, f32 height, f32 cloudType, f32 precipitation) noexcept {
     const f32 density = SaturateForTest(baseDensity);
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
     const f32 toweringStrength = typeTower > precipitationTower ? typeTower : precipitationTower;
+    const f32 lowerEdgeBand = 1.0f - SmoothStepForTest(
+        0.04f, 0.26f, SaturateForTest(height));
+    const f32 lowerEdgeTightening =
+        (0.16f + 0.24f * toweringStrength) * lowerEdgeBand;
     const f32 bodyBand = SmoothStepForTest(0.08f, 0.28f, SaturateForTest(height)) *
         (1.0f - SmoothStepForTest(0.56f, 0.76f, SaturateForTest(height)));
-    const f32 tightening = 0.58f * toweringStrength * bodyBand;
+    const f32 bodyTightening = 0.58f * toweringStrength * bodyBand;
+    const f32 tightening = lowerEdgeTightening > bodyTightening ?
+        lowerEdgeTightening : bodyTightening;
     return density + (density * density - density) * tightening;
 }
 
@@ -3388,6 +3394,19 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(CloudConvectiveWaistScaleForTest(0.50f, 0.88f, 0.62f) < 0.80f);
     EXPECT_NEAR(CloudConvectiveWaistScaleForTest(0.50f, 0.50f, 0.0f), 1.0f, 1e-6f);
 
+    // 雲底の低密度端だけを締め、密度の高い底面とかなとこ帯は残す。
+    const f32 normalLowerEdge = CloudConvectiveBodyDensityForTest(
+        0.75f, 0.04f, 0.50f, 0.0f);
+    const f32 normalBody = CloudConvectiveBodyDensityForTest(
+        0.75f, 0.30f, 0.50f, 0.0f);
+    const f32 stormLowerEdge = CloudConvectiveBodyDensityForTest(
+        0.75f, 0.04f, 0.88f, 0.62f);
+    const f32 stormUpperAnvilDensity = CloudConvectiveBodyDensityForTest(
+        0.75f, 0.90f, 0.88f, 0.62f);
+    EXPECT_TRUE(normalLowerEdge < normalBody);
+    EXPECT_TRUE(stormLowerEdge < normalLowerEdge);
+    EXPECT_NEAR(stormUpperAnvilDensity, 0.75f, 1e-6f);
+
     // 凝結高度までは柱ごとの変形を加えず、雲底を煙のように上下させない。
     const f32 liftedLowerBody = CloudConvectiveHeightForTest(0.10f, tallCore, false);
     const f32 loweredLowerBody = CloudConvectiveHeightForTest(0.10f, compressedEdge, false);
@@ -3484,9 +3503,12 @@ ACS_TEST(VolumetricClouds,
         "floatbaseDensity,floatheight,floatcloudType,floatprecipitation){"
         "floatdensity=saturate(baseDensity);"
         "floattower=cloudToweringStrength(cloudType,precipitation);"
+        "floatlowerEdgeBand=1.0-smoothstep(0.04,0.26,saturate(height));"
+        "floatlowerEdgeTightening=(0.16+0.24*tower)*lowerEdgeBand;"
         "floatbodyBand=smoothstep(0.08,0.28,saturate(height))"
         "*(1.0-smoothstep(0.56,0.76,saturate(height)));"
-        "floattightening=0.58*tower*bodyBand;"
+        "floatbodyTightening=0.58*tower*bodyBand;"
+        "floattightening=max(lowerEdgeTightening,bodyTightening);"
         "returnlerp(density,density*density,tightening);}"));
     EXPECT_TRUE(Contains(
         shader,
@@ -3551,9 +3573,9 @@ ACS_TEST(VolumetricClouds,
     const f32 highPatternLift = CloudColumnBaseLiftForTest(1.0f, 1.0f, 0.0f, 1.0f);
     const f32 visibleEdgeLift = CloudColumnBaseLiftForTest(0.0f, 1.0f, 0.0f, 0.0f);
     const f32 stratusLift = CloudColumnBaseLiftForTest(1.0f, 0.0f, 0.0f, 1.0f);
-    EXPECT_NEAR(lowPatternLift, 0.0084f, 1e-6f);
-    EXPECT_NEAR(highPatternLift, 0.0735f, 1e-6f);
-    EXPECT_NEAR(visibleEdgeLift, 0.0399f, 1e-6f);
+    EXPECT_NEAR(lowPatternLift, 0.01302f, 1e-6f);
+    EXPECT_NEAR(highPatternLift, 0.113925f, 1e-6f);
+    EXPECT_NEAR(visibleEdgeLift, 0.061845f, 1e-6f);
     EXPECT_NEAR(stratusLift, 0.0175f, 1e-6f);
     EXPECT_TRUE(highPatternLift > lowPatternLift + 0.04f);
     EXPECT_TRUE(visibleEdgeLift > lowPatternLift);
@@ -3597,8 +3619,8 @@ ACS_TEST(VolumetricClouds,
         "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatamplitude=lerp(0.025,0.075,verticalType);"
-        "amplitude*=lerp(1.0,1.40,cloudToweringStrength(weather.g,weather.b));"));
+        "floatamplitude=lerp(0.025,0.105,verticalType);"
+        "amplitude*=lerp(1.0,1.55,cloudToweringStrength(weather.g,weather.b));"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudColumnHeight("

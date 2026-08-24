@@ -1246,8 +1246,8 @@ float cloudColumnBaseLift(float4 weather,float cloudInterior){
     float verticalType=saturate(max(weather.g,weather.b));
     float broadPattern=smoothstep(0.18,0.82,weather.a);
     float edgePattern=1.0-smoothstep(0.08,0.86,saturate(cloudInterior));
-    float amplitude=lerp(0.025,0.075,verticalType);
-    amplitude*=lerp(1.0,1.40,cloudToweringStrength(weather.g,weather.b));
+    float amplitude=lerp(0.025,0.105,verticalType);
+    amplitude*=lerp(1.0,1.55,cloudToweringStrength(weather.g,weather.b));
     float signal=saturate(0.08+broadPattern*0.62+edgePattern*0.30);
     return amplitude*signal;
 }
@@ -1431,15 +1431,18 @@ float cloudBillowOffset(float2 detailA,float2 detailB,float height,float middleV
 float cloudDimensionalDensity(float baseDensity,float heightProfile){
     return sqrt(saturate(baseDensity))*saturate(heightProfile);
 }
-// 積乱雲の中層では低密度の端を締め、細い縦筋を雲柱の中心へ収束させる。
+// 雲底では低密度の端を面へ収束させ、中層では細い縦筋を雲柱の中心へ収束させる。
 // かなとこ帯は対象外にして、上部の横方向の広がりと薄い縁を残す。
 float cloudConvectiveBodyDensity(
     float baseDensity,float height,float cloudType,float precipitation){
     float density=saturate(baseDensity);
     float tower=cloudToweringStrength(cloudType,precipitation);
+    float lowerEdgeBand=1.0-smoothstep(0.04,0.26,saturate(height));
+    float lowerEdgeTightening=(0.16+0.24*tower)*lowerEdgeBand;
     float bodyBand=smoothstep(0.08,0.28,saturate(height))
                   *(1.0-smoothstep(0.56,0.76,saturate(height)));
-    float tightening=0.58*tower*bodyBand;
+    float bodyTightening=0.58*tower*bodyBand;
+    float tightening=max(lowerEdgeTightening,bodyTightening);
     return lerp(density,density*density,tightening);
 }
 // 2D 天候場を完成密度へ乗算すると、同じ XZ の上下が同じ割合で透けて縦の幕になる。
