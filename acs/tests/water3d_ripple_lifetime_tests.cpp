@@ -813,6 +813,8 @@ ACS_TEST(Water3DShaderContract, AdaptivePlaneKeepsFiniteBoundsAndMovesDensityNea
 
     EXPECT_TRUE(source.find("TryBuildAdaptivePlaneMesh_Internal(cells, cpu_mesh)") != std::string::npos);
     EXPECT_TRUE(source.find("float WarpAdaptiveCoordinate(") != std::string::npos);
+    EXPECT_TRUE(source.find("float warped_coordinate = coordinate;") != std::string::npos);
+    EXPECT_TRUE(source.find("return warped_coordinate;") != std::string::npos);
     EXPECT_TRUE(source.find("float normalized_distance = saturate(abs(delta) / side_extent);") != std::string::npos);
     EXPECT_TRUE(source.find("local_position.x = WarpAdaptiveCoordinate(") != std::string::npos);
     EXPECT_TRUE(source.find("local_position.z = WarpAdaptiveCoordinate(") != std::string::npos);

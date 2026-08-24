@@ -159,14 +159,21 @@ float2 Rotate2(float2 p, float angle) {
 
 // 端点を固定したまま、正規化座標をカメラ焦点へ連続的に寄せる。
 float WarpAdaptiveCoordinate(float coordinate, float focus, float rate) {
-    if (rate <= 1e-4) return coordinate;
-    float delta = coordinate - focus;
-    float side_extent = delta < 0.0 ? focus + 0.5 : 0.5 - focus;
-    if (abs(delta) <= 1e-7 || side_extent <= 1e-7) return focus;
-    float normalized_distance = saturate(abs(delta) / side_extent);
-    float denominator = max(exp(rate) - 1.0, 1e-5);
-    float warped_distance = (exp(rate * normalized_distance) - 1.0) / denominator;
-    return focus + (delta < 0.0 ? -1.0 : 1.0) * side_extent * warped_distance;
+    float warped_coordinate = coordinate;
+    if (rate > 1e-4) {
+        float delta = coordinate - focus;
+        float side_extent = delta < 0.0 ? focus + 0.5 : 0.5 - focus;
+        if (abs(delta) <= 1e-7 || side_extent <= 1e-7) {
+            warped_coordinate = focus;
+        } else {
+            float normalized_distance = saturate(abs(delta) / side_extent);
+            float denominator = max(exp(rate) - 1.0, 1e-5);
+            float warped_distance = (exp(rate * normalized_distance) - 1.0) / denominator;
+            warped_coordinate = focus
+                + (delta < 0.0 ? -1.0 : 1.0) * side_extent * warped_distance;
+        }
+    }
+    return warped_coordinate;
 }
 
 void EvaluateAmbientWaves(float2 p, float time, out float height, out float2 gradient, out float2 horizontal_offset) {
