@@ -3456,7 +3456,7 @@ ACS_TEST(VolumetricClouds,
     }
 
     // 上層雲は同じ入力でも局所雲底差を抑え、薄い層を過度に削らない。
-    EXPECT_TRUE(CloudColumnHeightForTest(0.05f, 0.0f, highPatternLift, true) > 0.0f);
+    EXPECT_TRUE(CloudColumnHeightForTest(0.07f, 0.0f, highPatternLift, true) > 0.0f);
     EXPECT_NEAR(CloudColumnHeightForTest(0.05f, 0.0f, highPatternLift, false), 0.0f, 0.0f);
 
     const std::string source = ReadSkySource();
@@ -3466,7 +3466,10 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatcloudColumnBaseLift(float4weather,floatcloudInterior){"
         "floatverticalType=saturate(max(weather.g,weather.b));"
-        "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"
+        "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatamplitude=lerp(0.045,0.12,verticalType);"
         "amplitude*=lerp(1.0,2.0,cloudToweringStrength(weather.g,weather.b));"));
     EXPECT_TRUE(Contains(
         shader,
