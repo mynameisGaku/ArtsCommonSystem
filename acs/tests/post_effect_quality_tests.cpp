@@ -2735,6 +2735,20 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             cloud_camera.SetLookAt(
                 FVec3{0.0f, 120.0f, -20.0f},
                 FVec3{0.0f, 120.0f, 1.0f});
+            /** ゼロ初期値では欠落を隠すため、環境キューブマップへ渡す非既定の天候。 */
+            FVolumetricCloudWeather environment_weather{};
+            environment_weather.CloudType = 0.78f;
+            environment_weather.CloudTypeInfluence = 1.0f;
+            environment_weather.Precipitation = 0.18f;
+            environment_weather.PrecipitationInfluence = 0.65f;
+            clouds.SetWeather(environment_weather);
+            /** 下層と異なる光学尺度を実際のGPU経路で使わせる上層。 */
+            FVolumetricCloudUpperLayer environment_upper_layer{};
+            environment_upper_layer.base_height = 7400.0f;
+            environment_upper_layer.top_height = 9200.0f;
+            environment_upper_layer.coverage_scale = 0.48f;
+            environment_upper_layer.density_scale = 0.24f;
+            clouds.SetUpperLayer(environment_upper_layer);
             clouds.RenderCompute(
                 *cloud_command,
                 Inverse(cloud_camera.ViewProjection()),

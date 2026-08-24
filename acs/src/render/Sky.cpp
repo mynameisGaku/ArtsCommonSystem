@@ -3533,6 +3533,57 @@ static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
 
+/** 画面描画と環境キューブマップで共有する密度・光採取項。 */
+struct FCloudSamplingTerms {
+    /** xy=天候しきい値、zw=高さ目標。 */
+    FVec4 coverage{};
+
+    /** xy=天候遷移幅の逆数、z=視線の細密刻み、w=太陽光の基準刻み。 */
+    FVec4 coverageReciprocals{};
+
+    /** xy=上層の被覆と濃さ、z=上層の光学尺度、w=上層の太陽光刻み。 */
+    FVec4 upperTerms{};
+};
+
+/**
+ * 同じ密度シェーダーを使う全経路へ、同一の被覆・採取尺度を渡す。
+ *
+ * @param safeCoverage 0～1へ正規化済みの被覆。
+ * @param horizontalNoiseScale 下層の水平方向ノイズ尺度。
+ * @param layerCanonicalScale 下層厚を基準幅1.6へ写す倍率。
+ * @param upperLayer 正規化済みの上層設定。
+ * @param hasUpperLayer 上層が下層より上で成立しているならtrue。
+ * @return 定数バッファーへそのまま設定できる共有項。
+ */
+FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(f32 safeCoverage, f32 horizontalNoiseScale, f32 layerCanonicalScale, const FVolumetricCloudUpperLayer& upperLayer, bool hasUpperLayer) noexcept {
+    // 呼び出し側が定数バッファーへ複製せず設定できる採取項。
+    FCloudSamplingTerms out{};
+    // 空領域の早期棄却では、実密度より少し広い範囲を残す。
+    const f32 occupancyCoverage = safeCoverage + 0.08f < 1.0f ? safeCoverage + 0.08f : 1.0f;
+    // 高さ目標が形状範囲を越えないよう、被覆だけを0.72で制限する。
+    const f32 occupancyHeightCoverage = occupancyCoverage < 0.72f ? occupancyCoverage : 0.72f;
+    const f32 densityHeightCoverage = safeCoverage < 0.72f ? safeCoverage : 0.72f;
+    out.coverage = FVec4{0.72f - 0.36f * occupancyCoverage, 0.72f - 0.36f * safeCoverage, 0.50f - 0.16f * occupancyHeightCoverage, 0.50f - 0.16f * densityHeightCoverage};
+    // smoothstepの上端を求め、狭い遷移でも逆数が有限になる範囲へ収める。
+    const f32 occupancyWeatherUpper =
+        out.coverage.x + 0.14f < 0.98f
+            ? out.coverage.x + 0.14f : 0.98f;
+    const f32 densityWeatherUpper =
+        out.coverage.y + 0.14f < 0.98f
+            ? out.coverage.y + 0.14f : 0.98f;
+    // ノイズ尺度に応じた細密刻みを、過剰採取と標本不足の両方を避ける範囲へ収める。
+    const f32 unclampedFineStep = 0.035f / (horizontalNoiseScale > 0.001f ? horizontalNoiseScale : 0.001f);
+    const f32 fineStep = unclampedFineStep < 0.5f ? 0.5f : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
+    // 下層の正規化幅0.0075に相当するワールド空間の太陽光刻み。
+    const f32 lightStep = 0.0075f / (layerCanonicalScale > 0.0001f ? layerCanonicalScale : 0.0001f);
+    out.coverageReciprocals = FVec4{1.0f / (occupancyWeatherUpper - out.coverage.x), 1.0f / (densityWeatherUpper - out.coverage.y), fineStep, lightStep};
+    // 上層が無効な場合も有限値を維持し、未使用成分へNaNを持ち込まない。
+    const f32 upperLayerCanonicalScale = hasUpperLayer ? 1.6f / (upperLayer.top_height - upperLayer.base_height) : layerCanonicalScale;
+    const f32 upperLayerLightStep = 0.0075f / (upperLayerCanonicalScale > 0.0001f ? upperLayerCanonicalScale : 0.0001f);
+    out.upperTerms = FVec4{upperLayer.coverage_scale, upperLayer.density_scale, upperLayerCanonicalScale, upperLayerLightStep};
+    return out;
+}
+
 struct FCloudAtmosphereCb {
     FVec4 atmosphereParams;
 };
@@ -5721,6 +5772,12 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     const f32 layerCanonicalScale = 1.6f / layerThickness;
     cb.layer = FVec4{m_Layer.base_height, m_Layer.top_height,
                      m_Layer.horizontal_noise_scale, layerCanonicalScale};
+    // 下層と重ならず正の厚さを持つ上層だけを採取対象にする。
+    const bool hasUpperLayer =
+        m_UpperLayer.top_height > m_UpperLayer.base_height &&
+        m_UpperLayer.base_height >= m_Layer.top_height;
+    // 画面と環境光で同じ密度形状と光学尺度を使う。
+    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safeCoverage, m_Layer.horizontal_noise_scale, layerCanonicalScale, m_UpperLayer, hasUpperLayer);
     const bool temporalHistoryStationary = historyValid &&
         cameraDeltaSquared <= 0.0025f && matrixDelta <= 0.002f;
     cb.worldOrigin = FVec4{
@@ -5774,39 +5831,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         lightBasis.bitangent.y,
         lightBasis.bitangent.z,
         0.0f};
-    const f32 occupancyCoverage =
-        safeCoverage + 0.08f < 1.0f ? safeCoverage + 0.08f : 1.0f;
-    const f32 occupancyHeightCoverage =
-        occupancyCoverage < 0.72f ? occupancyCoverage : 0.72f;
-    const f32 densityHeightCoverage =
-        safeCoverage < 0.72f ? safeCoverage : 0.72f;
-    cb.cloudCoverage = FVec4{
-        0.72f - 0.36f * occupancyCoverage,
-        0.72f - 0.36f * safeCoverage,
-        0.50f - 0.16f * occupancyHeightCoverage,
-        0.50f - 0.16f * densityHeightCoverage};
-    const f32 occupancyWeatherUpper =
-        cb.cloudCoverage.x + 0.14f < 0.98f
-            ? cb.cloudCoverage.x + 0.14f : 0.98f;
-    const f32 densityWeatherUpper =
-        cb.cloudCoverage.y + 0.14f < 0.98f
-            ? cb.cloudCoverage.y + 0.14f : 0.98f;
-    const f32 unclampedFineStep =
-        0.035f /
-        (m_Layer.horizontal_noise_scale > 0.001f
-             ? m_Layer.horizontal_noise_scale : 0.001f);
-    const f32 fineStep =
-        unclampedFineStep < 0.5f ? 0.5f
-        : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
-    const f32 lightStep =
-        0.0075f /
-        (layerCanonicalScale > 0.0001f
-             ? layerCanonicalScale : 0.0001f);
-    cb.cloudCoverageReciprocals = FVec4{
-        1.0f / (occupancyWeatherUpper - cb.cloudCoverage.x),
-        1.0f / (densityWeatherUpper - cb.cloudCoverage.y),
-        fineStep,
-        lightStep};
+    cb.cloudCoverage = samplingTerms.coverage;
+    cb.cloudCoverageReciprocals = samplingTerms.coverageReciprocals;
     // Camera, rebase origin and layer are invariant for the complete trace
     // dispatch. Build the two factorized shell quadratics once on the CPU
     // instead of reconstructing both c terms and the same ray-origin b term
@@ -5832,9 +5858,6 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         shellC(m_Layer.base_height)};
     // 上層があるなら殻の外側をそこまで伸ばす。伸ばさないとレイが下層の天井で止まり、
     // 上層はいつまでも見えない。あいだの隙間は密度 0 なので粗い刻みで素通りする。
-    const bool hasUpperLayer =
-        m_UpperLayer.top_height > m_UpperLayer.base_height &&
-        m_UpperLayer.base_height >= m_Layer.top_height;
     const f32 shellTopHeight =
         hasUpperLayer ? m_UpperLayer.top_height : m_Layer.top_height;
     cb.cloudShellTerms = FVec4{
@@ -5844,18 +5867,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
                 1.0f / (m_UpperLayer.top_height - m_UpperLayer.base_height),
                 1.0f}
         : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
-    // どちらの層も厚さ全体を 1.6 の基準幅へ写す。上層の尺度と、その逆数から求める
-    // 光採取間隔をここで一度だけ計算し、GPU の密度標本ごとの除算を避ける。
-    const f32 upperLayerCanonicalScale = hasUpperLayer
-        ? 1.6f / (m_UpperLayer.top_height - m_UpperLayer.base_height)
-        : layerCanonicalScale;
-    const f32 upperLayerLightStep =
-        0.0075f /
-        (upperLayerCanonicalScale > 0.0001f
-             ? upperLayerCanonicalScale : 0.0001f);
-    cb.cloudUpperTerms = FVec4{
-        m_UpperLayer.coverage_scale, m_UpperLayer.density_scale,
-        upperLayerCanonicalScale, upperLayerLightStep};
+    cb.cloudUpperTerms = samplingTerms.upperTerms;
     cb.cloudLightingExtinction = FVec4{
         m_Lighting.ViewExtinction, m_Lighting.LightExtinction,
         m_Lighting.SunScatter, m_Lighting.PowderStrength};
@@ -6196,6 +6208,12 @@ CVolumetricClouds::BuildEnvironmentCubemap(
     cb.layer = FVec4{
         m_Layer.base_height, m_Layer.top_height,
         m_Layer.horizontal_noise_scale, layer_canonical_scale};
+    // 下層と重ならず正の厚さを持つ上層だけを採取対象にする。
+    const bool has_upper_layer =
+        m_UpperLayer.top_height > m_UpperLayer.base_height
+        && m_UpperLayer.base_height >= m_Layer.top_height;
+    // 画面と環境光で同じ密度形状と光学尺度を使う。
+    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safe_coverage, m_Layer.horizontal_noise_scale, layer_canonical_scale, m_UpperLayer, has_upper_layer);
     cb.worldOrigin = FVec4{
         world_origin.x, world_origin.y, world_origin.z, 0.0f};
     const f32 inverse_shadow_extent =
@@ -6226,6 +6244,12 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         evolution_terms.shape_phase.y,
         evolution_terms.fine_phase.x,
         evolution_terms.fine_phase.y};
+    // 画面に見える雲種と降水形状を、環境光の採取にもそのまま反映する。
+    cb.cloudWeatherControl = FVec4{
+        m_Weather.CloudType,
+        m_Weather.CloudTypeInfluence,
+        m_Weather.Precipitation,
+        m_Weather.PrecipitationInfluence};
     cb.cloudShadowUpdate = FVec4{0.0f, 0.0f, 1.0f, 1.0f};
     cb.cloudWorldShadowMap = FVec4{
         m_WorldShadowMapMinReferenceXz.x,
@@ -6242,41 +6266,8 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         light_basis.bitangent.y,
         light_basis.bitangent.z,
         0.0f};
-    const f32 occupancy_coverage =
-        safe_coverage + 0.08f < 1.0f
-            ? safe_coverage + 0.08f : 1.0f;
-    const f32 occupancy_height_coverage =
-        occupancy_coverage < 0.72f ? occupancy_coverage : 0.72f;
-    const f32 density_height_coverage =
-        safe_coverage < 0.72f ? safe_coverage : 0.72f;
-    cb.cloudCoverage = FVec4{
-        0.90f - 0.55f * occupancy_coverage,
-        0.90f - 0.55f * safe_coverage,
-        0.72f - 0.22f * occupancy_height_coverage,
-        0.72f - 0.22f * density_height_coverage};
-    const f32 occupancy_weather_upper =
-        cb.cloudCoverage.x + 0.14f < 0.98f
-            ? cb.cloudCoverage.x + 0.14f : 0.98f;
-    const f32 density_weather_upper =
-        cb.cloudCoverage.y + 0.14f < 0.98f
-            ? cb.cloudCoverage.y + 0.14f : 0.98f;
-    const f32 unclamped_fine_step =
-        0.035f /
-        (m_Layer.horizontal_noise_scale > 0.001f
-             ? m_Layer.horizontal_noise_scale : 0.001f);
-    const f32 fine_step =
-        unclamped_fine_step < 0.5f ? 0.5f
-        : (unclamped_fine_step > 2.0f ? 2.0f
-                                      : unclamped_fine_step);
-    const f32 light_step =
-        0.012f /
-        (layer_canonical_scale > 0.0001f
-             ? layer_canonical_scale : 0.0001f);
-    cb.cloudCoverageReciprocals = FVec4{
-        1.0f / (occupancy_weather_upper - cb.cloudCoverage.x),
-        1.0f / (density_weather_upper - cb.cloudCoverage.y),
-        fine_step,
-        light_step};
+    cb.cloudCoverage = samplingTerms.coverage;
+    cb.cloudCoverageReciprocals = samplingTerms.coverageReciprocals;
     const FVec3 shell_local_origin{
         m_PrevCamPos.x - world_origin.x,
         m_PrevCamPos.y - world_origin.y,
@@ -6296,9 +6287,6 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         shell_local_origin.y + kVolumetricCloudPlanetRadius,
         shell_local_origin.z,
         shell_c(m_Layer.base_height)};
-    const bool has_upper_layer =
-        m_UpperLayer.top_height > m_UpperLayer.base_height
-        && m_UpperLayer.base_height >= m_Layer.top_height;
     const f32 shell_top_height = has_upper_layer
         ? m_UpperLayer.top_height : m_Layer.top_height;
     cb.cloudShellTerms = FVec4{
@@ -6311,10 +6299,7 @@ CVolumetricClouds::BuildEnvironmentCubemap(
                 (m_UpperLayer.top_height - m_UpperLayer.base_height),
             1.0f}
         : FVec4{0.0f, 0.0f, 0.0f, 0.0f};
-    cb.cloudUpperTerms = FVec4{
-        m_UpperLayer.coverage_scale,
-        m_UpperLayer.density_scale,
-        0.0f, 0.0f};
+    cb.cloudUpperTerms = samplingTerms.upperTerms;
     cb.cloudLightingExtinction = FVec4{
         m_Lighting.ViewExtinction,
         m_Lighting.LightExtinction,

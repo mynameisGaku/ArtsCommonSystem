@@ -3703,7 +3703,7 @@ ACS_TEST(VolumetricClouds,
         compactSource,
         "constf32occupancyCoverage="
         "safeCoverage+0.08f<1.0f?safeCoverage+0.08f:1.0f;"));
-    EXPECT_TRUE(Contains(compactSource, "cb.cloudCoverage=FVec4{" "0.72f-0.36f*occupancyCoverage," "0.72f-0.36f*safeCoverage," "0.50f-0.16f*occupancyHeightCoverage," "0.50f-0.16f*densityHeightCoverage};"));
+    EXPECT_TRUE(Contains(compactSource, "out.coverage=FVec4{" "0.72f-0.36f*occupancyCoverage," "0.72f-0.36f*safeCoverage," "0.50f-0.16f*occupancyHeightCoverage," "0.50f-0.16f*densityHeightCoverage};"));
     const char* declarations[]{
         "CloudMacroSamplesampleCloudMacro(",
         "CloudMacroSamplesampleCloudMacroLighting("};
@@ -4437,6 +4437,90 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_TRUE(Contains(shader, "float3cachedTailSample=sampleCloudShadowTail(lp,density);"));
 }
 
+ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpperLayer)
+{
+    /** 空白を除去し、式と呼び出し順を検査できる描画実装。 */
+    const auto compactSource = CompactShader(ReadSkySource());
+
+    // 共有関数は定義1回と画面・環境キューブマップからの呼び出し2回だけにする。
+    EXPECT_EQ(CountOccurrences(compactSource, "ResolveVolumetricCloudSamplingTerms_Internal("), static_cast<usize>(3));
+    EXPECT_TRUE(Contains(compactSource, "out.coverage=FVec4{0.72f-0.36f*occupancyCoverage,0.72f-0.36f*safeCoverage,0.50f-0.16f*occupancyHeightCoverage,0.50f-0.16f*densityHeightCoverage};"));
+    EXPECT_TRUE(Contains(compactSource, "constf32unclampedFineStep=0.035f/(horizontalNoiseScale>0.001f?horizontalNoiseScale:0.001f);"));
+    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerCanonicalScale>0.0001f?layerCanonicalScale:0.0001f);"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerCanonicalScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerCanonicalScale;"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerLightStep=0.0075f/(upperLayerCanonicalScale>0.0001f?upperLayerCanonicalScale:0.0001f);"));
+
+    /** 画面描画本体の開始位置。 */
+    const auto renderBegin = compactSource.find("voidCVolumetricClouds::RenderComputeCameraRelative(");
+    /** 続く環境キューブマップ生成の開始位置。 */
+    const auto environmentBegin = compactSource.find("TResult<TUniquePtr<IRhiTexture>>CVolumetricClouds::BuildEnvironmentCubemap(", renderBegin);
+    /** 環境キューブマップ生成に続く公開取得関数の開始位置。 */
+    const auto environmentEnd = compactSource.find("FVolumetricCloudWorldShadowMapCVolumetricClouds::WorldShadowMap()constnoexcept{", environmentBegin);
+    EXPECT_TRUE(renderBegin < environmentBegin);
+    EXPECT_TRUE(environmentBegin < environmentEnd);
+
+    /** 画面描画だけに限定した実装断片。 */
+    auto renderBody = compactSource.substr(0u, 0u);
+    /** 環境キューブマップだけに限定した実装断片。 */
+    auto environmentBody = compactSource.substr(0u, 0u);
+    if (renderBegin < environmentBegin && environmentBegin <= compactSource.size()) {
+        renderBody = compactSource.substr(renderBegin, environmentBegin - renderBegin);
+    }
+    if (environmentBegin < environmentEnd && environmentEnd <= compactSource.size()) {
+        environmentBody = compactSource.substr(environmentBegin, environmentEnd - environmentBegin);
+    }
+
+    /** 一つの描画経路が共有項をすべて定数バッファーへ渡すことを検査する。 */
+    const auto expectSharedTerms = [](const auto& body) {
+        EXPECT_TRUE(Contains(body, "ResolveVolumetricCloudSamplingTerms_Internal("));
+        EXPECT_TRUE(Contains(body, "cb.cloudCoverage=samplingTerms.coverage;"));
+        EXPECT_TRUE(Contains(body, "cb.cloudCoverageReciprocals=samplingTerms.coverageReciprocals;"));
+        EXPECT_TRUE(Contains(body, "cb.cloudUpperTerms=samplingTerms.upperTerms;"));
+        EXPECT_TRUE(Contains(body, "cb.cloudWeatherControl=FVec4{m_Weather.CloudType,m_Weather.CloudTypeInfluence,m_Weather.Precipitation,m_Weather.PrecipitationInfluence};"));
+    };
+    expectSharedTerms(renderBody);
+    expectSharedTerms(environmentBody);
+
+    // 旧GI経路だけにあった別形状、粗い光採取、上層無効化を戻さない。
+    EXPECT_FALSE(Contains(environmentBody, "0.90f-0.55f"));
+    EXPECT_FALSE(Contains(environmentBody, "0.72f-0.22f"));
+    EXPECT_FALSE(Contains(environmentBody, "constf32light_step=0.012f/"));
+    EXPECT_FALSE(Contains(environmentBody, "cb.cloudUpperTerms=FVec4{"));
+    EXPECT_EQ(CountOccurrences(compactSource, "cb.cloudWeatherControl=FVec4{"), static_cast<usize>(2));
+
+    /** 通常積雲の代表被覆。 */
+    constexpr f32 authoredCoverage = 0.42f;
+    /** 空領域の早期棄却だけを保守的に広げた被覆。 */
+    constexpr f32 occupancyCoverage = authoredCoverage + 0.08f;
+    /** 空領域判定が使う天候しきい値。 */
+    constexpr f32 occupancyWeatherThreshold = 0.72f - 0.36f * occupancyCoverage;
+    /** 密度積分が使う天候しきい値。 */
+    constexpr f32 densityWeatherThreshold = 0.72f - 0.36f * authoredCoverage;
+    /** 空領域判定が使う高さ目標。 */
+    constexpr f32 occupancyHeightTarget = 0.50f - 0.16f * occupancyCoverage;
+    /** 密度積分が使う高さ目標。 */
+    constexpr f32 densityHeightTarget = 0.50f - 0.16f * authoredCoverage;
+    EXPECT_NEAR(occupancyWeatherThreshold, 0.54f, 1.0e-6f);
+    EXPECT_NEAR(densityWeatherThreshold, 0.5688f, 1.0e-6f);
+    EXPECT_NEAR(occupancyHeightTarget, 0.42f, 1.0e-6f);
+    EXPECT_NEAR(densityHeightTarget, 0.4328f, 1.0e-6f);
+
+    /** 厚さ2500mの下層を基準幅1.6へ写す光学尺度。 */
+    constexpr f32 lowerCanonicalScale = 1.6f / 2500.0f;
+    /** 下層の太陽方向に進める基準距離。 */
+    constexpr f32 lowerLightStep = 0.0075f / lowerCanonicalScale;
+    /** 厚さ1800mの上層を基準幅1.6へ写す光学尺度。 */
+    constexpr f32 upperCanonicalScale = 1.6f / 1800.0f;
+    /** 上層の太陽方向に進める基準距離。 */
+    constexpr f32 upperLightStep = 0.0075f / upperCanonicalScale;
+    EXPECT_NEAR(lowerCanonicalScale, 0.00064f, 1.0e-8f);
+    EXPECT_NEAR(lowerLightStep, 11.71875f, 1.0e-5f);
+    EXPECT_NEAR(upperCanonicalScale, 0.0008888889f, 1.0e-8f);
+    EXPECT_NEAR(upperLightStep, 8.4375f, 1.0e-5f);
+    EXPECT_TRUE(lowerLightStep > 0.0f);
+    EXPECT_TRUE(upperLightStep > 0.0f);
+}
+
 ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEveryPath) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
@@ -4483,8 +4567,9 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
     EXPECT_TRUE(Contains(shader, "floatcloudOpticalDepthScaleFromBand(boolupperBand){floatscale=layer.w;if(upperBand)scale=cloudUpperTerms.z;returnscale;}"));
     EXPECT_TRUE(Contains(shader, "floatcloudLightStepFromBand(boolupperBand){floatlightStep=cloudCoverageReciprocals.w;if(upperBand)lightStep=cloudUpperTerms.w;returnlightStep;}"));
     const auto compactSource = CompactShader(source);
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerCanonicalScale=hasUpperLayer?1.6f/(m_UpperLayer.top_height-m_UpperLayer.base_height):layerCanonicalScale;"));
-    EXPECT_TRUE(Contains(compactSource, "cb.cloudUpperTerms=FVec4{m_UpperLayer.coverage_scale,m_UpperLayer.density_scale,upperLayerCanonicalScale,upperLayerLightStep};"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerCanonicalScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerCanonicalScale;"));
+    EXPECT_TRUE(Contains(compactSource, "out.upperTerms=FVec4{upperLayer.coverage_scale,upperLayer.density_scale,upperLayerCanonicalScale,upperLayerLightStep};"));
+    EXPECT_EQ(CountOccurrences(compactSource, "cb.cloudUpperTerms=samplingTerms.upperTerms;"), static_cast<usize>(2));
 
     // 高度と降水の補正は詳細密度と低詳細度密度で共有し、遠距離だけ式を落とさない。
     EXPECT_EQ(CountOccurrences(shader, "cloudHeightPrecipitationDensityScale("), static_cast<std::size_t>(4));
