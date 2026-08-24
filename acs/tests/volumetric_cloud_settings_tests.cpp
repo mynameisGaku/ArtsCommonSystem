@@ -622,7 +622,12 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "float thirdScatter=thirdContribution"));
     EXPECT_TRUE(Contains(source, "float multipleScatter=(secondScatter+thirdScatter)"));
     EXPECT_TRUE(Contains(source, "*inScatterFactor;"));
-    EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter;"));
+    EXPECT_TRUE(Contains(source, "float h=macro.height;"));
+    EXPECT_TRUE(Contains(source, "float topSurfaceScatter=0.22*saturate(sun.y)"));
+    EXPECT_TRUE(Contains(source, "*smoothstep(0.35,0.90,h)"));
+    EXPECT_TRUE(Contains(source, "*saturate(-cosA);"));
+    EXPECT_TRUE(Contains(source, "float scatterTerm=singleScatter+multipleScatter"));
+    EXPECT_TRUE(Contains(source, "+beer*topSurfaceScatter;"));
     EXPECT_FALSE(Contains(source, "float singleScatter=beer*phase*inScatterFactor;"));
     EXPECT_FALSE(Contains(source, "float multipleScatter=secondScatter+thirdScatter;"));
     EXPECT_FALSE(Contains(source, "nearLightDensity"));

@@ -2701,14 +2701,21 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                       +farTauL*thirdOcclusion))*phaseMulti;
             float multipleScatter=(secondScatter+thirdScatter)
                                  *inScatterFactor;
-            float scatterTerm=singleScatter+multipleScatter;
+            float h=macro.height;
+            // 上空から雲頂を見ると、太陽光は視線へ逆向きに戻るため単純な
+            // 前方散乱だけでは暗くなりすぎる。未解像の微細な多重散乱を、
+            // 太陽高度・雲頂側・逆向き視線の三条件でだけ補う。
+            float topSurfaceScatter=0.22*saturate(sun.y)
+                *smoothstep(0.35,0.90,h)
+                *saturate(-cosA);
+            float scatterTerm=singleScatter+multipleScatter
+                             +beer*topSurfaceScatter;
             // 区間不透明度 a は既に消散係数を含むため、太陽光には消散に対する散乱の割合を掛ける。
             // ここを見た目調整用に暗くすると、水滴雲が光を吸収する灰色の媒質になってしまう。
             // 太陽付近の強い前方散乱は位相上限と後段の露出で制御する。
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
             float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
-            float h=macro.height;
             // 環境光は現在点の密度だけではなく、影キャッシュで積算した空・地面方向の密度を使う。
             // キャッシュ外や上層雲では局所密度と境界距離の代替式へ滑らかに戻す。
             float ambientDensityScale=max(density*distanceFade,0.0);

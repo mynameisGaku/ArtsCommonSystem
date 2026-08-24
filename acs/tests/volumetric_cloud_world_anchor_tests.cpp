@@ -366,6 +366,14 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// 雲頂を上空から見るときだけ加える未解像の拡散散乱を再現する。
+f32 CloudTopSurfaceScatterForTest(
+    f32 cosine, f32 sunHeight, f32 normalizedHeight) noexcept {
+    return 0.22f * SaturateForTest(sunHeight) *
+        SmoothStepForTest(0.35f, 0.90f, normalizedHeight) *
+        SaturateForTest(-cosine);
+}
+
 // 詳細体積が基本形状を膨張または侵食できる最大量を求める。
 f32 CloudBillowMaximumOffsetForTest(f32 height) noexcept {
     return 0.018f + (0.130f - 0.018f) *
@@ -6893,6 +6901,22 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(maximumPhase <= lighting.PhaseMax);
     EXPECT_TRUE(minimumPhase >= lighting.PhaseMin);
 
+    const f32 topBackScatter =
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f);
+    EXPECT_NEAR(topBackScatter, 0.22f, 1.0e-6f);
+    EXPECT_NEAR(
+        CloudTopSurfaceScatterForTest(1.0f, 1.0f, 0.90f),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.20f),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudTopSurfaceScatterForTest(-1.0f, 0.0f, 0.90f),
+        0.0f, 0.0f);
+    EXPECT_TRUE(
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f) >
+        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.50f));
+
     // 表面では従来の作者指定混合と一致し、雲芯側では前方散乱だけを連続的に弱める。
     EXPECT_NEAR(CloudForwardPhaseWeightForTest(0.85f, 1.0f, 1.0f), 0.85f, 0.0f);
     EXPECT_NEAR(CloudForwardPhaseWeightForTest(0.85f, 0.5f, 0.5f), 0.2125f, 1.0e-6f);
@@ -6981,8 +7005,14 @@ ACS_TEST(VolumetricClouds,
         "floatthirdScatter=thirdContribution*"
         "exp(-(detailedTauL*multiOcclusion+"
         "farTauL*thirdOcclusion))*phaseMulti;"
-        "floatmultipleScatter=(secondScatter+thirdScatter)*inScatterFactor;"
-        "floatscatterTerm=singleScatter+multipleScatter;"));
+        "floatmultipleScatter=(secondScatter+thirdScatter)*inScatterFactor;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floattopSurfaceScatter=0.22*saturate(sun.y)*"
+        "smoothstep(0.35,0.90,h)*saturate(-cosA);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatscatterTerm=singleScatter+multipleScatter+beer*topSurfaceScatter;"));
     EXPECT_FALSE(Contains(shader, "floatsingleScatter=beer*phase*inScatterFactor;"));
     EXPECT_FALSE(Contains(shader, "floatmultipleScatter=secondScatter+thirdScatter;"));
     EXPECT_FALSE(Contains(shader, "beer*(1.0-multiWeight)*phase"));
