@@ -35,7 +35,7 @@ constexpr usize ConstantBufferSize() noexcept {
 struct FWaterFrameCb {
     FMat4 view_projection;
     FMat4 inverse_view_projection;
-    FMat4 light_view_projection;
+    FMat4 light_view_projection[CWaterSurface3D::FShadowCascadeSet::kMaxCascades];
     FVec4 camera_time;
     FVec4 screen_params;
     FVec4 sun_direction;
@@ -50,6 +50,8 @@ struct FWaterFrameCb {
     FVec4 surface_misc;
     FVec4 author_normal_params;
     FVec4 shadow_params;
+    FVec4 shadow_cascade_splits;
+    FVec4 shadow_cascade_params;
     FVec4 environment_zenith;
     FVec4 environment_horizon;
     FVec4 environment_ground;
@@ -78,7 +80,7 @@ static const float kPi = 3.14159265359;
 cbuffer WaterFrame : register(b0) {
     float4x4 view_projection;
     float4x4 inverse_view_projection;
-    float4x4 light_view_projection;
+    float4x4 light_view_projection[4];
     float4 camera_time;          // xyz=camera position, w=time
     float4 screen_params;        // xy=1/size, zw=size
     float4 sun_direction;        // xyz=surface -> sun
@@ -92,7 +94,12 @@ cbuffer WaterFrame : register(b0) {
     float4 flow_params;          // xy=flow direction, z=ripple wavelength, w=ripple count
     float4 surface_misc;         // x=optical depth, y=scene color, z=depth, w=reflection
     float4 author_normal_params; // x=enabled, y=slope strength
-    float4 shadow_params;        // x=enabled, y=bias, z=texel size, w=PCF radius
+    // x=有効、y=bias、z=cascade内texel寸法、w=PCF半径。
+    float4 shadow_params;
+    // xyzw=各cascade末尾のview-space深度。
+    float4 shadow_cascade_splits;
+    // x=atlasのX方向scale、y=cascade数。
+    float4 shadow_cascade_params;
     float4 environment_zenith;   // rgb=actual sky radiance toward world +Y
     float4 environment_horizon;  // rgb=actual sky radiance at the horizon
     float4 environment_ground;   // rgb=actual environment radiance toward world -Y
@@ -141,6 +148,7 @@ struct VSOut {
     float2 surface_position : TEXCOORD3;
     float3 surface_tangent : TEXCOORD4;
     float3 surface_bitangent : TEXCOORD5;
+    float view_depth : TEXCOORD6;
 };
 
 float2 Rotate2(float2 p, float angle) {
@@ -349,6 +357,7 @@ VSOut VSMain(VSIn input) {
                         - tangent * ripple_gradient.x
                         - bitangent * ripple_gradient.y;
     output.position = mul(world, view_projection);
+    output.view_depth = output.position.w;
     output.uv = authored_uv;
     output.ripple_energy = ripple_energy;
     output.wave_height = ripple_height;
@@ -551,61 +560,84 @@ float2 ProjectWorldDirectionToScreenPixels(float3 world_position,
     return projected_result;
 }
 
-float ComputeSunShadow(float3 world_position, float no_l) {
+float SampleSunShadowCascade(int cascade, float3 world_position, float no_l) {
+    float shadow_result = 1.0;
+    float4 light_clip = mul(float4(world_position, 1.0), light_view_projection[cascade]);
+    if (light_clip.w > 1e-5) {
+        float3 light_ndc = light_clip.xyz / light_clip.w;
+        bool inside_shadow_map =
+            light_ndc.x >= -1.0 && light_ndc.x <= 1.0 &&
+            light_ndc.y >= -1.0 && light_ndc.y <= 1.0 &&
+            light_ndc.z >=  0.0 && light_ndc.z <= 1.0;
+        if (inside_shadow_map) {
+            float atlas_scale = max(shadow_cascade_params.x, 0.0001);
+            float atlas_offset = float(cascade) * atlas_scale;
+            float2 cascade_uv = float2(light_ndc.x * 0.5 + 0.5, -light_ndc.y * 0.5 + 0.5);
+            float2 shadow_uv = float2(atlas_offset + cascade_uv.x * atlas_scale, cascade_uv.y);
+            float local_texel = max(abs(shadow_params.z), 1e-7);
+            float2 atlas_texel = float2(local_texel * atlas_scale, local_texel);
+            float radius = max(shadow_params.w, 0.0);
+            float receiver_bias = max(shadow_params.y, 0.0) * lerp(1.0, 2.8, 1.0 - saturate(no_l));
+            // half texel内側へ制限し、PCF kernelが隣のcascadeへ漏れないようにする。
+            float2 min_uv = float2(atlas_offset, 0.0) + atlas_texel * 0.5;
+            float2 max_uv = float2(atlas_offset + atlas_scale, 1.0) - atlas_texel * 0.5;
+
+            // 5x5 tent PCFで波頭の細かな受影と時間安定性を両立する。
+            float visibility = 0.0;
+            float weight_sum = 0.0;
+            [unroll]
+            for (int shadow_y = -2; shadow_y <= 2; ++shadow_y) {
+                [unroll]
+                for (int shadow_x = -2; shadow_x <= 2; ++shadow_x) {
+                    float weight = float(3 - abs(shadow_x)) * float(3 - abs(shadow_y));
+                    float2 offset = float2(float(shadow_x), float(shadow_y)) * (0.5 * radius * atlas_texel);
+                    float stored_depth = shadow_map.SampleLevel(shadow_map_sampler, clamp(shadow_uv + offset, min_uv, max_uv), 0).r;
+                    visibility += (stored_depth + receiver_bias >= light_ndc.z ? 1.0 : 0.0) * weight;
+                    weight_sum += weight;
+                }
+            }
+            shadow_result = visibility / max(weight_sum, 1e-4);
+        }
+    }
+    return shadow_result;
+}
+
+float ComputeSunShadow(float3 world_position, float no_l, float view_depth) {
     float shadow_result = 1.0;
     if (shadow_params.x >= 0.5) {
-        float4 light_clip =
-            mul(float4(world_position, 1.0), light_view_projection);
-        if (light_clip.w > 1e-5) {
-            float3 light_ndc = light_clip.xyz / light_clip.w;
-            bool inside_shadow_map =
-                light_ndc.x >= -1.0 && light_ndc.x <= 1.0 &&
-                light_ndc.y >= -1.0 && light_ndc.y <= 1.0 &&
-                light_ndc.z >=  0.0 && light_ndc.z <= 1.0;
-            if (inside_shadow_map) {
-                float2 shadow_uv = float2(
-                    light_ndc.x * 0.5 + 0.5,
-                    -light_ndc.y * 0.5 + 0.5);
-                float texel = max(abs(shadow_params.z), 1e-7);
-                float radius = max(shadow_params.w, 0.0);
-                float receiver_bias =
-                    max(shadow_params.y, 0.0)
-                    * lerp(1.0, 2.8, 1.0 - saturate(no_l));
-                float2 min_uv = texel * 0.5;
-                float2 max_uv = 1.0 - min_uv;
+        int cascade_count = clamp((int)(shadow_cascade_params.y + 0.5), 1, 4);
+        float safe_view_depth = max(view_depth, 0.0);
+        int cascade = 0;
+        if (cascade_count > 1 && safe_view_depth > shadow_cascade_splits.x) cascade = 1;
+        if (cascade_count > 2 && safe_view_depth > shadow_cascade_splits.y) cascade = 2;
+        if (cascade_count > 3 && safe_view_depth > shadow_cascade_splits.z) cascade = 3;
+        shadow_result = SampleSunShadowCascade(cascade, world_position, no_l);
 
-                // 5x5 tent-filtered PCF: stable enough for the high-energy sun
-                // lobe while retaining contact definition on foam and crests.
-                float visibility = 0.0;
-                float weight_sum = 0.0;
-                [unroll]
-                for (int shadow_y = -2; shadow_y <= 2; ++shadow_y) {
-                    [unroll]
-                    for (int shadow_x = -2;
-                         shadow_x <= 2;
-                         ++shadow_x) {
-                        float weight =
-                            float(3 - abs(shadow_x))
-                            * float(3 - abs(shadow_y));
-                        float2 offset =
-                            float2(float(shadow_x), float(shadow_y))
-                            * (0.5 * radius * texel);
-                        float stored_depth = shadow_map.SampleLevel(
-                            shadow_map_sampler,
-                            clamp(
-                                shadow_uv + offset,
-                                min_uv,
-                                max_uv),
-                            0).r;
-                        visibility +=
-                            (stored_depth + receiver_bias >= light_ndc.z
-                                ? 1.0 : 0.0)
-                            * weight;
-                        weight_sum += weight;
-                    }
-                }
-                shadow_result = visibility / max(weight_sum, 1e-4);
+        float previous_split = cascade == 0 ? 0.0
+            : cascade == 1 ? shadow_cascade_splits.x
+            : cascade == 2 ? shadow_cascade_splits.y
+                           : shadow_cascade_splits.z;
+        float next_split = cascade == 0 ? shadow_cascade_splits.x
+            : cascade == 1 ? shadow_cascade_splits.y
+            : cascade == 2 ? shadow_cascade_splits.z
+                           : shadow_cascade_splits.w;
+        // cascade末尾15%を次の解像度へ混ぜ、視点移動時の境界線を消す。
+        if (cascade + 1 < cascade_count && next_split < 1e29) {
+            float cascade_range = max(next_split - previous_split, 1e-3);
+            float blend_width = cascade_range * 0.15;
+            float blend = saturate((safe_view_depth - (next_split - blend_width)) / max(blend_width, 1e-3));
+            if (blend > 0.0) {
+                float next_shadow = SampleSunShadowCascade(cascade + 1, world_position, no_l);
+                shadow_result = lerp(shadow_result, next_shadow, blend);
             }
+        }
+
+        // 最遠cascadeの末尾では未収録領域へ滑らかに戻し、暗い打切り線を作らない。
+        if (cascade + 1 == cascade_count && next_split < 1e29) {
+            float cascade_range = max(next_split - previous_split, 1e-3);
+            float fade_width = cascade_range * 0.10;
+            float fade = saturate((safe_view_depth - (next_split - fade_width)) / max(fade_width, 1e-3));
+            shadow_result = lerp(shadow_result, 1.0, fade);
         }
     }
     return shadow_result;
@@ -663,8 +695,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float3 light_direction = normalize(sun_direction.xyz);
     float no_v = saturate(dot(normal, view_direction));
     float no_l = saturate(dot(normal, light_direction));
-    float sun_visibility =
-        ComputeSunShadow(input.world_position, no_l);
+    float sun_visibility = ComputeSunShadow(input.world_position, no_l, input.view_depth);
     const float3 water_f0 = float3(0.02037, 0.02037, 0.02037);
     float3 fresnel = FresnelSchlick(no_v, water_f0);
 
@@ -2260,16 +2291,26 @@ void CWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                bool hardware_depth_bound,
                                IRhiTexture* authored_normal_map,
                                f32 authored_normal_strength) noexcept {
-    DrawMesh_Internal(command_list, mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, false);
+    DrawMesh_Internal(command_list, mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, false, nullptr);
+}
+
+/** CSM atlasを1回のdrawへ限定して適用し、従来meshを描く。 */
+void CWaterSurface3D::DrawMeshWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength) noexcept {
+    DrawMesh_Internal(command_list, mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, false, &shadow_cascades);
 }
 
 /** 正規化格子をcamera近傍へ連続再配置する共通描画本体へ渡す。 */
 void CWaterSurface3D::DrawAdaptivePlane(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength) noexcept {
-    DrawMesh_Internal(command_list, plane_mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, true);
+    DrawMesh_Internal(command_list, plane_mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, true, nullptr);
+}
+
+/** CSM atlasを1回のdrawへ限定して適用し、連続LOD平面を描く。 */
+void CWaterSurface3D::DrawAdaptivePlaneWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength) noexcept {
+    DrawMesh_Internal(command_list, plane_mesh, model, scene_color, scene_depth, screen_reflection, surface_id, hardware_depth_bound, authored_normal_map, authored_normal_strength, true, &shadow_cascades);
 }
 
 /** 通常meshと連続密度平面で共有する描画処理を実行する。 */
-void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane) noexcept {
+void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane, const FShadowCascadeSet* shadow_cascades) noexcept {
     if (m_InitializationPending ||
         !m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
         || !mesh.vertex_buffer || !mesh.index_buffer
@@ -2297,7 +2338,63 @@ void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGp
     FWaterFrameCb frame{};
     frame.view_projection = m_ViewProjection;
     frame.inverse_view_projection = m_InverseViewProjection;
-    frame.light_view_projection = m_LightViewProjection;
+    /** このdrawで参照するshadow texture。所有権は呼び出し元に残る。 */
+    IRhiTexture* active_shadow_map = m_ShadowMap;
+    /** atlas内で有効なcascade数。0は受影無効。 */
+    u32 active_shadow_cascades = active_shadow_map ? 1u : 0u;
+    /** 受影に使う安全なdepth bias。 */
+    f32 active_shadow_bias = m_ShadowBias;
+    /** 受影に使う安全なPCF半径。 */
+    f32 active_shadow_radius = m_ShadowPcfRadius;
+    /** cascade選択へ使うview-space分割深度。 */
+    f32 active_shadow_splits[FShadowCascadeSet::kMaxCascades]{
+        1.0e30f, 1.0e30f, 1.0e30f, 1.0e30f};
+    for (u32 cascade = 0u; cascade < FShadowCascadeSet::kMaxCascades; ++cascade) {
+        frame.light_view_projection[cascade] =
+            m_LightViewProjection;
+    }
+
+    if (shadow_cascades != nullptr) {
+        active_shadow_map = nullptr;
+        active_shadow_cascades = 0u;
+        const u32 requested_cascades = shadow_cascades->cascade_count;
+        bool valid_cascades =
+            shadow_cascades->shadow_map != nullptr &&
+            requested_cascades >= 1u &&
+            requested_cascades <= FShadowCascadeSet::kMaxCascades;
+        const u32 atlas_width = valid_cascades
+            ? shadow_cascades->shadow_map->Width() : 0u;
+        const u32 atlas_height = valid_cascades
+            ? shadow_cascades->shadow_map->Height() : 0u;
+        valid_cascades = valid_cascades && atlas_height > 0u &&
+            static_cast<u64>(atlas_width) >=
+                static_cast<u64>(atlas_height) * requested_cascades;
+
+        f32 previous_split = 0.0f;
+        for (u32 cascade = 0u; valid_cascades && cascade < requested_cascades; ++cascade) {
+            const f32 split = shadow_cascades->split_depth[cascade];
+            valid_cascades =
+                IsFinite(shadow_cascades->light_view_projection[cascade]) &&
+                std::isfinite(split) && split > previous_split;
+            previous_split = split;
+        }
+        if (valid_cascades) {
+            active_shadow_map = shadow_cascades->shadow_map;
+            active_shadow_cascades = requested_cascades;
+            active_shadow_bias = ClampFinite(shadow_cascades->depth_bias, 0.0012f, 0.0f, 0.25f);
+            active_shadow_radius = ClampFinite(shadow_cascades->pcf_radius, 1.5f, 0.0f, 8.0f);
+            for (u32 cascade = 0u; cascade < FShadowCascadeSet::kMaxCascades; ++cascade) {
+                const u32 source = cascade < requested_cascades
+                    ? cascade : requested_cascades - 1u;
+                frame.light_view_projection[cascade] =
+                    shadow_cascades->light_view_projection[source];
+                if (cascade < requested_cascades) {
+                    active_shadow_splits[cascade] =
+                        shadow_cascades->split_depth[cascade];
+                }
+            }
+        }
+    }
     frame.camera_time =
         FVec4{m_CameraPos.x, m_CameraPos.y, m_CameraPos.z, m_Time};
     frame.screen_params = FVec4{
@@ -2385,12 +2482,22 @@ void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGp
                 authored_normal_strength, 1.0f, 0.0f, 8.0f),
             0.0f, 0.0f};
     const f32 shadow_texel_size =
-        m_ShadowMap && m_ShadowMap->Width() > 0
-        ? 1.0f / static_cast<f32>(m_ShadowMap->Width())
+        active_shadow_map && active_shadow_map->Height() > 0u
+        ? 1.0f / static_cast<f32>(active_shadow_map->Height())
         : 0.0f;
     frame.shadow_params =
-        FVec4{m_ShadowMap ? 1.0f : 0.0f,
-              m_ShadowBias, shadow_texel_size, m_ShadowPcfRadius};
+        FVec4{active_shadow_map ? 1.0f : 0.0f,
+              active_shadow_bias, shadow_texel_size,
+              active_shadow_radius};
+    frame.shadow_cascade_splits = FVec4{
+        active_shadow_splits[0], active_shadow_splits[1],
+        active_shadow_splits[2], active_shadow_splits[3]};
+    const f32 shadow_atlas_scale = active_shadow_cascades > 0u
+        ? 1.0f / static_cast<f32>(active_shadow_cascades) : 1.0f;
+    frame.shadow_cascade_params = FVec4{
+        shadow_atlas_scale,
+        static_cast<f32>(active_shadow_cascades > 0u ? active_shadow_cascades : 1u),
+        0.0f, 0.0f};
     frame.environment_zenith =
         FVec4{m_EnvironmentZenith, 1.0f};
     frame.environment_horizon =
@@ -2438,8 +2545,7 @@ void CWaterSurface3D::DrawMesh_Internal(IRhiCommandList& command_list, const FGp
     command_list.SetTexture(
         4, screen_reflection
             ? *screen_reflection : *m_SceneFallback);
-    command_list.SetTexture(
-        5, m_ShadowMap ? *m_ShadowMap : *m_SceneFallback);
+    command_list.SetTexture(5, active_shadow_map ? *active_shadow_map : *m_SceneFallback);
     command_list.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     command_list.SetIndexBuffer(*mesh.index_buffer);
     command_list.DrawIndexed(mesh.index_count);
