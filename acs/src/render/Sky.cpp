@@ -720,7 +720,7 @@ float remap(float v,float a,float b,float c,float d){
 void CSNoise(uint3 id : SV_DispatchThreadID){
     if(id.x>=128u||id.y>=128u||id.z>=128u) return;
     float3 uvw=(float3(id)+0.5)/128.0;
-    // R は雲全体を支える連続した低周波形状、G は房状の輪郭侵食に分ける。
+    // R は雲全体を支える低周波形状へ中周波を少量だけ重ね、G は房状の輪郭侵食に分ける。
     // Perlin-Worley だけを雲体にすると、0の空隙が約6割あるため雲が点群へ分断される。
     float perlin2 = gnoise(uvw*2.0,2.0);
     float perlin4 = gnoise(uvw*4.0,4.0);
@@ -729,7 +729,9 @@ void CSNoise(uint3 id : SV_DispatchThreadID){
     float perlin32 = gnoise(uvw*32.0,32.0);
     float perlinFull = (perlin4*0.5+perlin8*0.25
                        +perlin16*0.125+perlin32*0.0625)*1.0666667;
-    float perlinMacro=perlin2*0.70+perlin4*0.30;
+    // 低周波を主形状として保ちながら中周波を12%だけ加え、同じ高さへ伸びる縦筋を崩す。
+    // perlin8 は既に計算済みなので、テクスチャ焼き込みの負荷と容量は増やさない。
+    float perlinMacro=perlin2*0.58+perlin4*0.30+perlin8*0.12;
     // 独立した Worley FBM を評価せず cellular octave を再利用する。
     // 削除した 96-cell octave は volume の Nyquist 限界を超え、feature あたり
     // 約 1 voxel の aliasing を加えるだけだった。
@@ -1368,10 +1370,9 @@ float3 cloudUVW(
     float2 weatherWarp=float2(warpCos,warpSin)
                       *(weather.a-0.5)*190.0;
     float2 curlWarp=cachedCurl*22.0;
-    // XZ follows physical world scale.  Y uses normalized altitude so lowering
-    // the horizontal frequency cannot collapse the volume into one stretched
-    // slice.
-    float canonicalY=cachedHeight*2.75
+    // XZは実際のワールド尺度を使う。Yは高度方向の周波数を下げ、ひとつの雲塔を
+    // 縦に連続させ、細い垂れとして繰り返さない。
+    float canonicalY=cachedHeight*1.55
                     +weather.g*0.09+weather.a*0.05+0.07;
     return float3((xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
                   canonicalY,
@@ -1429,6 +1430,17 @@ float cloudBillowOffset(float2 detailA,float2 detailB,float height,float middleV
 // 線形密度の薄い内部だけを持ち上げるため、細部ノイズを雲体そのものにしない。
 float cloudDimensionalDensity(float baseDensity,float heightProfile){
     return sqrt(saturate(baseDensity))*saturate(heightProfile);
+}
+// 積乱雲の中層では低密度の端を締め、細い縦筋を雲柱の中心へ収束させる。
+// かなとこ帯は対象外にして、上部の横方向の広がりと薄い縁を残す。
+float cloudConvectiveBodyDensity(
+    float baseDensity,float height,float cloudType,float precipitation){
+    float density=saturate(baseDensity);
+    float tower=cloudToweringStrength(cloudType,precipitation);
+    float bodyBand=smoothstep(0.08,0.28,saturate(height))
+                  *(1.0-smoothstep(0.56,0.76,saturate(height)));
+    float tightening=0.58*tower*bodyBand;
+    return lerp(density,density*density,tightening);
 }
 // 2D 天候場を完成密度へ乗算すると、同じ XZ の上下が同じ割合で透けて縦の幕になる。
 // 雲縁ほど 3D 基本形状を削り、強い房だけを残すことで被覆境界にも立体的な穴を作る。
@@ -1755,7 +1767,7 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
                 macro.weatherMask,macro.height,upperBand);
         macro.heightProfile=saturate(sampledProfile);
         // 共有した天候と渦の変換は光円すい内で線形なので、視線側の座標から採取点を復元する。
-        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*2.75,(p.z-referenceP.z)*shapeScale);
+        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*1.55,(p.z-referenceP.z)*shapeScale);
         cloudBaseShapeLighting(
             lightingUvw,
             macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
@@ -1804,6 +1816,8 @@ float2 sampleCloudFarLightingDensityAndScale(
             float baseDensity=remapc(
                 weatheredBaseNoise,heightThreshold,
                 min(heightThreshold+0.22,0.98),0.0,1.0);
+            baseDensity=cloudConvectiveBodyDensity(
+                baseDensity,sampleHeight,weather.g,weather.b);
             float dimensionalDensity=cloudDimensionalDensity(baseDensity,heightProfile);
             if(dimensionalDensity>0.001){
                 densityResult=saturate(dimensionalDensity*cloudHeightPrecipitationDensityScale(sampleHeight,weather.b));
@@ -1824,6 +1838,8 @@ float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
         // 詳細体積が到達できる最大形状にも完成密度と同じ非線形変換を使い、
         // 平方根で見えるようになった薄い支持領域を空間棄却で失わない。
         float envelopeBaseDensity=remapc(envelopeNoise,macro.heightThreshold,min(macro.heightThreshold+0.22,0.98),0.0,1.0);
+        envelopeBaseDensity=cloudConvectiveBodyDensity(
+            envelopeBaseDensity,macro.height,macro.weather.g,macro.weather.b);
         shapeResult=cloudDimensionalDensity(envelopeBaseDensity,macro.heightProfile);
     }
     return shapeResult;
@@ -1921,6 +1937,8 @@ float2 cloudLowLodDensityAndProfileFromPositiveWeatherMacro(CloudMacroSample mac
         float weatheredBaseNoise=cloudWeatheredBaseNoise(
             macro.baseNoise,weatherMask);
         float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
+        baseDensity=cloudConvectiveBodyDensity(
+            baseDensity,macro.height,macro.weather.g,macro.weather.b);
         result.y=cloudDimensionalDensity(baseDensity,macro.heightProfile);
         if(result.y>0.001){
             float h=saturate(macro.height);
@@ -1941,12 +1959,16 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
         float weatheredBaseNoise=cloudWeatheredBaseNoise(
             macro.baseNoise,weatherMask);
         float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
+        baseDensity=cloudConvectiveBodyDensity(
+            baseDensity,h,macro.weather.g,macro.weather.b);
         // 基本形状の外側でも、詳細体積が到達できる範囲だけは密度評価へ進める。
         float envelopeBaseDensity=remapc(
             cloudWeatheredBaseNoise(
                 macro.baseNoise+cloudBillowMaximumOffset(h),weatherMask),
             heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0);
+        envelopeBaseDensity=cloudConvectiveBodyDensity(
+            envelopeBaseDensity,h,macro.weather.g,macro.weather.b);
         float envelopeDensity=cloudDimensionalDensity(envelopeBaseDensity,macro.heightProfile);
         if(envelopeDensity>0.001){
             // 高さ形状と被覆を含む実際の粗密度を先に確定し、その表面を侵食する。
@@ -1972,6 +1994,8 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                         macro.baseNoise+billowOffset,weatherMask),
                     heightThreshold,
                     min(heightThreshold+0.22,0.98),0.0,1.0);
+                billowedBaseDensity=cloudConvectiveBodyDensity(
+                    billowedBaseDensity,h,macro.weather.g,macro.weather.b);
                 float billowedCoarseDensity=saturate(cloudDimensionalDensity(billowedBaseDensity,macro.heightProfile)*densityScale);
                 float billowedDensity=lerp(
                     coarseDensity,billowedCoarseDensity,billowVisibility);
@@ -3237,13 +3261,11 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                             resolvedDepth=float2(reprojectionDepth,histD.y);
                         }
                     } else {
-                        float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
-                        // 等倍追跡では現在フレームが全画素を持つため、履歴を強く混ぜると
-                        // 移動する雲縁が前フレームへ引っ張られてぼやける。低解像度の時間再構成とは分ける。
-                        float feedback=max(
-                            lerp(0.42,0.62,edgeConfidence),
-                            evolutionMismatch);
-                        resolved=lerp(current,histPacked,feedback);
+                        // 等倍追跡では全画素が現在フレームの実レイを持つため、履歴を
+                        // 色へ混ぜない。過去色を残すと、積乱雲の細い柱とかなとこの縁が
+                        // 前フレームへ引かれ、密度形状より柔らかい厚みに見えてしまう。
+                        resolved=current;
+                        resolvedDepth=nativeDepth;
                     }
                     historyAccepted=true;
                 }
