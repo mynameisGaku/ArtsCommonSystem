@@ -6,6 +6,51 @@
 `AWaterSurface3DComponent`、local XZ mesh、`FNodeId`単位のinteractionは維持されます。
 旧名`FWaterSurface3D`も互換別名として利用できます。
 
+## 実画面
+
+次の画像は`origin/dev`の`ff9b0b95`をRelease構成でビルドし、実Editor ABIのRaw DX12経路を
+通常のWin32 hostから起動して撮影したものです。水面実装は`ea858072`と同一で、全画像は
+1202×792のwindow captureです。色補正、切り抜き、生成画像への置換は行っていません。
+
+### 海
+
+| 近景 | 遠景 |
+|---|---|
+| ![海の近景。camera近傍へ格子密度を寄せた風波と深度色](images/interactive-water-3d/water-ocean-near.png) | ![海の遠景。固定頂点数で広い水面全体を描画](images/interactive-water-3d/water-ocean-far.png) |
+
+![海の水面下。表側と同じ動的波面を裏側から透過して確認](images/interactive-water-3d/water-ocean-underwater.png)
+
+近景では解析波と微細法線、深いBeer-Lambert吸収、動的な波紋を確認できます。遠景では
+適応格子の端点を維持したまま広い面を覆い、水面下では同じ波面とobjectの境界が連続します。
+
+### プール
+
+| 近景 | 水面下 |
+|---|---|
+| ![プールの近景。底面とlane、壁を透過する低い波高の水面](images/interactive-water-3d/water-pool-near.png) | ![プールの水面下。浅い光学距離と水面裏側の連続性](images/interactive-water-3d/water-pool-underwater.png) |
+
+透明度の高い`Pool` profileでも水面が消えず、底面、壁、浮遊objectのdepth順を保ちます。
+水面下からは低い波高と裏側の法線反転を確認できます。
+
+### 水たまり
+
+| 近景 | 俯瞰 |
+|---|---|
+| ![水たまりの近景。浅い透過面、object反射、細かな波紋](images/interactive-water-3d/water-puddle-near.png) | ![水たまりの俯瞰。薄い水膜上の反射と局所的な波](images/interactive-water-3d/water-puddle-top.png) |
+
+`Puddle` profileは数cm相当の薄い水膜として地面を透過し、objectと影を残したまま局所反射と
+細かな波紋だけを加えます。輪郭が必要な場合は同じprofileを任意のlocal XZ meshへ適用します。
+
+### 川
+
+| 近景 | 俯瞰 |
+|---|---|
+| ![川の近景。岸との接触境界、一方向の波、航跡](images/interactive-water-3d/water-river-near.png) | ![川の俯瞰。細長い水域を流れ方向に伝わる波紋](images/interactive-water-3d/water-river-top.png) |
+
+`River` profileでは流れ方向へ波と航跡が進み、岸との接触泡、川底の透過、複数objectの
+depth順が同じsurface内で一致します。撮影hostは11870 frame継続し、衝撃と航跡の周期追加後も
+正常終了しました。
+
 ## 共通の物理層
 
 - 16成分の分散波は重力から位相速度を求め、縦変位と上限付きGerstner横変位を同じ
