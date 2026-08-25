@@ -1161,24 +1161,36 @@ float cloudAnvilCoverageExpansion(float layerHeight,float cloudType,float precip
     float tower=cloudToweringStrength(cloudType,precipitation);
     float anvilBand=smoothstep(0.50,0.66,saturate(layerHeight))
                    *(1.0-smoothstep(0.80,0.97,saturate(layerHeight)));
-    return 0.16*tower*anvilBand;
+    return 0.07*tower*anvilBand;
 }
-// 積乱雲の中層だけを少し細くし、雲底から雲頂まで同じ被覆が続く柱を避ける。
-// かなとこの追加被覆は別経路で残し、本体のくびれだけを視線・光・雲影へ共有する。
-float cloudConvectiveWaistScale(
+// 積乱雲の中層だけ被覆しきい値を上げ、雲底から雲頂まで同じ輪郭が続く柱を避ける。
+// 完成マスクへの乗算では正の領域が閉じないため、天候場の等値線そのものを内側へ移す。
+float cloudConvectiveWaistThresholdOffset(
     float layerHeight,float cloudType,float precipitation){
     float tower=cloudToweringStrength(cloudType,precipitation);
     float waist=smoothstep(0.28,0.44,saturate(layerHeight))
                *(1.0-smoothstep(0.58,0.74,saturate(layerHeight)));
-    return saturate(1.0-0.34*tower*waist);
+    return 0.010*tower*waist;
 }
 // 柔らかく密な底面と列ごとにずれた上面により、切断された水平な棚を避ける。
 // 呼び出し元は詳細侵食でも使う正規化高度を保持する。
+// 各雲種の雲底は層厚の比率ではなく、基準層で意図した物理距離で本体密度へ立ち上げる。
+// xyzは層雲・層積雲・積雲の約143・234・338 m、wは積乱雲の約120 mを表す。
+// 極端に薄い層と厚い層では正規化幅を制限し、雲底を板にも長い垂れにも変えない。
+float4 cloudBaseRiseEnds(bool upperBand){
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    return clamp(
+        float4(143.0,234.0,338.0,120.0)*inverseThickness,
+        float4(0.015,0.024,0.036,0.013),
+        float4(0.075,0.120,0.170,0.050));
+}
 float cloudProfileFromTypeWeights(
-    float h,float2 typeWeights,float precipitation){
+    float h,float2 typeWeights,float precipitation,bool upperBand){
+    float4 riseEnds=cloudBaseRiseEnds(upperBand);
     float4 rise=smoothstep(
         float4(0.0,0.0,0.0,0.0),
-        float4(0.055,0.09,0.13,0.10),h.xxxx);
+        riseEnds,h.xxxx);
     float4 fall=1.0-smoothstep(float4(0.30,0.54,0.76,0.88),float4(0.56,0.84,0.94,0.98),h.xxxx);
     float2 middle=smoothstep(
         float2(0.12,0.16),float2(0.45,0.62),h.xx);
@@ -1192,7 +1204,9 @@ float cloudProfileFromTypeWeights(
     // 積乱雲本体は上部まで密度を保ち、肩からかなとこへ段差なく遷移させる。
     // 以前の短い本体と弱いかなとこでは、実際の層厚があっても画面上は低い塊に
     // 見えたため、本体の減衰を上へ移し、かなとこの山を明確に重ねる。
-    float stormBody=smoothstep(0.06,0.22,h)
+    float stormRiseEnd=riseEnds.w;
+    float stormRiseBegin=stormRiseEnd*0.20;
+    float stormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)
                    *(1.0-smoothstep(0.40,0.70,h));
     float stormShoulder=smoothstep(0.24,0.36,h)
                        *(1.0-smoothstep(0.46,0.66,h))*0.62;
@@ -1204,9 +1218,10 @@ float cloudProfileFromTypeWeights(
         cloudToweringStrength(typeWeights.y,precipitation)*0.92);
     return saturate(lerp(profile,storm,stormMix));
 }
-float cloudProfile(float h,float cloudType,float precipitation){
+float cloudProfile(
+    float h,float cloudType,float precipitation,bool upperBand){
     return cloudProfileFromTypeWeights(
-        h,cloudProfileTypeWeights(cloudType),precipitation);
+        h,cloudProfileTypeWeights(cloudType),precipitation,upperBand);
 }
 // 既に採取した二つの天候模様で時間位相の向きと強さを場所ごとに変える。
 // 全地点へ同じ位相を足したときの一様な上下動を避け、追加のテクスチャ採取は行わない。
@@ -1283,6 +1298,14 @@ float cloudColumnHeight(float h,float columnShift,float baseLift,bool upperBand)
 float cloudShapeScale(){
     // CPU mirrors clamp(layer.z*0.006,0.00012,0.00045) once per frame.
     return cloudFrameTerms.z;
+}
+// 基本形状の高さ方向も横方向と同じ物理尺度から求める。
+// 薄い層を単一断面へせず、厚い層を細かな数珠状にも分断しない範囲へ収める。
+float cloudShapeVerticalSpan(bool upperBand){
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    float physicalSpan=cloudShapeScale()/max(inverseThickness,1e-6);
+    return clamp(physicalSpan,1.20,2.20);
 }
 float2 cloudWindWorld(){
     // CPU mirrors params.z*float2(0.9284767,0.3713907) once per frame.
@@ -1363,7 +1386,8 @@ float2 cloudCurlOffset(float3 p){
     return a*0.68+b.yx*0.32;
 }
 float3 cloudUVW(
-    float3 p,float4 weather,float2 cachedCurl,float cachedHeight){
+    float3 p,float4 weather,float2 cachedCurl,float cachedHeight,
+    bool upperBand){
     float shapeScale=cloudShapeScale();
     float2 xz=p.xz-cloudWindWorld();
     float warpAngle=weather.g*6.2831853+weather.a*2.17;
@@ -1372,9 +1396,8 @@ float3 cloudUVW(
     float2 weatherWarp=float2(warpCos,warpSin)
                       *(weather.a-0.5)*190.0;
     float2 curlWarp=cachedCurl*22.0;
-    // XZは実際のワールド尺度を使う。Yは高度方向の周波数を下げ、ひとつの雲塔を
-    // 縦に連続させ、細い垂れとして繰り返さない。
-    float canonicalY=cachedHeight*1.55
+    // XZとYを同じ物理尺度へ寄せ、厚い層だけが縦長のノイズへ伸びないようにする。
+    float canonicalY=cachedHeight*cloudShapeVerticalSpan(upperBand)
                     +weather.g*0.09+weather.a*0.05+0.07;
     return float3((xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
                   canonicalY,
@@ -1441,19 +1464,15 @@ float cloudDimensionalDensity(float baseDensity,float heightProfile){
     float profileSupport=profile*lerp(profile,1.0,supportBlend);
     return lerp(interiorDensity,edgeDensity,edgeWeight)*profileSupport;
 }
-// 雲底では低密度の端を面へ収束させ、中層では細い縦筋を雲柱の中心へ収束させる。
-// かなとこ帯は対象外にして、上部の横方向の広がりと薄い縁を残す。
-float cloudConvectiveBodyDensity(
+// 雲底の低密度端だけを凝結面へ収束させ、輪郭の細い垂れを残さない。
+// 中層を密度の二乗で細めると上部だけが広い柱になるため、本体の幅は3D形状へ任せる。
+float cloudBaseEdgeDensity(
     float baseDensity,float height,float cloudType,float precipitation){
     float density=saturate(baseDensity);
     float tower=cloudToweringStrength(cloudType,precipitation);
     float lowerEdgeBand=1.0-smoothstep(0.04,0.26,saturate(height));
     float lowerEdgeTightening=(0.16+0.24*tower)*lowerEdgeBand;
-    float bodyBand=smoothstep(0.08,0.28,saturate(height))
-                  *(1.0-smoothstep(0.56,0.76,saturate(height)));
-    float bodyTightening=0.58*tower*bodyBand;
-    float tightening=max(lowerEdgeTightening,bodyTightening);
-    return lerp(density,density*density,tightening);
+    return lerp(density,density*density,lowerEdgeTightening);
 }
 // 2D 天候場を完成密度へ乗算すると、同じ XZ の上下が同じ割合で透けて縦の幕になる。
 // 雲縁ほど 3D 基本形状を削り、強い房だけを残すことで被覆境界にも立体的な穴を作る。
@@ -1514,19 +1533,19 @@ float cloudWeatherMaskFromTerms(
 float cloudWeatherMaskFromTermsForLayer(
     float4 weather,float threshold,float inverseTransitionWidth,
     float layerHeight){
-    float baseMask=cloudWeatherMaskFromTerms(
-        weather,threshold,inverseTransitionWidth);
-    float narrowedBaseMask=baseMask*cloudConvectiveWaistScale(
+    float waistThreshold=threshold+cloudConvectiveWaistThresholdOffset(
         layerHeight,weather.g,weather.b);
+    float narrowedBaseMask=cloudWeatherMaskFromTerms(
+        weather,waistThreshold,inverseTransitionWidth);
     float expansion=cloudAnvilCoverageExpansion(
         layerHeight,weather.g,weather.b);
     float anvilThreshold=threshold-expansion;
     float anvilMask=cloudWeatherMaskFromTerms(
         weather,anvilThreshold,inverseTransitionWidth);
-    // かなとこ拡張量が0なら未補正のanvilMaskはbaseMaskと等しい。
+    // かなとこ拡張量が0ならanvilMaskは未補正の被覆と等しい。
     // そこでmaxを取ると中層のくびれが常に打ち消されるため、拡張量を
     // かなとこの混合率として使い、本体から上部の張り出しへ連続的に戻す。
-    float anvilBlend=saturate(expansion*6.25);
+    float anvilBlend=saturate(expansion*14.285714);
     return lerp(narrowedBaseMask,anvilMask,anvilBlend);
 }
 float cloudWeatherMaskForLayer(float4 weather,float coverage,float layerHeight){
@@ -1675,7 +1694,7 @@ CloudMacroSample sampleCloudMacro(
                 macro.weather,macro.densityWeatherMask),
             upperBand);
         float sampledProfile=cloudProfile(
-            macro.height,macro.weather.g,macro.weather.b);
+            macro.height,macro.weather.g,macro.weather.b,upperBand);
         if(sampledProfile>0.0){
             float profileShape=cloudVerticalProfileShape(
                 sampledProfile);
@@ -1690,7 +1709,7 @@ CloudMacroSample sampleCloudMacro(
             macro.heightProfile=saturate(sampledProfile);
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
-                p,macro.weather,macro.curl,macro.height);
+                p,macro.weather,macro.curl,macro.height,upperBand);
             // 後段の詳細体積が外側へ膨らませられる最大量を早期棄却にも含める。
             cloudBaseShape(
                 sampleUvw,
@@ -1732,7 +1751,7 @@ CloudMacroSample sampleCloudMacroLighting(
                 macro.weather,macro.densityWeatherMask),
             upperBand);
         float sampledProfile=cloudProfile(
-            macro.height,macro.weather.g,macro.weather.b);
+            macro.height,macro.weather.g,macro.weather.b,upperBand);
         if(sampledProfile>0.0){
             float profileShape=cloudVerticalProfileShape(
                 sampledProfile);
@@ -1744,7 +1763,7 @@ CloudMacroSample sampleCloudMacroLighting(
             macro.curl=cloudCurlOffset(p);
             cloudBaseShapeLighting(
                 cloudUVW(
-                    p,macro.weather,macro.curl,macro.height),
+                    p,macro.weather,macro.curl,macro.height,upperBand),
                 macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
                 sampleSpacing,
                 macro.height,
@@ -1776,7 +1795,8 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     macro.upperBand=upperBand?1.0:0.0;
     macro.height=cloudColumnHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,slowBaseLift,upperBand);
-    float sampledProfile=cloudProfileFromTypeWeights(macro.height,slowProfileTerms.xy,slowProfileTerms.z);
+    float sampledProfile=cloudProfileFromTypeWeights(
+        macro.height,slowProfileTerms.xy,slowProfileTerms.z,upperBand);
     if(sampledProfile>0.0){
         float profileShape=cloudVerticalProfileShape(sampledProfile);
         macro.heightThreshold=cloudHeightThresholdFromTarget(heightThresholdTarget,profileShape)
@@ -1784,7 +1804,8 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
                 macro.weatherMask,macro.height,upperBand);
         macro.heightProfile=saturate(sampledProfile);
         // 共有した天候と渦の変換は光円すい内で線形なので、視線側の座標から採取点を復元する。
-        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*1.55,(p.z-referenceP.z)*shapeScale);
+        float verticalSpan=cloudShapeVerticalSpan(upperBand);
+        float3 lightingUvw=referenceUvw+float3((p.x-referenceP.x)*shapeScale,(macro.height-referenceHeight)*verticalSpan,(p.z-referenceP.z)*shapeScale);
         cloudBaseShapeLighting(
             lightingUvw,
             macro.heightThreshold-cloudBillowMaximumOffset(macro.height),
@@ -1816,7 +1837,7 @@ float2 sampleCloudFarLightingDensityAndScale(
             layerHeight,cloudColumnHeightShift(weather,weatherMask),
             cloudColumnBaseLift(weather,weatherMask),upperBand);
         float sampledProfile=cloudProfile(
-            sampleHeight,weather.g,weather.b);
+            sampleHeight,weather.g,weather.b,upperBand);
         if(sampledProfile>0.0){
             float profileShape=cloudVerticalProfileShape(
                 sampledProfile);
@@ -1826,14 +1847,14 @@ float2 sampleCloudFarLightingDensityAndScale(
                     weatherMask,sampleHeight,upperBand);
             float heightProfile=saturate(sampledProfile);
             float baseNoise=0.0;
-            cloudBaseShapeLighting(cloudUVW(p,weather,slowCurl,sampleHeight),heightThreshold,sampleSpacing,sampleHeight,baseNoise);
+            cloudBaseShapeLighting(cloudUVW(p,weather,slowCurl,sampleHeight,upperBand),heightThreshold,sampleSpacing,sampleHeight,baseNoise);
             if(upperBand) weatherMask*=cloudUpperTerms.x;
             float weatheredBaseNoise=cloudWeatheredBaseNoise(
                 baseNoise,weatherMask);
             float baseDensity=remapc(
                 weatheredBaseNoise,heightThreshold,
                 min(heightThreshold+0.22,0.98),0.0,1.0);
-            baseDensity=cloudConvectiveBodyDensity(
+            baseDensity=cloudBaseEdgeDensity(
                 baseDensity,sampleHeight,weather.g,weather.b);
             float dimensionalDensity=cloudDimensionalDensity(baseDensity,heightProfile);
             if(dimensionalDensity>0.001){
@@ -1855,7 +1876,7 @@ float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
         // 詳細体積が到達できる最大形状にも完成密度と同じ非線形変換を使い、
         // 平方根で見えるようになった薄い支持領域を空間棄却で失わない。
         float envelopeBaseDensity=remapc(envelopeNoise,macro.heightThreshold,min(macro.heightThreshold+0.22,0.98),0.0,1.0);
-        envelopeBaseDensity=cloudConvectiveBodyDensity(
+        envelopeBaseDensity=cloudBaseEdgeDensity(
             envelopeBaseDensity,macro.height,macro.weather.g,macro.weather.b);
         shapeResult=cloudDimensionalDensity(envelopeBaseDensity,macro.heightProfile);
     }
@@ -1954,7 +1975,7 @@ float2 cloudLowLodDensityAndProfileFromPositiveWeatherMacro(CloudMacroSample mac
         float weatheredBaseNoise=cloudWeatheredBaseNoise(
             macro.baseNoise,weatherMask);
         float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
-        baseDensity=cloudConvectiveBodyDensity(
+        baseDensity=cloudBaseEdgeDensity(
             baseDensity,macro.height,macro.weather.g,macro.weather.b);
         result.y=cloudDimensionalDensity(baseDensity,macro.heightProfile);
         if(result.y>0.001){
@@ -1976,7 +1997,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
         float weatheredBaseNoise=cloudWeatheredBaseNoise(
             macro.baseNoise,weatherMask);
         float baseDensity=remapc(weatheredBaseNoise,heightThreshold,min(heightThreshold+0.22,0.98),0.0,1.0);
-        baseDensity=cloudConvectiveBodyDensity(
+        baseDensity=cloudBaseEdgeDensity(
             baseDensity,h,macro.weather.g,macro.weather.b);
         // 基本形状の外側でも、詳細体積が到達できる範囲だけは密度評価へ進める。
         float envelopeBaseDensity=remapc(
@@ -1984,7 +2005,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 macro.baseNoise+cloudBillowMaximumOffset(h),weatherMask),
             heightThreshold,
             min(heightThreshold+0.22,0.98),0.0,1.0);
-        envelopeBaseDensity=cloudConvectiveBodyDensity(
+        envelopeBaseDensity=cloudBaseEdgeDensity(
             envelopeBaseDensity,h,macro.weather.g,macro.weather.b);
         float envelopeDensity=cloudDimensionalDensity(envelopeBaseDensity,macro.heightProfile);
         if(envelopeDensity>0.001){
@@ -2011,7 +2032,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                         macro.baseNoise+billowOffset,weatherMask),
                     heightThreshold,
                     min(heightThreshold+0.22,0.98),0.0,1.0);
-                billowedBaseDensity=cloudConvectiveBodyDensity(
+                billowedBaseDensity=cloudBaseEdgeDensity(
                     billowedBaseDensity,h,macro.weather.g,macro.weather.b);
                 float billowedCoarseDensity=saturate(cloudDimensionalDensity(billowedBaseDensity,macro.heightProfile)*densityScale);
                 float billowedDensity=lerp(
