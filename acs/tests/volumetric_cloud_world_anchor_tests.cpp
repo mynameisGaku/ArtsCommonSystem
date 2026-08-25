@@ -646,7 +646,9 @@ f32 CloudConvectiveHeightForTest(f32 height, f32 columnShift, bool upperBand) no
     const f32 upperHeight = SaturateForTest((boundedHeight - kCondensationHeight) / (1.0f - kCondensationHeight));
     const f32 upperRemainder = 1.0f - upperHeight;
     const f32 upperHeightSquared = upperHeight * upperHeight;
-    const f32 upperInterior = 45.5625f * upperHeightSquared * upperHeightSquared * upperRemainder * upperRemainder;
+    const f32 upperHeightCubed = upperHeightSquared * upperHeight;
+    const f32 upperRemainderSquared = upperRemainder * upperRemainder;
+    const f32 upperInterior = 75.0f * upperHeightCubed * upperHeightCubed * upperRemainderSquared;
     const f32 bandScale = upperBand ? 0.30f : 1.0f;
     const f32 shiftedUpper = SaturateForTest(upperHeight - columnShift * upperInterior * bandScale);
     return boundedHeight <= kCondensationHeight ? boundedHeight : kCondensationHeight + (1.0f - kCondensationHeight) * shiftedUpper;
@@ -707,6 +709,11 @@ f32 CloudDetailFrequencyVisibilityForTest(f32 sampleSpacing, f32 frequency, f32 
 // レイの採取間隔から、低周波の房形状を安全に採取できる割合を求める。
 f32 CloudBillowVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
     return CloudDetailFrequencyVisibilityForTest(sampleSpacing, 4.0f, 0.15f, 0.52f);
+}
+
+// レイの採取間隔から、中間規模の房形状を安全に採取できる割合を求める。
+f32 CloudMiddleBillowVisibilityFromSampleSpacingForTest(f32 sampleSpacing) noexcept {
+    return CloudDetailFrequencyVisibilityForTest(sampleSpacing, 8.0f, 0.05f, 0.20f);
 }
 
 // レイの採取間隔から、高周波の侵食形状を安全に採取できる割合を求める。
@@ -1756,14 +1763,21 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
         horizonNormal.fine_step * 3.0f,
         horizon.fine_step * 4.0f, 1e-3f);
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
+    EXPECT_NEAR(CloudMiddleBillowVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(vertical.fine_step), 1.0f, 0.0f);
     EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step) > 0.90f);
+    EXPECT_NEAR(CloudMiddleBillowVisibilityFromSampleSpacingForTest(horizon.fine_step), 0.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizon.fine_step), 0.0f, 0.0f);
     EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step) > 0.70f);
     EXPECT_TRUE(CloudBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step) < CloudBillowVisibilityFromSampleSpacingForTest(horizon.fine_step));
+    EXPECT_NEAR(CloudMiddleBillowVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(horizonNormal.fine_step), 0.0f, 0.0f);
     EXPECT_NEAR(CloudBillowVisibilityFromSampleSpacingForTest(270.1613f), 0.5f, 1e-5f);
+    EXPECT_NEAR(CloudMiddleBillowVisibilityFromSampleSpacingForTest(50.4032258f), 0.5f, 1e-5f);
     EXPECT_NEAR(CloudErosionVisibilityFromSampleSpacingForTest(29.23387f), 0.5f, 1e-5f);
+    constexpr f32 kMiddleBillowEndSpacing = 0.20f / (0.00031f * 8.0f);
+    EXPECT_NEAR(CloudMiddleBillowVisibilityFromSampleSpacingForTest(kMiddleBillowEndSpacing), 0.0f, 1e-6f);
+    EXPECT_TRUE(kMiddleBillowEndSpacing * 0.00031f * 16.0f < 0.401f);
 
     EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 0.0f, 0.001f), 12.0f, 0.0f);
     EXPECT_NEAR(CloudProjectedSampleSpacingForTest(12.0f, 8000.0f, 0.001f), 12.0f, 0.0f);
@@ -1772,16 +1786,22 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_NEAR(CloudProjectedSampleSpacingForTest(-1.0f, -2.0f, -3.0f), 0.0f, 0.0f);
 
     f32 previousBillowVisibility = 1.0f;
+    f32 previousMiddleBillowVisibility = 1.0f;
     f32 previousErosionVisibility = 1.0f;
     for (u32 spacingStep = 0u; spacingStep <= 700u; spacingStep += 5u) {
         const f32 billowVisibility = CloudBillowVisibilityFromSampleSpacingForTest(static_cast<f32>(spacingStep));
+        const f32 middleBillowVisibility = CloudMiddleBillowVisibilityFromSampleSpacingForTest(static_cast<f32>(spacingStep));
         const f32 erosionVisibility = CloudErosionVisibilityFromSampleSpacingForTest(static_cast<f32>(spacingStep));
         EXPECT_TRUE(billowVisibility <= previousBillowVisibility + 1e-6f);
+        EXPECT_TRUE(middleBillowVisibility <= previousMiddleBillowVisibility + 1e-6f);
         EXPECT_TRUE(erosionVisibility <= previousErosionVisibility + 1e-6f);
         EXPECT_TRUE(billowVisibility >= 0.0f && billowVisibility <= 1.0f);
+        EXPECT_TRUE(middleBillowVisibility >= 0.0f && middleBillowVisibility <= 1.0f);
         EXPECT_TRUE(erosionVisibility >= 0.0f && erosionVisibility <= 1.0f);
-        EXPECT_TRUE(billowVisibility + 1e-6f >= erosionVisibility);
+        EXPECT_TRUE(billowVisibility + 1e-6f >= middleBillowVisibility);
+        EXPECT_TRUE(middleBillowVisibility + 1e-6f >= erosionVisibility);
         previousBillowVisibility = billowVisibility;
+        previousMiddleBillowVisibility = middleBillowVisibility;
         previousErosionVisibility = erosionVisibility;
     }
 
@@ -1797,6 +1817,10 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
         shader,
         "returncloudDetailFrequencyVisibility("
         "sampleSpacing,4.0,0.15,0.52);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returncloudDetailFrequencyVisibility("
+        "sampleSpacing,8.0,0.05,0.20);"));
     EXPECT_TRUE(Contains(
         shader,
         "returncloudDetailFrequencyVisibility("
@@ -1823,8 +1847,10 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
         "floatangularPixelFootprint=max("
         "length(xPixelDirection-dir),length(yPixelDirection-dir));"));
     EXPECT_TRUE(Contains(shader, "floatbillowVisibility=cloudBillowVisibilityFromSampleSpacing(projectedSampleSpacing);"));
+    EXPECT_TRUE(Contains(shader, "floatmiddleBillowVisibility=cloudMiddleBillowVisibilityFromSampleSpacing(projectedSampleSpacing);"));
     EXPECT_TRUE(Contains(shader, "floaterosionVisibility=cloudErosionVisibilityFromSampleSpacing(projectedSampleSpacing);"));
     EXPECT_FALSE(Contains(shader, "cloudBillowVisibilityFromSampleSpacing(stepLength)"));
+    EXPECT_FALSE(Contains(shader, "cloudMiddleBillowVisibilityFromSampleSpacing(stepLength)"));
     EXPECT_FALSE(Contains(shader, "cloudErosionVisibilityFromSampleSpacing(stepLength)"));
     EXPECT_FALSE(Contains(shader, "floatdetailStart=12000.0;"));
     EXPECT_FALSE(Contains(shader, "floatdetailEnd=80000.0;"));
@@ -1840,8 +1866,9 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_TRUE(firstDetailRead < billowBlend);
     EXPECT_TRUE(billowBlend < erosionBlend);
     EXPECT_TRUE(Contains(shader, "floatlightBillowVisibility=cloudBillowVisibilityFromSampleSpacing(lightStep);"));
+    EXPECT_TRUE(Contains(shader, "floatlightMiddleBillowVisibility=cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);"));
     EXPECT_TRUE(Contains(shader, "floatlightErosionVisibility=cloudErosionVisibilityFromSampleSpacing(lightStep);"));
-    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightErosionVisibility);"));
+    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
     EXPECT_FALSE(Contains(shader, "lightMacro.weatherMask,0.65,1.0);"));
 }
 
@@ -3055,7 +3082,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
     const std::size_t billow = shader.find(
         "floatbillowOffset=cloudBillowOffset("
-        "ndA,ndB,h,erosionVisibility);", base);
+        "ndA,ndB,h,middleBillowVisibility);", base);
     const std::size_t billowedCoarse = shader.find(
         "floatbillowedCoarseDensity=saturate("
         "cloudDimensionalDensity("
@@ -3225,7 +3252,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatbillowOffset=cloudBillowOffset("
-        "ndA,ndB,h,erosionVisibility);"));
+        "ndA,ndB,h,middleBillowVisibility);"));
 
     constexpr f32 kThreshold = 0.60f;
     constexpr f32 kUpper = 0.82f;
@@ -3528,11 +3555,17 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(liftedLowerBody, 0.10f, 0.0f);
     EXPECT_NEAR(loweredLowerBody, 0.10f, 0.0f);
     EXPECT_NEAR(CloudConvectiveHeightForTest(0.14f, tallCore, false), 0.14f, 1e-6f);
-    EXPECT_TRUE(CloudConvectiveHeightForTest(0.50f, tallCore, false) < 0.46f);
-    EXPECT_TRUE(CloudConvectiveHeightForTest(0.50f, compressedEdge, false) > 0.54f);
+    const f32 tallCoreMiddleHeight = CloudConvectiveHeightForTest(0.50f, tallCore, false);
+    const f32 compressedEdgeMiddleHeight = CloudConvectiveHeightForTest(0.50f, compressedEdge, false);
+    EXPECT_TRUE(tallCoreMiddleHeight > 0.47f && tallCoreMiddleHeight < 0.50f);
+    EXPECT_TRUE(compressedEdgeMiddleHeight > 0.50f && compressedEdgeMiddleHeight < 0.53f);
 
-    // 積雲の高さ形状は0.94で閉じる。圧縮した縁は物理高度0.84で既に上端を越え、
-    // 成長した中心は0.94でも内部に残るため、全列が同じ層上端へ揃わない。
+    // 中層の変形を抑えつつ雲頂側へ高さ差を集中させる。
+    // 圧縮した縁は物理高度0.84で既に上端を越え、成長した中心は0.94でも内部に残る。
+    const f32 tallCoreTopHeight = CloudConvectiveHeightForTest(0.90f, tallCore, false);
+    const f32 middleWarp = 0.50f - tallCoreMiddleHeight;
+    const f32 topWarp = 0.90f - tallCoreTopHeight;
+    EXPECT_TRUE(topWarp > middleWarp * 3.0f);
     EXPECT_TRUE(CloudConvectiveHeightForTest(0.84f, compressedEdge, false) > 0.90f);
     EXPECT_TRUE(CloudConvectiveHeightForTest(0.94f, tallCore, false) < 0.94f);
 
@@ -3678,7 +3711,9 @@ ACS_TEST(VolumetricClouds,
         "floatupperHeight=saturate((h-condensationHeight)/(1.0-condensationHeight));"
         "floatupperRemainder=1.0-upperHeight;"
         "floatupperHeightSquared=upperHeight*upperHeight;"
-        "floatupperInterior=45.5625*upperHeightSquared*upperHeightSquared*upperRemainder*upperRemainder;"
+        "floatupperHeightCubed=upperHeightSquared*upperHeight;"
+        "floatupperRemainderSquared=upperRemainder*upperRemainder;"
+        "floatupperInterior=75.0*upperHeightCubed*upperHeightCubed*upperRemainderSquared;"
         "floatbandScale=upperBand?0.30:1.0;"
         "floatshiftedUpper=saturate(upperHeight-columnShift*upperInterior*bandScale);"
         "returnh<=condensationHeight?h:lerp(condensationHeight,1.0,shiftedUpper);}"));
@@ -4161,7 +4196,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatshape=cloudShapeFromMacro(macro);"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
-    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,erosionVisibility)*density*distanceFade;"));
+    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility)*density*distanceFade;"));
     EXPECT_TRUE(Contains(
         shader, "macro.curl=cloudCurlOffset(p);"));
     EXPECT_TRUE(Contains(
@@ -4477,15 +4512,19 @@ ACS_TEST(VolumetricClouds,
         "floatlightBillowVisibility="
         "cloudBillowVisibilityFromSampleSpacing(lightStep);",
         lightMacro);
+    const auto nearMiddleBillowVisibility = shader.find(
+        "floatlightMiddleBillowVisibility="
+        "cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);",
+        nearBillowVisibility);
     const std::size_t nearErosionVisibility = shader.find(
         "floatlightErosionVisibility="
         "cloudErosionVisibilityFromSampleSpacing(lightStep);",
-        nearBillowVisibility);
+        nearMiddleBillowVisibility);
     const std::size_t nearDensity = shader.find(
         "floatlightDensity=cloudDensityFromMacro("
         "lp,lightMacro,lightMacro.heightThreshold,"
         "lightMacro.weatherMask,lightBillowVisibility,"
-        "lightErosionVisibility);",
+        "lightMiddleBillowVisibility,lightErosionVisibility);",
         nearErosionVisibility);
     const std::size_t lightAccumulate = shader.find(
         "lightDepth+=lightDensity*lightStep*"
@@ -4525,7 +4564,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(lightHalfStep < lightAdvance);
     EXPECT_TRUE(lightAdvance < lightMacro);
     EXPECT_TRUE(lightMacro < nearBillowVisibility);
-    EXPECT_TRUE(nearBillowVisibility < nearErosionVisibility);
+    EXPECT_TRUE(nearBillowVisibility < nearMiddleBillowVisibility);
+    EXPECT_TRUE(nearMiddleBillowVisibility < nearErosionVisibility);
     EXPECT_TRUE(nearErosionVisibility < nearDensity);
     EXPECT_TRUE(nearDensity < lightAccumulate);
     EXPECT_TRUE(lightAccumulate < lightFinish);
@@ -4730,12 +4770,17 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         "cloudBillowVisibilityFromSampleSpacing(lightStep);"));
     EXPECT_TRUE(Contains(
         shader,
+        "floatmiddleBillowVisibility="
+        "cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);"));
+    EXPECT_TRUE(Contains(
+        shader,
         "float3samplePosition=tailOrigin+coneDir*(0.5*lightStep);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatbillowedDensity=cloudDensityFromMacro("
         "samplePosition,macro,macro.heightThreshold,"
-        "macro.weatherMask,billowVisibility,0.0);"));
+        "macro.weatherMask,billowVisibility,"
+        "middleBillowVisibility,0.0);"));
     EXPECT_TRUE(Contains(
         shader,
         "residual=(billowedDensity-lowLodDensity)*lightStep*"
@@ -4906,8 +4951,8 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
         EXPECT_TRUE(coverage < profileValue);
         EXPECT_TRUE(profileValue < densityScale);
     }
-    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,erosionVisibility)*density*distanceFade;"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightErosionVisibility);"));
+    EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,densityHeightThreshold,viewWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility)*density*distanceFade;"));
+    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
     EXPECT_TRUE(Contains(shader, "float2lowLodDensityAndProfile=cloudLowLodDensityAndProfileFromMacro(macro,densityHeightThreshold,viewWeatherMask);"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=lowLodDensityAndProfile.x;"));
     EXPECT_FALSE(Contains(shader, "boolinUpperCloudBand(float3p)"));
@@ -7873,7 +7918,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "float2farLightSample=sampleCloudFarLightingDensityAndScale("
         "lp,coverage,sharedLightCurl,lightStep);"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightErosionVisibility);"));
+    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.heightThreshold,lightMacro.weatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
     // 視線側の天候と渦を共有するのは近距離3点だけで、基本形状は各点を採取する。
     EXPECT_TRUE(Contains(
         shader,
