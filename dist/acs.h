@@ -58251,9 +58251,107 @@ using FSubsurfaceScattering = CSubsurfaceScattering;
 
 // ===================== render/WaterSurface3D.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 3D interactive water surface: layered normal map, analytic waves, refraction,
-// Fresnel reflection, GGX sun highlights, foam, and persistent disturbances.
 
+
+// ===================== render/WaterSurface3DParams.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== render/EWaterSurface3DProfile.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 水域の大きさと流れに合う初期値を選ぶための水面プロファイル。 */
+enum class EWaterSurface3DProfile : u8 {
+    /** 数センチ程度の浅い水と細かな波を持つ水たまり。 */
+    Puddle,
+
+    /** 透明度が高く、波高を抑えた人工的なプール。 */
+    Pool,
+
+    /** 一方向の流れを主とし、大波を抑えた河川。 */
+    River,
+
+    /** 中距離の風波と穏やかな反射を持つ湖。 */
+    Lake,
+
+    /** 長い波長、強い風波、深い光学距離を持つ海。 */
+    Ocean,
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** 形状に依存せず、水面の波と光学特性を指定する値。 */
+struct FWaterSurface3DParams {
+    /** 浅い部分で散乱して見える色。 */
+    FVec3 shallow_color{0.055f, 0.38f, 0.50f};
+
+    /** 深い部分で散乱して見える色。 */
+    FVec3 deep_color{0.008f, 0.055f, 0.16f};
+
+    /** 1ワールド単位あたりのBeer-Lambert吸収係数。 */
+    FVec3 absorption{0.34f, 0.13f, 0.040f};
+
+    /** 1ワールド単位あたりの単一散乱係数。 */
+    FVec3 scattering{0.018f, 0.050f, 0.085f};
+
+    /** 光が前後どちらへ散りやすいかを表す値。 */
+    f32 phase_anisotropy = 0.62f;
+
+    /** 白波と接触泡の色。 */
+    FVec3 foam_color{0.88f, 0.96f, 1.0f};
+
+    /** 水面上の主な流れ方向。 */
+    FVec2 flow_direction{0.92f, 0.38f};
+
+    /** 水面反射の粗さ。 */
+    f32 roughness = 0.105f;
+
+    /** 細かな法線変化の強さ。 */
+    f32 normal_strength = 0.82f;
+
+    /** 1ワールド単位あたりの細かな法線模様の反復数。 */
+    f32 normal_tiling = 0.075f;
+
+    /** 画面上で背景を屈折させる強さ。 */
+    f32 refraction_strength = 0.72f;
+
+    /** 深度textureがない場合に使う水の光学距離。 */
+    f32 optical_depth = 1.35f;
+
+    /** 風波全体の最大変位。 */
+    f32 wave_amplitude = 0.105f;
+
+    /** 風波の空間周波数倍率。小さいほど長い波になる。 */
+    f32 wave_scale = 0.78f;
+
+    /** 風波と細かな法線の時間倍率。 */
+    f32 wave_speed = 0.72f;
+
+    /** 動的な波紋が広がる速度。 */
+    f32 ripple_speed = 2.65f;
+
+    /** 動的な波紋の波長。 */
+    f32 ripple_wavelength = 0.52f;
+
+    /** 動的な波紋が完全に消えるまでの秒数。 */
+    f32 ripple_lifetime = 4.0f;
+
+    /** 動的な波紋へ掛ける指数減衰。 */
+    f32 ripple_damping = 0.78f;
+
+    /** 白波と接触泡の量。 */
+    f32 foam_intensity = 0.82f;
+
+    /** 用途に合う安全な初期値を返し、未知値ではLakeを返す。 */
+    static FWaterSurface3DParams ForProfile(EWaterSurface3DProfile profile) noexcept;
+};
+
+} // namespace acs
 
 namespace acs {
 
@@ -58263,81 +58361,6 @@ class IRhiDevice;
 class IRhiPipeline;
 class IRhiTexture;
 class AMeshAsset;
-
-/**
- * Authoring parameters for CWaterSurface3D.
- *
- * @details
- * The surface is physically based around water IOR 1.333. Colors and absorption
- * describe the volume below the surface, while analytic waves and a generated
- * tileable normal map provide independent macro/micro detail. The renderer is
- * authored on the mesh-local XZ plane. DrawMesh derives an orthonormal
- * world-space surface frame from the model matrix, transforms the mesh's actual
- * vertex normals with an inverse-transpose matrix, and projects 3D disturbance
- * points into that frame. Translation, rotation, and non-uniform scale therefore
- * preserve displacement, normals, and ripple placement.
- */
-struct FWaterSurface3DParams {
-    /** Shallow-water in-scattering color. */
-    FVec3 shallow_color{0.055f, 0.38f, 0.50f};
-
-    /** Deep-water in-scattering color. */
-    FVec3 deep_color{0.008f, 0.055f, 0.16f};
-
-    /** Beer-Lambert absorption coefficient in inverse world units. */
-    FVec3 absorption{0.34f, 0.13f, 0.040f};
-
-    /** Homogeneous single-scattering coefficient in inverse world units. */
-    FVec3 scattering{0.018f, 0.050f, 0.085f};
-
-    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
-    f32 phase_anisotropy = 0.62f;
-
-    /** Whitewater/contact-foam color. */
-    FVec3 foam_color{0.88f, 0.96f, 1.0f};
-
-    /** Main flow direction in the surface-local tangent/bitangent plane. */
-    FVec2 flow_direction{0.92f, 0.38f};
-
-    /** Microfacet roughness used by the water GGX lobe. */
-    f32 roughness = 0.105f;
-
-    /** Strength of the sampled normal map. */
-    f32 normal_strength = 0.82f;
-
-    /** World-space tiling density of the generated normal map. */
-    f32 normal_tiling = 0.075f;
-
-    /** Screen-space refraction strength. */
-    f32 refraction_strength = 0.72f;
-
-    /** Approximate optical depth when no explicit scene-depth texture is supplied. */
-    f32 optical_depth = 1.35f;
-
-    /** Analytic macro-wave displacement amplitude. */
-    f32 wave_amplitude = 0.105f;
-
-    /** Analytic macro-wave spatial scale. */
-    f32 wave_scale = 0.78f;
-
-    /** Analytic wave/normal-map animation speed. */
-    f32 wave_speed = 0.72f;
-
-    /** Dynamic ripple propagation speed in world units per second. */
-    f32 ripple_speed = 2.65f;
-
-    /** Dynamic ripple wavelength in world units. */
-    f32 ripple_wavelength = 0.52f;
-
-    /** Dynamic ripple lifetime in seconds. */
-    f32 ripple_lifetime = 4.0f;
-
-    /** Dynamic ripple amplitude damping coefficient. */
-    f32 ripple_damping = 0.78f;
-
-    /** Contact/crest foam multiplier. */
-    f32 foam_intensity = 0.82f;
-};
 
 /**
  * High-quality interactive 3D water renderer.
@@ -58367,6 +58390,33 @@ public:
         EShaderStatus Status() const noexcept;
     };
 
+    /**
+     * 1枚の横並びatlasへ格納した有向光源shadow cascade群。
+     * 呼び出し元がtextureを所有し、この値は1回のdraw中だけ参照される。
+     */
+    struct FShadowCascadeSet {
+        /** 受け付けるcascadeの上限。 */
+        static constexpr u32 kMaxCascades = 4u;
+
+        /** 呼び出し元所有のshader可視depth atlas。nullなら受影を無効にする。 */
+        IRhiTexture* shadow_map = nullptr;
+
+        /** 各cascadeのworld-to-light clip変換。 */
+        FMat4 light_view_projection[kMaxCascades]{};
+
+        /** 各cascade末尾のview-space深度。使用しない要素は無視する。 */
+        f32 split_depth[kMaxCascades]{1.0e30f, 1.0e30f, 1.0e30f, 1.0e30f};
+
+        /** 有効なcascade数。1から4以外なら受影を無効にする。 */
+        u32 cascade_count = 0u;
+
+        /** light clip深度へ適用するreceiver bias。 */
+        f32 depth_bias = 0.0012f;
+
+        /** cascade内texel単位のPCF半径。 */
+        f32 pcf_radius = 1.5f;
+    };
+
     /** Maximum simultaneously visible disturbances. */
     static constexpr u32 kMaxRipples = 64;
 
@@ -58385,6 +58435,9 @@ public:
 
     /** Slots reserved exclusively for directional wake disturbances. */
     static constexpr u32 kWakeRippleSlots = 48;
+
+    /** camera近傍へ密度を寄せる共有平面の既定分割数。 */
+    static constexpr u32 kAdaptivePlaneCells = 96;
 
     static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
 
@@ -58414,6 +58467,15 @@ public:
     /** Submit both shader stages without blocking on supporting backends. */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
         IRhiDevice& device) noexcept;
+
+    /**
+     * 連続LOD描画に使う正規化XZ格子を生成する。
+     * @param device 格子をuploadするRHI device。
+     * @param output 成功時だけ置き換える、呼び出し元所有のGPU mesh。
+     * @param cells 一辺の分割数。2から512までを受け付ける。
+     * @return 形状生成と両bufferのuploadが完了した場合は成功。
+     */
+    static TResult<void> CreateAdaptivePlaneMesh(IRhiDevice& device, FGpuMesh& output, u32 cells = kAdaptivePlaneCells) noexcept;
 
     /** Commit ready shader handles and all GPU resources on the render owner. */
     TResult<void> InitWithCompiledShaders(
@@ -58650,6 +58712,27 @@ public:
                   IRhiTexture* authored_normal_map = nullptr,
                   f32 authored_normal_strength = 1.0f) noexcept;
 
+    /**
+     * CSM atlasを正しいcascade範囲で参照しながら従来のlocal XZ meshを描く。
+     * 不正な行列、分割深度、atlas寸法はdrawを維持したまま受影だけ無効にする。
+     */
+    void DrawMeshWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
+
+    /**
+     * 正規化XZ格子をcamera近傍へ連続的に再配置して水面を描く。
+     * @param plane_mesh CreateAdaptivePlaneMeshで生成した格子。
+     * @param model 格子の全範囲を有限水域へ写すmodel行列。
+     * @details 頂点数は一定のまま近距離の波紋と遠距離の広い水域を覆う。
+     * 既存DrawMeshと同じ光学入力、surface ID、所有権契約を維持する。
+     */
+    void DrawAdaptivePlane(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
+
+    /**
+     * CSM atlasを正しく選択し、camera近傍へ連続再配置した共有平面を描く。
+     * 既存DrawAdaptivePlaneの所有権と失敗時挙動を維持する。
+     */
+    void DrawAdaptivePlaneWithShadowCascades(IRhiCommandList& command_list, const FGpuMesh& plane_mesh, const FMat4& model, const FShadowCascadeSet& shadow_cascades, IRhiTexture* scene_color = nullptr, IRhiTexture* scene_depth = nullptr, IRhiTexture* screen_reflection = nullptr, u64 surface_id = 0u, bool hardware_depth_bound = false, IRhiTexture* authored_normal_map = nullptr, f32 authored_normal_strength = 1.0f) noexcept;
+
     IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
     IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
     f32 Time() const noexcept { return m_Time; }
@@ -58697,6 +58780,9 @@ private:
      */
     void DeactivateEventAtActivePosition(
         u32 active_position) noexcept;
+
+    /** 通常meshと連続LOD平面で共有する描画本体。 */
+    void DrawMesh_Internal(IRhiCommandList& command_list, const FGpuMesh& mesh, const FMat4& model, IRhiTexture* scene_color, IRhiTexture* scene_depth, IRhiTexture* screen_reflection, u64 surface_id, bool hardware_depth_bound, IRhiTexture* authored_normal_map, f32 authored_normal_strength, bool adaptive_plane, const FShadowCascadeSet* shadow_cascades) noexcept;
 
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;
@@ -61201,7 +61287,6 @@ private:
 
 // ===================== gameframework/WaterSurface3DComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Authorable 3D interactive-water component shared by editor and runtime.
 
 
 namespace acs::game {
@@ -61262,6 +61347,33 @@ public:
 
     f32 opticalDepth = 1.35f;
     f32 foamIntensity = 0.82f;
+
+    /** 水域用途に合う値で全項目を上書きする。 */
+    void ApplyProfile(EWaterSurface3DProfile profile) noexcept {
+        /** 共通rendererが定義する用途別の安全な値。 */
+        const FWaterSurface3DParams params =
+            FWaterSurface3DParams::ForProfile(profile);
+        shallowColor = params.shallow_color;
+        deepColor = params.deep_color;
+        absorption = params.absorption;
+        scattering = params.scattering;
+        phaseAnisotropy = params.phase_anisotropy;
+        foamColor = params.foam_color;
+        roughness = params.roughness;
+        normalStrength = params.normal_strength;
+        normalTiling = params.normal_tiling;
+        flowDirection = params.flow_direction;
+        waveAmplitude = params.wave_amplitude;
+        waveScale = params.wave_scale;
+        waveSpeed = params.wave_speed;
+        rippleSpeed = params.ripple_speed;
+        rippleWavelength = params.ripple_wavelength;
+        rippleLifetime = params.ripple_lifetime;
+        rippleDamping = params.ripple_damping;
+        refractionStrength = params.refraction_strength;
+        opticalDepth = params.optical_depth;
+        foamIntensity = params.foam_intensity;
+    }
 
     FWaterSurface3DParams ToRenderParams() const noexcept {
         FWaterSurface3DParams params{};
