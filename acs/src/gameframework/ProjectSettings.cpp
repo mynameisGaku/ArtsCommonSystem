@@ -92,6 +92,8 @@ const FSettingDesc kSchema[] = {
       "雲頂が空から受ける光の割合。雲底より大きくして上下の立体感を保つ" },
     { "Rendering", "CloudGroundContribution", ESettingType::Float, "0.15", nullptr,
       "地面から雲底へ届く照り返しの割合。暗い地面では小さく、海や雪原では大きくする" },
+    { "Rendering", "CloudSunScatteringLuminanceScale", ESettingType::Float, "1", nullptr,
+      "有限次数の近似で失う太陽散乱輝度の補償倍率。1は補償なし。実画面で測定して必要な場合だけ上げる" },
     { "Rendering", "CloudRenderScale", ESettingType::Float, "-1",          nullptr,
       "雲の内部描画品質倍率。-1=品質プリセット、0.5〜4.0。1.0は画面寸法の1/4、4.0で等倍" },
     { "Rendering", "CloudReferenceMode", ESettingType::Bool, "false",       nullptr,

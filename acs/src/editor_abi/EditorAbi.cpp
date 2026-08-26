@@ -532,6 +532,8 @@ struct FEditorHost {
     f32   q_cloud_ambient_at_base = 0.26f;
     f32   q_cloud_ambient_at_top = 0.52f;
     f32   q_cloud_ground_contribution = 0.15f;
+    // 有限次数の近似で失う太陽散乱輝度を作品側で補う倍率。1は補償なし。
+    f32   q_cloud_sun_scattering_luminance_scale = 1.0f;
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -9974,6 +9976,8 @@ void UpdateVolumetricCloudLighting_Internal(FEditorHost& host) noexcept {
     lighting.AmbientAtBase = host.q_cloud_ambient_at_base;
     lighting.AmbientAtTop = host.q_cloud_ambient_at_top;
     lighting.GroundContribution = host.q_cloud_ground_contribution;
+    lighting.SunScatteringLuminanceScale =
+        host.q_cloud_sun_scattering_luminance_scale;
     lighting.SunTransmittance = SunTransmittanceAtAltitude(middleAltitude, host.sun_dir);
     lighting.SkyZenithColor = host.sky_zenith;
     lighting.GroundColor = host.sky_ground;
@@ -12786,6 +12790,7 @@ static void ApplySettings(FEditorHost& h) noexcept {
     h.q_cloud_ambient_at_base = h.settings.GetFloat("Rendering", "CloudAmbientAtBase", 0.26f);
     h.q_cloud_ambient_at_top = h.settings.GetFloat("Rendering", "CloudAmbientAtTop", 0.52f);
     h.q_cloud_ground_contribution = h.settings.GetFloat("Rendering", "CloudGroundContribution", 0.15f);
+    h.q_cloud_sun_scattering_luminance_scale = h.settings.GetFloat("Rendering", "CloudSunScatteringLuminanceScale", 1.0f);
     const f32 cloudRenderScale =
         h.settings.GetFloat("Rendering", "CloudRenderScale", -1.0f);
     if (cloudRenderScale >= 0.0f) {

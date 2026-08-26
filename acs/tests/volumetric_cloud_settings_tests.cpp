@@ -66,6 +66,7 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     requested.ViewExtinction = -2.0f;
     requested.LightExtinction = infinity;
     requested.SunScatter = 2.0f;
+    requested.SunScatteringLuminanceScale = infinity;
     requested.PowderStrength = -1.0f;
     requested.PhaseForward = 1.0f;
     requested.PhaseBackward = -1.0f;
@@ -87,6 +88,7 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     EXPECT_NEAR(lighting.ViewExtinction, 0.0f, 0.0f);
     EXPECT_NEAR(lighting.LightExtinction, 5.0f, 0.0f);
     EXPECT_NEAR(lighting.SunScatter, 1.0f, 0.0f);
+    EXPECT_NEAR(lighting.SunScatteringLuminanceScale, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.PowderStrength, 0.0f, 0.0f);
     EXPECT_NEAR(lighting.PhaseForward, kVolumetricCloudMaxPhaseEccentricity, 0.0f);
     EXPECT_NEAR(lighting.PhaseBackward, -kVolumetricCloudMaxPhaseEccentricity, 0.0f);
@@ -118,9 +120,45 @@ ACS_TEST(VolumetricCloudSettings, DefaultLightingKeepsWaterDropletScatteringNear
     /** 水滴雲として使う既定照明。 */
     const FVolumetricCloudLighting lighting{};
     // 区間不透明度が消散を含むため、散乱割合を小さくすると雲が灰色の吸収体になる。
-    EXPECT_TRUE(lighting.SunScatter >= 0.90f);
-    EXPECT_TRUE(lighting.SunScatter <= 1.0f);
+    EXPECT_NEAR(lighting.SunScatter, 1.0f, 0.0f);
+    // 補償量は媒質と視線で変わるため、未測定の一律増幅を既定にしない。
+    EXPECT_NEAR(lighting.SunScatteringLuminanceScale, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.ViewExtinction, lighting.LightExtinction, 0.0f);
+}
+
+ACS_TEST(VolumetricCloudSettings, DirectionalLuminanceCompensationIsFiniteAndDoesNotReplaceAlbedo)
+{
+    /** 有向光の輝度補償だけを上限外にした入力。 */
+    FVolumetricCloudLighting excessive{};
+    excessive.SunScatteringLuminanceScale = 1000.0f;
+    /** HDRの有限範囲へ直した照明。 */
+    const FVolumetricCloudLighting bounded =
+        SanitizeVolumetricCloudLighting(excessive);
+    EXPECT_NEAR(bounded.SunScatteringLuminanceScale, kVolumetricCloudMaxSunScatteringLuminanceScale, 0.0f);
+
+    /** 同じ位相と光学的深さを使う基準照明。 */
+    FVolumetricCloudLighting reference{};
+    reference.SunScatter = 1.0f;
+    reference.SunScatteringLuminanceScale = 1.0f;
+    /** 位相関数を変えず、アルベドと輝度補償だけを変える照明。 */
+    FVolumetricCloudLighting scaled = reference;
+    scaled.SunScatter = 0.25f;
+    scaled.SunScatteringLuminanceScale = 3.0f;
+    /** 基準の一次と高次の有向散乱。 */
+    const FVec2 referenceScattering = EvaluateVolumetricCloudDirectionalScattering(2.0f, 2.0f, 1.0f, reference);
+    /** 同じ輸送に0.25×3.0の光源倍率だけを適用した散乱。 */
+    const FVec2 scaledScattering = EvaluateVolumetricCloudDirectionalScattering(2.0f, 2.0f, 1.0f, scaled);
+    EXPECT_NEAR(scaledScattering.x, referenceScattering.x * 0.75f, 1e-6f);
+    EXPECT_NEAR(scaledScattering.y, referenceScattering.y * 0.75f, 1e-6f);
+
+    /** 吸収のみの媒質は、補償倍率があっても散乱しない設定。 */
+    scaled.SunScatter = 0.0f;
+    scaled.SunScatteringLuminanceScale =
+        kVolumetricCloudMaxSunScatteringLuminanceScale;
+    /** 散乱アルベド0で消える有向散乱。 */
+    const FVec2 absorbingScattering = EvaluateVolumetricCloudDirectionalScattering(2.0f, 2.0f, 1.0f, scaled);
+    EXPECT_NEAR(absorbingScattering.x, 0.0f, 0.0f);
+    EXPECT_NEAR(absorbingScattering.y, 0.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricCloudSettings, WeatherControlsRemainBoundedAndDefaultToProceduralInput)
@@ -155,6 +193,8 @@ ACS_TEST(VolumetricCloudSettings, MultipleScatteringAccumulatesThroughThirdOrder
     FVolumetricCloudLighting requested{};
     requested.MultiScatterContribution = 0.8f;
     requested.MultiScatterOcclusion = 0.4f;
+    requested.SunScatter = 1.0f;
+    requested.SunScatteringLuminanceScale = 1.0f;
     /** 高次散乱係数の縮小率を消散係数の縮小率以下へ直した設定。 */
     const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
     EXPECT_NEAR(lighting.MultiScatterContribution, 0.4f, 0.0f);
@@ -365,11 +405,13 @@ ACS_TEST(VolumetricCloudSettings, PublicSettersStoreTheSameSanitizedValuesUsedBy
     FVolumetricCloudLighting lighting{};
     lighting.ViewExtinction = -1.0f;
     lighting.SunTransmittance = FVec3{2.0f, -1.0f, 0.5f};
+    lighting.SunScatteringLuminanceScale = 1000.0f;
     clouds.SetLighting(lighting);
     EXPECT_NEAR(clouds.Lighting().ViewExtinction, 0.0f, 0.0f);
     EXPECT_NEAR(clouds.Lighting().SunTransmittance.x, 1.0f, 0.0f);
     EXPECT_NEAR(clouds.Lighting().SunTransmittance.y, 0.0f, 0.0f);
     EXPECT_NEAR(clouds.Lighting().SunTransmittance.z, 0.5f, 0.0f);
+    EXPECT_NEAR(clouds.Lighting().SunScatteringLuminanceScale, kVolumetricCloudMaxSunScatteringLuminanceScale, 0.0f);
 
     /** 範囲外の雲種と降水成分を含む天候入力。 */
     FVolumetricCloudWeather weather{};
@@ -434,13 +476,20 @@ ACS_TEST(VolumetricCloudSettings,
         0.55f, 1.6f, 1.0f);
     EXPECT_TRUE(lighting_changed != original);
 
+    // 有向散乱の輝度補償も環境cubemapの実際の照明入力である。
+    lighting = clouds.Lighting();
+    lighting.SunScatteringLuminanceScale += 0.5f;
+    clouds.SetLighting(lighting);
+    const u32 compensation_changed = clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f);
+    EXPECT_TRUE(compensation_changed != lighting_changed);
+
     // Sceneが毎frame上書きする大気色も、環境cubemapの実際の照明入力なので追跡する。
     // 再生成頻度は固定frame間隔で別に制限される。
     lighting = clouds.Lighting();
     lighting.SkyZenithColor = FVec3{4.0f, 3.0f, 2.0f};
     lighting.SunTransmittance = FVec3{0.4f, 0.5f, 0.6f};
     clouds.SetLighting(lighting);
-    EXPECT_TRUE(clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f) != lighting_changed);
+    EXPECT_TRUE(clouds.EnvironmentLightingSignature(0.55f, 1.6f, 1.0f) != compensation_changed);
 
     clouds.SetLayer(FVolumetricCloudLayer{1800.0f, 4300.0f, 0.035f});
     EXPECT_TRUE(
@@ -622,9 +671,11 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
     EXPECT_TRUE(Contains(source, "float secondLightTransmittance=exp(-tauL*multiOcclusion);"));
     EXPECT_TRUE(Contains(source, "float thirdLightTransmittance=exp(-tauL*thirdOcclusion);"));
-    EXPECT_TRUE(Contains(source, "float3 singleSunL=sunAtCloud*cloudLightingExtinction.z"));
-    EXPECT_TRUE(Contains(source, "float3 secondSunL=sunAtCloud*cloudLightingExtinction.z"));
-    EXPECT_TRUE(Contains(source, "float3 thirdSunL=sunAtCloud*cloudLightingExtinction.z"));
+    EXPECT_TRUE(Contains(source, "float directionalScatteringScale=cloudLightingExtinction.z"));
+    EXPECT_TRUE(Contains(source, "*cloudLightingGround.w;"));
+    EXPECT_TRUE(Contains(source, "float3 singleSunL=sunAtCloud*directionalScatteringScale"));
+    EXPECT_TRUE(Contains(source, "float3 secondSunL=sunAtCloud*directionalScatteringScale"));
+    EXPECT_TRUE(Contains(source, "float3 thirdSunL=sunAtCloud*directionalScatteringScale"));
     EXPECT_TRUE(Contains(source, "float secondSampleWeight=secondOrderTransmit"));
     EXPECT_TRUE(Contains(source, "float thirdSampleWeight=thirdOrderTransmit"));
     EXPECT_TRUE(Contains(source, "+secondSampleWeight*secondSunL"));
@@ -675,8 +726,9 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     EXPECT_TRUE(Contains(ambientBlock, "0.3333333,0.6666667,saturate(h)"));
     EXPECT_TRUE(Contains(ambientBlock, "skyCol.rgb,cloudSkyZenith.rgb,"));
     EXPECT_TRUE(Contains(ambientBlock, "skyAmbientZenithWeight"));
-    EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility;"));
-    EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility;"));
+    EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility*cloudLightingExtinction.z;"));
+    EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility"));
+    EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.z;"));
     EXPECT_FALSE(Contains(ambientBlock, "tauL"));
     EXPECT_FALSE(Contains(ambientBlock, "sun.y"));
     EXPECT_FALSE(Contains(ambientBlock, "transmit"));

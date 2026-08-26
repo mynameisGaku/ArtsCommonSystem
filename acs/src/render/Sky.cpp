@@ -913,7 +913,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudLightingMulti;
     // x=雲底が空から受ける割合, y=雲頂が受ける割合
     float4 cloudLightingAmbient;
-    // xyz=地面の色 (照り返しに使う)
+    // xyz=地面側から入る放射輝度, w=有限次数で失う太陽散乱輝度の補償倍率
     float4 cloudLightingGround;
     // xyz=太陽光が雲へ届くまでの大気透過率 (低い太陽で赤くなる)
     float4 cloudSunTransmittance;
@@ -2746,14 +2746,18 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float h=macro.height;
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
-            float3 singleSunL=sunAtCloud*cloudLightingExtinction.z
-                             *beer*phase;
-            float3 secondSunL=sunAtCloud*cloudLightingExtinction.z
-                             *secondLightTransmittance*phaseMulti
-                             *inScatterFactor;
-            float3 thirdSunL=sunAtCloud*cloudLightingExtinction.z
-                            *thirdLightTransmittance*phaseMulti
-                            *inScatterFactor;
+            // 有限次数の近似で失う有向光だけを明示的に補う。
+            // 位相とアルベドに混ぜないことで、それぞれの正規化と物性を保つ。
+            float directionalScatteringScale=cloudLightingExtinction.z
+                                               *cloudLightingGround.w;
+            float3 singleSunL=sunAtCloud*directionalScatteringScale
+                              *beer*phase;
+            float3 secondSunL=sunAtCloud*directionalScatteringScale
+                               *secondLightTransmittance*phaseMulti
+                               *inScatterFactor;
+            float3 thirdSunL=sunAtCloud*directionalScatteringScale
+                              *thirdLightTransmittance*phaseMulti
+                              *inScatterFactor;
             // 環境光は現在点の密度だけではなく、影キャッシュで積算した空・地面方向の密度を使う。
             // キャッシュ外や上層雲では局所密度と境界距離の代替式へ滑らかに戻す。
             float ambientDensityScale=max(density*distanceFade,0.0);
@@ -2789,11 +2793,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                              :skyCol.rgb;
             float3 ambL=skyAmbient
                        *lerp(cloudLightingAmbient.x,cloudLightingAmbient.y,h)
-                       *skyAmbientVisibility;
+                       *skyAmbientVisibility*cloudLightingExtinction.z;
             // 地面からの照り返し。雲底ほど強く受ける。0 なら足さない。
             float bottomWeight=1.0-smoothstep(0.15,0.65,h);
             float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
-                          *bottomWeight*groundAmbientVisibility;
+                          *bottomWeight*groundAmbientVisibility
+                          *cloudLightingExtinction.z;
             // 各次数は縮小後の散乱係数と消散係数で同じ区間を解析積分する。
             // 細分数を変えても均質区間の総寄与が変わらず、厚い雲の奥から届く高次光を失わない。
             float intervalOpacity=1.0-intervalTransmittance;
@@ -2815,9 +2820,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             transmit*=intervalTransmittance;
             secondOrderTransmit*=secondIntervalTransmittance;
             thirdOrderTransmit*=thirdIntervalTransmittance;
-            float remainingDirectionalWeight=cloudLightingExtinction.z
-                *phaseMulti*(secondOrderTransmit*secondScatteringToExtinction
-                            +thirdOrderTransmit*thirdScatteringToExtinction);
+            float remainingDirectionalWeight=directionalScatteringScale
+                *phaseMulti*(secondOrderTransmit*secondScatteringToExtinction+thirdOrderTransmit*thirdScatteringToExtinction);
             if(transmit<0.012 && remainingDirectionalWeight<0.012) break;
         }
         t+=fineStep;
@@ -4008,7 +4012,9 @@ bool CloudLayerEqual(const FVolumetricCloudLayer& lhs, const FVolumetricCloudLay
 bool CloudLightingEqual(const FVolumetricCloudLighting& lhs, const FVolumetricCloudLighting& rhs) noexcept
 {
     return lhs.ViewExtinction == rhs.ViewExtinction && lhs.LightExtinction == rhs.LightExtinction &&
-           lhs.SunScatter == rhs.SunScatter && lhs.PowderStrength == rhs.PowderStrength &&
+           lhs.SunScatter == rhs.SunScatter &&
+           lhs.SunScatteringLuminanceScale == rhs.SunScatteringLuminanceScale &&
+           lhs.PowderStrength == rhs.PowderStrength &&
            lhs.PhaseForward == rhs.PhaseForward && lhs.PhaseBackward == rhs.PhaseBackward &&
            lhs.PhaseBlend == rhs.PhaseBlend && lhs.PhaseMin == rhs.PhaseMin && lhs.PhaseMax == rhs.PhaseMax &&
            lhs.MultiScatterContribution == rhs.MultiScatterContribution &&
@@ -4097,6 +4103,7 @@ FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudL
     lighting.LightExtinction = SanitizeCloudScalar(requested.LightExtinction, defaults.LightExtinction, 0.0f,
                                                    kVolumetricCloudMaxExtinction);
     lighting.SunScatter = SanitizeCloudScalar(requested.SunScatter, defaults.SunScatter, 0.0f, 1.0f);
+    lighting.SunScatteringLuminanceScale = SanitizeCloudScalar(requested.SunScatteringLuminanceScale, defaults.SunScatteringLuminanceScale, 0.0f, kVolumetricCloudMaxSunScatteringLuminanceScale);
     lighting.PowderStrength = SanitizeCloudScalar(requested.PowderStrength, defaults.PowderStrength, 0.0f,
                                                   kVolumetricCloudMaxPowderStrength);
     lighting.PhaseForward = SanitizeCloudScalar(requested.PhaseForward, defaults.PhaseForward,
@@ -4145,20 +4152,25 @@ FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 
     const f32 singlePhase = SanitizeCloudScalar(single_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
     /** 二次以降の散乱へ使う有限で有界な位相値。 */
     const f32 multiplePhase = SanitizeCloudScalar(multiple_phase, 0.0f, lighting.PhaseMin, lighting.PhaseMax);
+    /** 単散乱アルベドと有限次数の輝度補償を分離した有向光倍率。 */
+    const f32 directionalScatteringScale =
+        lighting.SunScatter * lighting.SunScatteringLuminanceScale;
     /** 太陽から直接届く一次散乱。 */
-    const f32 singleScattering = Exp(-opticalDepth) * singlePhase;
+    const f32 singleScattering = directionalScatteringScale * Exp(-opticalDepth) * singlePhase;
     /** 二次散乱へ使う散乱係数の縮小率。 */
     const f32 secondContribution = lighting.MultiScatterContribution;
     /** 二次散乱へ使う消散係数の縮小率。 */
     const f32 secondOcclusion = lighting.MultiScatterOcclusion;
     /** 消散を弱めた経路から届く近似二次散乱。 */
-    const f32 secondScattering = secondContribution * Exp(-opticalDepth * secondOcclusion) * multiplePhase;
+    const f32 secondScattering = directionalScatteringScale * secondContribution *
+        Exp(-opticalDepth * secondOcclusion) * multiplePhase;
     /** 三次散乱へ使う散乱係数の縮小率。 */
     const f32 thirdContribution = secondContribution * secondContribution;
     /** 三次散乱へ使う消散係数の縮小率。 */
     const f32 thirdOcclusion = secondOcclusion * secondOcclusion;
     /** さらに内部へ回った経路から届く近似三次散乱。 */
-    const f32 thirdScattering = thirdContribution * Exp(-opticalDepth * thirdOcclusion) * multiplePhase;
+    const f32 thirdScattering = directionalScatteringScale * thirdContribution *
+        Exp(-opticalDepth * thirdOcclusion) * multiplePhase;
     return FVec2{singleScattering, secondScattering + thirdScattering};
 }
 
@@ -5716,6 +5728,7 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     add_float(m_Lighting.ViewExtinction);
     add_float(m_Lighting.LightExtinction);
     add_float(m_Lighting.SunScatter);
+    add_float(m_Lighting.SunScatteringLuminanceScale);
     add_float(m_Lighting.PowderStrength);
     add_float(m_Lighting.PhaseForward);
     add_float(m_Lighting.PhaseBackward);
@@ -6195,7 +6208,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         m_ReferenceMode ? 1.0f : 0.0f};
     cb.cloudLightingGround = FVec4{
         m_Lighting.GroundColor.x, m_Lighting.GroundColor.y,
-        m_Lighting.GroundColor.z, 0.0f};
+        m_Lighting.GroundColor.z,
+        m_Lighting.SunScatteringLuminanceScale};
     cb.cloudSunTransmittance = FVec4{
         m_Lighting.SunTransmittance.x, m_Lighting.SunTransmittance.y,
         m_Lighting.SunTransmittance.z, 0.0f};
@@ -6641,7 +6655,7 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         m_Lighting.GroundColor.x,
         m_Lighting.GroundColor.y,
         m_Lighting.GroundColor.z,
-        0.0f};
+        m_Lighting.SunScatteringLuminanceScale};
     cb.cloudSunTransmittance = FVec4{
         m_Lighting.SunTransmittance.x,
         m_Lighting.SunTransmittance.y,

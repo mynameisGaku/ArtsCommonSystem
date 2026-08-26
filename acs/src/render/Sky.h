@@ -391,7 +391,8 @@ struct FVolumetricCloudRange {
  * @details
  * 消散 (extinction) を見た目調整の摘みとして使いすぎないこと。同じ雲なのに見る方向と
  * 光の方向で消散が違うと、カメラからはすぐ不透明なのに太陽光だけ内部へ届く、という
- * «気体でない» 見え方になる。明るさは `SunScatter` や散乱側で調整する。
+ * «気体でない» 見え方になる。近似で失う太陽光の明るさは
+ * `SunScatteringLuminanceScale` で明示的に補う。
  */
 struct FVolumetricCloudLighting {
     /**
@@ -409,14 +410,14 @@ struct FVolumetricCloudLighting {
     f32 LightExtinction = 5.0f;
 
     /**
-     * 太陽光のうち散乱に回る割合（単散乱アルベド）。
+     * 消散した光のうち散乱に回る割合（単散乱アルベド）。
      *
      * @details
      * 視線側の区間不透明度は消散係数を含むため、ここへ見た目調整用の小さな倍率を置くと
-     * 雲だけが光を吸収する灰色の媒質になる。可視光の水滴雲として1に近い値を既定にし、
-     * 太陽付近の明るさは正規化した位相、太陽の放射照度、露出で制御する。
+     * 雲だけが光を吸収する灰色の媒質になる。可視光の水滴雲はほぼ1なので、太陽、空、
+     * 地表から入る全散乱光に同じ値を適用する。公開名は互換性のため維持する。
      */
-    f32 SunScatter = 0.92f;
+    f32 SunScatter = 1.0f;
 
     /**
      * 周囲に高次散乱の光源がある確率を混ぜる割合。
@@ -470,6 +471,16 @@ struct FVolumetricCloudLighting {
     f32 MultiScatterOcclusion = 0.28f;
 
     /**
+     * 有限次数の近似で失う太陽散乱輝度を作品側で補う倍率。
+     *
+     * @details 補償なしは1。近似誤差は密度、消散、散乱次数、視線で変わるため、物理的な根拠のない
+     * 一律補償を既定にしない。位相関数やアルベドへ混ぜず、正規化した位相と三次までの近似を
+     * 評価した後の有向光源だけへ適用する。そのため位相の球面積分は1のままで、吸収と散乱の
+     * 割合も変えない。後続の16バイト型の手前にあった余白を使い、公開配置の大きさを変えない。
+     */
+    f32 SunScatteringLuminanceScale = 1.0f;
+
+    /**
      * 天頂の空の色 (放射輝度)。
      *
      * @details
@@ -515,7 +526,7 @@ struct FVolumetricCloudLighting {
      */
     FVec3 SunTransmittance{1.0f, 1.0f, 1.0f};
 
-    /** 照り返しの色。地面や海の色を入れる。 */
+    /** 地面側から雲へ入る放射輝度。地面や海を含む下半球の環境光を入れる。 */
     FVec3 GroundColor{0.20f, 0.19f, 0.21f};
 };
 
@@ -633,6 +644,9 @@ inline constexpr f32 kVolumetricCloudMaxFadeFraction = 0.95f;
 /** 視線・光レイへ適用する消散係数の上限。 */
 inline constexpr f32 kVolumetricCloudMaxExtinction = 64.0f;
 
+/** 太陽散乱輝度の補償倍率をHDRの有限値に保つ上限。 */
+inline constexpr f32 kVolumetricCloudMaxSunScatteringLuminanceScale = 16.0f;
+
 /** 周囲散乱源の確率を高次散乱へ混ぜる割合の上限。 */
 inline constexpr f32 kVolumetricCloudMaxPowderStrength = 1.0f;
 
@@ -678,7 +692,8 @@ FVolumetricCloudLighting SanitizeVolumetricCloudLighting(const FVolumetricCloudL
  * @param single_phase 一次散乱の位相値。照明設定の位相範囲へ収める。
  * @param multiple_phase 二次・三次散乱の位相値。照明設定の位相範囲へ収める。
  * @param lighting 正規化前でもよい照明設定。
- * @return x が一次散乱、y が二次と三次の合計。全散乱は x+y。
+ * @return x が一次散乱、y が二次と三次の合計。単散乱アルベドと
+ * 太陽散乱輝度の補償倍率を含み、全散乱は x+y。
  */
 FVec2 EvaluateVolumetricCloudDirectionalScattering(f32 light_optical_depth, f32 single_phase, f32 multiple_phase, const FVolumetricCloudLighting& lighting) noexcept;
 

@@ -7053,6 +7053,18 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
     EXPECT_TRUE(Contains(compactLegacy, "m_Ibl.DrawEnvSkyboxCameraRelative("));
 }
 
+ACS_TEST(VolumetricClouds, EditorAndCppAdaptersUploadTheCurrentGroundLighting)
+{
+    /** Editor経路の雲照明更新を含む実装。 */
+    const std::string editor = CompactShader(ReadEditorAbiSource());
+    /** 通常C++経路の雲照明更新を含む実装。 */
+    const std::string legacy = CompactShader(ReadLegacyScene3DAdapterSource());
+    EXPECT_TRUE(!editor.empty());
+    EXPECT_TRUE(!legacy.empty());
+    EXPECT_TRUE(Contains(editor, "lighting.SkyZenithColor=host.sky_zenith;lighting.GroundColor=host.sky_ground;host.vclouds3d.SetLighting(lighting);"));
+    EXPECT_TRUE(Contains(legacy, "lighting.SkyZenithColor=m_Sky.ZenithColor();lighting.GroundColor=m_Sky.GroundColor();m_Clouds.SetLighting(lighting);"));
+}
+
 ACS_TEST(VolumetricClouds,
          GroundHorizonUsesProjectionAwareAnalyticPixelCoverage) {
     const std::string source = ReadSkySource();
@@ -7533,13 +7545,10 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatsecondLightTransmittance=exp(-tauL*multiOcclusion);"
         "floatthirdLightTransmittance=exp(-tauL*thirdOcclusion);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float3singleSunL=sunAtCloud*cloudLightingExtinction.z*beer*phase;"
-        "float3secondSunL=sunAtCloud*cloudLightingExtinction.z*"
-        "secondLightTransmittance*phaseMulti*inScatterFactor;"
-        "float3thirdSunL=sunAtCloud*cloudLightingExtinction.z*"
-        "thirdLightTransmittance*phaseMulti*inScatterFactor;"));
+    EXPECT_TRUE(Contains(shader, "floatdirectionalScatteringScale=cloudLightingExtinction.z*cloudLightingGround.w;float3singleSunL=sunAtCloud*directionalScatteringScale*beer*phase;float3secondSunL=sunAtCloud*directionalScatteringScale*secondLightTransmittance*phaseMulti*inScatterFactor;float3thirdSunL=sunAtCloud*directionalScatteringScale*thirdLightTransmittance*phaseMulti*inScatterFactor;"));
+    EXPECT_TRUE(Contains(shader, "floatskyAmbientZenithWeight=lerp("));
+    EXPECT_TRUE(Contains(shader, "*skyAmbientVisibility*cloudLightingExtinction.z;"));
+    EXPECT_TRUE(Contains(shader, "*bottomWeight*groundAmbientVisibility*cloudLightingExtinction.z;"));
     EXPECT_FALSE(Contains(shader, "topSurfaceScatter"));
     EXPECT_FALSE(Contains(shader, "singleScatter"));
     EXPECT_FALSE(Contains(shader, "multipleScatter"));
@@ -7568,9 +7577,8 @@ ACS_TEST(VolumetricClouds,
         "transmit*=intervalTransmittance;"
         "secondOrderTransmit*=secondIntervalTransmittance;"
         "thirdOrderTransmit*=thirdIntervalTransmittance;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "if(transmit<0.012&&remainingDirectionalWeight<0.012)break;"));
+    EXPECT_TRUE(Contains(shader, "if(transmit<0.012&&remainingDirectionalWeight<0.012)break;"));
+    EXPECT_TRUE(Contains(shader, "floatremainingDirectionalWeight=directionalScatteringScale*phaseMulti*(secondOrderTransmit*secondScatteringToExtinction+thirdOrderTransmit*thirdScatteringToExtinction);"));
 
     // 縮小係数を適用した均質層は、刻み数に依存せず解析解へ一致する。
     constexpr f32 kContribution = 0.28f;

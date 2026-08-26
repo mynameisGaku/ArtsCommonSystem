@@ -393,6 +393,8 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     const FSettingEntry* ambient_at_base = settings.Find("Rendering", "CloudAmbientAtBase");
     const FSettingEntry* ambient_at_top = settings.Find("Rendering", "CloudAmbientAtTop");
     const FSettingEntry* ground_contribution = settings.Find("Rendering", "CloudGroundContribution");
+    const FSettingEntry* sun_scattering_luminance_scale =
+        settings.Find("Rendering", "CloudSunScatteringLuminanceScale");
     const FSettingEntry* render_scale = settings.Find("Rendering", "CloudRenderScale");
     const FSettingEntry* reference_mode = settings.Find("Rendering", "CloudReferenceMode");
     EXPECT_TRUE(base != nullptr && base->builtin);
@@ -412,10 +414,10 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_TRUE(ambient_at_base != nullptr && ambient_at_base->builtin);
     EXPECT_TRUE(ambient_at_top != nullptr && ambient_at_top->builtin);
     EXPECT_TRUE(ground_contribution != nullptr && ground_contribution->builtin);
+    EXPECT_TRUE(sun_scattering_luminance_scale != nullptr && sun_scattering_luminance_scale->builtin);
     EXPECT_TRUE(render_scale != nullptr && render_scale->builtin);
     EXPECT_TRUE(reference_mode != nullptr && reference_mode->builtin);
-    EXPECT_TRUE(render_scale != nullptr && render_scale->desc != nullptr &&
-                std::strstr(render_scale->desc, "0.5〜4.0") != nullptr);
+    EXPECT_TRUE(render_scale != nullptr && render_scale->desc != nullptr && std::strstr(render_scale->desc, "0.5〜4.0") != nullptr);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudCoverage", 0.0f), 0.42f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 1500.0f, 1e-4f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 4000.0f, 1e-4f);
@@ -434,6 +436,7 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudAmbientAtBase", 0.0f), 0.26f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudAmbientAtTop", 0.0f), 0.52f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudGroundContribution", 0.0f), 0.15f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudSunScatteringLuminanceScale", 0.0f), 1.0f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), -1.0f, 1e-5f);
     EXPECT_FALSE(settings.GetBool("Rendering", "CloudReferenceMode", true));
 
@@ -456,6 +459,7 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
         "CloudAmbientAtBase=0.31\n"
         "CloudAmbientAtTop=0.64\n"
         "CloudGroundContribution=0.27\n"
+        "CloudSunScatteringLuminanceScale=3.5\n"
         "CloudRenderScale=4.0\n"
         "CloudReferenceMode=true\n";
     const FProjectSettingsLoadResult loaded =
@@ -478,6 +482,7 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudAmbientAtBase", 0.0f), 0.31f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudAmbientAtTop", 0.0f), 0.64f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudGroundContribution", 0.0f), 0.27f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudSunScatteringLuminanceScale", 0.0f), 3.5f, 1e-5f);
     EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), 4.0f, 1e-5f);
     EXPECT_TRUE(settings.GetBool("Rendering", "CloudReferenceMode", false));
 }
