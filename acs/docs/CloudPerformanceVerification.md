@@ -2050,7 +2050,57 @@ Debug単体試験`1524 / 1524`とRelease単体試験`1520 / 1520`、雲性能ハ
 `f1ca4985a84ffa29d101b7bdaae9d31d85b7cf9a`も同じ配布先を`AcsDistRoot`へ明示し、両構成の
 全体ビルドに合格した。Frameworkのソース作業ツリーは変更していない。
 
-## Quality-preserving optimization rules
+## 密度生成・高さ座標・空間棄却の再監査
+
+既存の密度式を、見た目や既存試験ではなく一次資料の式と数値分布へ照合した。Nubis 2017の
+Perlin-Worley生成式は`remap(perlin, 1 - worley, 1, 0, 1)`、低周波形状と侵食形状の合成は
+`remap(low_freq_noise, high_freq_noise, 1, 0, 1)`である。ACSの`worley`は最近接距離を反転して返すため、
+`1 - worleyFull`を最初の下限に使う現在の向きは意図どおりである。Hillaireの公開生成器には
+`remap(perlin, 0, 1, worleyFbm, 1)`という別案もあり、同ソース自身が資料本文と画像の差、調整係数の
+多さを明記している。名称だけを根拠に二つの式を入れ替えない。
+
+Nubis Evolved 2022の密度式は、まず`dimensional_profile = vertical_profile * cloud_coverage`を作り、
+次に`cloud_density = saturate(cloud_noise_composite - (1 - dimensional_profile))`を一度だけ適用する。
+旧ACSは、雲量で基本雑音のしきい値を動かした後に高さ分布と被覆を再適用しており、低い雲量ほど
+基本雑音の上端だけが残る二重適用になっていた。現在は、基本雑音を固定範囲で正規化し、縦分布と
+2D被覆の積を一度だけ差し引く。完成密度が正になり得る生雑音下限は、その式を逆算した
+`upper + (lower - upper) * dimensional_profile`で求める。
+
+固定範囲は見た目合わせではなく、128立方の実シェーダー生成式と三線形採取をCPUで再現して確認した。
+乱数種`20260826`、連続座標20万点、三つの追加形状領域を通した分布は、1百分位`0.259342`、
+中央値`0.347588`、99百分位`0.527812`だった。使用範囲`0.25～0.54`は両端を少し外側へ残す。
+同じ監査で次の不整合も修正した。
+
+- 未解像の追加形状を「侵食なし」へ戻すと遠距離ほど平均密度が増えるため、実測した侵食信号平均
+  `0.232`へ収束させた。
+- 3D詳細座標へ接平面の世界Yを使うと、同じ球殻高度でも原点から100 km離れた位置で約786 mの
+  位相差が混入する。球殻高度を使い、主形状の軸外しも長さを保つ直交回転へ直した。
+- 太陽光路の別地点へ視線地点の天候、局所雲頂、渦を流用すると、雲縁を越えて同じ密度柱が延びる。
+  近距離・遠距離とも採取地点ごとに密度条件を再構成する。
+- 全球層上端を全柱の雲頂にせず、局所雲底と局所雲頂の間だけを単調に0～1へ写す。積乱雲本体、肩、
+  かなとこを独立した山の最大値にしていた中層の谷も、連続した本体とかなとこへ直した。
+- 空間棄却は形状の固定値ではなく、高度、降水、作者密度、上層密度を含む完成密度上限が
+  `0.0015`以下の場合だけ行う。後段の倍率で可視になる薄い縁を先に捨てない。
+
+Debug単体試験は`1524 / 1524`、Release単体試験は`1520 / 1520`に合格した。両構成のACS全体、
+Editor ABI、通常C++検証実行ファイルと反射DLLを再生成し、管理側Editorも両構成で警告0・エラー0だった。
+配布工程の自己試験後、Debug・Releaseを含む45ファイルを既定の隔離配布先へ配置した。検査表
+`acs-distribution.sha256`のSHA-256は`EDE7E729717715BD2B80E4F30097E2CB0B7FC51AAD10CEA88764D75A3BB60BF2`、
+`acs.h`は`C6917A49B747A92F5AD76916DAB3FE1024FA4D07FECB5C7AFA4D06E7880BEE52`である。配布ツリー外の
+通常C++利用者は両構成でコンパイル、リンク、実行に合格した。ACS Framework正本
+`f1ca4985a84ffa29d101b7bdaae9d31d85b7cf9a`も同じ配布先を`AcsDistRoot`へ明示し、ソースを変更せず
+Debug・Releaseの全体ビルドに合格した。
+
+ただし等倍の通常C++検証画面では、地上の一部が煙状、雲中の包囲感が不足、上空の雲頂が青灰色で
+白さと厚みに乏しい。数式と経路の不整合を直した区切りであり、視覚品質の合格ではない。次は、
+正規化位相へ渡す太陽照度、周囲光の彩度、多重散乱の既定値を別々に監査し、地上・雲中・上空の
+三視点で採否を決める。
+
+根拠は[Nubis 2017講義資料](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf)、
+[Nubis Evolved 2022講義資料](https://advances.realtimerendering.com/s2022/SIGGRAPH2022-Advances-NubisEvolved-NoVideos.pdf)、
+および[Hillaireの体積雑音生成器](https://github.com/sebh/TileableVolumeNoise/blob/master/main.cpp)である。
+
+## 品質を保つ最適化規則
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,
 8 light probes, sixteen-phase TSR, world-space density coordinates, and every
@@ -2058,12 +2108,11 @@ accepted probe position fixed. A candidate is retained only when the same
 provenance-locked horizon/zenith/above harness shows a repeatable GPU improvement;
 FXC instruction count is diagnostic evidence, not acceptance by itself.
 
-The view marcher keeps its `shape <= 0.006` empty-space consumer contract.
-Progressive four-lobe and three-lobe shape rejection uses the exact maximum
-weight of all unvisited lobes, so those existing skips cannot create a false
-negative. Additional pre-fetch bounds are not accepted from algebra alone:
-they must also beat the baseline on horizon, zenith, and above captures without
-introducing enough branch divergence to erase the saved texture work.
+視線レイは、包絡形状へ後段の高度、降水、作者密度、上層密度を全て掛けた完成密度上限が
+`0.0015`以下の場合だけ空領域として飛ばす。形状だけの固定しきい値へ戻してはならない。
+各追加形状領域の前に行う棄却は、未採取領域が形状を増やさないことを式で保証できる場合だけ使う。
+新しい事前棄却は代数上の反例がないことに加え、同一の地上・天頂・上空入力でGPU時間を短縮し、
+分岐発散によって採取削減を相殺しない場合だけ採用する。
 
 最初の3個の光標本は採取間隔で侵食帯域を制限する。残り5個も位置、高さ分布、しきい値を変えず、影キャッシュが
 利用できない場所では同じ式で正確に積分する。利用できる場所だけ、現在または直近3フレーム以内に
