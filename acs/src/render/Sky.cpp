@@ -1980,13 +1980,11 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
             macro.columnSpan,macro.upperBand>0.5);
         float envelopeDensity=cloudDensityFromDimensionalProfile(
             envelopeBaseDensity,dimensionalProfile);
-        if(envelopeDensity>0.001){
-            // 高さ形状と被覆を含む実際の粗密度を先に確定し、その表面を侵食する。
-            // 基本密度だけを先に侵食すると、値1の雲芯では細部が消えて滑らかな高さ面が残る。
-            float densityScale=cloudHeightPrecipitationDensityScale(h,macro.weather.b);
-            float coarseDensity=saturate(
-                cloudDensityFromDimensionalProfile(
-                    baseDensity,dimensionalProfile)*densityScale);
+        float densityScale=cloudHeightPrecipitationDensityScale(h,macro.weather.b);
+        if(envelopeDensity*densityScale>0.001){
+            // 縦分布と被覆を含む幾何密度を先に確定し、その表面を房変形と侵食で整える。
+            // 高さ・降水の光学密度倍率を先に掛けて1へ飽和させると、積乱雲表面の侵食が消える。
+            float coarseDensity=cloudDensityFromDimensionalProfile(baseDensity,dimensionalProfile);
             float d=coarseDensity;
             billowVisibility=saturate(billowVisibility);
             middleBillowVisibility=saturate(middleBillowVisibility);
@@ -2009,9 +2007,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 billowedBaseDensity=cloudBaseEdgeDensity(
                     billowedBaseDensity,h,macro.weather.g,macro.weather.b,
                     macro.columnSpan,macro.upperBand>0.5);
-                float billowedCoarseDensity=saturate(
-                    cloudDensityFromDimensionalProfile(
-                        billowedBaseDensity,dimensionalProfile)*densityScale);
+                float billowedCoarseDensity=cloudDensityFromDimensionalProfile(billowedBaseDensity,dimensionalProfile);
                 float billowedDensity=lerp(
                     coarseDensity,billowedCoarseDensity,billowVisibility);
                 float detailNear=ndA.g*0.62+ndB.g*0.38;
@@ -2023,7 +2019,8 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                     billowedDensity,detail*erosion,1.0,0.0,1.0);
                 d=lerp(billowedDensity,eroded,erosionVisibility);
             }
-            densityResult=saturate(d);
+            // 光学密度の補正は形状処理の後へ掛ける。詳細を無効にした経路は従来値と一致する。
+            densityResult=saturate(d*densityScale);
         }
     }
     return densityResult;

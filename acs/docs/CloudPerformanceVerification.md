@@ -2311,3 +2311,15 @@ PowerShell 5.1 reads the exit code from the same process object that performed
 the launch. Standard output and error are copied concurrently to
 create-new-only log files before waiting, preventing pipe deadlock and
 preserving the no-overwrite guarantee.
+
+## 積乱雲表面を消していた密度倍率の処理順
+
+2026-08-26の密度再監査では、高さと降水による光学密度倍率を房変形・侵食より先に掛け、結果を0～1へ
+収めていた。倍率は雲底かつ降水最大で`1.10 * 1.28 = 1.408`になる。たとえば縦分布と被覆を適用した
+幾何密度`0.84`へ倍率`1.20`を先に掛けると`1.0`へ飽和し、強い侵食標本の下限`1.0 * 0.24 = 0.24`で再配置しても
+密度は`1.0`のまま変化しない。積乱雲ほど表面の房と谷が消え、雲頂を滑らかな白い面へ戻す順序だった。
+
+現在は、基本形状へ縦分布と被覆を一度だけ適用し、房変形と侵食を終えた幾何密度へ最後に光学密度倍率を
+掛ける。同じ例では侵食後の幾何密度が約`0.789`、倍率適用後が約`0.947`となり、表面差を保つ。
+詳細を無効にした場合は`clamp(density * scale, 0, 1)`が従来と同じなので、雲量と全体の光学厚を変更しない。
+内側の包絡棄却も`envelopeDensity * densityScale`で判定し、倍率適用後に可視となる薄い縁を捨てない。

@@ -3123,16 +3123,10 @@ ACS_TEST(VolumetricClouds,
     const std::size_t billow = shader.find(
         "floatbillowOffset=cloudBillowOffset("
         "ndA,ndB,h,middleBillowVisibility);", base);
-    const std::size_t billowedCoarse = shader.find(
-        "floatbillowedCoarseDensity=saturate("
-        "cloudDensityFromDimensionalProfile("
-        "billowedBaseDensity,dimensionalProfile)*densityScale);",
-        billow);
-    const std::size_t coarse = shader.find(
-        "floatcoarseDensity=saturate("
-        "cloudDensityFromDimensionalProfile("
-        "baseDensity,dimensionalProfile)*densityScale);",
-        base);
+    const std::size_t billowedCoarse = shader.find("floatbillowedCoarseDensity=cloudDensityFromDimensionalProfile(" "billowedBaseDensity,dimensionalProfile);", billow);
+    const std::size_t coarse = shader.find("floatcoarseDensity=cloudDensityFromDimensionalProfile(" "baseDensity,dimensionalProfile);", base);
+    const std::size_t densityScale = shader.find("floatdensityScale=cloudHeightPrecipitationDensityScale(" "h,macro.weather.b);", base);
+    const std::size_t conservativeEnvelope = shader.find("if(envelopeDensity*densityScale>0.001){", densityScale);
     const std::size_t billowedDensity = shader.find(
         "floatbillowedDensity=lerp("
         "coarseDensity,billowedCoarseDensity,billowVisibility);",
@@ -3140,20 +3134,23 @@ ACS_TEST(VolumetricClouds,
     const std::size_t erosion = shader.find(
         "remapc(billowedDensity,detail*erosion,1.0,0.0,1.0)",
         billowedDensity);
-    const std::size_t finalDensity = shader.find(
-        "densityResult=saturate(d);", erosion);
+    const std::size_t finalDensity = shader.find("densityResult=saturate(d*densityScale);", erosion);
     EXPECT_TRUE(profile != std::string::npos);
     EXPECT_TRUE(dimensionalProfileStage != std::string::npos);
     EXPECT_TRUE(base != std::string::npos);
     EXPECT_TRUE(billow != std::string::npos);
     EXPECT_TRUE(billowedCoarse != std::string::npos);
     EXPECT_TRUE(coarse != std::string::npos);
+    EXPECT_TRUE(densityScale != std::string::npos);
+    EXPECT_TRUE(conservativeEnvelope != std::string::npos);
     EXPECT_TRUE(billowedDensity != std::string::npos);
     EXPECT_TRUE(erosion != std::string::npos);
     EXPECT_TRUE(finalDensity != std::string::npos);
     EXPECT_TRUE(profile < dimensionalProfileStage);
     EXPECT_TRUE(dimensionalProfileStage < base);
-    EXPECT_TRUE(base < coarse);
+    EXPECT_TRUE(base < densityScale);
+    EXPECT_TRUE(densityScale < conservativeEnvelope);
+    EXPECT_TRUE(conservativeEnvelope < coarse);
     EXPECT_TRUE(coarse < billow);
     EXPECT_TRUE(billow < billowedCoarse);
     EXPECT_TRUE(billowedCoarse < billowedDensity);
@@ -3162,6 +3159,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         shader,
         "remapc(baseDensity,detail*erosion,1.0,0.0,1.0)"));
+    EXPECT_FALSE(Contains(shader, "baseDensity,dimensionalProfile)*densityScale"));
+    EXPECT_FALSE(Contains(shader, "billowedBaseDensity,dimensionalProfile)*densityScale"));
     EXPECT_FALSE(Contains(shader, "d*weatherMask*macro.heightProfile"));
 
     // 固定範囲で正規化した雑音へ縦分布と被覆を一度だけ適用し、その実表面を侵食する。
@@ -3186,6 +3185,20 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(coarseDensity, directDimensionalDensity, 1.0e-6f);
     EXPECT_TRUE(correctedDensity > 0.0f);
     EXPECT_TRUE(correctedDensity < coarseDensity);
+
+    // 積乱雲の光学密度倍率は形状侵食の後へ掛ける。先に掛ける旧順序では
+    // 密度が1へ飽和し、同じ表面標本でも侵食結果が無効になっていた。
+    constexpr f32 kStormProfile = 0.84f;
+    constexpr f32 kStormDensityScale = 1.20f;
+    constexpr f32 kStormDetail = 1.0f;
+    const f32 oldSaturatedDensity = SaturateForTest(kStormProfile * kStormDensityScale);
+    const f32 oldErodedDensity = RemapUnitRangeForTest(oldSaturatedDensity, kStormDetail * kErosion, 1.0f);
+    const f32 geometricErodedDensity = RemapUnitRangeForTest(kStormProfile, kStormDetail * kErosion, 1.0f);
+    const f32 correctedStormDensity = SaturateForTest(geometricErodedDensity * kStormDensityScale);
+    EXPECT_NEAR(oldSaturatedDensity, 1.0f, 0.0f);
+    EXPECT_NEAR(oldErodedDensity, 1.0f, 0.0f);
+    EXPECT_TRUE(correctedStormDensity < oldErodedDensity - 0.02f);
+    EXPECT_TRUE(correctedStormDensity > 0.90f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -3225,10 +3238,8 @@ ACS_TEST(VolumetricClouds,
         "floatdimensionalProfile=cloudDimensionalProfile("
         "macro.heightProfile,weatherMask);"));
     EXPECT_TRUE(Contains(shader, "floatdensityScale=cloudHeightPrecipitationDensityScale(" "h,macro.weather.b);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "cloudDensityFromDimensionalProfile("
-        "baseDensity,dimensionalProfile)*densityScale"));
+    EXPECT_TRUE(Contains(shader, "densityResult=saturate(d*densityScale);"));
+    EXPECT_FALSE(Contains(shader, "baseDensity,dimensionalProfile)*densityScale"));
     EXPECT_FALSE(Contains(shader, "cloudWeatherShapeErosion("));
     EXPECT_FALSE(Contains(shader, "cloudWeatheredBaseNoise("));
     EXPECT_FALSE(Contains(shader, "baseDensity*weatherMask"));
@@ -3285,11 +3296,8 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatenvelopeBaseDensity=cloudNormalizedBaseDensity("
         "macro.baseNoise+cloudBillowMaximumOffset(h));"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatenvelopeDensity=cloudDensityFromDimensionalProfile("
-        "envelopeBaseDensity,dimensionalProfile);"
-        "if(envelopeDensity>0.001){"));
+    EXPECT_TRUE(Contains(shader, "floatenvelopeDensity=cloudDensityFromDimensionalProfile(" "envelopeBaseDensity,dimensionalProfile);" "floatdensityScale=cloudHeightPrecipitationDensityScale(" "h,macro.weather.b);" "if(envelopeDensity*densityScale>0.001){"));
+    EXPECT_FALSE(Contains(shader, "if(envelopeDensity>0.001){"));
     EXPECT_TRUE(Contains(
         shader,
         "floatbillowOffset=cloudBillowOffset("
@@ -3301,6 +3309,12 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(baseLimit, 0.018f, 1.0e-6f);
     EXPECT_NEAR(topLimit, 0.130f, 1.0e-6f);
     EXPECT_TRUE(topLimit > baseLimit);
+
+    // 後段の最大光学密度倍率で可視になる薄い房を、内側の棄却で落とさない。
+    constexpr f32 kThinEnvelopeDensity = 0.0008f;
+    constexpr f32 kMaximumDensityScale = 1.10f * 1.28f;
+    EXPECT_TRUE(kThinEnvelopeDensity < 0.001f);
+    EXPECT_TRUE(kThinEnvelopeDensity * kMaximumDensityScale > 0.001f);
 
     const f32 expandedOffset = CloudBillowOffsetForTest(FVec2{1.0f, 1.0f}, FVec2{0.0f, 0.0f}, 1.0f, 1.0f);
     const f32 erodedOffset = CloudBillowOffsetForTest(FVec2{0.0f, 0.0f}, FVec2{1.0f, 1.0f}, 1.0f, 1.0f);
