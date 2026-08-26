@@ -90,12 +90,12 @@ DensityFrameTermsHlslReferenceForTest(
         windOffset * 0.9284767f,
         windOffset * 0.3713907f};
     const f32 authoredShapeScale =
-        layer.horizontal_noise_scale * 0.0035f;
+        layer.horizontal_noise_scale * 0.0016f;
     out.shape_scale =
-        authoredShapeScale < 0.00012f
-            ? 0.00012f
-            : (authoredShapeScale > 0.00045f
-                   ? 0.00045f
+        authoredShapeScale < 0.00004f
+            ? 0.00004f
+            : (authoredShapeScale > 0.00020f
+                   ? 0.00020f
                    : authoredShapeScale);
     const f32 layerHeight =
         (layer.top_height - layer.base_height) > 1.0e-4f
@@ -115,7 +115,7 @@ f32 CloudShapeVerticalSpanForTest(
 
 // 雲層ごとの低周波な高さ変化率をシェーダーと同じ値で検査する。
 f32 CloudShapeVerticalVariationForTest(bool upperBand) noexcept {
-    return upperBand ? 0.78f : 1.45f;
+    return upperBand ? 0.78f : 6.00f;
 }
 
 FVolumetricCloudLightBasis LightBasisHlslReferenceForTest(
@@ -1879,7 +1879,7 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
 }
 
 ACS_TEST(VolumetricClouds, BaseShapeLodRejectsUnresolvableFrequencies) {
-    constexpr f32 kShapeScale = 0.035f * 0.0035f;
+    constexpr f32 kShapeScale = 0.035f * 0.0016f;
     constexpr f32 kDomainScales[]{1.0f, 1.83f, 3.17f, 4.73f};
     f32 previousFine[4]{1.0f, 1.0f, 1.0f, 1.0f};
     f32 previousDomain[4]{1.0f, 1.0f, 1.0f, 1.0f};
@@ -1910,9 +1910,9 @@ ACS_TEST(VolumetricClouds, BaseShapeLodRejectsUnresolvableFrequencies) {
         0.0f, 0.0f);
     EXPECT_TRUE(
         CloudShapeFrequencyVisibilityForTest(
-            80.0f, kShapeScale, 1.83f, 12.0f) >
+            150.0f, kShapeScale, 1.83f, 12.0f) >
         CloudShapeFrequencyVisibilityForTest(
-            80.0f, kShapeScale, 3.17f, 12.0f));
+            150.0f, kShapeScale, 3.17f, 12.0f));
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
@@ -2294,7 +2294,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(noiseShader, "floatwarpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);"));
     EXPECT_TRUE(Contains(noiseShader, "float3warpedUvw=uvw+domainWarp;"));
     EXPECT_TRUE(Contains(noiseShader, "floatperlin2=gnoise(warpedUvw*2.0,2.0);"));
-    EXPECT_TRUE(Contains(noiseShader, "floatperlinFull=perlin2*0.64+perlin4*0.26+perlin8*0.08+perlin16*0.02;"));
+    EXPECT_TRUE(Contains(noiseShader, "floatperlinFull=perlin2*0.54+perlin4*0.32+perlin8*0.11+perlin16*0.03;"));
     EXPECT_TRUE(Contains(noiseShader, "floatwa=worley(warpedUvw,4.0);"));
     EXPECT_TRUE(Contains(noiseShader, "floatwb=worley(warpedUvw,8.0);"));
     EXPECT_TRUE(Contains(noiseShader, "floatwc=worley(warpedUvw,16.0);"));
@@ -2309,31 +2309,31 @@ ACS_TEST(VolumetricClouds,
         "fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.145;}"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatbroadMass=remap(perlinFull,0.46,0.62,0.0,1.0);"));
+        "floatbroadMass=remap(perlinFull,0.40,0.72,0.0,1.0);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatlobeMass=smoothstep(0.26,0.72,wa);"));
+        "floatlobeMass=smoothstep(0.35,0.75,wa);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatcellularMass=smoothstep(0.30,0.80,worleyFull);"));
+        "floatcellularMass=smoothstep(0.42,0.82,worleyFull);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "returnbroadMass*lerp(0.68,1.08,lobeMass)*lerp(0.90,1.02,cellularMass);"));
+        "returnbroadMass*lerp(0.52,1.08,lobeMass)*lerp(0.78,1.04,cellularMass);"));
     EXPECT_TRUE(Contains(
         noiseShader,
         "floatfullShape=fullShapeColumnAt(uvw);"));
     EXPECT_FALSE(Contains(noiseShader, "worleyFull-1.0"));
     const f32 broadMassForTest =
-        SaturateForTest((0.54f - 0.46f) / (0.62f - 0.46f));
-    const f32 cellularMassForTest = SmoothStepForTest(0.30f, 0.80f, 0.55f);
-    const f32 lobeMassForTest = SmoothStepForTest(0.26f, 0.72f, 0.55f);
+        SaturateForTest((0.54f - 0.40f) / (0.72f - 0.40f));
+    const f32 cellularMassForTest = SmoothStepForTest(0.42f, 0.82f, 0.55f);
+    const f32 lobeMassForTest = SmoothStepForTest(0.35f, 0.75f, 0.55f);
     const f32 composedShapeForTest =
-        broadMassForTest * (0.68f + (1.08f - 0.68f) * lobeMassForTest) *
-        (0.90f + (1.02f - 0.90f) * cellularMassForTest);
-    EXPECT_NEAR(broadMassForTest, 0.50f, 1.0e-6f);
-    EXPECT_NEAR(lobeMassForTest, 0.6912139f, 1.0e-6f);
-    EXPECT_NEAR(cellularMassForTest, 0.50f, 1.0e-6f);
-    EXPECT_NEAR(composedShapeForTest, 0.4591131f, 1.0e-6f);
+        broadMassForTest * (0.52f + (1.08f - 0.52f) * lobeMassForTest) *
+        (0.78f + (1.04f - 0.78f) * cellularMassForTest);
+    EXPECT_NEAR(broadMassForTest, 0.4375f, 1.0e-6f);
+    EXPECT_NEAR(lobeMassForTest, 0.5000000f, 1.0e-6f);
+    EXPECT_NEAR(cellularMassForTest, 0.2482188f, 1.0e-6f);
+    EXPECT_NEAR(composedShapeForTest, 0.2955879f, 1.0e-6f);
     EXPECT_TRUE(Contains(noiseShader, "floatbaseCloud=saturate(fullShape);"));
     EXPECT_TRUE(Contains(noiseShader, "floatbillowCloud=perlin2*0.70+perlin4*0.30;"));
     EXPECT_TRUE(Contains(noiseShader, "floatbroadMass=lerp(0.78,1.14,saturate(billowCloud));"));
@@ -5698,7 +5698,7 @@ ACS_TEST(VolumetricClouds,
                 unrotatedUvw(point, height, verticalSpan));
         };
     EXPECT_NEAR(kVerticalSpan, 1.974f, 1e-6f);
-    EXPECT_NEAR(CloudShapeVerticalVariationForTest(false), 1.45f, 1e-6f);
+    EXPECT_NEAR(CloudShapeVerticalVariationForTest(false), 6.00f, 1e-6f);
     EXPECT_NEAR(CloudShapeVerticalVariationForTest(true), 0.78f, 1e-6f);
     constexpr f32 kWeatherVerticalMeters =
         kWeatherType * 430.0f + kWeatherAnvil * 240.0f;
@@ -6059,8 +6059,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudShapeScale(){"
-        "//CPUmirrorsclamp(layer.z*0.0035,0.00012,0.00045)"
-        "onceperframe.returncloudFrameTerms.z;}"));
+        "//CPU側でlayer.z*0.0016を0.00004～0.00020に収め、1フレームに一度だけ求めた倍率を使う。"
+        "returncloudFrameTerms.z;}"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudShapeVerticalSpan(boolupperBand){"
@@ -6196,8 +6196,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(hostileTerms.wind_world.y, 0.0f, 0.0f);
     EXPECT_TRUE(std::isfinite(hostileTerms.shape_scale));
     EXPECT_TRUE(std::isfinite(hostileTerms.inverse_layer_height));
-    EXPECT_TRUE(hostileTerms.shape_scale >= 0.00012f);
-    EXPECT_TRUE(hostileTerms.shape_scale <= 0.00045f);
+    EXPECT_TRUE(hostileTerms.shape_scale >= 0.00004f);
+    EXPECT_TRUE(hostileTerms.shape_scale <= 0.00020f);
     EXPECT_TRUE(hostileTerms.inverse_layer_height > 0.0f);
 
     const FVec3 sunDirections[] = {

@@ -732,20 +732,20 @@ float fullShapeAt(float3 uvw){
     float perlin8 = gnoise(warpedUvw*8.0,8.0);
     float perlin16 = gnoise(warpedUvw*16.0,16.0);
     // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
-    // 中～高周波を主成分にすると、同じX・Zへ細い房が縦に積み重なる。
-    float perlinFull = perlin2*0.64+perlin4*0.26
-                      +perlin8*0.08+perlin16*0.02;
+    // 中～高周波を少し増やし、同じX・Zへ細い房が縦に積み重なるのを抑える。
+    float perlinFull = perlin2*0.54+perlin4*0.32
+                      +perlin8*0.11+perlin16*0.03;
     float wa = worley(warpedUvw,4.0);
     float wb = worley(warpedUvw,8.0);
     float wc = worley(warpedUvw,16.0);
     float worleyFull = wa*0.82+wb*0.15+wc*0.03;
     // 低周波Perlinで連続した雲塊の外形を作り、4セルWorleyで大きな房だけを
-    // 主形状の内側へ重ねる。8・16セルは弱い補助に下げ、粒状の柱を作らない。
-    float broadMass=remap(perlinFull,0.46,0.62,0.0,1.0);
-    float lobeMass=smoothstep(0.26,0.72,wa);
-    float cellularMass=smoothstep(0.30,0.80,worleyFull);
-    return broadMass*lerp(0.68,1.08,lobeMass)
-                   *lerp(0.90,1.02,cellularMass);
+    // 主形状の内側へ残す。8・16セルは弱い補助に下げ、粒状の柱を作らない。
+    float broadMass=remap(perlinFull,0.40,0.72,0.0,1.0);
+    float lobeMass=smoothstep(0.35,0.75,wa);
+    float cellularMass=smoothstep(0.42,0.82,worleyFull);
+    return broadMass*lerp(0.52,1.08,lobeMass)
+                   *lerp(0.78,1.04,cellularMass);
 }
 float fullShapeColumnAt(float3 uvw){
     return fullShapeAt(uvw)*0.42
@@ -1367,7 +1367,7 @@ float2 cloudColumnHeightAndSpan(float h,float topShift,float baseLift,float towe
 // bake 済み volume は tile あたり 4..32 cells を既に含む。world frequency を下げ、
 // 小さな blob の反復ではなく連続した cloud bank を作る。
 float cloudShapeScale(){
-    // CPU mirrors clamp(layer.z*0.0035,0.00012,0.00045) once per frame.
+    // CPU側で layer.z * 0.0016 を 0.00004～0.00020 に収め、1フレームに一度だけ求めた倍率を使う。
     return cloudFrameTerms.z;
 }
 // 基本形状の高さ方向へ、雲種ごとの低周波変化率を与える。
@@ -1379,7 +1379,8 @@ float cloudShapeVerticalSpan(bool upperBand){
     return cloudShapeScale()/max(inverseThickness,1e-6);
 }
 float cloudShapeVerticalVariation(bool upperBand){
-    return upperBand?0.78:1.45;
+    // 下層の物理厚で縦方向の進行距離を補正し、水平の雲塊と同程度の断面変化を保つ。
+    return upperBand?0.78:6.00;
 }
 float2 cloudWindWorld(){
     // CPU mirrors params.z*float2(0.9284767,0.3713907) once per frame.
@@ -4784,9 +4785,9 @@ FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
 
     f32 authoredScale = layer.horizontal_noise_scale;
     if (!std::isfinite(authoredScale)) authoredScale = 0.02f;
-    f32 shapeScale = authoredScale * 0.0035f;
-    if (shapeScale < 0.00012f) shapeScale = 0.00012f;
-    if (shapeScale > 0.00045f) shapeScale = 0.00045f;
+    f32 shapeScale = authoredScale * 0.0016f;
+    if (shapeScale < 0.00004f) shapeScale = 0.00004f;
+    if (shapeScale > 0.00020f) shapeScale = 0.00020f;
     out.shape_scale = shapeScale;
 
     f32 layerHeight = layer.top_height - layer.base_height;
