@@ -1187,7 +1187,8 @@ float4 cloudBaseRiseEnds(bool upperBand){
         float4(0.075,0.120,0.170,0.050));
 }
 float cloudProfileFromTypeWeights(
-    float h,float2 typeWeights,float precipitation,bool upperBand){
+    float h,float2 typeWeights,float cloudType,float precipitation,
+    bool upperBand){
     float4 riseEnds=cloudBaseRiseEnds(upperBand);
     float4 rise=smoothstep(
         float4(0.0,0.0,0.0,0.0),
@@ -1216,13 +1217,14 @@ float cloudProfileFromTypeWeights(
     float storm=max(stormBody,max(stormShoulder,anvil));
     float stormMix=max(
         precipitation*0.72,
-        cloudToweringStrength(typeWeights.y,precipitation)*0.92);
+        cloudToweringStrength(cloudType,precipitation)*0.92);
     return saturate(lerp(profile,storm,stormMix));
 }
 float cloudProfile(
     float h,float cloudType,float precipitation,bool upperBand){
     return cloudProfileFromTypeWeights(
-        h,cloudProfileTypeWeights(cloudType),precipitation,upperBand);
+        h,cloudProfileTypeWeights(cloudType),cloudType,precipitation,
+        upperBand);
 }
 // 既に採取した二つの天候模様で時間位相の向きと強さを場所ごとに変える。
 // 全地点へ同じ位相を足したときの一様な上下動を避け、追加のテクスチャ採取は行わない。
@@ -1777,9 +1779,11 @@ CloudMacroSample sampleCloudMacroLighting(
 }
 // 近距離3点では視線標本の天候と渦を共有し、基本形状と高度だけを各地点で採取する。
 // 遠距離5点は影キャッシュ、または地点ごとに天候を再採取する専用経路へ任せる。
-CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float slowBaseLift,float2 slowCurl,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale,float sampleSpacing){
+CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeatherMask,float heightThresholdTarget,float4 slowProfileTerms,float2 slowColumnTerms,float2 slowCurl,float3 referenceP,float3 referenceUvw,float referenceHeight,float shapeScale,float sampleSpacing){
     CloudMacroSample macro;
-    macro.weather=float4(0.0,0.0,slowProfileTerms.z,0.0);
+    // xyは雲種補間、zは降水量、wは補間前の雲種。視線密度と同じ生の雲種を
+    // 雲底の締まりにも渡し、近距離の自己影だけ積乱雲判定を失わないようにする。
+    macro.weather=float4(0.0,slowProfileTerms.w,slowProfileTerms.z,0.0);
     macro.curl=slowCurl;
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
@@ -1797,9 +1801,10 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(float3 p,float slowWeath
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     macro.upperBand=upperBand?1.0:0.0;
-    macro.height=cloudColumnHeight(heightFractionFromAltitude(altitude,upperBand),slowProfileTerms.w,slowBaseLift,upperBand);
+    macro.height=cloudColumnHeight(heightFractionFromAltitude(altitude,upperBand),slowColumnTerms.x,slowColumnTerms.y,upperBand);
     float sampledProfile=cloudProfileFromTypeWeights(
-        macro.height,slowProfileTerms.xy,slowProfileTerms.z,upperBand);
+        macro.height,slowProfileTerms.xy,slowProfileTerms.w,
+        slowProfileTerms.z,upperBand);
     if(sampledProfile>0.0){
         float profileShape=cloudVerticalProfileShape(sampledProfile);
         macro.heightThreshold=cloudHeightThresholdFromTarget(heightThresholdTarget,profileShape)
@@ -2666,10 +2671,16 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             bool blendCachedTail=false;
             // この短い光円すい内では低周波の天候と渦がほぼ変わらないため、視線採取の値を共有する。
             // 密度分布、基本形状、近距離の細部は各採取点で評価する。
-            // 雲種、降水量、高さ変形量と局所雲底を共有し、すべての光採取で
-            // 視線密度と同じ縦形状を使う。局所雲底は float4 の外で保持する。
-            float4 sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));
-            float sharedLightBaseLift=cloudColumnBaseLift(macro.weather,macro.densityWeatherMask);
+            // 雲種の補間重み、補間前の雲種、降水量、高さ変形量、局所雲底を共有し、
+            // すべての光採取で視線密度と同じ縦形状を使う。
+            float4 sharedLightProfileTerms=float4(
+                cloudProfileTypeWeights(macro.weather.g),
+                macro.weather.b,macro.weather.g);
+            float2 sharedLightColumnTerms=float2(
+                cloudColumnHeightShift(
+                    macro.weather,macro.densityWeatherMask),
+                cloudColumnBaseLift(
+                    macro.weather,macro.densityWeatherMask));
             float2 sharedLightCurl=macro.curl;
             float sharedShapeScale=cloudShapeScale();
             // 8 個の光円すいは一定の黄金角で回し、上で求めた sin/cos を漸化式で再利用する。
@@ -2683,7 +2694,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     coneSin,coneCos,coneGeometry);
                 float3 lightHalfStep=coneDir*(0.5*lightStep);
                 lp+=lightHalfStep;
-                CloudMacroSample lightMacro=sampleCloudMacroLightingFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);
+                CloudMacroSample lightMacro=sampleCloudMacroLightingFromSlowFields(lp,viewWeatherMask,coverageTerms.w,sharedLightProfileTerms,sharedLightColumnTerms,sharedLightCurl,p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);
                 float lightBillowVisibility=cloudBillowVisibilityFromSampleSpacing(lightStep);
                 float lightMiddleBillowVisibility=cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);
                 float lightErosionVisibility=cloudErosionVisibilityFromSampleSpacing(lightStep);

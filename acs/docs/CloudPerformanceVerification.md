@@ -2013,6 +2013,43 @@ ACS Framework正本`C:\dev\acs_temp_builds\acs-framework\current`、履歴
 `f1ca4985a84ffa29d101b7bdaae9d31d85b7cf9a`は、この配布先を`AcsDistRoot`へ明示してDebug・Releaseの
 全体ビルドに合格した。Frameworkのソース作業ツリーは変更していない。
 
+## 雲種の二重分類と近距離自己影の不一致
+
+高さ分布を再監査したところ、同じ天候標本でも積乱雲判定が描画経路ごとに異なっていた。
+柱高、かなとこ、雲底の締まりは補間前の雲種を`cloudToweringStrength`へ渡す一方、縦密度だけは
+`cloudProfileTypeWeights`で滑らかに分類した積雲重みを、もう一度雲種として判定していた。
+検証設定の雲種`0.88`、降水`0.62`では、補間前の塔状強度は約`0.671824`、積乱雲混合率は
+約`0.618078`である。二重分類では積雲重みが先に`1`へ飽和するため、縦密度だけ塔状強度`1`、
+混合率`0.92`となり、柱高と横方向のかなとこより密度本体が先に縦へ飽和していた。
+
+現在は、型補間の重みとは別に補間前の雲種を`cloudProfileFromTypeWeights`へ渡し、すべての
+塔状判定を同じ入力へ統一した。近距離3点の太陽光路も、従来は共有値へ降水量だけを残して
+雲種を`0`としていたため、視線密度と自己影で雲底の締まりが異なっていた。共有値へ補間前の
+雲種、降水量、柱高変形、局所雲底を保持し、追加のテクスチャ採取なしで同じ密度式を使う。
+
+この修正は、雲種を分類してから低周波形状、高周波詳細、輪郭侵食を組み立てる
+[Nubis 2017の密度モデル](https://advances.realtimerendering.com/s2017/Nubis%20-%20Authoring%20Realtime%20Volumetric%20Cloudscapes%20with%20the%20Decima%20Engine%20-%20Final%20.pdf)
+との照合に加え、ACS自身の関数契約と経路間同一性から決めた。数値試験では雲種`0.88`が
+途中強度を保ち、`0.98`で初めて上限へ達することを確認する。通常C++実行の実画像では、修正後も
+地上の煙状に縦長な部分、雲中の包囲感不足、上空の暗い灰色部が残った。したがって今回の
+不整合修正だけを見た目の完成とは扱わず、次の監査では2D天候包絡と3D形状の高さ方向の連結、
+および多重散乱次数と太陽強度の単位を別々に検証する。
+
+Debug単体試験`1524 / 1524`とRelease単体試験`1520 / 1520`、雲性能ハーネス自己試験50件に
+合格した。Editor ABI、管理側Editor、通常C++検証実行ファイルと反射DLLもDebug・Releaseで
+再生成した。実GPUの30秒計測では品質判定と入力同一性判定がともに`PASS`だった。GPU問い合わせの
+平均換算は地上`174.72 FPS`、天頂`205.09 FPS`、上空`133.61 FPS`、雲処理の平均は順に
+`6.30 ms`、`5.30 ms`、`8.07 ms`である。300 FPS目標は3視点とも`MISS`のため、性能完成とは
+扱わない。
+
+配布工程の自己試験後、Debug・Releaseを含む45ファイル、`1,256,967,175`バイトを既定の検証配布先へ
+配置した。検査表`acs-distribution.sha256`のSHA-256は
+`F72B437F0F79790F8CB8C7B6F94C4A3CCF40CD8DE94DEB7A2F75761B7BBF0539`、`acs.h`は
+`C6917A49B747A92F5AD76916DAB3FE1024FA4D07FECB5C7AFA4D06E7880BEE52`である。配布ツリー外の
+最小利用者はDebug・Releaseともコンパイル、リンク、実行に合格した。ACS Framework正本
+`f1ca4985a84ffa29d101b7bdaae9d31d85b7cf9a`も同じ配布先を`AcsDistRoot`へ明示し、両構成の
+全体ビルドに合格した。Frameworkのソース作業ツリーは変更していない。
+
 ## Quality-preserving optimization rules
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,

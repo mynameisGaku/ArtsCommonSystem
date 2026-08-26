@@ -358,6 +358,21 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// 補間前の雲種と降水量から、塔状成長の強さを一度だけ求める。
+f32 CloudToweringStrengthForTest(f32 cloudType, f32 precipitation) noexcept {
+    const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
+    const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
+    return typeTower > precipitationTower ? typeTower : precipitationTower;
+}
+
+// 積乱雲の高さ分布へ混ぜる割合。雲種の補間重みを雲種として再判定しない。
+f32 CloudStormProfileMixForTest(f32 cloudType, f32 precipitation) noexcept {
+    const f32 precipitationMix = SaturateForTest(precipitation) * 0.72f;
+    const f32 toweringMix =
+        CloudToweringStrengthForTest(cloudType, precipitation) * 0.92f;
+    return precipitationMix > toweringMix ? precipitationMix : toweringMix;
+}
+
 // 縮小した散乱係数と消散係数で、均質な一つの区間を解析積分する。
 f32 CloudReducedIntervalScatteringWeightForTest(
     f32 opticalDepth, f32 contribution, f32 occlusion) noexcept {
@@ -3407,6 +3422,49 @@ ACS_TEST(VolumetricClouds, HeightFractionUsesInitializedReturnWithoutChangingLay
 }
 
 ACS_TEST(VolumetricClouds,
+         StormProfileUsesRawCloudTypeWithoutDoubleClassification) {
+    constexpr f32 cloudType = 0.88f;
+    constexpr f32 precipitation = 0.62f;
+    const f32 rawTower =
+        CloudToweringStrengthForTest(cloudType, precipitation);
+    const f32 classifiedType =
+        SmoothStepForTest(0.50f, 0.84f, cloudType);
+    const f32 doubleClassifiedTower =
+        CloudToweringStrengthForTest(classifiedType, precipitation);
+
+    // 検証用の積乱雲設定でも段階的な成長を残し、雲種0.98で初めて上限へ達する。
+    EXPECT_NEAR(rawTower, 0.671824f, 1.0e-5f);
+    EXPECT_NEAR(doubleClassifiedTower, 1.0f, 0.0f);
+    EXPECT_TRUE(doubleClassifiedTower > rawTower + 0.30f);
+    EXPECT_NEAR(
+        CloudStormProfileMixForTest(cloudType, precipitation),
+        0.618078f, 1.0e-5f);
+    EXPECT_NEAR(
+        CloudStormProfileMixForTest(0.98f, precipitation),
+        0.92f, 1.0e-6f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudProfileFromTypeWeights("
+        "floath,float2typeWeights,floatcloudType,floatprecipitation,"
+        "boolupperBand){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudToweringStrength(cloudType,precipitation)*0.92"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "cloudToweringStrength(typeWeights.y,precipitation)*0.92"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "h,cloudProfileTypeWeights(cloudType),cloudType,precipitation,"
+        "upperBand);"));
+}
+
+ACS_TEST(VolumetricClouds,
          ConvectiveHeightWarpAnchorsCloudBaseAndIsSharedWithLighting) {
     const f32 tallCore = CloudColumnHeightShiftForTest(
         1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
@@ -3651,7 +3709,7 @@ ACS_TEST(VolumetricClouds,
         "*(1.0-smoothstep(0.85,0.995,h))*0.82;"
         "floatstorm=max(stormBody,max(stormShoulder,anvil));"
         "floatstormMix=max(precipitation*0.72,"
-        "cloudToweringStrength(typeWeights.y,precipitation)*0.92);"));
+        "cloudToweringStrength(cloudType,precipitation)*0.92);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudConvectiveWaistThresholdOffset(floatlayerHeight,floatcloudType,floatprecipitation){"
@@ -3723,15 +3781,19 @@ ACS_TEST(VolumetricClouds,
         "returnh<=condensationHeight?h:lerp(condensationHeight,1.0,shiftedUpper);}"));
     EXPECT_FALSE(Contains(shader, "floatinterior=4.0*h*(1.0-h);"));
     EXPECT_TRUE(Contains(shader, "float4(0.56,0.84,0.94,0.98),h.xxxx);"));
-    EXPECT_TRUE(Contains(shader, "float4sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,cloudColumnHeightShift(macro.weather,macro.densityWeatherMask));"));
-    EXPECT_TRUE(Contains(shader, "floatsharedLightBaseLift=cloudColumnBaseLift(macro.weather,macro.densityWeatherMask);"));
+    EXPECT_TRUE(Contains(shader, "float4sharedLightProfileTerms=float4(cloudProfileTypeWeights(macro.weather.g),macro.weather.b,macro.weather.g);"));
+    EXPECT_TRUE(Contains(shader, "float2sharedLightColumnTerms=float2(cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),cloudColumnBaseLift(macro.weather,macro.densityWeatherMask));"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
     EXPECT_FALSE(Contains(shader, "floatviewWeatherMask=cloudWeatherMaskFromTerms("));
     EXPECT_TRUE(Contains(
         shader,
         "macro.height=cloudColumnHeight("
         "heightFractionFromAltitude(altitude,upperBand),"
-        "slowProfileTerms.w,slowBaseLift,upperBand);"));
+        "slowColumnTerms.x,slowColumnTerms.y,upperBand);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "macro.weather=float4(0.0,slowProfileTerms.w,"
+        "slowProfileTerms.z,0.0);"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -4509,7 +4571,7 @@ ACS_TEST(VolumetricClouds,
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightColumnTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);",
         lightAdvance);
     const std::size_t nearBillowVisibility = shader.find(
@@ -4589,7 +4651,7 @@ ACS_TEST(VolumetricClouds,
                 lightBody,
                 "sampleCloudMacroLightingFromSlowFields("
                 "lp,viewWeatherMask,coverageTerms.w,"
-                "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
+                "sharedLightProfileTerms,sharedLightColumnTerms,sharedLightCurl,"
                 "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"),
             static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(
@@ -4610,7 +4672,7 @@ ACS_TEST(VolumetricClouds,
     }
     if (nearLightLoop != std::string::npos) {
         const std::string completeLightSection = shader.substr(nearLightLoop);
-        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w," "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl," "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"), static_cast<std::size_t>(1));
+        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields(" "lp,viewWeatherMask,coverageTerms.w," "sharedLightProfileTerms,sharedLightColumnTerms,sharedLightCurl," "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep)"), static_cast<std::size_t>(1));
         EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLighting(lp,coverage,lightStep)"), static_cast<std::size_t>(0));
         EXPECT_EQ(CountOccurrences(completeLightSection, "float2farLightSample=sampleCloudFarLightingDensityAndScale(" "lp,coverage,sharedLightCurl,lightStep);"), static_cast<usize>(1));
         EXPECT_FALSE(Contains(completeLightSection, "sampleCloudLightingDensityFromSlowFields("));
@@ -5237,24 +5299,24 @@ ACS_TEST(VolumetricClouds,
     const std::size_t sharedProfile = shader.find(
         "float4sharedLightProfileTerms=float4("
         "cloudProfileTypeWeights(macro.weather.g),"
-        "macro.weather.b,cloudColumnHeightShift("
-        "macro.weather,macro.densityWeatherMask));",
+        "macro.weather.b,macro.weather.g);",
         viewLoop);
-    const std::size_t sharedBaseLift = shader.find(
-        "floatsharedLightBaseLift=cloudColumnBaseLift("
-        "macro.weather,macro.densityWeatherMask);",
+    const std::size_t sharedColumnTerms = shader.find(
+        "float2sharedLightColumnTerms=float2("
+        "cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),"
+        "cloudColumnBaseLift(macro.weather,macro.densityWeatherMask));",
         sharedProfile);
     const std::size_t nearLightLoop =
-        shader.find("[loop]for(intl=0;l<3;l++)", sharedBaseLift);
+        shader.find("[loop]for(intl=0;l<3;l++)", sharedColumnTerms);
     EXPECT_TRUE(coverageTerms != std::string::npos);
     EXPECT_TRUE(viewLoop != std::string::npos);
     EXPECT_TRUE(sharedProfile != std::string::npos);
-    EXPECT_TRUE(sharedBaseLift != std::string::npos);
+    EXPECT_TRUE(sharedColumnTerms != std::string::npos);
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(coverageTerms < viewLoop);
     EXPECT_TRUE(viewLoop < sharedProfile);
-    EXPECT_TRUE(sharedProfile < sharedBaseLift);
-    EXPECT_TRUE(sharedBaseLift < nearLightLoop);
+    EXPECT_TRUE(sharedProfile < sharedColumnTerms);
+    EXPECT_TRUE(sharedColumnTerms < nearLightLoop);
     if (viewLoop != std::string::npos) {
         const std::string denseRay = shader.substr(viewLoop);
         EXPECT_FALSE(Contains(denseRay, "cloudWeatherThreshold("));
@@ -5291,7 +5353,12 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(
             helper,
             "cloudProfileFromTypeWeights("
-            "macro.height,slowProfileTerms.xy,slowProfileTerms.z,upperBand);"));
+            "macro.height,slowProfileTerms.xy,slowProfileTerms.w,"
+            "slowProfileTerms.z,upperBand);"));
+        EXPECT_TRUE(Contains(
+            helper,
+            "macro.weather=float4(0.0,slowProfileTerms.w,"
+            "slowProfileTerms.z,0.0);"));
         EXPECT_FALSE(Contains(helper, "cloudProfileTypeWeights("));
         EXPECT_FALSE(Contains(helper, "cloudWeatherThreshold("));
     }
@@ -7963,10 +8030,10 @@ ACS_TEST(VolumetricClouds,
         shader,
         "float4sharedLightProfileTerms=float4("
         "cloudProfileTypeWeights(macro.weather.g),"
-        "macro.weather.b,cloudColumnHeightShift("
-        "macro.weather,macro.densityWeatherMask));"
-        "floatsharedLightBaseLift=cloudColumnBaseLift("
-        "macro.weather,macro.densityWeatherMask);"
+        "macro.weather.b,macro.weather.g);"
+        "float2sharedLightColumnTerms=float2("
+        "cloudColumnHeightShift(macro.weather,macro.densityWeatherMask),"
+        "cloudColumnBaseLift(macro.weather,macro.densityWeatherMask));"
         "float2sharedLightCurl=macro.curl;"));
     EXPECT_FALSE(Contains(
         shader, "sharedLightProfileTerms=cloudWeatherData(lp)"));
@@ -7975,7 +8042,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "sampleCloudMacroLightingFromSlowFields("
         "lp,viewWeatherMask,coverageTerms.w,"
-        "sharedLightProfileTerms,sharedLightBaseLift,sharedLightCurl,"
+        "sharedLightProfileTerms,sharedLightColumnTerms,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale,lightStep);"));
     EXPECT_FALSE(Contains(
         shader, "sampleCloudLightingDensityFromSlowFields("));
