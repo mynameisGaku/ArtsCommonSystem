@@ -85,9 +85,9 @@ COMPATIBILITY_FILE_PATHS = frozenset(
         "acs/tests/subsystem_spawn_header_compile_tests.cpp",
     }
 )
-EXPECTED_ALLOWLIST_SHA256 = "940C67F8E98C6062AEFF853E16EAD281FAA1192D8C71BC2B510BC3AA2D5FC572"
+EXPECTED_ALLOWLIST_SHA256 = "93B596BCD2FE02936D863366DDF29BBC9DE82F335914D6407B0185FC3505847F"
 EXPECTED_IDENTITY_MACRO_SHA256 = "89047ADEDDCCDC1696C6A0AF88F6F60C4C5B70AD7DF472B6750A54372EAF416C"
-EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "316D1B1E057DED2E4FDD7181D2DFE1E5E132C10E23B265E48E7933505DA560F2"
+EXPECTED_IDENTITY_MACRO_CATALOG_SHA256 = "AAE6CC0B0C7E476ED6BA586A93654174F5F8B7EB5BFDFFE401275C199ACDDB35"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
 FILE_ATTRIBUTE_DIRECTORY = 0x00000010
 FILE_LIST_DIRECTORY = 0x00000001
@@ -1951,7 +1951,6 @@ def _identity_macro_catalog_sha256(
     definition_rows = [
         [
             definition.path,
-            definition.line,
             definition.name,
             list(definition.parameters),
             [[token.kind, token.value] for token in definition.body_tokens],
@@ -2875,6 +2874,23 @@ def _self_test() -> int:
     fixed_point_sha256 = _identity_macro_catalog_sha256(
         fixed_point_definitions, fixed_point_catalog
     )
+    line_shifted_fixed_point_definitions = _macro_definitions_from_text(
+        "acs/src/fixed_point_fixture.h",
+        "\n\n"
+        "#define ACS_IDENTITY(Type) #Type\n"
+        "#define ACS_WRAPPER(Type) ACS_IDENTITY(Type)\n"
+        "#define ACS_WRAPPER2(Type) ACS_WRAPPER((Type))\n"
+        "#define ACS_NONIDENTITY(Type) sizeof(Type)\n",
+    )
+    line_shifted_fixed_point_catalog = _identity_macro_catalog(
+        line_shifted_fixed_point_definitions
+    )
+    if _identity_macro_catalog_sha256(
+        line_shifted_fixed_point_definitions,
+        line_shifted_fixed_point_catalog,
+    ) != fixed_point_sha256:
+        print("self-test identity catalog line shift changed semantics", file=sys.stderr)
+        return 1
     mutated_fixed_point_definitions = _macro_definitions_from_text(
         "acs/src/fixed_point_fixture.h",
         "#define ACS_IDENTITY(Type) sizeof(Type)\n"

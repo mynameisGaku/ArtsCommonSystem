@@ -13,7 +13,7 @@
 | `E` | enum |
 
 `class`か`struct`かという構文だけではなく責務で決める。`A`は名前だけで推定しない。
-監査は登録済みmigration registry 333件と`acs::AObject`の推移実継承、scope解決した
+監査は登録済みmigration registry 336件と`acs::AObject`の推移実継承、scope解決した
 登録macro実呼び出しを照合する。正規基底をregistry登録済みの旧名で綴った基底も同じ管理対象と
 して解決するため、互換入口だけで宣言するcompile検査型も`A`のままとなる。この旧名集合は
 registryのcanonicalから導出し、未登録の同名綴りは管理対象にしない。
@@ -27,7 +27,7 @@ unconditionalに一件だけ宣言する。条件branchごとの重複宣言もr
 
 ## hard canonical
 
-次は代表例である。全333件の正本はmigration registryとする。
+次は代表例である。全336件の正本はmigration registryとする。
 
 | 正規名 | 一時的な旧名 | header |
 |---|---|---|
@@ -67,11 +67,11 @@ R020eとして拒否する。これらの旧綴りはC++型の正規名ではな
 
 ## exact migration debt
 
-現行の正本は`scripts/data/cpp_type_role_migrations.json`である。schema version 2の333件に、
+現行の正本は`scripts/data/cpp_type_role_migrations.json`である。schema version 2の336件に、
 正規型、定義header、旧名、旧名を公開するheader、宣言種別、接頭辞を固定する。旧名がない
 `F`型も登録し、正規型の定義と一時互換aliasを別々に検査する。監査器はsourceから
-独立した件数333とentries semantic SHA-256
-`8054D56AB0F21BF0D98B72E02A486EA98578A110E6D37BF36B5CAF425DF29945`を持つため、
+独立した件数336とentries semantic SHA-256
+`C3834A373F43A969CCE5A1DD327977639DCB8D4551E50975ADE60C2B0D2C024D`を持つため、
 sourceとregistryを同時に削除しても通らない。
 
 未解決型だけを置く`scripts/data/cpp_type_role_migration_debt.json`は現在0件である。
@@ -95,7 +95,11 @@ C0制御文字・DELを拒否する。`schema_version`はboolや浮動小数で�
 でなければならない。bytesはBOMなしUTF-8、CR 0件、LF改行、最終LFちょうど1件に固定し、
 この物理契約を検証してから厳密decodeとJSON parseを行う。
 
-`violations=0`はhard canonicalとregistry 333件が成立し、新しい未登録debtがなく、default
+旧接頭辞利用者監査のidentity macro意味hashは、定義path、名前、引数、本文token、
+有効条件を対象にする。コメント追加などで定義行だけが移動しても意味変更とは扱わず、
+本文または引数が変われば自己検証と固定hashで拒否する。
+
+`violations=0`はhard canonicalとregistry 336件が成立し、新しい未登録debtがなく、default
 debt 0件が一致したことを示す。build、ABI、実行時の正しさまで示すものではない。
 
 ## 規則と実行
