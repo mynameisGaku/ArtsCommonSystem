@@ -4876,8 +4876,8 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
     EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
 
-    // layer.w は単純な層厚の逆数ではなく 1.6 / 層厚である。実際の単位で採取列を評価し、
-    // テスト側だけ距離を1.6倍へ誤算しない。
+    // 光標本の間隔は層厚を基準幅1.6へ写した採取尺度で決める。消散のm^-1尺度とは
+    // 独立であり、物理的な光学的深さへ採取間隔を流用しない。
     constexpr f32 kLayerHeight = 2500.0f;
     constexpr f32 kLayerCanonicalSpan = 1.6f;
     constexpr f32 kMinimumJitterScale = 0.72f;
@@ -4891,17 +4891,17 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     constexpr f32 kCurlWarpMetres = 22.0f;
     constexpr f32 kMaximumSharedCurlPositionError =
         kMaximumCurlValueDifference * kCurlWarpMetres;
-    const f32 layerCanonicalScale =
+    const f32 layerSamplingScale =
         kLayerCanonicalSpan / kLayerHeight;
-    EXPECT_NEAR(layerCanonicalScale, 0.00064f, 1e-8f);
+    EXPECT_NEAR(layerSamplingScale, 0.00064f, 1e-8f);
 
     // 新しい列は同じ8標本とほぼ同じ到達距離を保ち、遠方の天候再採取範囲を狭めない。
     const f32 jitterScales[]{
         kMinimumJitterScale, 1.0f, kMaximumJitterScale};
     for (const f32 jitterScale : jitterScales) {
         f32 oldStep =
-            kOldBaseStep / layerCanonicalScale * jitterScale;
-        f32 newStep = kBaseStep / layerCanonicalScale * jitterScale;
+            kOldBaseStep / layerSamplingScale * jitterScale;
+        f32 newStep = kBaseStep / layerSamplingScale * jitterScale;
         f32 oldDistance = 0.0f;
         f32 newDistance = 0.0f;
         f32 oldFarthestMidpoint = 0.0f;
@@ -4927,9 +4927,9 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     // 48 mを越えて高周波侵食が消える一方、低周波の房は全位相で完全に残る。
     // 二つをまとめて低詳細度へ落とさない境界を固定する。
     f32 minimumDetailedStep =
-        kBaseStep / layerCanonicalScale * kMinimumJitterScale;
+        kBaseStep / layerSamplingScale * kMinimumJitterScale;
     f32 maximumDetailedStep =
-        kBaseStep / layerCanonicalScale * kMaximumJitterScale;
+        kBaseStep / layerSamplingScale * kMaximumJitterScale;
     f32 maximumNearEnd = 0.0f;
     for (u32 lightSample = 0u; lightSample < 3u; ++lightSample) {
         EXPECT_TRUE(
@@ -4966,7 +4966,8 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     // 正差だけを足す方式は平均密度を増やして雲頂全体を暗くするため採用しない。
     constexpr f32 kLowLodDensity = 0.62f;
     constexpr f32 kBillowedDensity = 0.27f;
-    constexpr f32 kOpticalScale = 0.00064f;
+    constexpr f32 kOpticalScale =
+        kVolumetricCloudReferenceExtinctionPerMeter;
     const f32 cachedFourthDepth =
         kLowLodDensity * maximumDetailedStep * kOpticalScale;
     const f32 billowResidual =
@@ -4979,7 +4980,7 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_TRUE(billowResidual < 0.0f);
 
     f32 expandingStep =
-        kBaseStep / layerCanonicalScale * kMaximumJitterScale;
+        kBaseStep / layerSamplingScale * kMaximumJitterScale;
     f32 traveledDistance = 0.0f;
     f32 farthestMidpoint = 0.0f;
     for (u32 lightSample = 0u;
@@ -5044,10 +5045,12 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         "exactTail,cachedTailForBlend,cacheBlendWeight);"
         "}lightDepth=max(lightDepth,0.0);"
         "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
-    EXPECT_TRUE(Contains(shader, "floatlightStep=0.0075/max(layer.w,1e-4);"));
+    EXPECT_TRUE(Contains(
+        shader, "floatlightStep=cloudCoverageReciprocals.w;"));
+    EXPECT_FALSE(Contains(shader, "0.0075/max(layer.w,1e-4)"));
     EXPECT_EQ(CountOccurrences(shader, "lightStep*=1.8;"), static_cast<std::size_t>(6));
     EXPECT_FALSE(Contains(shader, "lightStep*=1.65;"));
-    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerCanonicalScale>0.0001f?layerCanonicalScale:0.0001f);"));
+    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerSamplingScale>0.0001f?layerSamplingScale:0.0001f);"));
     EXPECT_FALSE(Contains(compactSource, "constf32lightStep=0.012f/"));
     EXPECT_EQ(CountOccurrences(shader, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(3));
     EXPECT_EQ(CountOccurrences(shader, "lp+=lightHalfStep;"), static_cast<std::size_t>(6));
@@ -5084,9 +5087,9 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
     EXPECT_EQ(CountOccurrences(compactSource, "ResolveVolumetricCloudSamplingTerms_Internal("), static_cast<usize>(3));
     EXPECT_TRUE(Contains(compactSource, "out.coverage=FVec4{0.72f-0.36f*occupancyCoverage,0.72f-0.36f*safeCoverage,kVolumetricCloudBaseNoiseLower,kVolumetricCloudBaseNoiseUpper};"));
     EXPECT_TRUE(Contains(compactSource, "constf32unclampedFineStep=0.035f/(horizontalNoiseScale>0.001f?horizontalNoiseScale:0.001f);"));
-    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerCanonicalScale>0.0001f?layerCanonicalScale:0.0001f);"));
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerCanonicalScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerCanonicalScale;"));
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerLightStep=0.0075f/(upperLayerCanonicalScale>0.0001f?upperLayerCanonicalScale:0.0001f);"));
+    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerSamplingScale>0.0001f?layerSamplingScale:0.0001f);"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerSamplingScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerSamplingScale;"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerLightStep=0.0075f/(upperLayerSamplingScale>0.0001f?upperLayerSamplingScale:0.0001f);"));
 
     /** 画面描画本体の開始位置。 */
     const auto renderBegin = compactSource.find("voidCVolumetricClouds::RenderComputeCameraRelative(");
@@ -5139,23 +5142,23 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
     EXPECT_NEAR(kCloudBaseNoiseLowerForTest, 0.25f, 0.0f);
     EXPECT_NEAR(kCloudBaseNoiseUpperForTest, 0.54f, 0.0f);
 
-    /** 厚さ2500mの下層を基準幅1.6へ写す光学尺度。 */
-    constexpr f32 lowerCanonicalScale = 1.6f / 2500.0f;
+    /** 厚さ2500mの下層を基準幅1.6へ写す採取尺度。 */
+    constexpr f32 lowerSamplingScale = 1.6f / 2500.0f;
     /** 下層の太陽方向に進める基準距離。 */
-    constexpr f32 lowerLightStep = 0.0075f / lowerCanonicalScale;
-    /** 厚さ1800mの上層を基準幅1.6へ写す光学尺度。 */
-    constexpr f32 upperCanonicalScale = 1.6f / 1800.0f;
+    constexpr f32 lowerLightStep = 0.0075f / lowerSamplingScale;
+    /** 厚さ1800mの上層を基準幅1.6へ写す採取尺度。 */
+    constexpr f32 upperSamplingScale = 1.6f / 1800.0f;
     /** 上層の太陽方向に進める基準距離。 */
-    constexpr f32 upperLightStep = 0.0075f / upperCanonicalScale;
-    EXPECT_NEAR(lowerCanonicalScale, 0.00064f, 1.0e-8f);
+    constexpr f32 upperLightStep = 0.0075f / upperSamplingScale;
+    EXPECT_NEAR(lowerSamplingScale, 0.00064f, 1.0e-8f);
     EXPECT_NEAR(lowerLightStep, 11.71875f, 1.0e-5f);
-    EXPECT_NEAR(upperCanonicalScale, 0.0008888889f, 1.0e-8f);
+    EXPECT_NEAR(upperSamplingScale, 0.0008888889f, 1.0e-8f);
     EXPECT_NEAR(upperLightStep, 8.4375f, 1.0e-5f);
     EXPECT_TRUE(lowerLightStep > 0.0f);
     EXPECT_TRUE(upperLightStep > 0.0f);
 }
 
-ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEveryPath) {
+ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossEveryPath) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(!shader.empty());
@@ -5203,12 +5206,17 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
     EXPECT_TRUE(Contains(shader, "floatupperBand;"));
     EXPECT_TRUE(Contains(shader, "macro.upperBand=upperBand?1.0:0.0;"));
 
-    // 上層用の尺度と光採取間隔は CPU で一度だけ求め、GPU は既に判定した層から選ぶ。
+    // 消散は上下層とも固定m^-1尺度、光採取間隔だけは層厚別にCPUで求める。
     EXPECT_TRUE(Contains(shader, "floatcloudOpticalDepthScaleFromBand(boolupperBand){floatscale=layer.w;if(upperBand)scale=cloudUpperTerms.z;returnscale;}"));
     EXPECT_TRUE(Contains(shader, "floatcloudLightStepFromBand(boolupperBand){floatlightStep=cloudCoverageReciprocals.w;if(upperBand)lightStep=cloudUpperTerms.w;returnlightStep;}"));
     const auto compactSource = CompactShader(source);
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerCanonicalScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerCanonicalScale;"));
-    EXPECT_TRUE(Contains(compactSource, "out.upperTerms=FVec4{upperLayer.coverage_scale,upperLayer.density_scale,upperLayerCanonicalScale,upperLayerLightStep};"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerSamplingScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerSamplingScale;"));
+    EXPECT_TRUE(Contains(compactSource, "out.upperTerms=FVec4{upperLayer.coverage_scale,upperLayer.density_scale,kVolumetricCloudReferenceExtinctionPerMeter,upperLayerLightStep};"));
+    EXPECT_EQ(
+        CountOccurrences(
+            compactSource,
+            "m_Layer.horizontal_noise_scale,kVolumetricCloudReferenceExtinctionPerMeter};"),
+        static_cast<usize>(2));
     EXPECT_EQ(CountOccurrences(compactSource, "cb.cloudUpperTerms=samplingTerms.upperTerms;"), static_cast<usize>(2));
 
     // 高度と降水の補正は詳細密度、低詳細度密度、空間棄却の上限で共有し、
@@ -5272,23 +5280,38 @@ ACS_TEST(VolumetricClouds, LightDensityAndOpticalScaleStayLayerCorrectAcrossEver
     EXPECT_NEAR(upperDensity, 0.069696f, 1e-6f);
     EXPECT_TRUE(formerFarDensity > upperDensity * 4.0f);
 
-    // 一様密度の層全体は、厚さによらず同じ 1.6 の基準光学的深さへ写す。
-    constexpr f32 kLowerThickness = 2500.0f;
-    constexpr f32 kUpperThickness = 900.0f;
-    constexpr f32 kCanonicalSpan = 1.6f;
-    const f32 lowerOpticalScale = kCanonicalSpan / kLowerThickness;
-    const f32 upperOpticalScale = kCanonicalSpan / kUpperThickness;
-    const f32 formerUpperDepth = kUpperThickness * lowerOpticalScale;
-    const f32 correctedUpperDepth = kUpperThickness * upperOpticalScale;
-    EXPECT_NEAR(kLowerThickness * lowerOpticalScale, kCanonicalSpan, 1e-6f);
-    EXPECT_NEAR(formerUpperDepth, 0.576f, 1e-6f);
-    EXPECT_NEAR(correctedUpperDepth, kCanonicalSpan, 1e-6f);
-    EXPECT_TRUE(formerUpperDepth < correctedUpperDepth * 0.37f);
+    // Beer-Lambert則の光学的深さは、m^-1の消散係数を実距離で積分する。
+    // 基準2500mの従来値だけを維持し、薄層と厚層を同じ1.6へ正規化しない。
+    constexpr f32 kThinLayerThickness = 900.0f;
+    constexpr f32 kReferenceLayerThickness = 2500.0f;
+    constexpr f32 kCumulonimbusThickness = 9400.0f;
+    constexpr f32 kReferenceDepth = 1.6f;
+    constexpr f32 kExtinctionPerMeter =
+        kVolumetricCloudReferenceExtinctionPerMeter;
+    const auto opticalDepth = [](f32 distance) noexcept {
+        return distance * kVolumetricCloudReferenceExtinctionPerMeter;
+    };
+    const f32 thinDepth = opticalDepth(kThinLayerThickness);
+    const f32 referenceDepth = opticalDepth(kReferenceLayerThickness);
+    const f32 cumulonimbusDepth = opticalDepth(kCumulonimbusThickness);
+    EXPECT_NEAR(kExtinctionPerMeter, 0.00064f, 1.0e-8f);
+    EXPECT_NEAR(thinDepth, 0.576f, 1.0e-6f);
+    EXPECT_NEAR(referenceDepth, kReferenceDepth, 1.0e-6f);
+    EXPECT_NEAR(cumulonimbusDepth, 6.016f, 1.0e-6f);
+    EXPECT_TRUE(thinDepth < referenceDepth);
+    EXPECT_TRUE(referenceDepth < cumulonimbusDepth);
+    EXPECT_NEAR(
+        cumulonimbusDepth / referenceDepth,
+        kCumulonimbusThickness / kReferenceLayerThickness,
+        1.0e-6f);
+    EXPECT_TRUE(
+        std::exp(-cumulonimbusDepth) < std::exp(-referenceDepth));
 
     // 視線、近距離光、遠距離光、影キャッシュ、ワールド影の全積分で標本側の尺度を使う。
     EXPECT_TRUE(Contains(shader, "floatlightStep=cloudLightStepFromBand(sampleUpperBand);"));
     EXPECT_TRUE(Contains(shader, "lightDepth+=lightDensity*lightStep*cloudOpticalDepthScaleFromBand(lightMacro.upperBand>0.5);"));
     EXPECT_TRUE(Contains(shader, "opticalDepth+=sampleDensity*stepLength*cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
+    EXPECT_TRUE(Contains(shader, "floatsegmentDepth=max(columnDensity,0.0)*cellWorldStep*cloudOpticalDepthScaleFromBand(false);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatviewSampleOpticalDepth=dens*stepLength*"

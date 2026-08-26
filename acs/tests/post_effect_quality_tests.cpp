@@ -2742,7 +2742,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             environment_weather.Precipitation = 0.18f;
             environment_weather.PrecipitationInfluence = 0.65f;
             clouds.SetWeather(environment_weather);
-            /** 下層と異なる光学尺度を実際のGPU経路で使わせる上層。 */
+            /** 下層と異なる光採取間隔を実際のGPU経路で使わせる上層。 */
             FVolumetricCloudUpperLayer environment_upper_layer{};
             environment_upper_layer.base_height = 7400.0f;
             environment_upper_layer.top_height = 9200.0f;

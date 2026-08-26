@@ -400,6 +400,8 @@ struct FVolumetricCloudLighting {
      * @details
      * 光の方向と**同じ値**にしてある。以前は 7.0 対 4.2 で、同じ雲なのに向きで消散が違い、
      * カメラからはすぐ不透明なのに太陽光だけ内部へ届く «半透明の白い物体» に見えていた。
+     * 実際の消散係数は、手続き密度と作者密度にこの値および
+     * `kVolumetricCloudReferenceExtinctionPerMeter`を掛けた`m^-1`になる。
      */
     f32 ViewExtinction = 5.0f;
 
@@ -609,6 +611,15 @@ inline constexpr f32 kVolumetricCloudInteriorTransitionFraction = kVolumetricClo
 
 /** 雲層として保持する最小厚さ。逆数を GPU へ渡しても有限になる値。 */
 inline constexpr f32 kVolumetricCloudMinLayerThickness = 0.25f;
+
+/**
+ * 手続き密度1、消散倍率1に対応する1 m当たりの基準消散係数。
+ *
+ * 厚さ2500 mの既定層で従来の光学的深さ1.6を保つ一方、層厚では割らない。
+ * 同じ密度なら実際に通過する距離に比例して光学的深さが増える。
+ */
+inline constexpr f32 kVolumetricCloudReferenceExtinctionPerMeter =
+    1.6f / 2500.0f;
 
 /** 通常描画で利用者が指定できる最小レイ刻み数。 */
 inline constexpr u32 kVolumetricCloudMinViewSteps = 32u;

@@ -890,7 +890,7 @@ cbuffer CloudCB : register(b0) {
     float4 params;     // x=被覆率, y=密度, z=風*時間, w=時間
     float4 dims;       // xy=ray-march 解像度, zw=全解像度の寸法
     float4 temporal;   // x=履歴の有効性, y=前回の風オフセット, z=フレーム番号, w=2x2 interleave
-    float4 layer;      // x=world base Y, y=world top Y, z=XZ noise scale, w=world→canonical Y
+    float4 layer;      // x=world base Y, y=world top Y, z=XZ noise scale, w=1 m当たりの基準消散
     float4 worldOrigin;// xyz=discrete curved-shell tangent origin
     float4 shadowGrid; // xy=material-space min XZ, zw=inverse horizontal extents
     float4 shadowState;// x=valid, y=max tau disagreement, z=1/width/depth, w=1/height
@@ -925,7 +925,7 @@ cbuffer CloudCB : register(b0) {
     float4 cloudRange;
     // x=上層の底, y=上層の天井, z=1/(天井-底), w=1 なら上層あり
     float4 cloudUpperLayer;
-    // x=上層の被覆, y=上層の濃さ, z=上層の光学的深さ尺度, w=上層の光採取基準間隔
+    // x=上層の被覆, y=上層の濃さ, z=1 m当たりの基準消散, w=上層の光採取基準間隔
     float4 cloudUpperTerms;
     // xy=基本形状の位相ずれ, zw=渦と侵食の位相ずれ
     float4 cloudEvolution;
@@ -1021,8 +1021,8 @@ bool cloudCameraInsideCloudLayer(){
 bool inUpperCloudBandFromAltitude(float altitude){
     return cloudUpperLayer.w>0.5 && altitude>=cloudUpperLayer.x;
 }
-// 密度は各層の厚さを 1.6 の基準幅へ写して積分する。上層でも下層の尺度を使うと、
-// 光学的深さが上層厚と下層厚の比で変わるため、既に判定した層から尺度を選ぶ。
+// 消散係数はm^-1であり、層厚で割らない。同じ密度なら実際に通過した距離に比例して
+// 光学的深さが増える。上下層は同じ基準を持つが、定数バッファーの既存配置を保って選ぶ。
 float cloudOpticalDepthScaleFromBand(bool upperBand){
     float scale=layer.w;
     if(upperBand) scale=cloudUpperTerms.z;
@@ -2114,7 +2114,8 @@ float3 cloudShadowWorldPosition(float3 uvw){
 float traceCloudShadowPattern(
     float3 lp,float patternJitter,float coverage,
     float3 sun,float3 lightTangent,float3 lightBitangent){
-    float lightStep=0.0075/max(layer.w,1e-4);
+    // 光の採取間隔は層厚に応じたCPU計算値を使い、物理消散係数とは分離する。
+    float lightStep=cloudCoverageReciprocals.w;
     lightStep*=lerp(0.72,1.28,patternJitter);
     // 正確な経路と同じ丸め結果にするため、三回の乗算を別の定数へまとめない。
     lightStep*=1.8;
@@ -2247,7 +2248,7 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
         float columnDensity=cloudLowLodDensityFromMacro(
             macro,macro.weatherMask);
         float segmentDepth=max(columnDensity,0.0)
-            *cellWorldStep*layer.w;
+            *cellWorldStep*cloudOpticalDepthScaleFromBand(false);
         columnSegmentDepth[densityHeightIndex]=segmentDepth;
         totalColumnDepth+=segmentDepth;
     }
@@ -2895,7 +2896,7 @@ cbuffer CloudCB : register(b0) {
     float4 params;
     float4 dims;       // xy=ray-march 解像度, zw=全解像度
     float4 temporal;   // x=history valid, y=previous wind, z=frame/phase, w=4x4 TSR divisor
-    float4 layer;      // x=world base Y, y=world top Y, z=XZ noise scale, w=world→canonical Y
+    float4 layer;      // x=world base Y, y=world top Y, z=XZ noise scale, w=1 m当たりの基準消散
     float4 worldOrigin;// xyz=rebased shell origin, w=history camera stationary
     float4 shadowGrid;
     float4 shadowState;
@@ -3819,7 +3820,7 @@ struct FCloudSamplingTerms {
     /** xy=天候遷移幅の逆数、z=視線の細密刻み、w=太陽光の基準刻み。 */
     FVec4 coverageReciprocals{};
 
-    /** xy=上層の被覆と濃さ、z=上層の光学尺度、w=上層の太陽光刻み。 */
+    /** xy=上層の被覆と濃さ、z=1 m当たりの基準消散、w=上層の太陽光刻み。 */
     FVec4 upperTerms{};
 };
 
@@ -3828,12 +3829,12 @@ struct FCloudSamplingTerms {
  *
  * @param safeCoverage 0～1へ正規化済みの被覆。
  * @param horizontalNoiseScale 下層の水平方向ノイズ尺度。
- * @param layerCanonicalScale 下層厚を基準幅1.6へ写す倍率。
+ * @param layerSamplingScale 下層厚を基準幅1.6へ写す採取間隔用の倍率。
  * @param upperLayer 正規化済みの上層設定。
  * @param hasUpperLayer 上層が下層より上で成立しているならtrue。
  * @return 定数バッファーへそのまま設定できる共有項。
  */
-FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(f32 safeCoverage, f32 horizontalNoiseScale, f32 layerCanonicalScale, const FVolumetricCloudUpperLayer& upperLayer, bool hasUpperLayer) noexcept {
+FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(f32 safeCoverage, f32 horizontalNoiseScale, f32 layerSamplingScale, const FVolumetricCloudUpperLayer& upperLayer, bool hasUpperLayer) noexcept {
     // 呼び出し側が定数バッファーへ複製せず設定できる採取項。
     FCloudSamplingTerms out{};
     // 空領域の早期棄却では、実密度より少し広い範囲を残す。
@@ -3856,12 +3857,12 @@ FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(f32 safeCoverag
     const f32 unclampedFineStep = 0.035f / (horizontalNoiseScale > 0.001f ? horizontalNoiseScale : 0.001f);
     const f32 fineStep = unclampedFineStep < 0.5f ? 0.5f : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
     // 下層の正規化幅0.0075に相当するワールド空間の太陽光刻み。
-    const f32 lightStep = 0.0075f / (layerCanonicalScale > 0.0001f ? layerCanonicalScale : 0.0001f);
+    const f32 lightStep = 0.0075f / (layerSamplingScale > 0.0001f ? layerSamplingScale : 0.0001f);
     out.coverageReciprocals = FVec4{1.0f / (occupancyWeatherUpper - out.coverage.x), 1.0f / (densityWeatherUpper - out.coverage.y), fineStep, lightStep};
     // 上層が無効な場合も有限値を維持し、未使用成分へNaNを持ち込まない。
-    const f32 upperLayerCanonicalScale = hasUpperLayer ? 1.6f / (upperLayer.top_height - upperLayer.base_height) : layerCanonicalScale;
-    const f32 upperLayerLightStep = 0.0075f / (upperLayerCanonicalScale > 0.0001f ? upperLayerCanonicalScale : 0.0001f);
-    out.upperTerms = FVec4{upperLayer.coverage_scale, upperLayer.density_scale, upperLayerCanonicalScale, upperLayerLightStep};
+    const f32 upperLayerSamplingScale = hasUpperLayer ? 1.6f / (upperLayer.top_height - upperLayer.base_height) : layerSamplingScale;
+    const f32 upperLayerLightStep = 0.0075f / (upperLayerSamplingScale > 0.0001f ? upperLayerSamplingScale : 0.0001f);
+    out.upperTerms = FVec4{upperLayer.coverage_scale, upperLayer.density_scale, kVolumetricCloudReferenceExtinctionPerMeter, upperLayerLightStep};
     return out;
 }
 
@@ -6073,15 +6074,16 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
             ? static_cast<f32>(kVolumetricCloudUltraTraceDivisor)
             : 0.0f };
     const f32 layerThickness = m_Layer.top_height - m_Layer.base_height;
-    const f32 layerCanonicalScale = 1.6f / layerThickness;
+    const f32 layerSamplingScale = 1.6f / layerThickness;
     cb.layer = FVec4{m_Layer.base_height, m_Layer.top_height,
-                     m_Layer.horizontal_noise_scale, layerCanonicalScale};
+                     m_Layer.horizontal_noise_scale,
+                     kVolumetricCloudReferenceExtinctionPerMeter};
     // 下層と重ならず正の厚さを持つ上層だけを採取対象にする。
     const bool hasUpperLayer =
         m_UpperLayer.top_height > m_UpperLayer.base_height &&
         m_UpperLayer.base_height >= m_Layer.top_height;
-    // 画面と環境光で同じ密度形状と光学尺度を使う。
-    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safeCoverage, m_Layer.horizontal_noise_scale, layerCanonicalScale, m_UpperLayer, hasUpperLayer);
+    // 画面と環境光で同じ密度形状、物理消散、採取間隔を使う。
+    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safeCoverage, m_Layer.horizontal_noise_scale, layerSamplingScale, m_UpperLayer, hasUpperLayer);
     const bool temporalHistoryStationary = historyValid &&
         cameraDeltaSquared <= 0.0025f && matrixDelta <= 0.002f;
     cb.worldOrigin = FVec4{
@@ -6513,16 +6515,17 @@ CVolumetricClouds::BuildEnvironmentCubemap(
     cb.temporal = FVec4{0.0f, wind_offset, 0.0f, 0.0f};
     const f32 layer_thickness =
         m_Layer.top_height - m_Layer.base_height;
-    const f32 layer_canonical_scale = 1.6f / layer_thickness;
+    const f32 layer_sampling_scale = 1.6f / layer_thickness;
     cb.layer = FVec4{
         m_Layer.base_height, m_Layer.top_height,
-        m_Layer.horizontal_noise_scale, layer_canonical_scale};
+        m_Layer.horizontal_noise_scale,
+        kVolumetricCloudReferenceExtinctionPerMeter};
     // 下層と重ならず正の厚さを持つ上層だけを採取対象にする。
     const bool has_upper_layer =
         m_UpperLayer.top_height > m_UpperLayer.base_height
         && m_UpperLayer.base_height >= m_Layer.top_height;
-    // 画面と環境光で同じ密度形状と光学尺度を使う。
-    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safe_coverage, m_Layer.horizontal_noise_scale, layer_canonical_scale, m_UpperLayer, has_upper_layer);
+    // 画面と環境光で同じ密度形状、物理消散、採取間隔を使う。
+    const FCloudSamplingTerms samplingTerms = ResolveVolumetricCloudSamplingTerms_Internal(safe_coverage, m_Layer.horizontal_noise_scale, layer_sampling_scale, m_UpperLayer, has_upper_layer);
     cb.worldOrigin = FVec4{
         world_origin.x, world_origin.y, world_origin.z, 0.0f};
     const f32 inverse_shadow_extent =
