@@ -710,8 +710,15 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion*multiOcclusion;"));
     EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*diffuseOcclusion"));
     EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
-    EXPECT_TRUE(Contains(ambientBlock, "float fallbackSkyAmbientDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));"));
-    EXPECT_TRUE(Contains(ambientBlock, "float fallbackGroundAmbientDepth=ambientLocalDensity*(0.35+0.65*h);"));
+    EXPECT_TRUE(Contains(source, "float2 cloudAmbientFallbackOpticalDepth(CloudMacroSample macro,float localDensity)"));
+    EXPECT_TRUE(Contains(source, "float columnThickness=max(bandThickness,0.0)"));
+    EXPECT_TRUE(Contains(source, "*max(macro.columnSpan,0.0);"));
+    EXPECT_TRUE(Contains(source, "*cloudOpticalDepthScaleFromBand(upperBand);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float2 fallbackAmbientDepth="));
+    EXPECT_TRUE(Contains(ambientBlock, "cloudAmbientFallbackOpticalDepth(macro,ambientLocalDensity);"));
+    EXPECT_TRUE(Contains(ambientBlock, "float fallbackSkyAmbientDepth=fallbackAmbientDepth.x;"));
+    EXPECT_TRUE(Contains(ambientBlock, "float fallbackGroundAmbientDepth=fallbackAmbientDepth.y;"));
+    EXPECT_FALSE(Contains(ambientBlock, "0.35+0.65"));
     EXPECT_TRUE(Contains(ambientBlock, "float3 cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
     EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.y*ambientDensityScale"));
     EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.z*ambientDensityScale"));
@@ -748,7 +755,11 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
             ? density * safeFade : 0.0f;
         const f32 scaledDensity = lowLodDensity * ambientDensityScale;
         const f32 localDensity = scaledDensity > 0.0f ? scaledDensity : 0.0f;
-        const f32 fallbackDepth = localDensity * 0.675f;
+        /** 層中央から局所雲柱上端までの均質媒質を積分した代替光学的厚さ。 */
+        constexpr f32 kFallbackBoundaryFraction = 0.50f;
+        constexpr f32 kFallbackBandThickness = 2500.0f;
+        constexpr f32 kFallbackColumnSpan = 0.80f;
+        const f32 fallbackDepth = localDensity * kFallbackBandThickness * kFallbackColumnSpan * kFallbackBoundaryFraction * kVolumetricCloudReferenceExtinctionPerMeter;
         const f32 opticalDepth = cachedDepth >= 0.0f
             ? cachedDepth * ambientDensityScale : fallbackDepth;
         /** 三次散乱と同じ縮小率を使う拡散光用の消散率。 */
@@ -769,6 +780,7 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     }
 
     EXPECT_NEAR(visibility(0.0f, 1.0f, 1.0f, 0.0f, 5.0f, 0.28f), 1.0f, 0.0f);
+    EXPECT_TRUE(std::isfinite(visibility(0.75f, 1.0f, 1.0f, -1.0f, 5.0f, 0.28f)));
     EXPECT_TRUE(visibility(0.75f, 1.0f, 1.0f, 1.2f, 5.0f, 0.28f) < visibility(0.75f, 1.0f, 1.0f, 0.2f, 5.0f, 0.28f));
     EXPECT_TRUE(visibility(0.75f, 2.0f, 1.0f, 0.8f, 5.0f, 0.28f) < visibility(0.75f, 1.0f, 1.0f, 0.8f, 5.0f, 0.28f));
     EXPECT_NEAR(visibility(0.75f, 2.0f, 0.0f, 1.6f, 5.0f, 0.28f), 1.0f, 1.0e-6f);

@@ -7541,13 +7541,13 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         ambient,
         "floatambientLocalDensity=saturate(lowLodDensity*density);"));
-    EXPECT_TRUE(Contains(
-        ambient,
-        "floatfallbackSkyAmbientDepth=ambientLocalDensity*"
-        "(0.35+0.65*(1.0-h));"
-        "floatfallbackGroundAmbientDepth=ambientLocalDensity*"
-        "(0.35+0.65*h);"
-        "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
+    EXPECT_TRUE(Contains(shader, "float2cloudAmbientFallbackOpticalDepth(" "CloudMacroSamplemacro,floatlocalDensity){"));
+    EXPECT_TRUE(Contains(shader, "floatbandThickness=upperBand?" "cloudUpperLayer.y-cloudUpperLayer.x:layer.y-layer.x;"));
+    EXPECT_TRUE(Contains(shader, "floatcolumnThickness=max(bandThickness,0.0)" "*max(macro.columnSpan,0.0);"));
+    EXPECT_TRUE(Contains(shader, "floatfullColumnDepth=max(localDensity,0.0)*columnThickness" "*cloudOpticalDepthScaleFromBand(upperBand);"));
+    EXPECT_TRUE(Contains(shader, "returnfullColumnDepth*float2(1.0-h,h);"));
+    EXPECT_TRUE(Contains(ambient, "float2fallbackAmbientDepth=" "cloudAmbientFallbackOpticalDepth(macro,ambientLocalDensity);" "floatfallbackSkyAmbientDepth=fallbackAmbientDepth.x;" "floatfallbackGroundAmbientDepth=fallbackAmbientDepth.y;" "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
+    EXPECT_FALSE(Contains(ambient, "0.35+0.65"));
     EXPECT_TRUE(Contains(
         ambient,
         "floatskyAmbientOpticalDepth=lerp("
@@ -7576,7 +7576,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(ambient, "sun.y"));
 
     const FVolumetricCloudLighting lighting{};
-    const auto visibility = [&lighting](f32 lowLodDensity, f32 height, f32 density, f32 distanceFade, f32 cachedDepth, f32 cacheWeight, bool fromSky) noexcept {
+    constexpr f32 kFallbackBandThickness = 2500.0f;
+    constexpr f32 kFallbackColumnSpan = 0.80f;
+    const auto fallbackOpticalDepth = [](f32 lowLodDensity, f32 height, f32 density, f32 distanceFade, f32 bandThickness, f32 columnSpan, bool fromSky) noexcept {
         const f32 h = std::clamp(height, 0.0f, 1.0f);
         const f32 safeFade = std::clamp(distanceFade, 0.0f, 1.0f);
         const f32 ambientDensityScale = density * safeFade > 0.0f
@@ -7584,7 +7586,14 @@ ACS_TEST(VolumetricClouds,
         const f32 scaledDensity = lowLodDensity * ambientDensityScale;
         const f32 localDensity = scaledDensity > 0.0f ? scaledDensity : 0.0f;
         const f32 boundaryDistance = fromSky ? 1.0f - h : h;
-        const f32 fallbackDepth = localDensity * (0.35f + 0.65f * boundaryDistance);
+        const f32 safeBandThickness = bandThickness > 0.0f ? bandThickness : 0.0f;
+        const f32 safeColumnSpan = columnSpan > 0.0f ? columnSpan : 0.0f;
+        return localDensity * safeBandThickness * safeColumnSpan * boundaryDistance * kVolumetricCloudReferenceExtinctionPerMeter;
+    };
+    const auto visibility = [&lighting, &fallbackOpticalDepth](f32 lowLodDensity, f32 height, f32 density, f32 distanceFade, f32 cachedDepth, f32 cacheWeight, bool fromSky) noexcept {
+        const f32 safeFade = std::clamp(distanceFade, 0.0f, 1.0f);
+        const f32 ambientDensityScale = density * safeFade > 0.0f ? density * safeFade : 0.0f;
+        const f32 fallbackDepth = fallbackOpticalDepth(lowLodDensity, height, density, distanceFade, kFallbackBandThickness, kFallbackColumnSpan, fromSky);
         const f32 blend = std::clamp(cacheWeight, 0.0f, 1.0f);
         const f32 opticalDepth = fallbackDepth +
             (cachedDepth * ambientDensityScale - fallbackDepth) * blend;
@@ -7610,6 +7619,25 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(
         visibility(0.85f, 0.5f, 2.1f, 0.0f, 10.0f, 1.0f, true),
         1.0f, 1.0e-6f);
+    // 距離とm^-1の基準消散を含むため、同じ密度でも厚い層ほど光学的厚さが増える。
+    const f32 thinFallbackDepth = fallbackOpticalDepth(0.80f, 0.50f, 2.10f, 1.0f, 900.0f, 1.0f, true);
+    const f32 referenceFallbackDepth = fallbackOpticalDepth(0.80f, 0.50f, 2.10f, 1.0f, 2500.0f, 1.0f, true);
+    const f32 cumulonimbusFallbackDepth = fallbackOpticalDepth(0.80f, 0.50f, 2.10f, 1.0f, 9400.0f, 1.0f, true);
+    EXPECT_NEAR(thinFallbackDepth, 0.48384f, 1.0e-6f);
+    EXPECT_NEAR(referenceFallbackDepth, 1.344f, 1.0e-6f);
+    EXPECT_NEAR(cumulonimbusFallbackDepth, 5.05344f, 1.0e-6f);
+    EXPECT_TRUE(thinFallbackDepth < referenceFallbackDepth);
+    EXPECT_TRUE(referenceFallbackDepth < cumulonimbusFallbackDepth);
+    // 空と地面の経路は局所雲柱を二分し、境界では該当方向の距離が0になる。
+    const f32 skyDepth = fallbackOpticalDepth(0.65f, 0.35f, 1.7f, 1.0f, 4200.0f, 0.72f, true);
+    const f32 groundDepthFromFallback = fallbackOpticalDepth(0.65f, 0.35f, 1.7f, 1.0f, 4200.0f, 0.72f, false);
+    const f32 fullColumnDepth = 0.65f * 1.7f * 4200.0f * 0.72f * kVolumetricCloudReferenceExtinctionPerMeter;
+    EXPECT_NEAR(skyDepth + groundDepthFromFallback, fullColumnDepth, 1.0e-6f);
+    EXPECT_NEAR(fallbackOpticalDepth(0.65f, 1.0f, 1.7f, 1.0f, 4200.0f, 0.72f, true), 0.0f, 0.0f);
+    EXPECT_NEAR(fallbackOpticalDepth(0.65f, 0.0f, 1.7f, 1.0f, 4200.0f, 0.72f, false), 0.0f, 0.0f);
+    // 均質柱を同じ式でキャッシュした値なら、境界の混合率を変えても可視度は連続する。
+    const f32 cachedHomogeneousSkyDepth = 0.80f * kFallbackBandThickness * kFallbackColumnSpan * 0.50f * kVolumetricCloudReferenceExtinctionPerMeter;
+    EXPECT_NEAR(visibility(0.80f, 0.50f, 2.10f, 1.0f, cachedHomogeneousSkyDepth, 0.0f, true), visibility(0.80f, 0.50f, 2.10f, 1.0f, cachedHomogeneousSkyDepth, 1.0f, true), 1.0e-6f);
     // キャッシュが有効なら、同じ積算光路に局所密度を再度掛けない。
     const f32 sparseSurface = visibility(
         0.10f, 0.5f, 1.0f, 1.0f, 0.65f, 1.0f, true);

@@ -1657,6 +1657,19 @@ struct CloudMacroSample {
     // 高度計算で確定した層。後段の密度と積分尺度で再利用し、同じ高度を再計算しない。
     float upperBand;
 };
+// キャッシュ外でも、局所密度を雲柱境界まで積分した無次元の光学的厚さへ変換する。
+// xyは空方向と地面方向であり、両方の和は同じ局所雲柱の全厚に一致する。
+float2 cloudAmbientFallbackOpticalDepth(CloudMacroSample macro,float localDensity){
+    bool upperBand=macro.upperBand>0.5;
+    float bandThickness=upperBand
+        ?cloudUpperLayer.y-cloudUpperLayer.x:layer.y-layer.x;
+    float columnThickness=max(bandThickness,0.0)
+                         *max(macro.columnSpan,0.0);
+    float fullColumnDepth=max(localDensity,0.0)*columnThickness
+        *cloudOpticalDepthScaleFromBand(upperBand);
+    float h=saturate(macro.height);
+    return fullColumnDepth*float2(1.0-h,h);
+}
 CloudMacroSample sampleCloudMacro(
     float3 p,float4 coverageTerms,float sampleSpacing){
     CloudMacroSample macro;
@@ -2754,8 +2767,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 三次散乱と同じ縮小率で拡散輸送を近似し、追加採取なしで雲頂と雲底の明暗差を保つ。
             float diffuseOcclusion=multiOcclusion*multiOcclusion;
             float reducedAmbientExtinction=0.60*diffuseOcclusion*cloudLightingExtinction.y;
-            float fallbackSkyAmbientDepth=ambientLocalDensity*(0.35+0.65*(1.0-h));
-            float fallbackGroundAmbientDepth=ambientLocalDensity*(0.35+0.65*h);
+            float2 fallbackAmbientDepth=
+                cloudAmbientFallbackOpticalDepth(macro,ambientLocalDensity);
+            float fallbackSkyAmbientDepth=fallbackAmbientDepth.x;
+            float fallbackGroundAmbientDepth=fallbackAmbientDepth.y;
             float3 cachedAmbientDepth=sampleCloudAmbientDepth(p);
             float skyAmbientOpticalDepth=lerp(
                 fallbackSkyAmbientDepth,
