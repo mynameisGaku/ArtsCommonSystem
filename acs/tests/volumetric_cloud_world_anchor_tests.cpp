@@ -2022,6 +2022,44 @@ ACS_TEST(VolumetricClouds, CurvedShellBoundsTheGeometricHorizon) {
     EXPECT_TRUE(horizon.exit > horizon.enter);
 }
 
+ACS_TEST(VolumetricClouds, CurvedShellBoundaryDoesNotCrossIntoTheWrongSide) {
+    const FVolumetricCloudLayer layer{96.0f, 128.0f, 0.035f};
+
+    // 雲底上の境界では、下向きレイは雲へ入らず、上向きレイだけが層を通る。
+    const FVolumetricCloudRayInterval baseDown =
+        IntersectVolumetricCloudShell(
+            FVec3{0.0f, 96.0f, 0.0f}, FVec3{0.0f, -1.0f, 0.0f}, layer);
+    const FVolumetricCloudRayInterval baseUp =
+        IntersectVolumetricCloudShell(
+            FVec3{0.0f, 96.0f, 0.0f}, FVec3{0.0f, 1.0f, 0.0f}, layer);
+    EXPECT_FALSE(baseDown.hit);
+    EXPECT_TRUE(baseUp.hit);
+    EXPECT_NEAR(baseUp.enter, 0.0f, 1e-3f);
+    EXPECT_NEAR(baseUp.exit, 32.0f, 1e-3f);
+
+    // 雲頂上の境界では、上向きレイは雲へ入らず、下向きレイだけが層を通る。
+    const FVolumetricCloudRayInterval topUp =
+        IntersectVolumetricCloudShell(
+            FVec3{0.0f, 128.0f, 0.0f}, FVec3{0.0f, 1.0f, 0.0f}, layer);
+    const FVolumetricCloudRayInterval topDown =
+        IntersectVolumetricCloudShell(
+            FVec3{0.0f, 128.0f, 0.0f}, FVec3{0.0f, -1.0f, 0.0f}, layer);
+    EXPECT_FALSE(topUp.hit);
+    EXPECT_TRUE(topDown.hit);
+    EXPECT_NEAR(topDown.enter, 0.0f, 1e-3f);
+    EXPECT_NEAR(topDown.exit, 32.0f, 1e-3f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "t1=(headingInward&&hitsInner&&innerNear>=0.0)?innerNear:outerFar;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "out.exit = (centreDot < 0.0 && hitsInner && innerNear >= 0.0f)"));
+}
+
 ACS_TEST(VolumetricClouds,
          CloudDepthRangeCoversThePhysicalGeometricHorizon) {
     const FVolumetricCloudLayer layer{};

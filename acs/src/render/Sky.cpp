@@ -1129,7 +1129,9 @@ bool intersectCloudShellTerms(float b,float innerC,float outerC,out float t0,out
             }
         } else if(outerC<=0.0){
             bool headingInward=b<0.0;
-            t1=(headingInward && hitsInner && innerNear>0.0)?innerNear:outerFar;
+            // 境界上では内側交差の距離が0になる。内向きなら、雲へ入る前に
+            // 内殻へ接しているだけなので、0を有効な終端として扱う。
+            t1=(headingInward && hitsInner && innerNear>=0.0)?innerNear:outerFar;
         } else if(outerNear>0.0){
             t0=outerNear;
             t1=(hitsInner && innerNear>t0)?innerNear:outerFar;
@@ -5120,7 +5122,9 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
         out.exit = outerFar;
     } else if (outerC <= 0.0) {
         out.enter = 0.0f;
-        out.exit = (centreDot < 0.0 && hitsInner && innerNear > 0.0f)
+        // 雲底・雲頂の境界上では innerNear が0になり得る。内向きのレイだけ
+        // 0を終端として認め、層の反対側まで誤って積分しない。
+        out.exit = (centreDot < 0.0 && hitsInner && innerNear >= 0.0f)
                  ? innerNear : outerFar;
     } else {
         if (outerNear <= 0.0f) return out;
