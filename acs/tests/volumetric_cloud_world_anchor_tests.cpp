@@ -448,9 +448,9 @@ f32 CloudTemporalEvolutionMismatchForTest(FVec4 current, FVec4 previous) noexcep
     return SaturateForTest(delta * 220.0f);
 }
 
-// 対流差が小さい静止視点でも現在の密度を最低限反映する重みを求める。
+// 別レイの空間再構成を混ぜる量は、実際の対流変化量だけに制限する。
 f32 CloudTemporalCurrentWeightForTest(f32 evolutionMismatch) noexcept {
-    return evolutionMismatch > 0.08f ? evolutionMismatch : 0.08f;
+    return SaturateForTest(evolutionMismatch);
 }
 
 // 現在近傍から外れた履歴成分だけを制限し、範囲内の細部は変更しない。
@@ -6573,9 +6573,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolved=lerp(histPacked,current,temporalCurrentWeight);"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floattemporalCurrentWeight=max(evolutionMismatch,0.08);"));
+    EXPECT_TRUE(Contains(resolveShader, "floattemporalCurrentWeight=evolutionMismatch;"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolved=lerp(histPacked,current,temporalCurrentWeight);"));
@@ -6661,7 +6659,7 @@ ACS_TEST(VolumetricClouds,
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_FALSE(Contains(shader, "CloudTemporalSampleResponse"));
-    EXPECT_TRUE(Contains(shader, "floattemporalCurrentWeight=max(evolutionMismatch,0.08);"));
+    EXPECT_TRUE(Contains(shader, "floattemporalCurrentWeight=evolutionMismatch;"));
     EXPECT_EQ(CountOccurrences(shader, "resolved=current;"), 3u);
     EXPECT_TRUE(Contains(shader, "resolved=lerp(histPacked,current,"));
     EXPECT_TRUE(Contains(shader, "if(!temporalSuperRes){histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);}"));
@@ -6688,8 +6686,20 @@ ACS_TEST(VolumetricClouds,
             FVec4{0.0f, 0.0f, 0.0f, 0.0f}),
         0.022f,
         1e-6f);
-    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.022f), 0.08f, 1e-6f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.0f), 0.0f, 0.0f);
+    EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.022f), 0.022f, 1e-6f);
     EXPECT_NEAR(CloudTemporalCurrentWeightForTest(0.35f), 0.35f, 1e-6f);
+    // 固定8%では、静止した正確な履歴の約71%が次の等倍採取までに別レイへ置き換わる。
+    f32 fixedFloorHistory = 1.0f;
+    for (u32 unscheduledFrame = 0u; unscheduledFrame < 15u; ++unscheduledFrame) {
+        fixedFloorHistory *= 0.92f;
+    }
+    EXPECT_TRUE(fixedFloorHistory < 0.30f);
+    f32 correctedHistory = 1.0f;
+    for (u32 unscheduledFrame = 0u; unscheduledFrame < 15u; ++unscheduledFrame) {
+        correctedHistory *= 1.0f - CloudTemporalCurrentWeightForTest(0.0f);
+    }
+    EXPECT_NEAR(correctedHistory, 1.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {

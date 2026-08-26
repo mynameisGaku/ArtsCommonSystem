@@ -3032,9 +3032,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float2 uv=(float2(tid.xy)+0.5)/dims.zw;
     bool temporalSuperRes=IsTemporalSuperResolution();
     float evolutionMismatch=CloudTemporalEvolutionMismatch();
-    // 対流差が小さい静止視点でも、履歴だけを完全に再利用しない。
-    // 最小8%を現在値へ戻し、雲の下面と細部が古い位相へ固定されるのを防ぐ。
-    float temporalCurrentWeight=max(evolutionMismatch,0.08);
+    // 未採取画素の現在値は別の等倍レイから作った空間再構成なので、固定割合で混ぜると
+    // 16フレームの正確な画素履歴を毎フレームぼかす。非剛体な対流変化が実際に進んだ分だけ
+    // 現在値へ寄せ、変化が無い場合は次の等倍採取まで画素別履歴をそのまま保つ。
+    float temporalCurrentWeight=evolutionMismatch;
     uint phaseIndex=(uint)temporal.z&15u;
     uint2 pixelBlock=min(tid.xy>>2u,uint2(dims.xy)-1u);
     uint2 phaseOffset=CloudTemporalPhaseOffset4(pixelBlock,phaseIndex);
