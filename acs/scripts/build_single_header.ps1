@@ -328,6 +328,45 @@ function Get-AcsDistributionMutexNameForKey([string]$Key) {
     return "Global\ACS.Distribution.Publish.$rootHash"
 }
 
+# module自動読込に依存せず、通常fileのSHA-256を大文字16進数で返す。
+function Get-AcsFileSha256([string]$Path) {
+    $stream = $null
+    $sha256 = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        return [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '')
+    } finally {
+        if ($sha256) { $sha256.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+# Windows PowerShellとPowerShell 7の両方でdirectoryの指定ACL sectionを取得する。
+function Get-AcsDirectoryAccessControl([string]$Path, [System.Security.AccessControl.AccessControlSections]$Sections) {
+    $directory = [System.IO.DirectoryInfo]::new($Path)
+    $extensions = 'System.IO.FileSystemAclExtensions' -as [type]
+    if ($extensions) {
+        $method = $extensions.GetMethod('GetAccessControl', [type[]]@([System.IO.DirectoryInfo], [System.Security.AccessControl.AccessControlSections]))
+        if (-not $method) { throw "PowerShell 7のdirectory ACL取得機能がありません" }
+        return $method.Invoke($null, [object[]]@($directory, $Sections))
+    }
+    return $directory.GetAccessControl($Sections)
+}
+
+# Windows PowerShellとPowerShell 7の両方でdirectoryのACLを書き戻す。
+function Set-AcsDirectoryAccessControl([string]$Path, [System.Security.AccessControl.DirectorySecurity]$Security) {
+    $directory = [System.IO.DirectoryInfo]::new($Path)
+    $extensions = 'System.IO.FileSystemAclExtensions' -as [type]
+    if ($extensions) {
+        $method = $extensions.GetMethod('SetAccessControl', [type[]]@([System.IO.DirectoryInfo], [System.Security.AccessControl.DirectorySecurity]))
+        if (-not $method) { throw "PowerShell 7のdirectory ACL設定機能がありません" }
+        $method.Invoke($null, [object[]]@($directory, $Security)) | Out-Null
+        return
+    }
+    $directory.SetAccessControl($Security)
+}
+
 # 名前付きmutexを待機せず取得し、競合時は変更前に拒否する。
 function Enter-AcsDistributionNamedMutex([string]$MutexName, [string]$Operation, [string]$Root) {
     $mutex = $null
@@ -943,12 +982,12 @@ function Get-AcsDistributionLicenseSources {
         if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or $sourceItem.Length -le 0) {
             throw "license原本が通常の非空fileではありません: $sourcePath"
         }
-        $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $sourceHash = Get-AcsFileSha256 $sourcePath
         $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
         if ($sourceItem.Length -ne $specification.ExpectedBytes -or $sourceHash -cne $specification.ExpectedSha256) {
             throw "license原本が固定byte契約と一致しません: $sourcePath"
         }
-        if ($sourceBytes.Length -ne $sourceItem.Length -or (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToUpperInvariant() -cne $sourceHash) {
+        if ($sourceBytes.Length -ne $sourceItem.Length -or (Get-AcsFileSha256 $sourcePath) -cne $sourceHash) {
             throw "license原本が検証中に変化しました: $sourcePath"
         }
         $records.Add([pscustomobject]@{ RelativePath = $specification.RelativePath; SourcePath = $sourcePath; Bytes = $sourceBytes; Sha256 = $sourceHash })
@@ -978,7 +1017,7 @@ function Publish-AcsDistributionLicenses([string]$Root) {
                 Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
             }
         }
-        if ((Get-Item -LiteralPath $destinationPath).Length -ne $sourceRecord.Bytes.Length -or (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToUpperInvariant() -cne $sourceRecord.Sha256) {
+        if ((Get-Item -LiteralPath $destinationPath).Length -ne $sourceRecord.Bytes.Length -or (Get-AcsFileSha256 $destinationPath) -cne $sourceRecord.Sha256) {
             throw "license出力が原本byte列と一致しません: $($sourceRecord.RelativePath)"
         }
     }
@@ -1077,7 +1116,7 @@ function New-AcsDistributionManifestContent([string]$Root) {
     $manifestLines.Add($distributionManifestSchema)
     foreach ($distributionFile in Get-AcsDistributionContractFiles $Root) {
         $relativePath = Get-AcsDistributionRelativePath $Root $distributionFile
-        $fileHash = (Get-FileHash -LiteralPath $distributionFile -Algorithm SHA256).Hash.ToUpperInvariant()
+        $fileHash = Get-AcsFileSha256 $distributionFile
         $manifestLines.Add("$fileHash  $relativePath")
     }
     return [string]::Join("`n", [string[]]$manifestLines) + "`n"
@@ -1127,7 +1166,7 @@ function Publish-AcsDistributionManifest([string]$Root) {
         }
         Assert-AcsDistributionDirectoryPin $directoryPin
         Assert-AcsDistributionManifest $normalizedRoot
-        $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $manifestHash = Get-AcsFileSha256 $manifestPath
         Write-Host "    配布manifest完了 (SHA-256=$manifestHash)"
     } finally {
         Close-AcsDistributionDirectoryPin $directoryPin
@@ -1157,7 +1196,7 @@ function Get-DistributionFileManifest([string]$Root, [string[]]$ExcludedRelative
         }
         $manifest[$relativePath] = [pscustomobject]@{
             Length = (Get-Item -LiteralPath $filePath).Length
-            Sha256 = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
+            Sha256 = Get-AcsFileSha256 $filePath
         }
     }
     return $manifest
@@ -1454,8 +1493,8 @@ function Get-AcsShortAliasPath([string]$Path) {
 function Get-AcsDistributionFixtureSnapshot([string]$Root) {
     $normalizedRoot = Get-NormalizedFullPath $Root
     $treeState = Get-DistributionTreeStateSignature $normalizedRoot
-    $payloadHash = (Get-FileHash -LiteralPath (Join-Path $normalizedRoot 'acs.h') -Algorithm SHA256).Hash.ToUpperInvariant()
-    $manifestHash = (Get-FileHash -LiteralPath (Join-Path $normalizedRoot $distributionManifestName) -Algorithm SHA256).Hash.ToUpperInvariant()
+    $payloadHash = Get-AcsFileSha256 (Join-Path $normalizedRoot 'acs.h')
+    $manifestHash = Get-AcsFileSha256 (Join-Path $normalizedRoot $distributionManifestName)
     return "$treeState`nPAYLOAD=$payloadHash`nMANIFEST=$manifestHash"
 }
 
@@ -1839,6 +1878,11 @@ function Invoke-PipelineSelfTest {
     }
     New-Item -ItemType Directory -Force -Path $testDirectory | Out-Null
     try {
+        $hashFixture = Join-Path $testDirectory 'sha256-fixture.bin'
+        [System.IO.File]::WriteAllBytes($hashFixture, [System.Text.Encoding]::ASCII.GetBytes('abc'))
+        if ((Get-AcsFileSha256 $hashFixture) -cne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD') {
+            throw "self-testのSHA-256実装が既知値と一致しません"
+        }
         $cacheFixture = Join-Path $testDirectory 'CMakeCache.txt'
         $validCacheLines = @($distributionRequiredOnCacheFlags | ForEach-Object { "${_}:BOOL=ON" }) + @($distributionRequiredOffCacheFlags | ForEach-Object { "${_}:BOOL=OFF" })
         [System.IO.File]::WriteAllLines($cacheFixture, $validCacheLines, [System.Text.UTF8Encoding]::new($false))
@@ -2307,18 +2351,19 @@ function Invoke-PipelineSelfTest {
 
         $permissionRoot = Join-Path $testDirectory 'operation-lock-permission'
         New-Item -ItemType Directory -Path $permissionRoot | Out-Null
-        $permissionAcl = Get-Acl -LiteralPath $permissionRoot
-        $permissionSddl = $permissionAcl.Sddl
+        $permissionAccessSection = [System.Security.AccessControl.AccessControlSections]::Access
+        $permissionAcl = Get-AcsDirectoryAccessControl $permissionRoot $permissionAccessSection
+        $permissionSddl = $permissionAcl.GetSecurityDescriptorSddlForm($permissionAccessSection)
         $permissionDeniedRights = [System.Security.AccessControl.FileSystemRights]::ListDirectory -bor [System.Security.AccessControl.FileSystemRights]::ReadAttributes
         # directory pinを拒否しつつ、ACLを復元する権限は保持する。
         $permissionRule = [System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.WindowsIdentity]::GetCurrent().User, $permissionDeniedRights, [System.Security.AccessControl.AccessControlType]::Deny)
         $permissionAclMutated = $false
         $permissionMode = 'unavailable'
         try {
-            $restrictedAcl = Get-Acl -LiteralPath $permissionRoot
+            $restrictedAcl = Get-AcsDirectoryAccessControl $permissionRoot $permissionAccessSection
             $restrictedAcl.AddAccessRule($permissionRule)
             try {
-                Set-Acl -LiteralPath $permissionRoot -AclObject $restrictedAcl
+                Set-AcsDirectoryAccessControl $permissionRoot $restrictedAcl
                 $permissionAclMutated = $true
                 $permissionMode = 'deny-open'
             } catch {
@@ -2333,10 +2378,13 @@ function Invoke-PipelineSelfTest {
             }
         } finally {
             if ($permissionAclMutated) {
-                Set-Acl -LiteralPath $permissionRoot -AclObject $permissionAcl
+                $restoredAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+                $restoredAcl.SetSecurityDescriptorSddlForm($permissionSddl, $permissionAccessSection)
+                Set-AcsDirectoryAccessControl $permissionRoot $restoredAcl
             }
         }
-        if ((Get-Acl -LiteralPath $permissionRoot).Sddl -cne $permissionSddl) {
+        $restoredPermissionAcl = Get-AcsDirectoryAccessControl $permissionRoot $permissionAccessSection
+        if ($restoredPermissionAcl.GetSecurityDescriptorSddlForm($permissionAccessSection) -cne $permissionSddl) {
             throw "self-testの権限拒否経路がACLを復元しませんでした"
         }
         if (@(Get-ChildItem -LiteralPath $permissionRoot -Force).Count -ne 0) {
@@ -2555,7 +2603,7 @@ function Invoke-PipelineSelfTest {
         Assert-DistributionTreeAllowlist $manifestDestination
 
         $destinationManifestPath = Join-Path $manifestDestination $distributionManifestName
-        $destinationManifestHashBefore = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
+        $destinationManifestHashBefore = Get-AcsFileSha256 $destinationManifestPath
         $destinationDebugLibraryPath = Join-Path $manifestDestination 'lib\x64\Debug\acs.lib'
         [System.IO.File]::WriteAllText($debugLibraryPath, 'WXYZ')
         $matchingTimestamp = [DateTime]::UtcNow.AddMinutes(-10)
@@ -2565,7 +2613,7 @@ function Invoke-PipelineSelfTest {
         Assert-ExpectedFailure {
             Publish-MirroredDistribution $manifestSource $manifestDestination
         } 'same-size same-time skipped payload'
-        if ((Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash -cne $destinationManifestHashBefore -or [System.IO.File]::ReadAllText($destinationDebugLibraryPath) -cne 'ABCD') {
+        if ((Get-AcsFileSha256 $destinationManifestPath) -cne $destinationManifestHashBefore -or [System.IO.File]::ReadAllText($destinationDebugLibraryPath) -cne 'ABCD') {
             throw "self-testのpayload不一致失敗が旧manifestまたは配置先fileを変更しました"
         }
 
@@ -2573,7 +2621,7 @@ function Invoke-PipelineSelfTest {
         Publish-AcsDistributionManifest $manifestSource
         Publish-MirroredDistribution $manifestSource $manifestDestination
 
-        $manifestHashBeforeLockedUpdate = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
+        $manifestHashBeforeLockedUpdate = Get-AcsFileSha256 $destinationManifestPath
         $manifestLock = [System.IO.File]::Open($destinationManifestPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
         try {
             Assert-ExpectedFailure {
@@ -2582,7 +2630,7 @@ function Invoke-PipelineSelfTest {
         } finally {
             $manifestLock.Dispose()
         }
-        if ($manifestHashBeforeLockedUpdate -cne (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash) {
+        if ($manifestHashBeforeLockedUpdate -cne (Get-AcsFileSha256 $destinationManifestPath)) {
             throw "self-testの並列manifest更新が既存内容を変更しました"
         }
 
@@ -2590,7 +2638,7 @@ function Invoke-PipelineSelfTest {
         if ($remainingManifestTemporaries.Count -ne 0) {
             throw "self-testのmanifest一時fileが残っています"
         }
-        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,case,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,native_final_path,mirror'
+        Write-Host 'acs_distribution_manifest_self_test=ok cases=sha256,canonical,case,tamper,missing,stale,extra,partial,source_lock,destination_lock,alias_lock,self_deploy,physical_overlap,nested_transition,external_create,migration_rollback,root_normalization,root_parent,direct_root,volume_root,abandoned,cleanup,permission,root_identity,skip,reader_lock,native_final_path,mirror'
     } finally {
         Stop-AcsOperationLockHolder $sourceLockHolder
         Stop-AcsOperationLockHolder $destinationLockHolder
