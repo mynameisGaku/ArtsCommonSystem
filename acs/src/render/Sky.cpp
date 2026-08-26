@@ -725,7 +725,7 @@ float fullShapeAt(float3 uvw){
     float warpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);
     float3 domainWarp=float3(
         warpX-0.5,(warpX+warpZ)*0.5-0.5,warpZ-0.5)
-        *float3(0.18,0.10,0.18);
+        *float3(0.22,0.28,0.22);
     float3 warpedUvw=uvw+domainWarp;
     float perlin2 = gnoise(warpedUvw*2.0,2.0);
     float perlin4 = gnoise(warpedUvw*4.0,4.0);
@@ -735,15 +735,17 @@ float fullShapeAt(float3 uvw){
     // 中～高周波を主成分にすると、同じX・Zへ細い房が縦に積み重なる。
     float perlinFull = perlin2*0.64+perlin4*0.26
                       +perlin8*0.08+perlin16*0.02;
-    float wa = worley(uvw,4.0);
-    float wb = worley(uvw,8.0);
-    float wc = worley(uvw,16.0);
+    float wa = worley(warpedUvw,4.0);
+    float wb = worley(warpedUvw,8.0);
+    float wc = worley(warpedUvw,16.0);
     float worleyFull = wa*0.82+wb*0.15+wc*0.03;
-    // 低周波Perlinで連続した雲塊の外形を作り、Worleyは内部の膨らみだけへ使う。
-    // Worleyをしきい値へ直結すると正の領域が数%まで縮み、粒状の柱になる。
+    // 低周波Perlinで連続した雲塊の外形を作り、4セルWorleyで大きな房だけを
+    // 主形状の内側へ重ねる。8・16セルは弱い補助に下げ、粒状の柱を作らない。
     float broadMass=remap(perlinFull,0.46,0.62,0.0,1.0);
+    float lobeMass=smoothstep(0.26,0.72,wa);
     float cellularMass=smoothstep(0.30,0.80,worleyFull);
-    return broadMass*lerp(0.58,0.92,cellularMass);
+    return broadMass*lerp(0.68,1.08,lobeMass)
+                   *lerp(0.90,1.02,cellularMass);
 }
 float fullShapeColumnAt(float3 uvw){
     return fullShapeAt(uvw)*0.42
@@ -1270,7 +1272,7 @@ float cloudProfileFromTypeWeights(
     float4 rise=smoothstep(
         float4(0.0,0.0,0.0,0.0),
         riseEnds,h.xxxx);
-    float4 fall=1.0-smoothstep(float4(0.38,0.72,0.88,0.94),float4(0.50,0.90,0.995,0.999),h.xxxx);
+    float4 fall=1.0-smoothstep(float4(0.38,0.72,0.76,0.94),float4(0.50,0.90,0.96,0.999),h.xxxx);
     float stratus=rise.x*fall.x;
     // 層積雲と積雲は凝結直後を少し薄くし、中層で本体密度へ連続的に達する。
     // 下端を最初から一様な密度にすると、3D形状の縦節が灰色の柱として残る。
