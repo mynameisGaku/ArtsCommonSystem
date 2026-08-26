@@ -3035,6 +3035,16 @@ float CloudTemporalEvolutionMismatch() {
     float delta=max(max(slowDelta.x,slowDelta.y),max(fineDelta.x,fineDelta.y));
     return saturate(delta*220.0);
 }
+// 16フレームぶりの等倍標本を一度に表示せず、同じ雲体と判定済みの履歴へ段階的に反映する。
+// 静止形状でも10周期後の残差を4%未満にし、対流差が大きい場合は現在形状へ速く追従する。
+float CloudTemporalScheduledCurrentWeight(float evolutionMismatch) {
+    return saturate(0.28+evolutionMismatch*2.0);
+}
+// 4x4時間再構成ではない縮小描画は全画素の現在再構成を毎フレーム持つ。
+// 現在値を最低18%反映し、低解像度標本の変化を抑えながら再投影へ固定しない。
+float CloudTemporalScaledCurrentWeight(float evolutionMismatch) {
+    return max(0.18,saturate(evolutionMismatch));
+}
 float2 CurrentSamplePixel(int2 q,uint phaseIndex,bool temporalSuperRes) {
     q=clamp(q,int2(0,0),int2(dims.xy)-1);
     float2 samplePixel=(float2(q)+0.5)*(dims.zw/dims.xy)-0.5;
@@ -3093,6 +3103,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     // 16フレームの正確な画素履歴を毎フレームぼかす。非剛体な対流変化が実際に進んだ分だけ
     // 現在値へ寄せ、変化が無い場合は次の等倍採取まで画素別履歴をそのまま保つ。
     float temporalCurrentWeight=evolutionMismatch;
+    float scheduledCurrentWeight=
+        CloudTemporalScheduledCurrentWeight(evolutionMismatch);
+    float scaledCurrentWeight=
+        CloudTemporalScaledCurrentWeight(evolutionMismatch);
     uint phaseIndex=(uint)temporal.z&15u;
     uint2 pixelBlock=min(tid.xy>>2u,uint2(dims.xy)-1u);
     uint2 phaseOffset=CloudTemporalPhaseOffset4(pixelBlock,phaseIndex);
@@ -3345,14 +3359,14 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                     abs(hist.a-seedDepth.y)<0.42;
                 if(depthOk && alphaOk) {
                     float4 histPacked=float4(hist.rgb*hist.a,hist.a);
-                    if(!temporalSuperRes) {
+                    if(!temporalSuperRes || scheduled) {
                         histPacked=CloudTemporalClipHistory(histPacked,neighborhoodMin,neighborhoodMax);
                     }
                     if(temporalSuperRes) {
                         if(scheduled) {
-                            // 等倍標本はこの画素自身を現在時刻で積分した値なので、履歴は有効性判定だけに使う。
-                            // 16位相前の色を再混合すると古いぼけが次周期へ残るため、色、不透明度、深度を同時に置換する。
-                            resolved=current;
+                            // 等倍標本の100%置換は16フレーム周期の輝度差を点滅として露出する。
+                            // 現在近傍へ制限した同一雲体の履歴だけを残し、周期差を段階的に収束させる。
+                            resolved=lerp(histPacked,current,scheduledCurrentWeight);
                             resolvedDepth=float2(curDepth,curA);
                         } else {
                             // 未採取画素は、他の15位相で得た等倍標本をワールド移動だけ補正して保つ。
@@ -3366,12 +3380,15 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                                      temporalCurrentWeight),
                                 resolved.a);
                         }
-                    } else {
-                        // 等倍追跡では全画素が現在フレームの実レイを持つため、履歴を
-                        // 色へ混ぜない。過去色を残すと、積乱雲の細い柱とかなとこの縁が
-                        // 前フレームへ引かれ、密度形状より柔らかい厚みに見えてしまう。
+                    } else if(nativeMarch) {
+                        // 等倍追跡だけは全画素が現在フレームの実レイを持つため、履歴を混ぜない。
                         resolved=current;
                         resolvedDepth=nativeDepth;
+                    } else {
+                        // 任意倍率の縮小追跡を等倍と誤分類すると、粗い空間再構成が毎フレーム
+                        // 直接表示される。近傍制限済み履歴へ全画素の現在値を連続反映する。
+                        resolved=lerp(histPacked,current,scaledCurrentWeight);
+                        resolvedDepth=float2(curDepth,resolved.a);
                     }
                     historyAccepted=true;
                 }
@@ -3392,11 +3409,13 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             resolvedDepth=float2(250001.0,0.0);
         }
     }
-    // 新規露出や初回フレームで履歴を使えない採取画素だけは、等倍レイを単独で
-    // 100%表示せず、周囲15画素と同じ現在フレームの両側再構成へ戻す。
+    // 新規露出や初回フレームで履歴を使えない採取画素も、等倍レイと周囲の現在再構成を
+    // 同じ反映率で混ぜる。両側再構成への100%切り替えによる周期的な粗さを避ける。
     if(temporalSuperRes && scheduled && !historyAccepted) {
-        resolved=spatialCurrent;
-        resolvedDepth=spatialDepth;
+        resolved=lerp(spatialCurrent,current,scheduledCurrentWeight);
+        float fallbackDepth=curDepth<=250000.0
+            ?curDepth:spatialDepth.x;
+        resolvedDepth=float2(fallbackDepth,resolved.a);
     }
     }
 
