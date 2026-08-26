@@ -82,8 +82,9 @@ default baselineは件数0とsemantic SHA-256
 追加または支払う場合は、source、registryまたはdebt、件数、baseline hashを同一変更で
 更新する。
 
-valueのconstructor・accessor・operatorは`F`を保つ。member initializerの関数呼び出しと
-function-pointer fieldはmethodと数えない。操作のないデータ中心classは`F`とし、
+valueのconstructor・accessor・operatorは`F`を保つ。`Data`で終わる型も、寿命操作や共有状態の
+協調を持たない場合は、非公開表現と生成関数があっても複製可能な値として`F`を保つ。
+member initializerの関数呼び出しとfunction-pointer fieldはmethodと数えない。操作のないデータ中心classは`F`とし、
 `Draw` / `Render`など明白な処理を持つstructは`C`候補とする。
 
 `AAsset`派生は単純名、修飾名、公開型alias chainを解決して推移閉包を作る。

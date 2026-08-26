@@ -61,6 +61,7 @@ VALUE_WORDS = frozenset(
         "Color",
         "Command",
         "Config",
+        "Data",
         "Date",
         "Desc",
         "Descriptor",
@@ -4380,6 +4381,24 @@ EventTypeId LegacyEventType = 0;
             or len(valid_debt_result.matched_migration_debt) != 2
         ):
             print(f"type role debt match self-test failed: {valid_debt_result}", file=sys.stderr)
+            return False
+
+        # 非公開表現、生成関数、取得関数を持っていても、Dataは複製可能な値として扱う。
+        value_data_root = debt_source_root / "value-data"
+        value_data_root.mkdir()
+        (value_data_root / "MeasuredData.h").write_text(
+            "namespace acs { class FMeasuredData { public: "
+            "FMeasuredData(const FMeasuredData&) = default; "
+            "static FMeasuredData Parse(); int Value() const; "
+            "private: explicit FMeasuredData(int); int m_Value; }; }",
+            encoding="utf-8",
+        )
+        value_data_result = scan_tree(value_data_root, valid_debt_path)
+        if value_data_result.violations or value_data_result.migration_debt:
+            print(
+                f"type role Data value self-test failed: {value_data_result}",
+                file=sys.stderr,
+            )
             return False
 
         valid_debt_bytes = valid_debt_path.read_bytes()
