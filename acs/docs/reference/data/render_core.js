@@ -672,7 +672,7 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAtmosphere / FAtmosphereParams",
+      name: "CAtmosphere / FAtmosphereParams",
       kind: "クラス / 構造体", header: "render/Atmosphere.h",
       summary: "<b>物理大気散乱</b>(Rayleigh + Mie 単散乱)を CPU で評価して equirect 画像に焼く。結果を <code>CImageBasedLighting::LoadEquirectHdrFromMemory</code> に通せば、物理ベースの空から env→irradiance→prefilter の <t>IBL</t> 一式が組める。",
       when: "プリセット空ではなく、物理的に正しい青空/夕焼けを太陽方角から生成して背景・環境光に使いたいとき。",
