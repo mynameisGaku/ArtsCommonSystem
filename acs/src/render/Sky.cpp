@@ -957,13 +957,14 @@ SamplerState cloudShadowCache_sampler : register(s4); // clamp (finite cache foo
 
 float remapc(float v,float a,float b,float c,float d){ return c + saturate((v-a)/max(b-a,1e-5))*(d-c); }
 float hash13(float3 p){ p=frac(p*0.1031); p+=dot(p,p.zyx+31.32); return frac((p.x+p.y)*p.z); }
-float hg(float c,float g){ float g2=g*g; return (1.0-g2)/(12.566370*pow(max(1.0+g2-2.0*g*c,1e-3),1.5)); }
-// 光源までと現在区間の透過率が低い雲芯では前方散乱を弱め、後方散乱へ連続的に移す。
-// 二つの位相値自体はレイごとに一度だけ求めるため、密度標本ごとの pow は増やさない。
-float cloudForwardPhaseWeight(float authoredForwardWeight,float lightTransmittance,float intervalTransmittance){
-    return saturate(authoredForwardWeight)
-         *saturate(lightTransmittance)
-         *saturate(intervalTransmittance);
+// CPU側でabs(g)<=0.99を保証する。前方または後方の鋭い頂点でも近い数の差を取らず、桁落ちを防ぐ。
+float hg(float c,float g){ float a=abs(g); float oneMinusA=1.0-a; float alignedC=g>=0.0?c:-c; float d=oneMinusA*oneMinusA+2.0*a*max(1.0-alignedC,0.0); return (oneMinusA*(1.0+a))/(12.566370*pow(max(d,1e-6),1.5)); }
+// 既に求めた区間透過率から、次数ごとに縮小した均質区間の散乱重みを解析積分する。
+// 消散縮小率が0へ近づく場合も極限 contribution*opticalDepth を使い、0除算を起こさない。
+float cloudReducedIntervalScatteringWeight(float opticalDepth,float intervalTransmittance,float contribution,float occlusion,float scatteringToExtinction){
+    if(occlusion<=1e-4)
+        return contribution*max(opticalDepth,0.0);
+    return scatteringToExtinction*(1.0-saturate(intervalTransmittance));
 }
 
 // The CPU-hoisted Duff/Frisvad basis is orthonormal, so
@@ -2542,15 +2543,41 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float3 sun=sunDir.xyz;
     float cosA=clamp(dot(dir,sun),-1.0,1.0);
     float phaseBlend=cloudLightingPhase.z;
-    // sunCol はPBRと同じ放射照度で、白い拡散面は E/PI になる。HGは既に1/(4PI)を
-    // 含むため4倍だけして等方散乱をE/PIへ合わせる。4PI倍すると雲だけがPI倍明るくなる。
-    // 前方・後方の位相はレイごとに固定し、標本ごとには混合率だけを変える。
-    float forwardPhase=4.0*hg(cosA,cloudLightingPhase.x);
-    float backwardPhase=4.0*hg(cosA,cloudLightingPhase.y);
+    // HG は全立体角で積分すると1になる位相関数であり、指向性光の放射照度へそのまま掛ける。
+    // Lambert面の1/PIは半球反射用で、体積散乱へ流用すると位相積分が4へ増えてしまう。
+    // 前方・後方の混合率も物性値として固定し、視線刻みを変えても位相を変えない。
+    float forwardPhase=hg(cosA,cloudLightingPhase.x);
+    float backwardPhase=hg(cosA,cloudLightingPhase.y);
+    float phase=lerp(backwardPhase,forwardPhase,saturate(phaseBlend));
+    phase=clamp(
+        phase,cloudLightingMulti.y,cloudLightingMulti.z);
+    // 高次ほど方向を失うため、一次散乱とは別の等方寄り位相を使う。
+    float phaseMulti=hg(cosA,cloudMultiPhase.x);
+    phaseMulti=clamp(
+        phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
+    float multiOcclusion=saturate(cloudLightingMulti.x);
+    float multiContribution=min(
+        saturate(cloudLightingPhase.w),multiOcclusion);
+    float thirdContribution=multiContribution*multiContribution;
+    float thirdOcclusion=multiOcclusion*multiOcclusion;
+    float secondScatteringToExtinction=multiOcclusion>1e-4
+        ?multiContribution/multiOcclusion:0.0;
+    float thirdScatteringToExtinction=thirdOcclusion>1e-4
+        ?thirdContribution/thirdOcclusion:0.0;
+    // 有効な最高次数が消えるまで光路を積分する。一次散乱だけの18という打ち切りを
+    // そのまま使うと、弱い消散で進む二次・三次散乱を途中で切ってしまう。
+    float lightTerminationOcclusion=1.0;
+    if(multiContribution>1e-4)
+        lightTerminationOcclusion=multiOcclusion;
+    if(thirdContribution>1e-4)
+        lightTerminationOcclusion=thirdOcclusion;
     float3 lightTangent=cloudLightTangent.xyz;
     float3 lightBitangent=cloudLightBitangent.xyz;
     float4 coverageTerms=cloudCoverage;
-    float transmit=1.0; float3 scatter=float3(0,0,0);
+    float transmit=1.0;
+    float secondOrderTransmit=1.0;
+    float thirdOrderTransmit=1.0;
+    float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
     float finePhaseOffset=jit*fineStep;
     // 雲殻内から始まるレイは、最初の粗い区間を飛ばすとカメラ直前の密度を積分できない。
@@ -2619,6 +2646,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float viewSampleOpticalDepth=dens*stepLength
                 *sampleOpticalDepthScale*cloudLightingExtinction.x;
             float intervalTransmittance=exp(-viewSampleOpticalDepth);
+            float secondIntervalTransmittance=exp(
+                -viewSampleOpticalDepth*multiOcclusion);
+            float thirdIntervalTransmittance=exp(
+                -viewSampleOpticalDepth*thirdOcclusion);
             // 指数的に間隔を広げる採取点で雲層全体を覆い、2 番目の Beer 項で
             // 高次の散乱を近似する。
             // 同じ視線内では黄金比の列で光採取の位相を巡回し、疎な積分誤差を層として揃えない。
@@ -2626,9 +2657,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float coneSin,coneCos;
             sincos(6.2831853*lightJitter,coneSin,coneCos);
             float lightDepth=0.0;
-            // 近距離3点と第4標本の房差分による光路密度。
-            // 詳細体積が作る局所自己影を高次散乱へ残す。
-            float detailedLightDepth=0.0;
             float lightStep=cloudLightStepFromBand(sampleUpperBand);
             lightStep*=lerp(0.72,1.28,lightJitter);
             float3 lp=p;
@@ -2669,7 +2697,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 // 次区間と影キャッシュは従来と同じ区間終端から始める。
                 lp+=lightHalfStep;
                 // 直接光と多重散乱の近似値が知覚できない水準まで下がった後は、残りを省略する。
-                if(lightDepth*density*cloudLightingExtinction.y>18.0){
+                if(lightDepth*density*cloudLightingExtinction.y
+                   *lightTerminationOcclusion>18.0){
                     lightTerminated=true;
                     break;
                 }
@@ -2688,7 +2717,6 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     lightTangent,lightBitangent,
                     coneSin,coneCos);
             }
-            detailedLightDepth=max(lightDepth,0.0);
             bool cachedFarTail=false;
             if(!lightTerminated && CLOUD_MAIN_SHADOW_CACHE_ENABLED){
                 float3 cachedTailSample=sampleCloudShadowTail(lp,density);
@@ -2722,7 +2750,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         lp,coverage,sharedLightCurl,lightStep);
                     lightDepth+=farLightSample.x*lightStep*farLightSample.y;
                     lp+=lightHalfStep;
-                    if(lightDepth*density*cloudLightingExtinction.y>18.0) break;
+                    if(lightDepth*density*cloudLightingExtinction.y
+                       *lightTerminationOcclusion>18.0) break;
                     float previousConeCos=coneCos;
                     coneCos=previousConeCos*(-0.737368878)
                            -coneSin*(-0.675490294);
@@ -2739,30 +2768,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             lightDepth=max(lightDepth,0.0);
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
-            // 表面では作者指定の前方・後方混合を保ち、光源または現在区間から深い標本ほど
-            // 後方散乱へ寄せる。自己影が増えても同じ位相の灰色へ収束する状態を避ける。
-            float forwardPhaseWeight=cloudForwardPhaseWeight(
-                phaseBlend,beer,intervalTransmittance);
-            float phase=lerp(
-                backwardPhase,forwardPhase,forwardPhaseWeight);
-            phase=clamp(
-                phase,cloudLightingMulti.y,cloudLightingMulti.z);
-            float multiContribution=cloudLightingPhase.w;
-            float multiOcclusion=cloudLightingMulti.x;
-            // 遠距離では次数ごとに消散を弱めて光の回り込みを保つ。一方、詳細を採取した
-            // 近距離まで同じ割合で弱めると、房の自己影が高次散乱だけで埋まる。
-            // 近距離は一段前の縮小率を使い、追加採取なしで局所形状だけを保持する。
-            float detailedTauL=min(
-                detailedLightDepth*density*cloudLightingExtinction.y,tauL);
-            float farTauL=max(tauL-detailedTauL,0.0);
-            float secondDetailedOcclusion=sqrt(saturate(multiOcclusion));
-            // 何度も散乱した光は向きを失うので、単散乱より等方に近い位相を使う。
-            // 同じ位相を使うと、内部で回った光まで太陽方向へ偏って雲が薄く見える。
-            float phaseMulti=4.0*hg(cosA,cloudMultiPhase.x);
-            phaseMulti=clamp(
-                phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);
-            // 一次散乱と、係数を次数ごとに縮小した二次・三次散乱を独立に評価する。
-            // CPU は散乱係数の縮小率を消散係数以下へ収め、各次数で散乱が消散を越えないようにする。
+            // 二次・三次とも、光源側と視線側へ同じ次数の消散縮小率を使う。
+            // 光源側だけを弱めて一次の視線重みを再利用すると、厚い雲ほど高次光を失う。
+            float secondLightTransmittance=exp(-tauL*multiOcclusion);
+            float thirdLightTransmittance=exp(-tauL*thirdOcclusion);
             // 一次散乱は現在の密度標本と区間不透明度で既に制限される。高次散乱は周囲の
             // 散乱源を必要とするため、低 LOD 密度と高さから求める確率をこちらだけへ掛ける。
             float2 lowLodDensityAndProfile=cloudLowLodDensityAndProfileFromMacro(
@@ -2777,37 +2786,20 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float inScatterProbability=inScatterDepth;
             float inScatterFactor=lerp(
                 1.0,inScatterProbability,cloudLightingExtinction.w);
-            float singleScatter=beer*phase;
-            float secondScatter=multiContribution
-                *exp(-(detailedTauL*secondDetailedOcclusion
-                      +farTauL*multiOcclusion))*phaseMulti;
-            float thirdContribution=multiContribution*multiContribution;
-            float thirdOcclusion=multiOcclusion*multiOcclusion;
-            float thirdScatter=thirdContribution
-                *exp(-(detailedTauL*multiOcclusion
-                      +farTauL*thirdOcclusion))*phaseMulti;
-            float multipleScatter=(secondScatter+thirdScatter)
-                                 *inScatterFactor;
             float h=macro.height;
-            // 形状勾配から得る表面確率は、雲の縁へ届く未解像光だけに使う。
-            // 芯まで同じ光を足すと、上空視点で厚みが消えて灰色の板に戻る。
+            // 形状勾配から、空と地面の環境光が届く表面確率を求める。
             float ambientSurfaceProbability=sqrt(
                 saturate(1.0-lowLodDensityAndProfile.y));
-            // 上空から雲頂を見ると、太陽光は視線へ逆向きに戻るため単純な
-            // 前方散乱だけでは暗くなりすぎる。未解像の微細な多重散乱を、
-            // 太陽高度・雲頂側・表面側・逆向き視線の四条件でだけ補う。
-            float topSurfaceScatter=0.22*saturate(sun.y)
-                *smoothstep(0.35,0.90,h)
-                *ambientSurfaceProbability
-                *saturate(-cosA);
-            float scatterTerm=singleScatter+multipleScatter
-                             +beer*topSurfaceScatter;
-            // 区間不透明度 a は既に消散係数を含むため、太陽光には消散に対する散乱の割合を掛ける。
-            // ここを見た目調整用に暗くすると、水滴雲が光を吸収する灰色の媒質になってしまう。
-            // 太陽付近の強い前方散乱は位相上限と後段の露出で制御する。
             // 太陽光は雲へ届く前に大気を通る。低い太陽ほど青が削られて赤くなる。
             float3 sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;
-            float3 sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm;
+            float3 singleSunL=sunAtCloud*cloudLightingExtinction.z
+                             *beer*phase;
+            float3 secondSunL=sunAtCloud*cloudLightingExtinction.z
+                             *secondLightTransmittance*phaseMulti
+                             *inScatterFactor;
+            float3 thirdSunL=sunAtCloud*cloudLightingExtinction.z
+                            *thirdLightTransmittance*phaseMulti
+                            *inScatterFactor;
             // 環境光は現在点の密度だけではなく、影キャッシュで積算した空・地面方向の密度を使う。
             // キャッシュ外や上層雲では局所密度と境界距離の代替式へ滑らかに戻す。
             float ambientDensityScale=max(density*distanceFade,0.0);
@@ -2846,12 +2838,31 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float bottomWeight=1.0-smoothstep(0.15,0.65,h);
             float3 groundL=cloudLightingGround.rgb*cloudLightingMulti.w
                           *bottomWeight*groundAmbientVisibility;
-            float a=1.0-intervalTransmittance;
-            float sampleWeight=transmit*a;
-            scatter += sampleWeight*(sunL+ambL+groundL);
+            // 各次数は縮小後の散乱係数と消散係数で同じ区間を解析積分する。
+            // 細分数を変えても均質区間の総寄与が変わらず、厚い雲の奥から届く高次光を失わない。
+            float intervalOpacity=1.0-intervalTransmittance;
+            float sampleWeight=transmit*intervalOpacity;
+            float secondSampleWeight=secondOrderTransmit
+                *cloudReducedIntervalScatteringWeight(
+                    viewSampleOpticalDepth,secondIntervalTransmittance,
+                    multiContribution,multiOcclusion,
+                    secondScatteringToExtinction);
+            float thirdSampleWeight=thirdOrderTransmit
+                *cloudReducedIntervalScatteringWeight(
+                    viewSampleOpticalDepth,thirdIntervalTransmittance,
+                    thirdContribution,thirdOcclusion,
+                    thirdScatteringToExtinction);
+            scatter += sampleWeight*(singleSunL+ambL+groundL)
+                    +secondSampleWeight*secondSunL
+                    +thirdSampleWeight*thirdSunL;
             depthMoment += sampleWeight*sampleT;
-            transmit *= (1.0-a);
-            if(transmit<0.012) break;
+            transmit*=intervalTransmittance;
+            secondOrderTransmit*=secondIntervalTransmittance;
+            thirdOrderTransmit*=thirdIntervalTransmittance;
+            float remainingDirectionalWeight=cloudLightingExtinction.z
+                *phaseMulti*(secondOrderTransmit*secondScatteringToExtinction
+                            +thirdOrderTransmit*thirdScatteringToExtinction);
+            if(transmit<0.012 && remainingDirectionalWeight<0.012) break;
         }
         t+=fineStep;
     }

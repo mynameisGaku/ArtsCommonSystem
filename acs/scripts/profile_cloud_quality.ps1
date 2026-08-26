@@ -2076,8 +2076,10 @@ function Get-ScenarioDefinitions {
         },
         [pscustomobject][ordered]@{
             Name = "above"
-            # 約 10 km の高度から浅く見下ろし、青空と雲頂を同じ画角へ入れる。
-            Camera = @("0", "0.35", "8000", "0", "7200", "0")
+            # Editorの軌道カメラ距離は200 mが上限である。12 kmの雲頂より上へ注視点を置き、
+            # 実視点を約12.57 kmにして浅く見下ろす。距離8000を指定すると200へ丸められ、
+            # 従来は約7.27 kmの雲層内を誤って「上空」と計測していた。
+            Camera = @("0", "0.35", "200", "0", "12500", "0")
         }
     )
 }
@@ -3370,14 +3372,23 @@ function Invoke-CloudProfilerSelfTest {
     $aboveDefinition = $scenarioDefinitions |
         Where-Object Name -EQ "above" |
         Select-Object -First 1
+    $aboveEyeHeight = if ($null -ne $aboveDefinition) {
+        [double]$aboveDefinition.Camera[4] +
+            [Math]::Sin([double]$aboveDefinition.Camera[1]) *
+            [double]$aboveDefinition.Camera[2]
+    }
+    else {
+        0.0
+    }
     Assert-CloudSelfTest `
         ($scenarioDefinitions.Count -eq 3 -and
          $null -ne $aboveDefinition -and
          @($aboveDefinition.Camera).Count -eq 6 -and
          $aboveDefinition.Camera[1] -eq "0.35" -and
-         $aboveDefinition.Camera[2] -eq "8000" -and
-         $aboveDefinition.Camera[4] -eq "7200") `
-        "決定論的な上空視点を定義"
+         $aboveDefinition.Camera[2] -eq "200" -and
+         $aboveDefinition.Camera[4] -eq "12500" -and
+         $aboveEyeHeight -gt 12000.0) `
+        "軌道距離の上限を適用しても雲頂より高い上空視点を定義"
 
     $badP95 = Copy-CloudObject -Value $validReport
     $badP95.ProfilerSummary.EditorFpsFromP95FrameInterval = 201.0

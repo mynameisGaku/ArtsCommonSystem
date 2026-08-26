@@ -412,7 +412,7 @@ struct FVolumetricCloudLighting {
      * @details
      * 視線側の区間不透明度は消散係数を含むため、ここへ見た目調整用の小さな倍率を置くと
      * 雲だけが光を吸収する灰色の媒質になる。可視光の水滴雲として1に近い値を既定にし、
-     * 太陽付近の明るさは位相上限と露出で制御する。
+     * 太陽付近の明るさは正規化した位相、太陽の放射照度、露出で制御する。
      */
     f32 SunScatter = 0.92f;
 
@@ -433,7 +433,7 @@ struct FVolumetricCloudLighting {
     /** 後方散乱の鋭さ。負で後ろ向き。 */
     f32 PhaseBackward = -0.20f;
 
-    /** 前方の混ぜ率 (残りが後方)。 */
+    /** 前方位相の固定混合率 (残りが後方)。密度や視線刻みでは変化させない。 */
     f32 PhaseBlend = 0.85f;
 
     /**
@@ -459,11 +459,12 @@ struct FVolumetricCloudLighting {
      *
      * @details
      * 二次ではこの値、三次ではこの値の二乗を使う。散乱が消散を越えないように
-     * `MultiScatterOcclusion` 以下へ正規化する。
+     * `MultiScatterOcclusion` 以下へ正規化する。光源側の減衰だけでなく、視線側の
+     * 区間積分と累積透過率にも同じ次数を適用する。
      */
     f32 MultiScatterContribution = 0.28f;
 
-    /** 二次以降の消散係数へ次数ごとに掛ける縮小率 (小さいほど内部まで光が回る)。 */
+    /** 二次以降の光源側と視線側の消散係数へ次数ごとに掛ける縮小率。 */
     f32 MultiScatterOcclusion = 0.28f;
 
     /**

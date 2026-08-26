@@ -298,15 +298,19 @@ FCloudFineSampleForTest ResolveCloudFineSampleForTest(f32 intervalStart, f32 int
 }
 
 f32 CloudHenyeyGreensteinForTest(f32 cosine, f32 anisotropy) noexcept {
-    const f32 anisotropySquared = anisotropy * anisotropy;
+    const f32 magnitude = std::abs(anisotropy);
+    const f32 oneMinusMagnitude = 1.0f - magnitude;
+    const f32 alignedCosine = anisotropy >= 0.0f
+        ? cosine : -cosine;
+    const f32 denominatorBase =
+        oneMinusMagnitude * oneMinusMagnitude +
+        2.0f * magnitude * ((1.0f - alignedCosine) > 0.0f
+            ? (1.0f - alignedCosine) : 0.0f);
     const f32 denominator = std::pow(
-        (1.0f + anisotropySquared -
-         2.0f * anisotropy * cosine) > 0.001f
-            ? (1.0f + anisotropySquared -
-               2.0f * anisotropy * cosine)
-            : 0.001f,
+        denominatorBase > 0.000001f
+            ? denominatorBase : 0.000001f,
         1.5f);
-    return (1.0f - anisotropySquared) /
+    return (oneMinusMagnitude * (1.0f + magnitude)) /
            (12.566370f * denominator);
 }
 
@@ -315,13 +319,12 @@ f32 DefaultCloudPhaseForTest(f32 cosine) noexcept {
     const f32 clampedCosine =
         cosine < -1.0f ? -1.0f : (cosine > 1.0f ? 1.0f : cosine);
     const f32 phase =
-        4.0f *
-        (CloudHenyeyGreensteinForTest(
+        CloudHenyeyGreensteinForTest(
              clampedCosine, lighting.PhaseForward) *
              lighting.PhaseBlend +
          CloudHenyeyGreensteinForTest(
              clampedCosine, lighting.PhaseBackward) *
-             (1.0f - lighting.PhaseBlend));
+             (1.0f - lighting.PhaseBlend);
     return phase < lighting.PhaseMin
         ? lighting.PhaseMin
         : (phase > lighting.PhaseMax ? lighting.PhaseMax : phase);
@@ -342,27 +345,6 @@ f32 SaturateForTest(f32 value) noexcept {
     return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 }
 
-// 作者指定の前方散乱率を、光源までと現在区間の透過率で雲芯側へ弱める。
-f32 CloudForwardPhaseWeightForTest(f32 authoredForwardWeight, f32 lightTransmittance, f32 intervalTransmittance) noexcept {
-    return SaturateForTest(authoredForwardWeight) *
-           SaturateForTest(lightTransmittance) *
-           SaturateForTest(intervalTransmittance);
-}
-
-// 前方・後方の位相をレイごとに一度だけ求め、標本の深さに対応する混合を再現する。
-f32 DepthAwareCloudPhaseForTest(f32 cosine, f32 lightTransmittance, f32 intervalTransmittance) noexcept {
-    const FVolumetricCloudLighting lighting{};
-    const f32 clampedCosine = cosine < -1.0f ? -1.0f : (cosine > 1.0f ? 1.0f : cosine);
-    const f32 forwardPhase = 4.0f * CloudHenyeyGreensteinForTest(clampedCosine, lighting.PhaseForward);
-    const f32 backwardPhase = 4.0f * CloudHenyeyGreensteinForTest(clampedCosine, lighting.PhaseBackward);
-    const f32 forwardWeight = CloudForwardPhaseWeightForTest(
-        lighting.PhaseBlend, lightTransmittance, intervalTransmittance);
-    const f32 phase = backwardPhase + (forwardPhase - backwardPhase) * forwardWeight;
-    return phase < lighting.PhaseMin
-        ? lighting.PhaseMin
-        : (phase > lighting.PhaseMax ? lighting.PhaseMax : phase);
-}
-
 // 0～1 の値を指定区間から再配置し、シェーダーと同じ範囲へ収める。
 f32 RemapUnitRangeForTest(f32 value, f32 lower, f32 upper) noexcept {
     const f32 width = upper - lower > 1.0e-5f
@@ -376,14 +358,36 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
     return t * t * (3.0f - 2.0f * t);
 }
 
-// 雲頂を上空から見るときだけ加える未解像の拡散散乱を再現する。
-f32 CloudTopSurfaceScatterForTest(
-    f32 cosine, f32 sunHeight, f32 normalizedHeight,
-    f32 surfaceProbability) noexcept {
-    return 0.22f * SaturateForTest(sunHeight) *
-        SmoothStepForTest(0.35f, 0.90f, normalizedHeight) *
-        SaturateForTest(surfaceProbability) *
-        SaturateForTest(-cosine);
+// 縮小した散乱係数と消散係数で、均質な一つの区間を解析積分する。
+f32 CloudReducedIntervalScatteringWeightForTest(
+    f32 opticalDepth, f32 contribution, f32 occlusion) noexcept {
+    const f32 boundedOcclusion = SaturateForTest(occlusion);
+    const f32 boundedContribution = SaturateForTest(contribution) < boundedOcclusion
+        ? SaturateForTest(contribution) : boundedOcclusion;
+    const f32 boundedDepth = opticalDepth > 0.0f ? opticalDepth : 0.0f;
+    if (boundedOcclusion <= 1.0e-4f) {
+        return boundedContribution * boundedDepth;
+    }
+    return (boundedContribution / boundedOcclusion) *
+        (1.0f - std::exp(-boundedDepth * boundedOcclusion));
+}
+
+// 均質な光学的深さを等分し、次数ごとの視線透過率を更新して積分する。
+f32 AccumulateReducedCloudOrderForTest(
+    f32 opticalDepth, u32 intervalCount,
+    f32 contribution, f32 occlusion) noexcept {
+    if (intervalCount == 0u) return 0.0f;
+    const f32 intervalDepth = opticalDepth / static_cast<f32>(intervalCount);
+    const f32 boundedOcclusion = SaturateForTest(occlusion);
+    const f32 intervalTransmittance = std::exp(-intervalDepth * boundedOcclusion);
+    f32 transmittance = 1.0f;
+    f32 accumulated = 0.0f;
+    for (u32 interval = 0u; interval < intervalCount; ++interval) {
+        accumulated += transmittance * CloudReducedIntervalScatteringWeightForTest(
+            intervalDepth, contribution, boundedOcclusion);
+        transmittance *= intervalTransmittance;
+    }
+    return accumulated;
 }
 
 // 詳細体積が基本形状を膨張または侵食できる最大量を求める。
@@ -4792,8 +4796,7 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         "lp,lightStep,coverage,sun,"
         "lightTangent,lightBitangent,"
         "coneSin,coneCos);"));
-    EXPECT_TRUE(Contains(
-        shader, "detailedLightDepth=max(lightDepth,0.0);"));
+    EXPECT_FALSE(Contains(shader, "detailedLightDepth"));
     EXPECT_TRUE(Contains(
         shader,
         "if(blendCachedTail&&!lightTerminated){"
@@ -6494,19 +6497,29 @@ ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodO
 }
 
 ACS_TEST(VolumetricClouds,
-         SaturatedLightMarchStopsOnlyBelowSubPerceptualTransfer) {
-    constexpr f32 cutoffOpticalDepth = 18.0f;
+         SaturatedLightMarchAccountsForHighestActiveOrder) {
+    constexpr f32 kCutoffOpticalDepth = 18.0f;
+    constexpr f32 kOcclusion = 0.28f;
+    constexpr f32 kThirdOcclusion = kOcclusion * kOcclusion;
+    // 一次散乱用の旧打ち切り点では、三次散乱の光がまだ約24%残る。
+    EXPECT_TRUE(
+        std::exp(-kCutoffOpticalDepth * kThirdOcclusion) > 0.20f);
+    // 最高次数の消散で18へ達した点なら、全次数の光が知覚限界より十分小さい。
+    const f32 correctedOpticalDepth =
+        kCutoffOpticalDepth / kThirdOcclusion;
     const f32 remaining =
-        0.72f * std::exp(-cutoffOpticalDepth) +
-        0.28f * std::exp(-cutoffOpticalDepth * 0.28f);
-    EXPECT_TRUE(remaining < 0.002f);
+        std::exp(-correctedOpticalDepth) +
+        std::exp(-correctedOpticalDepth * kOcclusion) +
+        std::exp(-correctedOpticalDepth * kThirdOcclusion);
+    EXPECT_TRUE(remaining < 2.0e-7f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "if(lightDepth*density*cloudLightingExtinction.y>18.0)break;"));
+    EXPECT_EQ(
+        CountOccurrences(
+            shader, "*lightTerminationOcclusion>18.0"),
+        static_cast<std::size_t>(2));
     EXPECT_TRUE(Contains(shader, "boolradianceValid="));
     EXPECT_TRUE(Contains(shader, "all(abs(col)<=65504.0)"));
     EXPECT_TRUE(Contains(shader, "col=max(col,0.0);"));
@@ -7132,7 +7145,7 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         ConfigurableCloudPhaseIsFiniteBoundedAndMatchesTheShader) {
+         CloudPhaseAndHigherOrderTransportAreNormalizedAndMatchTheShader) {
     const FVolumetricCloudLighting lighting{};
     f32 minimumPhase = 1000.0f;
     f32 maximumPhase = -1000.0f;
@@ -7143,66 +7156,60 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(std::isfinite(phase));
         EXPECT_TRUE(phase >= lighting.PhaseMin);
         EXPECT_TRUE(phase <= lighting.PhaseMax);
-        EXPECT_NEAR(
-            DepthAwareCloudPhaseForTest(cosine, 1.0f, 1.0f),
-            phase, 1.0e-5f);
         if (phase < minimumPhase) minimumPhase = phase;
         if (phase > maximumPhase) maximumPhase = phase;
     }
 
+    // HG位相と既定の二ローブ混合を全立体角で数値積分し、確率密度の総和が1になることを確認する。
+    constexpr u32 kSphereSampleCount = 16384u;
+    constexpr f64 kTwoPi = 6.28318530717958647692;
+    const f64 cosineWidth = 2.0 / static_cast<f64>(kSphereSampleCount);
+    f64 forwardIntegral = 0.0;
+    f64 backwardIntegral = 0.0;
+    f64 defaultIntegral = 0.0;
+    for (u32 sample = 0u; sample < kSphereSampleCount; ++sample) {
+        const f32 cosine = static_cast<f32>(
+            -1.0 + (static_cast<f64>(sample) + 0.5) * cosineWidth);
+        const f64 forwardPhase = static_cast<f64>(
+            CloudHenyeyGreensteinForTest(cosine, lighting.PhaseForward));
+        const f64 backwardPhase = static_cast<f64>(
+            CloudHenyeyGreensteinForTest(cosine, lighting.PhaseBackward));
+        forwardIntegral += forwardPhase * kTwoPi * cosineWidth;
+        backwardIntegral += backwardPhase * kTwoPi * cosineWidth;
+        defaultIntegral +=
+            (forwardPhase * static_cast<f64>(lighting.PhaseBlend) +
+             backwardPhase * static_cast<f64>(1.0f - lighting.PhaseBlend)) *
+            kTwoPi * cosineWidth;
+    }
+    EXPECT_NEAR(forwardIntegral, 1.0, 2.0e-4);
+    EXPECT_NEAR(backwardIntegral, 1.0, 2.0e-4);
+    EXPECT_NEAR(defaultIntegral, 1.0, 2.0e-4);
+
+    // 許容上限のgでも分母を見た目用に丸めず、HGの閉形式と同じ前方ピークを保つ。
+    constexpr f32 kMaximumEccentricity =
+        kVolumetricCloudMaxPhaseEccentricity;
+    constexpr f32 kFourPi = 12.56637061435917295385f;
+    const f32 peakDenominator =
+        (1.0f - kMaximumEccentricity) *
+        (1.0f - kMaximumEccentricity);
+    const f32 expectedMaximumForwardPhase =
+        (1.0f + kMaximumEccentricity) /
+        (kFourPi * peakDenominator);
+    EXPECT_NEAR(
+        CloudHenyeyGreensteinForTest(
+            1.0f, kMaximumEccentricity),
+        expectedMaximumForwardPhase,
+        expectedMaximumForwardPhase * 1.0e-4f);
+
     const f32 backward = DefaultCloudPhaseForTest(-1.0f);
     const f32 side = DefaultCloudPhaseForTest(0.0f);
     const f32 forward = DefaultCloudPhaseForTest(1.0f);
-    EXPECT_TRUE(backward >= 0.12f && backward <= 0.15f);
-    EXPECT_TRUE(side >= 0.14f && side <= 0.17f);
-    EXPECT_TRUE(forward >= 2.6f && forward <= 2.9f);
-    EXPECT_TRUE(forward > side * 10.0f);
+    EXPECT_TRUE(backward >= 0.030f && backward <= 0.036f);
+    EXPECT_TRUE(side >= 0.036f && side <= 0.041f);
+    EXPECT_TRUE(forward >= 0.67f && forward <= 0.70f);
+    EXPECT_TRUE(forward > side * 15.0f);
     EXPECT_TRUE(maximumPhase <= lighting.PhaseMax);
     EXPECT_TRUE(minimumPhase >= lighting.PhaseMin);
-
-    const f32 topBackScatter =
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f, 1.0f);
-    EXPECT_NEAR(topBackScatter, 0.22f, 1.0e-6f);
-    EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(1.0f, 1.0f, 0.90f, 1.0f),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.20f, 1.0f),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(-1.0f, 0.0f, 0.90f, 1.0f),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.90f, 0.0f),
-        0.0f, 0.0f);
-    EXPECT_TRUE(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 1.0f) >
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.50f, 1.0f));
-    EXPECT_TRUE(
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 1.0f) >
-        CloudTopSurfaceScatterForTest(-1.0f, 1.0f, 0.80f, 0.5f));
-
-    // 表面では従来の作者指定混合と一致し、雲芯側では前方散乱だけを連続的に弱める。
-    EXPECT_NEAR(CloudForwardPhaseWeightForTest(0.85f, 1.0f, 1.0f), 0.85f, 0.0f);
-    EXPECT_NEAR(CloudForwardPhaseWeightForTest(0.85f, 0.5f, 0.5f), 0.2125f, 1.0e-6f);
-    EXPECT_NEAR(CloudForwardPhaseWeightForTest(-1.0f, 2.0f, 2.0f), 0.0f, 0.0f);
-    EXPECT_NEAR(CloudForwardPhaseWeightForTest(2.0f, 2.0f, 2.0f), 1.0f, 0.0f);
-    EXPECT_NEAR(DepthAwareCloudPhaseForTest(1.0f, 1.0f, 1.0f), forward, 1.0e-6f);
-    const f32 partlyEnclosedForward = DepthAwareCloudPhaseForTest(1.0f, 0.5f, 1.0f);
-    const f32 enclosedForward = DepthAwareCloudPhaseForTest(1.0f, 0.0f, 0.0f);
-    EXPECT_TRUE(forward > partlyEnclosedForward);
-    EXPECT_TRUE(partlyEnclosedForward > enclosedForward);
-    for (u32 lightStep = 0u; lightStep <= 10u; ++lightStep) {
-        for (u32 intervalStep = 0u; intervalStep <= 10u; ++intervalStep) {
-            const f32 depthPhase = DepthAwareCloudPhaseForTest(
-                0.35f,
-                static_cast<f32>(lightStep) * 0.1f,
-                static_cast<f32>(intervalStep) * 0.1f);
-            EXPECT_TRUE(std::isfinite(depthPhase));
-            EXPECT_TRUE(depthPhase >= lighting.PhaseMin);
-            EXPECT_TRUE(depthPhase <= lighting.PhaseMax);
-        }
-    }
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
@@ -7213,129 +7220,161 @@ ACS_TEST(VolumetricClouds,
         "floatphaseBlend=cloudLightingPhase.z;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatcloudForwardPhaseWeight("
-        "floatauthoredForwardWeight,floatlightTransmittance,"
-        "floatintervalTransmittance){"
-        "returnsaturate(authoredForwardWeight)*"
-        "saturate(lightTransmittance)*"
-        "saturate(intervalTransmittance);}"));
+        "floathg(floatc,floatg){floata=abs(g);"
+        "floatoneMinusA=1.0-a;floatalignedC=g>=0.0?c:-c;"
+        "floatd=oneMinusA*oneMinusA+2.0*a*"
+        "max(1.0-alignedC,0.0);return(oneMinusA*(1.0+a))/"
+        "(12.566370*pow(max(d,1e-6),1.5));}"));
+    EXPECT_FALSE(Contains(shader, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatforwardPhase=4.0*hg(cosA,cloudLightingPhase.x);"
-        "floatbackwardPhase=4.0*hg(cosA,cloudLightingPhase.y);"));
+        "floatforwardPhase=hg(cosA,cloudLightingPhase.x);"
+        "floatbackwardPhase=hg(cosA,cloudLightingPhase.y);"
+        "floatphase=lerp("
+        "backwardPhase,forwardPhase,saturate(phaseBlend));"
+        "phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);"));
+    EXPECT_FALSE(Contains(shader, "4.0*hg("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudReducedIntervalScatteringWeight("
+        "floatopticalDepth,floatintervalTransmittance,"
+        "floatcontribution,floatocclusion,"
+        "floatscatteringToExtinction){"
+        "if(occlusion<=1e-4)"
+        "returncontribution*max(opticalDepth,0.0);"
+        "returnscatteringToExtinction*"
+        "(1.0-saturate(intervalTransmittance));}"));
     EXPECT_TRUE(Contains(
         shader,
         "floatviewSampleOpticalDepth=dens*stepLength*"
         "sampleOpticalDepthScale*cloudLightingExtinction.x;"
-        "floatintervalTransmittance=exp(-viewSampleOpticalDepth);"));
+        "floatintervalTransmittance=exp(-viewSampleOpticalDepth);"
+        "floatsecondIntervalTransmittance=exp("
+        "-viewSampleOpticalDepth*multiOcclusion);"
+        "floatthirdIntervalTransmittance=exp("
+        "-viewSampleOpticalDepth*thirdOcclusion);"));
+    EXPECT_EQ(
+        CountOccurrences(shader, "exp(-viewSampleOpticalDepth"),
+        static_cast<std::size_t>(3));
+    EXPECT_EQ(
+        CountOccurrences(shader, "floatphase=lerp("),
+        static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         shader,
-        "floatforwardPhaseWeight=cloudForwardPhaseWeight("
-        "phaseBlend,beer,intervalTransmittance);"
-        "floatphase=lerp("
-        "backwardPhase,forwardPhase,forwardPhaseWeight);"
-        "phase=clamp(phase,cloudLightingMulti.y,cloudLightingMulti.z);"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "floatphase=4.0*("
-        "hg(cosA,cloudLightingPhase.x)*phaseBlend+"
-        "hg(cosA,cloudLightingPhase.y)*(1.0-phaseBlend));"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatphaseMulti=4.0*hg(cosA,cloudMultiPhase.x);"));
+        "floatphaseMulti=hg(cosA,cloudMultiPhase.x);"));
     EXPECT_TRUE(Contains(shader, "phaseMulti=clamp(" "phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);"));
-    EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);" "floatsingleScatter=beer*phase;"));
+    EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);"));
     EXPECT_FALSE(Contains(shader, "inScatterVertical"));
     EXPECT_TRUE(Contains(shader, "float2lowLodDensityAndProfile=cloudLowLodDensityAndProfileFromMacro(" "macro,densityHeightThreshold,viewWeatherMask);"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=lowLodDensityAndProfile.x;"));
     EXPECT_FALSE(Contains(shader, "pow(saturate(shape),inScatterDepthExponent)"));
-    EXPECT_TRUE(Contains(shader, "floatdetailedLightDepth=0.0;"));
-    EXPECT_TRUE(Contains(shader, "detailedLightDepth=max(lightDepth,0.0);"));
+    EXPECT_FALSE(Contains(shader, "detailedLightDepth"));
+    EXPECT_FALSE(Contains(shader, "detailedTauL"));
+    EXPECT_FALSE(Contains(shader, "farTauL"));
+    EXPECT_FALSE(Contains(shader, "secondDetailedOcclusion"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatlightTerminationOcclusion=1.0;"
+        "if(multiContribution>1e-4)"
+        "lightTerminationOcclusion=multiOcclusion;"
+        "if(thirdContribution>1e-4)"
+        "lightTerminationOcclusion=thirdOcclusion;"));
     EXPECT_EQ(
-        CountOccurrences(shader, "detailedLightDepth=max(lightDepth,0.0);"),
-        static_cast<std::size_t>(1));
+        CountOccurrences(shader, "*lightTerminationOcclusion>18.0"),
+        static_cast<std::size_t>(2));
     EXPECT_TRUE(Contains(
         shader,
-        "floatdetailedTauL=min("
-        "detailedLightDepth*density*cloudLightingExtinction.y,tauL);"
-        "floatfarTauL=max(tauL-detailedTauL,0.0);"
-        "floatsecondDetailedOcclusion=sqrt(saturate(multiOcclusion));"));
+        "floatsecondLightTransmittance=exp(-tauL*multiOcclusion);"
+        "floatthirdLightTransmittance=exp(-tauL*thirdOcclusion);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatsecondScatter=multiContribution*"
-        "exp(-(detailedTauL*secondDetailedOcclusion+"
-        "farTauL*multiOcclusion))*phaseMulti;"
-        "floatthirdContribution=multiContribution*multiContribution;"
-        "floatthirdOcclusion=multiOcclusion*multiOcclusion;"
-        "floatthirdScatter=thirdContribution*"
-        "exp(-(detailedTauL*multiOcclusion+"
-        "farTauL*thirdOcclusion))*phaseMulti;"
-        "floatmultipleScatter=(secondScatter+thirdScatter)*inScatterFactor;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floattopSurfaceScatter=0.22*saturate(sun.y)*"
-        "smoothstep(0.35,0.90,h)*ambientSurfaceProbability*"
-        "saturate(-cosA);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatscatterTerm=singleScatter+multipleScatter+beer*topSurfaceScatter;"));
-    EXPECT_FALSE(Contains(shader, "floatsingleScatter=beer*phase*inScatterFactor;"));
-    EXPECT_FALSE(Contains(shader, "floatmultipleScatter=secondScatter+thirdScatter;"));
+        "float3singleSunL=sunAtCloud*cloudLightingExtinction.z*beer*phase;"
+        "float3secondSunL=sunAtCloud*cloudLightingExtinction.z*"
+        "secondLightTransmittance*phaseMulti*inScatterFactor;"
+        "float3thirdSunL=sunAtCloud*cloudLightingExtinction.z*"
+        "thirdLightTransmittance*phaseMulti*inScatterFactor;"));
+    EXPECT_FALSE(Contains(shader, "topSurfaceScatter"));
+    EXPECT_FALSE(Contains(shader, "singleScatter"));
+    EXPECT_FALSE(Contains(shader, "multipleScatter"));
     EXPECT_FALSE(Contains(shader, "beer*(1.0-multiWeight)*phase"));
     EXPECT_FALSE(Contains(shader, "nearLightDensity"));
     EXPECT_FALSE(Contains(shader, "edgeBoost"));
-    EXPECT_TRUE(Contains(shader, "floata=1.0-intervalTransmittance;"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "floata=1.0-exp(-dens*stepLength*"
-        "sampleOpticalDepthScale*cloudLightingExtinction.x);"));
     EXPECT_TRUE(Contains(
         shader,
-        "float3sunAtCloud=sunCol.rgb*cloudSunTransmittance.rgb;"
-        "float3sunL=sunAtCloud*cloudLightingExtinction.z*scatterTerm"));
+        "floatintervalOpacity=1.0-intervalTransmittance;"
+        "floatsampleWeight=transmit*intervalOpacity;"
+        "floatsecondSampleWeight=secondOrderTransmit*"
+        "cloudReducedIntervalScatteringWeight("
+        "viewSampleOpticalDepth,secondIntervalTransmittance,"
+        "multiContribution,multiOcclusion,"
+        "secondScatteringToExtinction);"
+        "floatthirdSampleWeight=thirdOrderTransmit*"
+        "cloudReducedIntervalScatteringWeight("
+        "viewSampleOpticalDepth,thirdIntervalTransmittance,"
+        "thirdContribution,thirdOcclusion,"
+        "thirdScatteringToExtinction);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "scatter+=sampleWeight*(singleSunL+ambL+groundL)+"
+        "secondSampleWeight*secondSunL+thirdSampleWeight*thirdSunL;"
+        "depthMoment+=sampleWeight*sampleT;"
+        "transmit*=intervalTransmittance;"
+        "secondOrderTransmit*=secondIntervalTransmittance;"
+        "thirdOrderTransmit*=thirdIntervalTransmittance;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "if(transmit<0.012&&remainingDirectionalWeight<0.012)break;"));
 
-    const auto splitMultipleScattering = [](
-        f32 detailedDepth, f32 farDepth,
-        f32 contribution, f32 occlusion) noexcept {
-        const f32 secondDetailed = std::sqrt(occlusion);
-        const f32 thirdOcclusion = occlusion * occlusion;
-        const f32 second = contribution * std::exp(
-            -(detailedDepth * secondDetailed + farDepth * occlusion));
-        const f32 third = contribution * contribution * std::exp(
-            -(detailedDepth * occlusion + farDepth * thirdOcclusion));
-        return FVec2{second, third};
-    };
+    // 縮小係数を適用した均質層は、刻み数に依存せず解析解へ一致する。
     constexpr f32 kContribution = 0.28f;
     constexpr f32 kOcclusion = 0.28f;
-    constexpr f32 kDetailedDepth = 1.0f;
-    constexpr f32 kFarDepth = 2.0f;
-    const FVec2 split = splitMultipleScattering(
-        kDetailedDepth, kFarDepth, kContribution, kOcclusion);
-    const FVec2 noDetailedSegment = splitMultipleScattering(
-        0.0f, kDetailedDepth + kFarDepth,
-        kContribution, kOcclusion);
-    const f32 formerSecond = kContribution * std::exp(
-        -(kDetailedDepth + kFarDepth) * kOcclusion);
-    const f32 formerThird = kContribution * kContribution * std::exp(
-        -(kDetailedDepth + kFarDepth) * kOcclusion * kOcclusion);
-    EXPECT_TRUE(split.x >= 0.0f && split.y >= 0.0f);
-    EXPECT_TRUE(split.x < formerSecond);
-    EXPECT_TRUE(split.y < formerThird);
-    EXPECT_NEAR(noDetailedSegment.x, formerSecond, 1.0e-6f);
-    EXPECT_NEAR(noDetailedSegment.y, formerThird, 1.0e-6f);
-
-    // 消散縮小率の両端では、光路を分割しても従来式と一致する。
-    for (u32 endpointStep = 0u; endpointStep <= 1u; ++endpointStep) {
-        const f32 endpoint = static_cast<f32>(endpointStep);
-        const FVec2 endpointSplit = splitMultipleScattering(
-            kDetailedDepth, kFarDepth, kContribution, endpoint);
-        const f32 endpointSecond = kContribution * std::exp(
-            -(kDetailedDepth + kFarDepth) * endpoint);
-        const f32 endpointThird = kContribution * kContribution * std::exp(
-            -(kDetailedDepth + kFarDepth) * endpoint * endpoint);
-        EXPECT_NEAR(endpointSplit.x, endpointSecond, 1.0e-6f);
-        EXPECT_NEAR(endpointSplit.y, endpointThird, 1.0e-6f);
+    constexpr f32 kOpticalDepth = 5.0f;
+    constexpr f32 kThirdContribution = kContribution * kContribution;
+    constexpr f32 kThirdOcclusion = kOcclusion * kOcclusion;
+    const f32 expectedSecond = (kContribution / kOcclusion) *
+        (1.0f - std::exp(-kOpticalDepth * kOcclusion));
+    const f32 expectedThird = (kThirdContribution / kThirdOcclusion) *
+        (1.0f - std::exp(-kOpticalDepth * kThirdOcclusion));
+    for (const u32 intervalCount : {1u, 2u, 7u, 64u, 257u}) {
+        EXPECT_NEAR(
+            AccumulateReducedCloudOrderForTest(
+                kOpticalDepth, intervalCount,
+                kContribution, kOcclusion),
+            expectedSecond, 2.0e-5f);
+        EXPECT_NEAR(
+            AccumulateReducedCloudOrderForTest(
+                kOpticalDepth, intervalCount,
+                kThirdContribution, kThirdOcclusion),
+            expectedThird, 2.0e-5f);
     }
+
+    // 旧式は一次の視線不透明度へ高次係数を後掛けするため、厚い層ほど奥からの光を失う。
+    const f32 formerSecond = kContribution *
+        (1.0f - std::exp(-kOpticalDepth));
+    const f32 formerThird = kThirdContribution *
+        (1.0f - std::exp(-kOpticalDepth));
+    EXPECT_TRUE(expectedSecond > formerSecond * 2.5f);
+    EXPECT_TRUE(expectedThird > formerThird * 4.0f);
+
+    // 薄い区間では解析式が contribution*tau の極限へ収束し、旧式との一次精度を保つ。
+    constexpr f32 kThinDepth = 0.001f;
+    EXPECT_NEAR(
+        CloudReducedIntervalScatteringWeightForTest(
+            kThinDepth, kContribution, kOcclusion),
+        kContribution * (1.0f - std::exp(-kThinDepth)), 2.0e-7f);
+    EXPECT_NEAR(
+        CloudReducedIntervalScatteringWeightForTest(
+            2.0f, 0.0f, 0.0f),
+        0.0f, 0.0f);
+    EXPECT_TRUE(std::isfinite(
+        CloudReducedIntervalScatteringWeightForTest(
+            2.0f, 0.0f, 0.0f)));
+
+    // 散乱縮小率が消散縮小率を越える入力も、区間内で増幅しない上限へ収める。
+    EXPECT_NEAR(
+        CloudReducedIntervalScatteringWeightForTest(
+            5.0f, 0.8f, 0.4f),
+        1.0f - std::exp(-2.0f), 1.0e-6f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -7346,7 +7385,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!shader.empty());
     const std::size_t ambientBegin = shader.find("floatambientDensityScale=");
     const std::size_t ambientEnd = shader.find(
-        "floata=1.0-intervalTransmittance;", ambientBegin);
+        "floatintervalOpacity=1.0-intervalTransmittance;", ambientBegin);
     EXPECT_TRUE(ambientBegin != std::string::npos);
     EXPECT_TRUE(ambientEnd != std::string::npos);
     const std::string ambient = ambientBegin != std::string::npos && ambientEnd != std::string::npos
