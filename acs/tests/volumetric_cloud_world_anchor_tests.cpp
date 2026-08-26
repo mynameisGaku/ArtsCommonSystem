@@ -2408,6 +2408,7 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(weatherFunction, "p.y"));
         EXPECT_FALSE(Contains(weatherFunction, "layerHeight"));
         EXPECT_FALSE(Contains(weatherFunction, "upperBand"));
+        EXPECT_FALSE(Contains(weatherFunction, "cloudHeightShapeShear"));
     }
     EXPECT_TRUE(Contains(
         shader,
@@ -2422,6 +2423,9 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatcanonicalY=physicalLayerHeight*"
         "cloudShapeVerticalSpan(upperBand)"));
+    EXPECT_TRUE(Contains(shader, "float2cloudHeightShapeShear(floatlayerHeight,boolupperBand){" "floatbandScale=upperBand?0.25:1.0;" "returnfloat2(0.9284767,0.3713907)" "*(500.0*saturate(layerHeight)*bandScale);}"));
+    EXPECT_TRUE(Contains(shader, "float2xz=p.xz-cloudWindWorld()" "+cloudHeightShapeShear(physicalLayerHeight,upperBand);"));
+    EXPECT_EQ(CountOccurrences(shader, "cloudHeightShapeShear("), static_cast<std::size_t>(3));
     EXPECT_TRUE(Contains(
         shader,
         "+(weather.g*430.0+weather.a*240.0)*shapeScale+0.07;"));
@@ -2435,6 +2439,17 @@ ACS_TEST(VolumetricClouds,
         shader,
         "float3vertical=altitude*float3("
         "0.8000000,-0.4242641,-0.4242641);"));
+
+    // 公開式の500 mずれを独立計算し、方向の長さ、高度端、上層倍率を検査する。
+    constexpr f32 kShearDirectionX = 0.9284767f;
+    constexpr f32 kShearDirectionY = 0.3713907f;
+    constexpr f32 kLowerLayerTopShear = 500.0f;
+    constexpr f32 kUpperLayerTopShear = kLowerLayerTopShear * 0.25f;
+    EXPECT_NEAR(kShearDirectionX * kShearDirectionX + kShearDirectionY * kShearDirectionY, 1.0f, 1.0e-6f);
+    EXPECT_NEAR(kLowerLayerTopShear * 0.0f, 0.0f, 0.0f);
+    EXPECT_NEAR(kLowerLayerTopShear * 0.5f, 250.0f, 0.0f);
+    EXPECT_NEAR(kLowerLayerTopShear, 500.0f, 0.0f);
+    EXPECT_NEAR(kUpperLayerTopShear, 125.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -4417,9 +4432,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,viewWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility)*density*distanceFade;"));
     EXPECT_TRUE(Contains(
         shader, "macro.curl=cloudCurlOffset(p);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float2detailXz=p.xz-cloudWindWorld()+macro.curl*35.0;"));
+    EXPECT_TRUE(Contains(shader, "float2detailXz=p.xz-cloudWindWorld()+" "cloudHeightShapeShear(macro.layerHeight,macro.upperBand>0.5)+" "macro.curl*35.0;"));
     EXPECT_TRUE(Contains(
         shader,
         "cloudDetailDomains("

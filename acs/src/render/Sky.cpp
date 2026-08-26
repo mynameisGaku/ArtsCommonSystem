@@ -1330,6 +1330,13 @@ float2 cloudWindWorld(){
     // CPU mirrors params.z*float2(0.9284767,0.3713907) once per frame.
     return cloudFrameTerms.xy;
 }
+// 2Dの天候包絡は柱ごとに固定したまま、3D密度形状だけを高度に応じて風下へ傾ける。
+// Nubisの500 m基準を使い、薄い上層雲では25%へ抑えて層を横へ引き延ばさない。
+float2 cloudHeightShapeShear(float layerHeight,bool upperBand){
+    float bandScale=upperBand?0.25:1.0;
+    return float2(0.9284767,0.3713907)
+          *(500.0*saturate(layerHeight)*bandScale);
+}
 // 被覆、雲種、降水量は雲底と雲頂を決める2Dの柱条件なので、同じXZでは高度に依存させない。
 // 高さ方向の立体変化は局所縦分布と3D形状へ任せ、柱条件が自分の雲頂を高度ごとに変えないようにする。
 float4 cloudWeatherData(float3 p){
@@ -1388,7 +1395,8 @@ float3 cloudUVW(
     float3 p,float4 weather,float2 cachedCurl,float physicalLayerHeight,
     bool upperBand){
     float shapeScale=cloudShapeScale();
-    float2 xz=p.xz-cloudWindWorld();
+    float2 xz=p.xz-cloudWindWorld()
+             +cloudHeightShapeShear(physicalLayerHeight,upperBand);
     float warpAngle=weather.g*6.2831853+weather.a*2.17;
     float warpSin,warpCos;
     sincos(warpAngle,warpSin,warpCos);
@@ -1993,7 +2001,9 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 billowVisibility,erosionVisibility);
             [branch] if(detailVisibility>0.001){
                 // 基本形状とは別のメートル基準領域を使い、雲塊と細部に同じ模様を出さない。
-                float2 detailXz=p.xz-cloudWindWorld()+macro.curl*35.0;
+                float2 detailXz=p.xz-cloudWindWorld()
+                               +cloudHeightShapeShear(macro.layerHeight,macro.upperBand>0.5)
+                               +macro.curl*35.0;
                 float3 detailDomainA,detailDomainB;
                 cloudDetailDomains(
                     detailXz,macro.altitude,detailDomainA,detailDomainB);
