@@ -716,13 +716,21 @@ float remap(float v,float a,float b,float c,float d){
     float span=max(b-a,1e-4);
     return c+saturate((v-a)/span)*(d-c);
 }
-// 主形状だけを近傍6方向へ短く平均する。高周波の尖った枝を焼き込み時に消し、
-// 実行時の追加採取なしで雲体の厚みを連続させる。
+// 主形状だけを水平4方向へ短く平均する。高周波の尖った枝を焼き込み時に消し、
+// 高さ方向の3D変化は残したまま、実行時の追加採取なしで雲体を連続させる。
 float fullShapeAt(float3 uvw){
-    float perlin2 = gnoise(uvw*2.0,2.0);
-    float perlin4 = gnoise(uvw*4.0,4.0);
-    float perlin8 = gnoise(uvw*8.0,8.0);
-    float perlin16 = gnoise(uvw*16.0,16.0);
+    // 低周波の3Dゆがみで雲塊の側面を上下へずらし、同じX・Zの房が
+    // 高さ方向へ一直線に積み重なるのを防ぐ。追加計算は初回焼き込みだけで行う。
+    float warpX=gnoise(uvw+float3(0.173,0.417,0.619),1.0);
+    float warpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);
+    float3 domainWarp=float3(
+        warpX-0.5,(warpX+warpZ)*0.5-0.5,warpZ-0.5)
+        *float3(0.18,0.10,0.18);
+    float3 warpedUvw=uvw+domainWarp;
+    float perlin2 = gnoise(warpedUvw*2.0,2.0);
+    float perlin4 = gnoise(warpedUvw*4.0,4.0);
+    float perlin8 = gnoise(warpedUvw*8.0,8.0);
+    float perlin16 = gnoise(warpedUvw*16.0,16.0);
     // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
     // 中～高周波を主成分にすると、同じX・Zへ細い房が縦に積み重なる。
     float perlinFull = perlin2*0.64+perlin4*0.26
@@ -738,13 +746,11 @@ float fullShapeAt(float3 uvw){
     return broadMass*lerp(0.58,0.92,cellularMass);
 }
 float fullShapeColumnAt(float3 uvw){
-    return fullShapeAt(uvw)*0.34
-         +fullShapeAt(uvw+float3(0.0,0.040,0.0))*0.16
-         +fullShapeAt(uvw-float3(0.0,0.040,0.0))*0.16
-         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.085
-         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.085
-         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.085
-         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.085;
+    return fullShapeAt(uvw)*0.42
+         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.145
+         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.145
+         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.145
+         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.145;
 }
 [numthreads(4,4,4)]
 void CSNoise(uint3 id : SV_DispatchThreadID){
@@ -1207,7 +1213,9 @@ float cloudLocalToweringStrength(float4 weather,float cloudInterior){
     float broadPotential=smoothstep(0.52,0.82,saturate(weather.a));
     float interiorPotential=smoothstep(0.35,0.92,saturate(cloudInterior));
     float localPotential=broadPotential*interiorPotential;
-    return authoredTower*lerp(0.08,1.0,localPotential);
+    // 対流域の外側では通常雲の高さへ戻し、全域指定時にも縁へ塔を残さない。
+    // 両方の平滑補間が成熟した雲中心だけが積乱雲の高さへ遷移する。
+    return authoredTower*localPotential;
 }
 // 通常雲から積乱雲の縦分布へ移る割合を、同じ局所発達強度から求める。
 float cloudStormProfileMix(float toweringStrength){
