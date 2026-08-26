@@ -748,11 +748,14 @@ float fullShapeAt(float3 uvw){
                    *lerp(0.78,1.04,cellularMass);
 }
 float fullShapeColumnAt(float3 uvw){
-    return fullShapeAt(uvw)*0.42
-         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.145
-         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.145
-         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.145
-         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.145;
+    // 水平だけでなく上下も平均し、同じ柱の細い縦筋を焼き込み時に抑える。
+    return fullShapeAt(uvw)*0.34
+         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.12
+         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.12
+         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.12
+         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.12
+         +fullShapeAt(uvw+float3(0.0,0.060,0.0))*0.09
+         +fullShapeAt(uvw-float3(0.0,0.060,0.0))*0.09;
 }
 [numthreads(4,4,4)]
 void CSNoise(uint3 id : SV_DispatchThreadID){
