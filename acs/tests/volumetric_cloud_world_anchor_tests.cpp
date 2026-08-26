@@ -339,7 +339,7 @@ f32 SmoothStepForTest(f32 edge0, f32 edge1, f32 value) noexcept {
 
 // 補間前の雲種と降水量から、塔状成長の強さを一度だけ求める。
 f32 CloudToweringStrengthForTest(f32 cloudType, f32 precipitation) noexcept {
-    const f32 typeTower = SmoothStepForTest(0.72f, 0.98f, cloudType);
+    const f32 typeTower = SmoothStepForTest(0.84f, 0.99f, cloudType);
     const f32 precipitationTower = SmoothStepForTest(0.25f, 0.85f, precipitation);
     return typeTower > precipitationTower ? typeTower : precipitationTower;
 }
@@ -351,7 +351,7 @@ f32 CloudLocalToweringStrengthForTest(f32 cloudType, f32 precipitation, f32 conv
     const f32 broadPotential = SmoothStepForTest(0.52f, 0.82f, SaturateForTest(convectivePotential));
     const f32 interiorPotential = SmoothStepForTest(0.35f, 0.92f, SaturateForTest(cloudInterior));
     const f32 localPotential = broadPotential * interiorPotential;
-    return authoredTower * localPotential;
+    return authoredTower * localPotential * localPotential;
 }
 
 // 局所発達強度から積乱雲の高さ分布へ混ぜる割合を求める。
@@ -584,7 +584,7 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 toweringStrength, f3
         (1.0f - SmoothStepForTest(0.72f, 0.90f, height)) *
         (0.78f + 0.22f * SmoothStepForTest(0.08f, 0.42f, height));
     const f32 cumulus = SmoothStepForTest(0.0f, riseEnds.z, height) *
-        (1.0f - SmoothStepForTest(0.76f, 0.96f, height)) *
+        (1.0f - SmoothStepForTest(0.62f, 0.94f, height)) *
         (0.64f + 0.36f * SmoothStepForTest(0.12f, 0.52f, height));
     const f32 mixedLowCloud = stratus +
         (stratocumulus - stratus) * stratocumulusWeight;
@@ -3593,7 +3593,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(doubleClassifiedTower, 1.0f, 0.0f);
     EXPECT_TRUE(doubleClassifiedTower > rawTower + 0.30f);
     EXPECT_NEAR(CloudStormProfileMixForTest(rawTower), 0.618078f, 1.0e-5f);
-    EXPECT_NEAR(CloudStormProfileMixForTest(CloudToweringStrengthForTest(0.98f, precipitation)), 0.92f, 1.0e-6f);
+    EXPECT_NEAR(CloudStormProfileMixForTest(CloudToweringStrengthForTest(0.98f, precipitation)), 0.9082785f, 1.0e-6f);
 
     // 作者が全域を積乱雲へ寄せても、低周波の発達域と被覆中心だけが成熟する。
     const f32 weakPotentialTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 0.0f, 1.0f);
@@ -3602,7 +3602,7 @@ ACS_TEST(VolumetricClouds,
     const f32 matureTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 1.0f, 1.0f);
     EXPECT_NEAR(weakPotentialTower, 0.0f, 0.0f);
     EXPECT_NEAR(edgeTower, 0.0f, 0.0f);
-    EXPECT_NEAR(developingTower, 0.0127407f, 1.0e-6f);
+    EXPECT_NEAR(developingTower, 0.0001623265f, 1.0e-7f);
     EXPECT_NEAR(matureTower, 1.0f, 0.0f);
 
     const std::string source = ReadSkySource();
@@ -3822,6 +3822,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatprecipitationTower=smoothstep(0.25,0.85,saturate(precipitation));"));
+    EXPECT_TRUE(Contains(shader, "returnauthoredTower*localPotential*localPotential;}"));
     EXPECT_TRUE(Contains(shader, "returnmax(typeTower,precipitationTower);}"));
     EXPECT_TRUE(Contains(
         shader,
@@ -3859,7 +3860,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatcloudColumnTop(" "floattopShift,floattoweringStrength,boolupperBand){" "floatordinaryTop=clamp(" "3000.0*cloudFrameTerms.w,0.38,0.88);" "floatlowerCenter=lerp(" "ordinaryTop,0.92,saturate(toweringStrength));" "floattopCenter=upperBand?0.96:lowerCenter;" "floatshiftScale=upperBand?0.30:1.0;" "floatminimumTop=upperBand?0.90:max(lowerCenter-0.12,0.20);" "returnclamp(topCenter+topShift*shiftScale,minimumTop,0.995);}"));
     EXPECT_TRUE(Contains(shader, "float2cloudColumnHeightAndSpan(" "floath,floattopShift,floatbaseLift,floattoweringStrength," "boolupperBand){" "h=saturate(h);" "floatbandScale=upperBand?0.35:1.0;" "floatlocalBase=saturate(baseLift*bandScale);" "floatlocalTop=max(" "cloudColumnTop(topShift,toweringStrength,upperBand),localBase+0.08);" "floatcolumnSpan=max(localTop-localBase,0.001);" "returnfloat2(saturate((h-localBase)/columnSpan),columnSpan);}"));
     EXPECT_FALSE(Contains(shader, "cloudConvectiveHeight("));
-    EXPECT_TRUE(Contains(shader, "float4(0.50,0.90,0.96,0.999),h.xxxx);"));
+    EXPECT_TRUE(Contains(shader, "float4(0.50,0.90,0.94,0.999),h.xxxx);"));
     EXPECT_FALSE(Contains(shader, "sharedLightProfileTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightColumnTerms"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));
@@ -5504,7 +5505,7 @@ ACS_TEST(VolumetricClouds,
                 SmoothStepForTest(0.08f, 0.42f, h));
         const f32 cumulus =
             SmoothStepForTest(0.0f, 0.13f, h) *
-            (1.0f - SmoothStepForTest(0.76f, 0.96f, h)) *
+            (1.0f - SmoothStepForTest(0.62f, 0.94f, h)) *
             (0.64f + 0.36f *
                 SmoothStepForTest(0.12f, 0.52f, h));
         f32 value =

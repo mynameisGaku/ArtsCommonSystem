@@ -1217,8 +1217,8 @@ float cloudLocalToweringStrength(float4 weather,float cloudInterior){
     float interiorPotential=smoothstep(0.35,0.92,saturate(cloudInterior));
     float localPotential=broadPotential*interiorPotential;
     // 対流域の外側では通常雲の高さへ戻し、全域指定時にも縁へ塔を残さない。
-    // 両方の平滑補間が成熟した雲中心だけが積乱雲の高さへ遷移する。
-    return authoredTower*localPotential;
+    // 二つの平滑補間をさらに掛け合わせ、成熟した雲中心だけが積乱雲の高さへ遷移する。
+    return authoredTower*localPotential*localPotential;
 }
 // 通常雲から積乱雲の縦分布へ移る割合を、同じ局所発達強度から求める。
 float cloudStormProfileMix(float toweringStrength){
@@ -1272,7 +1272,7 @@ float cloudProfileFromTypeWeights(
     float4 rise=smoothstep(
         float4(0.0,0.0,0.0,0.0),
         riseEnds,h.xxxx);
-    float4 fall=1.0-smoothstep(float4(0.38,0.72,0.76,0.94),float4(0.50,0.90,0.96,0.999),h.xxxx);
+    float4 fall=1.0-smoothstep(float4(0.38,0.72,0.62,0.94),float4(0.50,0.90,0.94,0.999),h.xxxx);
     float stratus=rise.x*fall.x;
     // 層積雲と積雲は凝結直後を少し薄くし、中層で本体密度へ連続的に達する。
     // 下端を最初から一様な密度にすると、3D形状の縦節が灰色の柱として残る。
