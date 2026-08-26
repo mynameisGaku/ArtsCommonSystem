@@ -131,6 +131,8 @@ constexpr u32 kEnvCubeSize    = 1024;  // 背景 skybox + 鏡面反射の元。�
 constexpr u32 kIrradianceSize = 64;    // 拡散 (低周波だが 32 だとバンディングが出るため 64)
 constexpr u32 kPrefilterSize  = 512;   // 鏡面反射の先鋭度。128 では金属面に明確なブロックが見えた → 512
 constexpr u32 kPrefilterMips  = 7;     // 512/256/128/64/32/16/8 → roughness 0..1 をなめらかに
+// 32768pxまでの入力を一時mip連鎖へ収める上限。
+constexpr u32 kMaxEnvironmentMipLevels = 16;
 
 // ---- 環境 cubemap キャプチャ (CSky procedural を 6 face に焼く) ----
 //
@@ -453,6 +455,100 @@ struct FIrradianceCBLayout {
     FVec4 direct_light_exclusion;
 };
 
+// ---- 環境 cubemap の低域化mip連鎖 ----
+//
+// 元環境と描画先を同時に読み書きしないよう、一時cubemapを介して1段ずつ2x2相当で縮小する。
+// TextureCubeとして標本化するため、面ごとの単純mip生成より境界外の隣接面を取り込める。
+// mip 0を複製するときだけ解析的な直接光を周囲で補間し、以降のmipへ混入させない。
+const char* kEnvironmentMipHLSL = R"(
+#pragma pack_matrix(row_major)
+
+cbuffer EnvironmentMip : register(b0) {
+    int4   face_pad;
+    // x=入力mip、y=直接光除外を適用するか。
+    float4 source_params;
+    float4 direct_light_exclusion;
+};
+
+TextureCube source_env : register(t0);
+SamplerState source_env_sampler : register(s0);
+
+struct VSOut {
+    float4 pos : SV_POSITION;
+    float2 uv  : TEXCOORD0;
+};
+
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.uv = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+
+float3 CubeFaceDir(float2 uv01, int face) {
+    float2 m = uv01 * 2.0 - 1.0;
+    float3 direction = float3(-m.x, -m.y, -1.0);
+    if      (face == 0) direction = float3( 1.0, -m.y, -m.x);
+    else if (face == 1) direction = float3(-1.0, -m.y,  m.x);
+    else if (face == 2) direction = float3( m.x,  1.0,  m.y);
+    else if (face == 3) direction = float3( m.x, -1.0, -m.y);
+    else if (face == 4) direction = float3( m.x, -m.y,  1.0);
+    return direction;
+}
+
+float3 SampleSourceEnvironment(float3 direction) {
+    float3 radiance = float3(0.0, 0.0, 0.0);
+    bool excludes_direct_light = source_params.y >= 0.5 &&
+        direct_light_exclusion.w <= 1.0 &&
+        dot(direction, direct_light_exclusion.xyz) >= direct_light_exclusion.w;
+    if (excludes_direct_light) {
+        float3 light_direction = normalize(direct_light_exclusion.xyz);
+        float3 helper_axis = abs(light_direction.y) < 0.95
+            ? float3(0.0, 1.0, 0.0)
+            : float3(1.0, 0.0, 0.0);
+        float3 tangent = normalize(cross(helper_axis, light_direction));
+        float3 bitangent = cross(light_direction, tangent);
+        float cone_cos = direct_light_exclusion.w;
+        float ring_cos = max(-1.0, cone_cos - max(3.5e-4, 0.5 * (1.0 - cone_cos)));
+        float ring_sin = sqrt(saturate(1.0 - ring_cos * ring_cos));
+        float3 ring_center = light_direction * ring_cos;
+        float3 tangent_offset = tangent * ring_sin;
+        float3 bitangent_offset = bitangent * ring_sin;
+        radiance = source_env.SampleLevel(source_env_sampler, ring_center + tangent_offset, source_params.x).rgb * 0.25
+                 + source_env.SampleLevel(source_env_sampler, ring_center - tangent_offset, source_params.x).rgb * 0.25
+                 + source_env.SampleLevel(source_env_sampler, ring_center + bitangent_offset, source_params.x).rgb * 0.25
+                 + source_env.SampleLevel(source_env_sampler, ring_center - bitangent_offset, source_params.x).rgb * 0.25;
+    } else {
+        radiance = source_env.SampleLevel(source_env_sampler, direction, source_params.x).rgb;
+    }
+    return radiance;
+}
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 direction = normalize(CubeFaceDir(v.uv, face_pad.x));
+    return float4(SampleSourceEnvironment(direction), 1.0);
+}
+)";
+
+struct FEnvironmentMipCbLayout {
+    /** 描画するキューブ面。 */
+    i32 face_index;
+    i32 pad0;
+    i32 pad1;
+    i32 pad2;
+    /** 標本化する入力mip。 */
+    f32 source_mip;
+    /** mip 0複製時に直接光を周囲で補間するか。 */
+    f32 exclude_direct_light;
+    f32 pad3;
+    f32 pad4;
+    /** 除外する解析的な直接光の方向と円錐角。 */
+    FVec4 direct_light_exclusion;
+};
+
+static_assert(sizeof(FEnvironmentMipCbLayout) == 48u, "環境mip定数領域はHLSLの3個の4成分値と一致する必要があります");
+
 // ---- Specular prefilter 生成 (GGX importance sampling, mip = roughness) ----
 //
 // 各 mip 各 face 各 texel の方向 N について:
@@ -466,9 +562,10 @@ const char* kPrefilterHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer Prefilter : register(b0) {
-    int4   face_pad;          // x = face 0..5
-    float4 rough_pad;         // x = roughness 0..1
-    float4 direct_light_exclusion;
+    // x=描画面0..5。
+    int4 face_pad;
+    // x=粗さ、y=入力辺長、z=入力mip数。
+    float4 rough_pad;
 };
 
 TextureCube env : register(t0);
@@ -512,41 +609,28 @@ float2 Hammersley(uint i, uint n) {
     return float2(float(i) / float(n), radicalInverseVdC(i));
 }
 
-float3 SampleIndirectEnvironment(float3 direction) {
-    float3 radiance = float3(0.0, 0.0, 0.0);
-    if (direct_light_exclusion.w <= 1.0 &&
-        dot(direction, direct_light_exclusion.xyz) >=
-            direct_light_exclusion.w) {
-        // Remove the analytic direct-light disc from IBL without making the
-        // roughness-zero prefilter contain a black hole.  This symmetric
-        // four-tap ring samples only the unmodified environment outside the
-        // exclusion cone, so there is no recursive masking.
-        float3 light_direction = normalize(direct_light_exclusion.xyz);
-        float3 helper_axis = abs(light_direction.y) < 0.95
-            ? float3(0.0, 1.0, 0.0)
-            : float3(1.0, 0.0, 0.0);
-        float3 tangent = normalize(cross(helper_axis, light_direction));
-        float3 bitangent = cross(light_direction, tangent);
-        float cone_cos = direct_light_exclusion.w;
-        float ring_cos = max(
-            -1.0, cone_cos - max(3.5e-4, 0.5 * (1.0 - cone_cos)));
-        float ring_sin = sqrt(saturate(1.0 - ring_cos * ring_cos));
-        float3 ring_center = light_direction * ring_cos;
-        float3 tangent_offset = tangent * ring_sin;
-        float3 bitangent_offset = bitangent * ring_sin;
-        radiance = 0.25 * (
-            env.SampleLevel(env_sampler,
-                            ring_center + tangent_offset, 0).rgb +
-            env.SampleLevel(env_sampler,
-                            ring_center - tangent_offset, 0).rgb +
-            env.SampleLevel(env_sampler,
-                            ring_center + bitangent_offset, 0).rgb +
-            env.SampleLevel(env_sampler,
-                            ring_center - bitangent_offset, 0).rgb);
-    } else {
-        radiance = env.SampleLevel(env_sampler, direction, 0).rgb;
-    }
-    return radiance;
+float3 SampleFilteredEnvironment(float3 direction, float source_mip) {
+    float max_mip = max(rough_pad.z - 1.0, 0.0);
+    return env.SampleLevel(env_sampler, direction, clamp(source_mip, 0.0, max_mip)).rgb;
+}
+
+float DistributionGGX(float NoH, float roughness) {
+    float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+    float denominator = NoH * NoH * (alpha2 - 1.0) + 1.0;
+    return alpha2 / max(PI * denominator * denominator, 1.0e-7);
+}
+
+float EnvironmentSampleMip(float3 N, float3 V, float3 H, float roughness, uint sample_count) {
+    float NoH = saturate(dot(N, H));
+    float VoH = saturate(dot(V, H));
+    float pdf = DistributionGGX(NoH, roughness) * NoH
+              / max(4.0 * VoH, 1.0e-6);
+    float sample_solid_angle = 1.0
+        / max(float(sample_count) * pdf, 1.0e-6);
+    float texel_solid_angle = 4.0 * PI
+        / max(6.0 * rough_pad.y * rough_pad.y, 1.0);
+    return max(0.0, 0.5 * log2(sample_solid_angle / texel_solid_angle));
 }
 
 float3 ImportanceSampleGGX(float2 xi, float3 N, float roughness) {
@@ -578,7 +662,8 @@ float3 PrefilterEnvMap(float3 N, float roughness) {
         float3 L  = 2.0 * dot(V, H) * H - V;
         float  NoL = saturate(dot(N, L));
         if (NoL > 0.0) {
-            sum += SampleIndirectEnvironment(L) * NoL;
+            float source_mip = EnvironmentSampleMip(N, V, H, roughness, kSamples);
+            sum += SampleFilteredEnvironment(L, source_mip) * NoL;
             total_weight += NoL;
         }
     }
@@ -589,8 +674,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(CubeFaceDir(v.uv, face_pad.x));
     float  r = saturate(rough_pad.x);
     if (r < 1.0e-3) {
-        // mip 0 = 鏡面: env をそのままコピー (importance sampling は退化する)
-        return float4(SampleIndirectEnvironment(N), 1.0);
+        // mip 0 = 鏡面: 直接光除外済みの環境mip 0をそのままコピーする。
+        return float4(SampleFilteredEnvironment(N, 0.0), 1.0);
     }
     return float4(PrefilterEnvMap(N, r), 1.0);
 }
@@ -602,11 +687,12 @@ struct FPrefilterCbLayout {
     i32 pad1;
     i32 pad2;
     f32 roughness;
-    f32 pad3;
-    f32 pad4;
+    f32 environment_resolution;
+    f32 environment_mips;
     f32 pad5;
-    FVec4 direct_light_exclusion;
 };
+
+static_assert(sizeof(FPrefilterCbLayout) == 32u, "GGX事前畳み込み定数領域はHLSLの2個の4成分値と一致する必要があります");
 
 // ---- Equirectangular HDR → cubemap 変換 ----
 //
@@ -683,6 +769,166 @@ struct FEquirectCbLayout {
 };
 
 static_assert(sizeof(FEquirectCbLayout) == 32u, "equirect定数領域はHLSLの2個の4成分値と一致する必要があります");
+
+/**
+ * GGX標本化用に、直接光を除いた環境cubemapの完全なmip連鎖を作る。
+ * 入力が正方形cubemapでない場合、またはGPU資源を用意できない場合は失敗する。
+ */
+TResult<void> BuildFilteredEnvironmentPyramid(IRhiDevice& device, IRhiCommandList& cl, IRhiTexture& environment, FVec4 direct_light_exclusion, TUniquePtr<IRhiTexture>& output, u32& output_mips) noexcept {
+    output.Reset();
+    output_mips = 0u;
+    if (!environment.IsCubemap() || environment.ArraySize() < 6u || environment.Width() == 0u || environment.Width() != environment.Height()) {
+        return ACS_ERR(Render, 167, "BuildFilteredEnvironmentPyramid: square cubemap is required");
+    }
+
+    /** 元環境の1pxまでを覆うmip数。 */
+    u32 mip_count = 1u;
+    u32 mip_size = environment.Width();
+    while (mip_size > 1u && mip_count < kMaxEnvironmentMipLevels) {
+        mip_size /= 2u;
+        ++mip_count;
+    }
+    if (mip_size > 1u) return ACS_ERR(Render, 168, "BuildFilteredEnvironmentPyramid: environment is too large");
+
+    /** 公開前に全段を描く候補mip連鎖。 */
+    TUniquePtr<IRhiTexture> pyramid_candidate;
+    FTextureDesc pyramid_desc{};
+    pyramid_desc.width = environment.Width();
+    pyramid_desc.height = environment.Height();
+    pyramid_desc.format = environment.PixelFormat();
+    pyramid_desc.array_size = 6u;
+    pyramid_desc.is_cubemap = true;
+    pyramid_desc.mip_levels = mip_count;
+    pyramid_desc.is_render_target = true;
+    pyramid_desc.per_slice_rtv = true;
+    auto pyramid_result = CreateRhiTexture(device, pyramid_desc);
+    if (pyramid_result.IsErr()) return Err<void>(pyramid_result.Error());
+    pyramid_candidate = Move(pyramid_result.Value());
+
+    /** 同じGPU資源の読書きを重ねないため、各縮小段を一度受ける一時cubemap。 */
+    TUniquePtr<IRhiTexture> scratch_mips[kMaxEnvironmentMipLevels - 1u];
+    mip_size = environment.Width();
+    for (u32 mip = 1u; mip < mip_count; ++mip) {
+        mip_size = mip_size > 1u ? mip_size / 2u : 1u;
+        FTextureDesc scratch_desc{};
+        scratch_desc.width = mip_size;
+        scratch_desc.height = mip_size;
+        scratch_desc.format = environment.PixelFormat();
+        scratch_desc.array_size = 6u;
+        scratch_desc.is_cubemap = true;
+        scratch_desc.is_render_target = true;
+        scratch_desc.per_slice_rtv = true;
+        auto scratch_result = CreateRhiTexture(device, scratch_desc);
+        if (scratch_result.IsErr()) return Err<void>(scratch_result.Error());
+        scratch_mips[mip - 1u] = Move(scratch_result.Value());
+    }
+
+    TUniquePtr<IRhiShader> vertex_shader;
+    TUniquePtr<IRhiShader> pixel_shader;
+    TUniquePtr<IRhiPipeline> pipeline;
+    TUniquePtr<IRhiBuffer> constant_buffer;
+
+    FShaderDesc vertex_desc{};
+    vertex_desc.stage = EShaderStage::Vertex;
+    vertex_desc.hlsl_source = kEnvironmentMipHLSL;
+    vertex_desc.entry_point = "VSMain";
+    vertex_desc.debug_name = "IblEnvironmentMip.VS";
+    auto vertex_result = CreateRhiShader(device, vertex_desc);
+    if (vertex_result.IsErr()) return Err<void>(vertex_result.Error());
+    vertex_shader = Move(vertex_result.Value());
+
+    FShaderDesc pixel_desc{};
+    pixel_desc.stage = EShaderStage::Pixel;
+    pixel_desc.hlsl_source = kEnvironmentMipHLSL;
+    pixel_desc.entry_point = "PSMain";
+    pixel_desc.debug_name = "IblEnvironmentMip.PS";
+    auto pixel_result = CreateRhiShader(device, pixel_desc);
+    if (pixel_result.IsErr()) return Err<void>(pixel_result.Error());
+    pixel_shader = Move(pixel_result.Value());
+
+    FBufferDesc buffer_desc{};
+    buffer_desc.size = (sizeof(FEnvironmentMipCbLayout) + 255u) & ~static_cast<usize>(255u);
+    buffer_desc.usage = EBufferUsage::Uniform;
+    buffer_desc.cpu_writable = true;
+    auto buffer_result = CreateRhiBuffer(device, buffer_desc);
+    if (buffer_result.IsErr()) return Err<void>(buffer_result.Error());
+    constant_buffer = Move(buffer_result.Value());
+
+    FPipelineDesc pipeline_desc{};
+    pipeline_desc.vs = vertex_shader.Get();
+    pipeline_desc.ps = pixel_shader.Get();
+    pipeline_desc.topology = EPrimitiveTopology::TriangleList;
+    pipeline_desc.rt_format = environment.PixelFormat();
+    pipeline_desc.depth_format = EFormat::Unknown;
+    pipeline_desc.depth_test = false;
+    pipeline_desc.depth_write = false;
+    pipeline_desc.cull_mode = ECullMode::None;
+    pipeline_desc.blend_mode = EBlendMode::Opaque;
+    pipeline_desc.cbuffer_slots = 1u;
+    pipeline_desc.texture_slots = 1u;
+    pipeline_desc.cbuffer_names[0] = "EnvironmentMip";
+    pipeline_desc.texture_names[0] = "source_env";
+    pipeline_desc.static_sampler_count = 1u;
+    pipeline_desc.static_samplers[0].filter = ESamplerFilter::Linear;
+    pipeline_desc.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pipeline_desc.static_samplers[0].address_w = ESamplerAddress::Clamp;
+    auto pipeline_result = CreateRhiPipeline(device, pipeline_desc);
+    if (pipeline_result.IsErr()) return Err<void>(pipeline_result.Error());
+    pipeline = Move(pipeline_result.Value());
+
+    const FClearColor black{0.0f, 0.0f, 0.0f, 1.0f};
+    for (u32 face = 0u; face < 6u; ++face) {
+        FEnvironmentMipCbLayout data{};
+        data.face_index = static_cast<i32>(face);
+        data.source_mip = 0.0f;
+        data.exclude_direct_light = 1.0f;
+        data.direct_light_exclusion = direct_light_exclusion;
+        constant_buffer->Update(&data, sizeof(data));
+        cl.BeginRenderToTextureSlice(*pyramid_candidate, face, 0u, black);
+        cl.SetPipeline(*pipeline);
+        cl.SetConstantBuffer(0u, *constant_buffer);
+        cl.SetTexture(0u, environment);
+        cl.Draw(3u);
+    }
+    cl.EndRenderToTexture(*pyramid_candidate);
+
+    for (u32 mip = 1u; mip < mip_count; ++mip) {
+        IRhiTexture* scratch = scratch_mips[mip - 1u].Get();
+        if (!scratch) return ACS_ERR(Render, 169, "BuildFilteredEnvironmentPyramid: scratch texture is missing");
+
+        for (u32 face = 0u; face < 6u; ++face) {
+            FEnvironmentMipCbLayout data{};
+            data.face_index = static_cast<i32>(face);
+            data.source_mip = static_cast<f32>(mip - 1u);
+            data.direct_light_exclusion = direct_light_exclusion;
+            constant_buffer->Update(&data, sizeof(data));
+            cl.BeginRenderToTextureSlice(*scratch, face, 0u, black);
+            cl.SetPipeline(*pipeline);
+            cl.SetConstantBuffer(0u, *constant_buffer);
+            cl.SetTexture(0u, *pyramid_candidate);
+            cl.Draw(3u);
+        }
+        cl.EndRenderToTexture(*scratch);
+
+        for (u32 face = 0u; face < 6u; ++face) {
+            FEnvironmentMipCbLayout data{};
+            data.face_index = static_cast<i32>(face);
+            data.direct_light_exclusion = direct_light_exclusion;
+            constant_buffer->Update(&data, sizeof(data));
+            cl.BeginRenderToTextureSlice(*pyramid_candidate, face, mip, black);
+            cl.SetPipeline(*pipeline);
+            cl.SetConstantBuffer(0u, *constant_buffer);
+            cl.SetTexture(0u, *scratch);
+            cl.Draw(3u);
+        }
+        cl.EndRenderToTexture(*pyramid_candidate);
+    }
+
+    output = Move(pyramid_candidate);
+    output_mips = mip_count;
+    return Ok();
+}
 
 } // namespace
 
@@ -1369,18 +1615,26 @@ TResult<void> CImageBasedLighting::BuildPrefilter(
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else pipeline = Move(r.Value());
 
-    // 3) 7 mip × 6 face = 42 render
+    // 3) 直接光を除外して面境界をまたいで低域化した入力mip連鎖を作る。
+    TUniquePtr<IRhiTexture> environment_pyramid;
+    u32 environment_mips = 0u;
+    auto pyramid_result = BuildFilteredEnvironmentPyramid(device, cl, environment, m_DirectLightExclusion, environment_pyramid, environment_mips);
+    if (pyramid_result.IsErr()) return pyramid_result;
+    if (!environment_pyramid || environment_mips == 0u) return ACS_ERR(Render, 170, "BuildPrefilter: environment mip pyramid is missing");
+
+    // 4) 7 mip × 6面を42回描画する。
     FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
-    cl.SetTexture(0, environment);
+    cl.SetTexture(0, *environment_pyramid);
     for (u32 mip = 0; mip < kPrefilterMips; ++mip) {
         const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kPrefilterMips - 1);
         for (u32 face = 0; face < 6; ++face) {
             FPrefilterCbLayout data{};
             data.face_index = static_cast<i32>(face);
             data.roughness  = roughness;
-            data.direct_light_exclusion = m_DirectLightExclusion;
+            data.environment_resolution = static_cast<f32>(environment_pyramid->Width());
+            data.environment_mips = static_cast<f32>(environment_mips);
             cb->Update(&data, sizeof(data));
 
             cl.BeginRenderToTextureSlice(*output, face, mip, black);

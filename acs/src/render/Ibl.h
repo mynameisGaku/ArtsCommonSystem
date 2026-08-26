@@ -149,6 +149,8 @@ public:
      * 512x512x6 / R11G11B10_Float / 7 mips。各 mip が roughness 段階に対応する
      * (mip 0 = roughness 0 / 鏡面、mip 6 = roughness 1)。実行時 PBR specular は
      * F = F0 * lut.r + lut.g、specular = prefilter.SampleLevel(R, roughness*(mips-1)).rgb * F。
+     * 生成時は直接光を除外した環境mip連鎖を作り、各GGX標本のPDFと入力テクセルの
+     * 立体角から標本化mipを選ぶ。これにより有限標本でHDR細部をmip 0から直接読む雑音を抑える。
      * @param device リソース生成に使う RHI デバイス。
      * @param cl コマンドを積むコマンドリスト。
      * @return 成功なら空の TResult、生成失敗ならエラー。

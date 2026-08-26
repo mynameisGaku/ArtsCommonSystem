@@ -105,6 +105,18 @@ f32 EvaluateNormalizedSh9DiffuseForTest(const FVec4 coefficients[9], FVec3 norma
     return irradiance / kPi;
 }
 
+/** GGX標本が受け持つ立体角から入力環境のmipを求める。 */
+f32 EvaluateGgxEnvironmentMipForTest(f32 roughness, f32 normal_dot_half, f32 view_dot_half, u32 sample_count, f32 environment_resolution) {
+    const f32 alpha = roughness * roughness;
+    const f32 alpha_squared = alpha * alpha;
+    const f32 denominator = normal_dot_half * normal_dot_half * (alpha_squared - 1.0f) + 1.0f;
+    const f32 distribution = alpha_squared / (kPi * denominator * denominator);
+    const f32 pdf = distribution * normal_dot_half / (4.0f * view_dot_half);
+    const f32 sample_solid_angle = 1.0f / (static_cast<f32>(sample_count) * pdf);
+    const f32 texel_solid_angle = 4.0f * kPi / (6.0f * environment_resolution * environment_resolution);
+    return 0.5f * static_cast<f32>(std::log2(sample_solid_angle / texel_solid_angle));
+}
+
 } // namespace
 
 ACS_TEST(LinearLightingContract, ExactSrgbTransferFunctionHasStableValues) {
@@ -422,15 +434,16 @@ ACS_TEST(LinearLightingContract,
 
     const std::string irradiance =
         ExtractRawShader(source, "const char* kIrradianceHLSL");
+    const std::string environment_mip =
+        ExtractRawShader(source, "const char* kEnvironmentMipHLSL");
     const std::string prefilter =
         ExtractRawShader(source, "const char* kPrefilterHLSL");
     EXPECT_TRUE(!irradiance.empty());
+    EXPECT_TRUE(!environment_mip.empty());
     EXPECT_TRUE(!prefilter.empty());
 
-    for (const std::string* shader : {&irradiance, &prefilter}) {
-        EXPECT_TRUE(Contains(
-            *shader,
-            "float3 SampleIndirectEnvironment(float3 direction)"));
+    for (const std::string* shader : {&irradiance, &environment_mip}) {
+        EXPECT_TRUE(Contains(*shader, shader == &irradiance ? "float3 SampleIndirectEnvironment(float3 direction)" : "float3 SampleSourceEnvironment(float3 direction)"));
         EXPECT_TRUE(Contains(*shader, "ring_center + tangent_offset"));
         EXPECT_TRUE(Contains(*shader, "ring_center - tangent_offset"));
         EXPECT_TRUE(Contains(*shader, "ring_center + bitangent_offset"));
@@ -440,12 +453,11 @@ ACS_TEST(LinearLightingContract,
             "return float3(0.0, 0.0, 0.0);"));
     }
 
-    // The mirror mip must use the same inpainted environment instead of
-    // reintroducing either the HDR analytic disc or a black exclusion hole.
+    // 鏡面mipも直接光を補間済みの環境mip 0を使い、HDR太陽や黒い穴を戻さない。
     EXPECT_TRUE(Contains(prefilter, "if (r < 1.0e-3)"));
-    EXPECT_TRUE(Contains(
-        prefilter,
-        "return float4(SampleIndirectEnvironment(N), 1.0);"));
+    EXPECT_TRUE(Contains(prefilter, "return float4(SampleFilteredEnvironment(N, 0.0), 1.0);"));
+    EXPECT_TRUE(Contains(source, "data.exclude_direct_light = 1.0f;"));
+    EXPECT_TRUE(Contains(source, "cl.SetTexture(0u, environment);"));
 }
 
 ACS_TEST(LinearLightingContract,
@@ -455,14 +467,15 @@ ACS_TEST(LinearLightingContract,
         ExtractRawShader(source, "const char* kEnvCaptureHLSL");
     const std::string irradiance =
         ExtractRawShader(source, "const char* kIrradianceHLSL");
+    const std::string environment_mip =
+        ExtractRawShader(source, "const char* kEnvironmentMipHLSL");
     const std::string prefilter =
         ExtractRawShader(source, "const char* kPrefilterHLSL");
     const std::string equirect =
         ExtractRawShader(source, "const char* kEquirectToCubeHLSL");
     EXPECT_TRUE(!source.empty());
 
-    for (const std::string* shader :
-         {&capture, &irradiance, &prefilter, &equirect}) {
+    for (const std::string* shader : {&capture, &irradiance, &environment_mip, &prefilter, &equirect}) {
         EXPECT_TRUE(!shader->empty());
         EXPECT_EQ(
             CountOccurrences(
@@ -474,32 +487,16 @@ ACS_TEST(LinearLightingContract,
             static_cast<std::size_t>(1u));
     }
 
-    const std::string irradiance_sample = ExtractSection(
-        irradiance,
-        "float3 SampleIndirectEnvironment(float3 direction)",
-        "float3 IntegrateDiffuse(float3 N)");
-    const std::string prefilter_sample = ExtractSection(
-        prefilter,
-        "float3 SampleIndirectEnvironment(float3 direction)",
-        "float3 ImportanceSampleGGX(");
-    for (const std::string* sample :
-         {&irradiance_sample, &prefilter_sample}) {
+    const std::string irradiance_sample = ExtractSection(irradiance, "float3 SampleIndirectEnvironment(float3 direction)", "float3 IntegrateDiffuse(float3 N)");
+    const std::string environment_mip_sample = ExtractSection(environment_mip, "float3 SampleSourceEnvironment(float3 direction)", "float4 PSMain(VSOut v)");
+    for (const std::string* sample : {&irradiance_sample, &environment_mip_sample}) {
         EXPECT_TRUE(!sample->empty());
         EXPECT_TRUE(Contains(
             *sample,
             "float3 radiance = float3(0.0, 0.0, 0.0);"));
-        EXPECT_TRUE(Contains(*sample, "radiance = 0.25 * ("));
-        EXPECT_TRUE(Contains(
-            *sample,
-            "} else {\n"
-            "        radiance = env.SampleLevel("
-            "env_sampler, direction, 0).rgb;\n"
-            "    }"));
-        EXPECT_EQ(
-            CountOccurrences(
-                *sample,
-                "env.SampleLevel(env_sampler, direction, 0).rgb"),
-            static_cast<std::size_t>(1u));
+        EXPECT_TRUE(Contains(*sample, sample == &irradiance_sample ? "radiance = 0.25 * (" : "radiance = source_env.SampleLevel"));
+        EXPECT_TRUE(Contains(*sample, "} else {"));
+        EXPECT_TRUE(Contains(*sample, "SampleLevel("));
         EXPECT_EQ(
             CountOccurrences(*sample, "return "),
             static_cast<std::size_t>(1u));
@@ -615,6 +612,33 @@ ACS_TEST(LinearLightingContract,
         previous = samples;
     }
     EXPECT_EQ(previous, 1024u);
+}
+
+ACS_TEST(LinearLightingContract, IblPrefilterFiltersEachGgxSampleAtItsSolidAngle) {
+    const std::string source = ReadRenderSource("Ibl.cpp");
+    const std::string prefilter = ExtractRawShader(source, "const char* kPrefilterHLSL");
+    const std::string environment_mip = ExtractRawShader(source, "const char* kEnvironmentMipHLSL");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!prefilter.empty());
+    EXPECT_TRUE(!environment_mip.empty());
+
+    EXPECT_TRUE(Contains(prefilter, "float pdf = DistributionGGX(NoH, roughness) * NoH"));
+    EXPECT_TRUE(Contains(prefilter, "float sample_solid_angle = 1.0"));
+    EXPECT_TRUE(Contains(prefilter, "float texel_solid_angle = 4.0 * PI"));
+    EXPECT_TRUE(Contains(prefilter, "0.5 * log2(sample_solid_angle / texel_solid_angle)"));
+    EXPECT_TRUE(Contains(prefilter, "SampleFilteredEnvironment(L, source_mip)"));
+    EXPECT_FALSE(Contains(prefilter, "SampleIndirectEnvironment(L)"));
+    EXPECT_TRUE(Contains(source, "pyramid_desc.mip_levels = mip_count;"));
+    EXPECT_TRUE(Contains(source, "cl.SetTexture(0u, *pyramid_candidate);"));
+    EXPECT_TRUE(Contains(source, "cl.SetTexture(0u, *scratch);"));
+    EXPECT_TRUE(Contains(environment_mip, "TextureCube source_env"));
+
+    const f32 full_roughness_mip = EvaluateGgxEnvironmentMipForTest(1.0f, 1.0f, 1.0f, 1024u, 1024.0f);
+    const f32 twice_sampled_mip = EvaluateGgxEnvironmentMipForTest(1.0f, 1.0f, 1.0f, 2048u, 1024.0f);
+    const f32 half_resolution_mip = EvaluateGgxEnvironmentMipForTest(1.0f, 1.0f, 1.0f, 1024u, 512.0f);
+    EXPECT_NEAR(full_roughness_mip, 6.292481f, 1.0e-5f);
+    EXPECT_NEAR(full_roughness_mip - twice_sampled_mip, 0.5f, 1.0e-5f);
+    EXPECT_NEAR(full_roughness_mip - half_resolution_mip, 1.0f, 1.0e-5f);
 }
 
 ACS_TEST(LinearLightingContract, SkyboxUsesCameraRelativeRaysAtFarWorldCoordinates) {

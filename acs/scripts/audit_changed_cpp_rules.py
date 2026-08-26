@@ -124,6 +124,11 @@ def is_allowed_trailing_comment(line: str) -> bool:
     return re.match(r"^}\s*//\s*(?:namespace|.*名前空間)", stripped) is not None or re.match(r"^#endif\b.*//", stripped) is not None
 
 
+def is_raw_string_terminator(line: str) -> bool:
+    """複数行raw文字列の終端だけに現れる閉じ括弧ならtrueを返す。"""
+    return re.match(r'^\s*\)[A-Za-z0-9_]*";\s*$', line) is not None
+
+
 def comment_text(line: str) -> str | None:
     """コメント行なら装飾を除いた本文を返す。"""
     stripped = line.strip()
@@ -144,7 +149,7 @@ def inspect_added_lines(lines: Iterable[AddedLine]) -> list[Violation]:
         trailing_comment = line_comment_index(added.text)
         if trailing_comment is not None and added.text[:trailing_comment].strip() and not is_allowed_trailing_comment(added.text):
             violations.append(Violation(added.path, added.line, "行末コメントを対象式の直前へ移してください"))
-        if code.count("(") != code.count(")"):
+        if code.count("(") != code.count(")") and not is_raw_string_terminator(added.text):
             violations.append(Violation(added.path, added.line, "括弧内部を一行に収めてください"))
         has_braced_initializer = re.search(r"(?<![=!<>])=(?!=)\s*\{", code) is not None
         if has_braced_initializer and code.count("{") != code.count("}"):
@@ -206,12 +211,13 @@ def self_test() -> int:
             "+const int values[] = {",
             "+const int inline_value = 2; // 値の役割。",
             "+} // namespace sample",
+            '+)shader";',
         ]
     )
     lines, headers = parse_added_lines(sample)
     violations = inspect_added_lines(lines)
     generated = is_generated_path(Path("dist/acs.h")) and not is_generated_path(Path("src/FExample.h"))
-    return 0 if len(lines) == 10 and headers == {Path("src/FExample.h")} and len(violations) == 4 and generated else 1
+    return 0 if len(lines) == 11 and headers == {Path("src/FExample.h")} and len(violations) == 4 and generated else 1
 
 
 def main() -> int:

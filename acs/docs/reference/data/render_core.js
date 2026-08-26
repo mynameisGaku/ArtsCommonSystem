@@ -482,7 +482,7 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; EnsureBrdfLut(IRhiDevice&, IRhiCommandList&)", desc: "BRDF LUT(256x256 RG16F)を初回だけ生成。" },
         { sig: "TResult&lt;void&gt; EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const CSky& sky)", desc: "<code>CSky</code> の空グラデーションと太陽から環境 cubemap(1024² ×6)をキャプチャ。動的な fallback 雲は含めない。" },
         { sig: "TResult&lt;void&gt; LoadEquirectHdrFromMemory(IRhiDevice&, IRhiCommandList&, const f32* rgba_float, u32 width, u32 height[, f32 environment_yaw_degrees])", desc: "equirect HDR画像からenv cubemapを作り直す。回転角は正方向で+Zを+Xへ移し、省略版は0度。生成途中で失敗した場合は公開中のenv、irradiance、prefilterを維持する。" },
-        { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(64² ×6) / 鏡面 prefilter(512² ×6, 7 mip)を生成。" },
+        { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(64² ×6) / 鏡面 prefilter(512² ×6, 7 mip)を生成。鏡面側は直接光除外済みの環境mip連鎖を作り、GGXのPDFとテクセル立体角から各標本の入力mipを選ぶ。" },
         { sig: "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])", desc: "equirect画像から放射輝度のSH9係数9個をCPU計算する。PBR評価時はcubemapと同じE/πへ正規化される。" },
         { sig: "void DrawSkybox(...) / void DrawEnvSkybox(...)", desc: "cubemap を全画面 skybox として現在の RT に描く既存互換入口。" },
         { sig: "void DrawSkyboxCameraRelative(...) / void DrawEnvSkyboxCameraRelative(...)", desc: "カメラ相対逆行列から環境空を描き、遠方座標でも視線精度を保つ。" },

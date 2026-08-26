@@ -433,23 +433,17 @@ ACS_TEST(PbrExpressionContract,
     const std::string source = ReadIblSource();
     EXPECT_TRUE(!source.empty());
 
-    // Diffuse irradiance and specular prefilter must use the same replacement
-    // for the analytic HDR sun.  A zero fill removes fireflies but leaves a
-    // black hole in roughness-zero reflections.
-    EXPECT_EQ(
-        CountOccurrences(source, "float3 SampleIndirectEnvironment("),
-        static_cast<std::size_t>(2));
-    EXPECT_EQ(
-        CountOccurrences(source, "radiance = 0.25 * ("),
-        static_cast<std::size_t>(2));
+    // 拡散積分と鏡面用の環境mip生成は、解析的なHDR太陽を同じ対称4標本で補間する。
+    // 0埋めでは火花状の輝点と引き換えに、粗さ0の反射へ黒い穴が残るため使わない。
+    EXPECT_EQ(CountOccurrences(source, "float3 SampleIndirectEnvironment("), static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(source, "float3 SampleSourceEnvironment("), static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(source, "radiance = 0.25 * ("), static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(source, "radiance = source_env.SampleLevel"), static_cast<std::size_t>(2));
     EXPECT_EQ(
         CountOccurrences(source, "return radiance;"),
         static_cast<std::size_t>(2));
-    EXPECT_EQ(
-        CountOccurrences(
-            source,
-            "env.SampleLevel(env_sampler, direction, 0).rgb"),
-        static_cast<std::size_t>(2));
+    EXPECT_EQ(CountOccurrences(source, "env.SampleLevel(env_sampler, direction, 0).rgb"), static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(source, "source_env.SampleLevel(source_env_sampler, direction, source_params.x).rgb"), static_cast<std::size_t>(1));
     EXPECT_EQ(
         CountOccurrences(source, "ring_center + tangent_offset"),
         static_cast<std::size_t>(2));
@@ -465,9 +459,7 @@ ACS_TEST(PbrExpressionContract,
     EXPECT_TRUE(Contains(
         source,
         "cone_cos - max(3.5e-4, 0.5 * (1.0 - cone_cos))"));
-    EXPECT_TRUE(Contains(
-        source,
-        "return float4(SampleIndirectEnvironment(N), 1.0);"));
+    EXPECT_TRUE(Contains(source, "return float4(SampleFilteredEnvironment(N, 0.0), 1.0);"));
     EXPECT_TRUE(!Contains(
         source,
         "return float3(0.0, 0.0, 0.0);"));
