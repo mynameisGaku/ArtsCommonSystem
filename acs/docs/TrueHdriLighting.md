@@ -30,6 +30,10 @@ SSGI、VXGI、ライトマップなどが場面内の間接反射を追加する
 「基準照度と、そのときのACS強度」を通して換算する。現在のACS平行光は物理単位ではないため、
 約10万luxをそのまま`ALightComponent3D`へ渡してはいけない。
 
+`CImageBasedLighting::LoadEquirectHdrFromMemory()`の6引数版は、HDR画像をキューブ地図へ変換するときに
+Y軸回転を適用する。正の角度は画像中の+Z方向を+X方向へ移し、`ResolveSunDirection()`と同じ規約である。
+従来の5引数版は0度を渡す互換入口として残る。
+
 ## 実時間描画で使うデータ
 
 現在の`CImageAssetLoader`はRadiance RGBE（`.hdr`）を線形浮動小数へ展開できるが、OpenEXRは
@@ -39,13 +43,13 @@ SSGI、VXGI、ライトマップなどが場面内の間接反射を追加する
 
 実時間経路では次を一組として使う。
 
-1. sRGB / Radiance RGBE / ClippedのHDR画像を環境IBLへ渡す。
+1. sRGB / Radiance RGBE / ClippedのHDR画像とY軸回転角を環境IBLへ渡す。
 2. 対応するLightData CSVを`FTrueHdriLightData`で読む。
 3. CSVから求めた太陽方向を平行光へ渡す。
-4. HDR画像に回転を加える場合は、同じ角度を`ResolveSunDirection()`へ渡す。
+4. HDR画像へ渡した回転角と同じ値を`ResolveSunDirection()`へ渡す。
 5. 平行光に置換した太陽円盤をIBL積分から除外する。
 
-Unclipped画像を保った経路、OpenEXR読込、HDR画像のGPU回転、Editor上の作成・取消・再取得は
+Unclipped画像を保った経路、OpenEXR読込、Editor上の作成・取消・再取得は
 後続実装とする。今回の値型はRenderモジュールだけに属し、Editorをリンクしない通常C++からも使える。
 
 ## 配布物と外部C++利用の検証
@@ -67,3 +71,23 @@ CMakeを使う独立consumer smokeも両構成で合格した。
 ヘッドレス単体試験は両構成でそれぞれ538件中0件失敗だった。Framework作業ツリーに変更はない。
 既存の`AcsEnumReflection.h:90`にある`C4267`警告は両構成で残るが、今回の配布物による新規警告ではない。
 TrueHDRIの本体コードと今回のconsumer追加部には、標準コンテナ、`std::`、`friend`を追加していない。
+
+## GPU回転経路の再検証
+
+2026-08-26に、+Z付近を赤、それ以外を青にした人工HDRを+90度回転して実GPUでキューブ地図へ変換した。
++X面中央を`R11G11B10_Float`の画素として読み戻し、赤成分だけが残ることをDebug・Release双方で確認した。
+これにより、画像、`ResolveSunDirection()`、平行光が同じ正回転を使うことをシェーダー文字列だけでなく実出力で固定した。
+
+EngineはEditorと検証用通常C++プロジェクトを含むDebug・Release全ビルドに合格した。CTestはDebug 78件、
+Release 76件が全件合格した。配布物は45ファイルの集合、サイズ、SHA-256を照合して
+`C:\dev\acs_temp_builds\acs-engine\acs-dist-cloud-environment-20260825`へ配置し、外部consumerを
+Debug・Releaseで実リンク・実行した。主要SHA-256は次のとおり。
+
+- manifest: `4A5228731D5F6C5DF72E31D1E70246319E6B7BFA062B56D154E6376C937F2276`
+- 単一header: `503D2A58F2CD6642634B40D427888376591F78DC493ED5EB3461D2B120DAE330`
+- consumer契約: `23749840C0ED57410DEE93DD74FB7BF48184CA8EEB9DB290FAC94E30A861D007`
+
+外部ACS Framework `f1ca4985`は同じ配布物で通常アプリ本体と決定性試験をDebug・Releaseとも通した。
+Framework単体試験は両構成とも3699検査中2件だけ失敗した。失敗は未知の天候値を公開setterへ渡した後も
+未知値と既存出力が残ることを期待する既存試験で、Engineが契約どおり`Clear`へ正規化する動作との矛盾である。
+TrueHDRI、IBL、配布ABIによる新規失敗はなかった。Framework作業ツリーは変更していない。

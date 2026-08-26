@@ -3,6 +3,7 @@
 #include "test/Expect.h"
 
 #include "asset/MeshAsset.h"
+#include "container/Array.h"
 #include "foundation/Move.h"
 #include "math/Camera.h"
 #include "math/Mat.h"
@@ -2695,6 +2696,64 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     EXPECT_TRUE(refr_first != nullptr);
     EXPECT_TRUE(refraction.PerObjectCB() != nullptr);
     EXPECT_TRUE(refraction.PerObjectCB() != refr_first);
+
+#if WITH_RENDER_DILIGENT
+    {
+        // +Z付近だけ赤、それ以外を青にした人工HDRで回転符号をGPU出力まで検証する。
+        constexpr u32 panorama_width = 16u;
+        constexpr u32 panorama_height = 8u;
+        f32 panorama[panorama_width * panorama_height * 4u]{};
+        for (u32 y = 0u; y < panorama_height; ++y) {
+            for (u32 x = 0u; x < panorama_width; ++x) {
+                /** +Zを中心とする赤い経度帯か。 */
+                const bool positive_z_band = x >= 6u && x <= 9u;
+                /** RGBA配列内の画素先頭。 */
+                const u32 index = (y * panorama_width + x) * 4u;
+                panorama[index + 0u] = positive_z_band ? 4.0f : 0.0f;
+                panorama[index + 1u] = 0.0f;
+                panorama[index + 2u] = positive_z_band ? 0.0f : 4.0f;
+                panorama[index + 3u] = 1.0f;
+            }
+        }
+
+        CImageBasedLighting rotated_environment;
+        auto rotation_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(rotation_command_result.IsOk());
+        if (rotation_command_result.IsOk()) {
+            auto rotation_command = Move(rotation_command_result.Value());
+            rotation_command->Begin();
+            EXPECT_TRUE(rotated_environment.LoadEquirectHdrFromMemory(device, *rotation_command, panorama, panorama_width, panorama_height, 1000001.0f).IsErr());
+            EXPECT_TRUE(!rotated_environment.HasEnvCubemap());
+            EXPECT_TRUE(rotated_environment.LoadEquirectHdrFromMemory(device, *rotation_command, panorama, panorama_width, panorama_height, 90.0f).IsOk());
+            rotation_command->End();
+            EXPECT_TRUE(rotation_command->Submit());
+            device.WaitIdle();
+
+            IRhiTexture* const environment_cube = rotated_environment.EnvCubemap();
+            EXPECT_TRUE(environment_cube != nullptr);
+            if (environment_cube != nullptr) {
+                /** +X面1枚を密に読み戻す画素数。 */
+                const usize readback_pixel_count = static_cast<usize>(environment_cube->Width()) * environment_cube->Height();
+                TArray<u32> readback;
+                const bool allocated = readback.TrySetNum(readback_pixel_count);
+                EXPECT_TRUE(allocated);
+                if (allocated) {
+                    const bool read = device.ReadTexture(*environment_cube, readback.GetData(), static_cast<u32>(readback_pixel_count * sizeof(u32)));
+                    EXPECT_TRUE(read);
+                    if (read) {
+                        /** +X面の中央画素。R11G11B10の各成分を個別に確認する。 */
+                        const usize center_index = static_cast<usize>(environment_cube->Height() / 2u) * environment_cube->Width() + environment_cube->Width() / 2u;
+                        const u32 center_pixel = readback[center_index];
+                        const u32 red_bits = center_pixel & 0x7ffu;
+                        const u32 blue_bits = (center_pixel >> 22u) & 0x3ffu;
+                        EXPECT_TRUE(red_bits != 0u);
+                        EXPECT_EQ(blue_bits, 0u);
+                    }
+                }
+            }
+        }
+    }
+#endif
 
     CVolumetricClouds clouds;
     EXPECT_TRUE(clouds.Init(device, EFormat::R16G16B16A16_Float).IsOk());

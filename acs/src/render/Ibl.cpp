@@ -5,6 +5,7 @@
 #include "render/Ibl.h"
 #include "render/Sky.h"
 #include "math/Mat.h"
+#include "math/Math.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
@@ -612,13 +613,14 @@ struct FPrefilterCbLayout {
 // 各 cubemap face 各 texel の world direction N を球面座標 (phi, theta) に変換し、
 // equirect texture から sample。phi = atan2(N.x, N.z)、theta = acos(N.y)。
 //
-// equirect 規約: u = phi/(2π) + 0.5 (0=後方, 0.25=右, 0.5=前方, 0.75=左)、v = theta/π
+// equirect 規約: u = phi/(2π) + 0.5 (0/1=-Z, 0.25=-X, 0.5=+Z, 0.75=+X)、v = theta/π
 //   (0 = +Y zenith, 1 = -Y nadir)。これは Polyhaven / sIBL Archive 等の HDR と一致。
 const char* kEquirectToCubeHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer EqToCube : register(b0) {
     int4 face_pad;
+    float4 environment_rotation;
 };
 
 Texture2D    equirect          : register(t0);
@@ -657,7 +659,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float phi   = atan2(N.x, N.z);            // [-π, π]
     float theta = acos(clamp(N.y, -1.0, 1.0));// [0, π]
     float2 uv;
-    uv.x = phi / TWO_PI + 0.5;                 // [0, 1]
+    // 画像を正方向へ回すため、出力方向から逆回転した経度を標本化する。
+    float sample_phi = phi - environment_rotation.x;
+    // 経度の継ぎ目を[0, 1)へ折り返す。
+    uv.x = frac(sample_phi / TWO_PI + 0.5);
     uv.y = theta / PI;                         // [0, 1], v=0 が +Y
     float3 c = equirect.SampleLevel(equirect_sampler, uv, 0).rgb;
     return float4(c, 1.0);
@@ -665,11 +670,19 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct FEquirectCbLayout {
+    /** 描画するキューブ面。 */
     i32 face_index;
     i32 pad0;
     i32 pad1;
     i32 pad2;
+    /** HDR画像へ加えるY軸回転角。単位はラジアン。 */
+    f32 environment_yaw_radians;
+    f32 pad3;
+    f32 pad4;
+    f32 pad5;
 };
+
+static_assert(sizeof(FEquirectCbLayout) == 32u, "equirect定数領域はHLSLの2個の4成分値と一致する必要があります");
 
 } // namespace
 
@@ -955,6 +968,10 @@ void CImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
 TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {
+    return LoadEquirectHdrFromMemory(device, cl, rgba_float, width, height, 0.0f);
+}
+
+TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl, const f32* rgba_float, u32 width, u32 height, f32 environment_yaw_degrees) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
@@ -967,6 +984,11 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(
     if (!rgba_float || width == 0 || height == 0) {
         return ACS_ERR(Render, 165, "LoadEquirectHdrFromMemory: invalid input");
     }
+    /** TrueHDRIの方向解決と同じ、三角関数の精度を維持できる回転角か。 */
+    const bool valid_yaw = environment_yaw_degrees == environment_yaw_degrees && environment_yaw_degrees >= -1000000.0f && environment_yaw_degrees <= 1000000.0f;
+    if (!valid_yaw) return ACS_ERR(Render, 166, "LoadEquirectHdrFromMemory: invalid environment yaw");
+    /** 周回を除いたGPU標本化用の回転角。 */
+    const f32 environment_yaw_radians = ToRadians(Mod(environment_yaw_degrees, 360.0f));
 
     // env / irradiance / prefilter を全て無効化 → caller が Ensure* を呼び直す
     ResetEnvCubemap();
@@ -1060,6 +1082,7 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(
     for (u32 face = 0; face < 6; ++face) {
         FEquirectCbLayout data{};
         data.face_index = static_cast<i32>(face);
+        data.environment_yaw_radians = environment_yaw_radians;
         cb->Update(&data, sizeof(data));
 
         cl.BeginRenderToTextureSlice(*m_EnvCube, face, 0, black);

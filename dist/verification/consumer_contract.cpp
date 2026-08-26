@@ -292,6 +292,12 @@ static bool NearlyEqual_Internal(acs::f32 left, acs::f32 right, acs::f32 toleran
 /** TrueHDRIの測定値が単一headerと配布libraryを跨いで同じ太陽へ解決されるか検証する。 */
 static bool VerifyTrueHdriLightData_Internal() noexcept
 {
+    /** 回転付きHDR取込APIの配布library内member symbol型。 */
+    using FRotatedEnvironmentLoader = acs::TResult<void> (acs::CImageBasedLighting::*)(acs::IRhiDevice&, acs::IRhiCommandList&, const acs::f32*, acs::u32, acs::u32, acs::f32) noexcept;
+    /** 単一headerの宣言と配布libraryの6引数symbolを同時に要求する参照。 */
+    volatile FRotatedEnvironmentLoader rotated_environment_loader = static_cast<FRotatedEnvironmentLoader>(&acs::CImageBasedLighting::LoadEquirectHdrFromMemory);
+    (void)rotated_environment_loader;
+
     /** 公式LightDataと同じ座標・sRGB照度行を持つ最小CSV。 */
     constexpr char csv[] = "----Light direction----\r\n"
                            "photoshopXY(panorama uv[%]),49.967,31.885\r\n"

@@ -82,6 +82,22 @@ public:
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     /**
+     * 既存env cubemapを破棄し、Y軸回転したequirectangular HDR画像から作り直す。
+     *
+     * @details 正の回転は画像内の+Z方向を+X方向へ移す。TrueHDRIでは同じ角度を
+     * FTrueHdriLightData::ResolveSunDirectionへ渡すことで背景、間接光、平行光を一致させる。
+     * 5引数版は回転角0度でこの関数を呼ぶ互換入口である。
+     * @param device リソース生成に使うRHIデバイス。
+     * @param cl コマンドを積むコマンドリスト。
+     * @param rgba_float width×height×4個の線形RGBA値。
+     * @param width 画像の幅。
+     * @param height 画像の高さ。
+     * @param environment_yaw_degrees HDR画像へ加えるY軸回転角。正なら+Zから+Xへ回す。
+     * @return 入力と回転角が有効で生成できれば成功、それ以外はエラー。
+     */
+    TResult<void> LoadEquirectHdrFromMemory(IRhiDevice& device, IRhiCommandList& cl, const f32* rgba_float, u32 width, u32 height, f32 environment_yaw_degrees) noexcept;
+
+    /**
      * 環境用skyboxの太陽円盤を残し、拡散・鏡面IBLの畳み込みから解析的な直接光だけを除く。
      *
      * @details 有限個の標本で画素未満のHDR太陽を積分すると規則的な輝点になり、CPbrShaderも

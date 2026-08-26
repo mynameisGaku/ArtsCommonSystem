@@ -482,6 +482,21 @@ ACS_TEST(LinearLightingContract,
     }
 }
 
+ACS_TEST(LinearLightingContract, EquirectYawUsesTheSamePositiveRotationAsTrueHdri) {
+    const std::string source = ReadRenderSource("Ibl.cpp");
+    const std::string equirect =
+        ExtractRawShader(source, "const char* kEquirectToCubeHLSL");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!equirect.empty());
+
+    // 正の画像回転では、出力方向から逆回転した元画像の経度を読む。
+    // これにより元の+Z方向の画素は+90度で+X方向へ移る。
+    EXPECT_TRUE(Contains(equirect, "float sample_phi = phi - environment_rotation.x;"));
+    EXPECT_TRUE(Contains(equirect, "uv.x = frac(sample_phi / TWO_PI + 0.5);"));
+    EXPECT_TRUE(Contains(source, "ToRadians(Mod(environment_yaw_degrees, 360.0f))"));
+    EXPECT_TRUE(Contains(source, "return LoadEquirectHdrFromMemory(device, cl, rgba_float, width, height, 0.0f);"));
+}
+
 ACS_TEST(LinearLightingContract,
          IblPrefilterAllocatesSamplesByGgxLobeWidth) {
     const std::string source = ReadRenderSource("Ibl.cpp");
