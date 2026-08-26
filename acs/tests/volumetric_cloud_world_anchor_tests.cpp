@@ -239,30 +239,6 @@ std::string CompactShader(const std::string& source) {
     return compact;
 }
 
-u32 CloudJitterHash2DForTest(u32 pixelX, u32 pixelY) noexcept {
-    u32 state = pixelX * 747796405u + pixelY * 2891336453u + 277803737u;
-    const u32 word =
-        ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-
-f64 CloudJitter01ForTest(u32 pixelX, u32 pixelY) noexcept {
-    return static_cast<f64>(
-               CloudJitterHash2DForTest(pixelX, pixelY) >> 8u) /
-           16777216.0;
-}
-
-f64 CloudJitterForTest(
-    u32 pixelX, u32 pixelY, u32 frame, bool temporalSuperResolution) noexcept {
-    const u32 sequence = temporalSuperResolution ? (frame >> 4u) : frame;
-    const u32 jitterX = pixelX + (sequence * 47u) % 131u;
-    const u32 jitterY = pixelY + (sequence * 17u) % 127u;
-    const f64 unwrapped =
-        CloudJitter01ForTest(jitterX, jitterY) +
-        static_cast<f64>(sequence) * 0.754877666;
-    return unwrapped - std::floor(unwrapped);
-}
-
 f32 CloudRefinedSampleTForTest(f32 intervalStart, f32 coarseProbeT, f32 fineStep, f32 coarseStep, f32 jitter) noexcept {
     const f32 candidateStart = coarseProbeT - coarseStep;
     const f32 coarseCellStart =
@@ -1985,7 +1961,7 @@ ACS_TEST(VolumetricClouds, ViewRayIntervalPhasesBreakPeriodicShapeResonance) {
     constexpr u32 kIntervalCount = kVolumetricCloudViewSteps;
     constexpr u32 kPhaseBinCount = 16u;
     constexpr u32 kExpectedPerBin = kIntervalCount / kPhaseBinCount;
-    constexpr f32 kBasePhase = 0.37f;
+    constexpr f32 kBasePhase = 0.5f;
     constexpr f64 kTwoPi = 6.28318530717958647692;
     u32 phaseBins[kPhaseBinCount]{};
     f64 fixedSignalSum = 0.0;
@@ -6831,152 +6807,29 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!Contains(shader, "if(profile<=0.001) return 0.0;"));
 }
 
-ACS_TEST(VolumetricClouds, ReferenceRayJitterIsDeterministicWhileNativeModesAdvance) {
+ACS_TEST(VolumetricClouds, ViewIntegrationDoesNotAnimateUnaveragedSamplingError) {
     const std::string source = ReadSkySource();
-    const std::string shader =
-        ExtractRawShader(source, "const char* kCloudCS");
-    const std::string compactShader = CompactShader(shader);
-    EXPECT_TRUE(!source.empty());
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    const std::string resolveShader = CompactShader(ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(!resolveShader.empty());
 
-    // 参照描画は時間履歴で平均しないため、区間中央を固定して粒状誤差の時間変化を止める。
-    // 通常描画だけが乱数列へ入り、超高品質の時間再構成では 16 段階ごとに列を進める。
-    const std::size_t referenceMidpoint = compactShader.find("floatjit=0.5;");
-    const std::size_t normalModeGate = compactShader.find("if(cloudLightingAmbient.w<0.5){", referenceMidpoint);
-    const std::size_t jitterFrame = compactShader.find("uintjitterFrame=(uint)temporal.z;", normalModeGate);
-    EXPECT_TRUE(referenceMidpoint != std::string::npos);
-    EXPECT_TRUE(normalModeGate != std::string::npos);
-    EXPECT_TRUE(jitterFrame != std::string::npos);
-    EXPECT_TRUE(referenceMidpoint < normalModeGate);
-    EXPECT_TRUE(normalModeGate < jitterFrame);
-    EXPECT_TRUE(Contains(source, "m_ReferenceMode ? 1.0f : 0.0f"));
-    EXPECT_TRUE(Contains(shader, "uint jitterFrame=(uint)temporal.z;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "uint jitterSequence=temporal.w>3.5?"
-        "(jitterFrame>>4u):jitterFrame;"));
-    EXPECT_TRUE(Contains(shader, "uint2 jitterPixel=rayPixel+uint2("));
-    EXPECT_TRUE(Contains(shader, "(jitterSequence*47u)%131u"));
-    EXPECT_TRUE(Contains(shader, "(jitterSequence*17u)%127u"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "uint state=pixel.x*747796405u+pixel.y*2891336453u+277803737u;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "uint word=((state>>((state>>28u)+4u))^state)*277803737u;"));
-    EXPECT_TRUE(Contains(shader, "return (word>>22u)^word;"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float pixelJitter=CloudJitter01(jitterPixel);"));
-    EXPECT_TRUE(Contains(shader, "float(jitterSequence)*0.754877666"));
-    EXPECT_FALSE(Contains(shader, "52.9829189"));
-    EXPECT_FALSE(Contains(shader, "float2(0.06711056,0.00583715)"));
-    EXPECT_TRUE(Contains(source, "m_FrameIndex & 4080u"));
-    EXPECT_TRUE(!Contains(source, "m_FrameIndex & 7u"));
+    // 等倍画素と16位相の採取画素は現在値へ置換され、時間変化する採取位置を平均しない。
+    // 開始位相は区間中央へ固定し、後続区間の決定論的分散だけを残す。
+    EXPECT_TRUE(Contains(shader, "floatjit=0.5;"));
+    EXPECT_TRUE(Contains(shader, "samplePhase=frac(" "basePhase+float(intervalIndex)*0.41421356237);"));
+    EXPECT_EQ(CountOccurrences(resolveShader, "resolved=current;"), static_cast<std::size_t>(3));
+    EXPECT_TRUE(Contains(resolveShader, "resolvedDepth=float2(curDepth,curA);"));
+    EXPECT_TRUE(Contains(resolveShader, "resolvedDepth=nativeDepth;"));
+    EXPECT_FALSE(Contains(shader, "jitterFrame"));
+    EXPECT_FALSE(Contains(shader, "jitterSequence"));
+    EXPECT_FALSE(Contains(shader, "CloudJitterHash2D"));
+    EXPECT_FALSE(Contains(shader, "CloudJitter01"));
 
-    constexpr u32 kPixelX = 173u;
-    constexpr u32 kPixelY = 91u;
-    for (u32 cycle = 0u; cycle < 16u; ++cycle) {
-        const f64 cycleValue = CloudJitterForTest(
-            kPixelX, kPixelY, cycle * 16u, true);
-        for (u32 phase = 1u; phase < 16u; ++phase) {
-            EXPECT_NEAR(
-                CloudJitterForTest(
-                    kPixelX, kPixelY, cycle * 16u + phase, true),
-                cycleValue, 1e-12);
-        }
-        if (cycle > 0u) {
-            EXPECT_TRUE(std::fabs(
-                cycleValue - CloudJitterForTest(
-                    kPixelX, kPixelY, (cycle - 1u) * 16u, true)) > 1e-6);
-        }
-    }
-
-    f64 nativeJitter[256]{};
-    for (u32 frame = 0u; frame < 256u; ++frame) {
-        nativeJitter[frame] =
-            CloudJitterForTest(kPixelX, kPixelY, frame, false);
-    }
-    u32 shortCycleDuplicates = 0u;
-    for (u32 a = 0u; a < 256u; ++a) {
-        for (u32 b = a + 1u; b < 256u; ++b) {
-            if (std::fabs(nativeJitter[a] - nativeJitter[b]) < 1e-12) {
-                ++shortCycleDuplicates;
-            }
-        }
-    }
-    EXPECT_EQ(shortCycleDuplicates, static_cast<u32>(0u));
-}
-
-ACS_TEST(VolumetricClouds,
-         PixelJitterHashIsWellDistributedWithoutScreenDiagonalCorrelation) {
-    constexpr u32 kExtent = 256u;
-    constexpr u32 kBinCount = 16u;
-    u32 histogram[kBinCount]{};
-    f64 sum = 0.0;
-    for (u32 y = 0u; y < kExtent; ++y) {
-        for (u32 x = 0u; x < kExtent; ++x) {
-            const f64 value = CloudJitter01ForTest(x, y);
-            sum += value;
-            const u32 bin = static_cast<u32>(value * kBinCount);
-            ++histogram[bin < kBinCount ? bin : kBinCount - 1u];
-        }
-    }
-    const f64 sampleCount = static_cast<f64>(kExtent * kExtent);
-    EXPECT_NEAR(sum / sampleCount, 0.5, 0.01);
-    const u32 expectedPerBin = kExtent * kExtent / kBinCount;
-    for (const u32 count : histogram) {
-        EXPECT_TRUE(count > expectedPerBin * 9u / 10u);
-        EXPECT_TRUE(count < expectedPerBin * 11u / 10u);
-    }
-
-    const auto spatialCorrelation = [](u32 deltaX, u32 deltaY) noexcept {
-        f64 sumA = 0.0, sumB = 0.0;
-        f64 sumAA = 0.0, sumBB = 0.0, sumAB = 0.0;
-        u32 count = 0u;
-        for (u32 y = 0u; y + deltaY < kExtent; ++y) {
-            for (u32 x = 0u; x + deltaX < kExtent; ++x) {
-                const f64 a = CloudJitter01ForTest(x, y);
-                const f64 b = CloudJitter01ForTest(
-                    x + deltaX, y + deltaY);
-                sumA += a;
-                sumB += b;
-                sumAA += a * a;
-                sumBB += b * b;
-                sumAB += a * b;
-                ++count;
-            }
-        }
-        const f64 n = static_cast<f64>(count);
-        const f64 covariance = sumAB - sumA * sumB / n;
-        const f64 varianceA = sumAA - sumA * sumA / n;
-        const f64 varianceB = sumBB - sumB * sumB / n;
-        return covariance / std::sqrt(varianceA * varianceB);
-    };
-    EXPECT_NEAR(spatialCorrelation(1u, 0u), 0.0, 0.03);
-    EXPECT_NEAR(spatialCorrelation(0u, 1u), 0.0, 0.03);
-    EXPECT_NEAR(spatialCorrelation(1u, 1u), 0.0, 0.03);
-
-    // The non-TSR sequence must not merely exchange spatial correlation for a
-    // short temporal pattern. Its first lag remains statistically independent.
-    f64 sumA = 0.0, sumB = 0.0;
-    f64 sumAA = 0.0, sumBB = 0.0, sumAB = 0.0;
-    constexpr u32 kFrames = 256u;
-    for (u32 frame = 0u; frame + 1u < kFrames; ++frame) {
-        const f64 a = CloudJitterForTest(173u, 91u, frame, false);
-        const f64 b = CloudJitterForTest(173u, 91u, frame + 1u, false);
-        sumA += a;
-        sumB += b;
-        sumAA += a * a;
-        sumBB += b * b;
-        sumAB += a * b;
-    }
-    const f64 n = static_cast<f64>(kFrames - 1u);
-    const f64 covariance = sumAB - sumA * sumB / n;
-    const f64 varianceA = sumAA - sumA * sumA / n;
-    const f64 varianceB = sumBB - sumB * sumB / n;
-    EXPECT_NEAR(
-        covariance / std::sqrt(varianceA * varianceB), 0.0, 0.15);
+    constexpr f32 kIntervalStart = 100.0f;
+    constexpr f32 kIntervalEnd = 110.0f;
+    const f32 midpoint = kIntervalStart + (kIntervalEnd - kIntervalStart) * 0.5f;
+    EXPECT_NEAR(midpoint, 105.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricClouds,

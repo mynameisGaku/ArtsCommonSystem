@@ -1926,13 +1926,13 @@ float cloudDistanceFade(float sampleDistance,float fadeStart,float maxDistance){
     return fadeResult;
 }
 // 粗い採取点から一つ前の区間へ戻し、細密刻み内の採取位相だけを再適用する。
-// 参照描画の 0.5 は区間中央となり、通常描画の乱数位相も粗密切り替えで失われない。
+// 固定した開始位相0.5は区間中央となり、粗密切り替えでも失われない。
 float cloudRefinedSampleT(float intervalStart,float coarseProbeT,float fineStep,float coarseStep,float jitter){
     float coarseCellStart=max(coarseProbeT-coarseStep,intervalStart);
     return coarseCellStart+jitter*fineStep;
 }
-// 通常描画では各細密区間の採取位置を一定周期を持たない列でずらし、周期形状との共振を防ぐ。
-// 参照描画は時間平均を使わないため、従来どおり全区間の中央を採取する。
+// 通常描画では各細密区間の採取位置を決定論的な無理数列でずらし、周期形状との共振を防ぐ。
+// 参照描画は誤差比較の基準として全区間の中央を採取する。
 float cloudRayIntervalPhase(float basePhase,int intervalIndex){
     float samplePhase=0.5;
     if(cloudLightingAmbient.w<0.5){
@@ -2341,19 +2341,6 @@ uint2 CloudTemporalPhaseOffset4(uint2 blockQ,uint phaseIndex) {
     return offsets[CloudTemporalBlockPhase4(blockQ,phaseIndex)];
 }
 
-uint CloudJitterHash2D(uint2 pixel) {
-    // One PCG RXS-M-XS avalanche turns the two integer pixel coordinates into
-    // a decorrelated 32-bit value. Unlike interleaved-gradient noise this has
-    // no screen-space diagonal dot lattice when held fixed by Ultra TSR.
-    uint state=pixel.x*747796405u+pixel.y*2891336453u+277803737u;
-    uint word=((state>>((state>>28u)+4u))^state)*277803737u;
-    return (word>>22u)^word;
-}
-float CloudJitter01(uint2 pixel) {
-    // Converting the high 24 bits is exact in float and stays strictly below 1.
-    return float(CloudJitterHash2D(pixel)>>8u)*(1.0/16777216.0);
-}
-
 float3 CloudViewDirection(float2 ndc) {
     // far/near比がfloat精度を超えて遠点のwが0になっても、xyzから視線を復元する。
     float4 farHomogeneous=mul(float4(ndc,1.0,1.0),invViewProj);
@@ -2487,18 +2474,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float distanceLod=1.0+cloudRange.z*saturate(t0/max(MAX_DISTANCE,1.0));
     fineStep*=distanceLod;
     coarseStep*=distanceLod;
-    // 参照描画は時間履歴を使わないため、乱数位相を毎フレーム変えると未平均の粒状誤差だけが動く。
-    // 区間中央を使う決定論的な積分にし、1 フレームだけで密度場と照明を比較できる基準画像にする。
+    // 実レイを持つ画素は形状と不透明度を現在値へ置換し、過去の積分位置を時間平均していない。
+    // 毎フレーム乱数位相を変えると未平均の誤差だけが動くため、開始位相を区間中央へ固定する。
+    // 通常描画の後続区間は決定論的な無理数列で分散し、周期形状との共振だけを避ける。
     float jit=0.5;
-    if(cloudLightingAmbient.w<0.5){
-        // 超高品質の時間再構成では、同じ出力画素を 16 段階ごとに更新する。
-        // その周期に乱数列を合わせ、通常の等倍・縮小描画では毎フレーム進めて履歴へ平均する。
-        uint jitterFrame=(uint)temporal.z;
-        uint jitterSequence=temporal.w>3.5?(jitterFrame>>4u):jitterFrame;
-        uint2 jitterPixel=rayPixel+uint2((jitterSequence*47u)%131u,(jitterSequence*17u)%127u);
-        float pixelJitter=CloudJitter01(jitterPixel);
-        jit=frac(pixelJitter+float(jitterSequence)*0.754877666);
-    }
     float3 sun=sunDir.xyz;
     float cosA=clamp(dot(dir,sun),-1.0,1.0);
     float phaseBlend=cloudLightingPhase.z;
@@ -2549,7 +2528,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float sampleT=t;
         float stepLength=fineStep;
         if(nearDensity){
-            // 乱数位相付きの位置から担当区間の始点を戻し、末尾の端数区間も全長を積分する。
+            // 採取位相付きの位置から担当区間の始点を戻し、末尾の端数区間も全長を積分する。
             // 端数区間では同じ位相を区間内へ縮め、標本が雲層の外へ出ないようにする。
             float fineCellStart=max(t-finePhaseOffset,t0);
             if(fineCellStart>=t1) break;
@@ -2585,7 +2564,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         }
         if(!nearDensity && coarseStep>fineStep*1.5){
             // 粗い採取点で密度を見つけたため、一つ前の区間へ戻して薄い雲縁も細かく積分する。
-            // 粗い刻みの位相を流用せず、細密刻み内の同じ乱数位相へ置き直す。
+            // 粗い刻みの位相を流用せず、細密刻み内の同じ開始位相へ置き直す。
             float coarseProbeT=t;
             refineUntil=coarseProbeT+coarseStep;
             t=cloudRefinedSampleT(t0,coarseProbeT,fineStep,coarseStep,jit);
