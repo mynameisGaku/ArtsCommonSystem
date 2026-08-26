@@ -716,20 +716,35 @@ float remap(float v,float a,float b,float c,float d){
     float span=max(b-a,1e-4);
     return c+saturate((v-a)/span)*(d-c);
 }
-// 主形状だけを上下へ短く平均する。高周波の縦節を焼き込み時に消し、
+// 主形状だけを近傍6方向へ短く平均する。高周波の尖った枝を焼き込み時に消し、
 // 実行時の追加採取なしで雲体の厚みを連続させる。
 float fullShapeAt(float3 uvw){
+    float perlin2 = gnoise(uvw*2.0,2.0);
     float perlin4 = gnoise(uvw*4.0,4.0);
     float perlin8 = gnoise(uvw*8.0,8.0);
     float perlin16 = gnoise(uvw*16.0,16.0);
-    float perlin32 = gnoise(uvw*32.0,32.0);
-    float perlinFull = perlin4*0.60+perlin8*0.27
-                      +perlin16*0.10+perlin32*0.03;
-    float wa = worley(uvw,6.0);
-    float wb = worley(uvw,12.0);
-    float wc = worley(uvw,24.0);
-    float worleyFull = wa*0.78+wb*0.18+wc*0.04;
-    return remap(perlinFull,1.0-worleyFull,1.0,0.0,1.0);
+    // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
+    // 中～高周波を主成分にすると、同じX・Zへ細い房が縦に積み重なる。
+    float perlinFull = perlin2*0.64+perlin4*0.26
+                      +perlin8*0.08+perlin16*0.02;
+    float wa = worley(uvw,4.0);
+    float wb = worley(uvw,8.0);
+    float wc = worley(uvw,16.0);
+    float worleyFull = wa*0.82+wb*0.15+wc*0.03;
+    // 低周波Perlinで連続した雲塊の外形を作り、Worleyは内部の膨らみだけへ使う。
+    // Worleyをしきい値へ直結すると正の領域が数%まで縮み、粒状の柱になる。
+    float broadMass=remap(perlinFull,0.46,0.62,0.0,1.0);
+    float cellularMass=smoothstep(0.30,0.80,worleyFull);
+    return broadMass*lerp(0.58,0.92,cellularMass);
+}
+float fullShapeColumnAt(float3 uvw){
+    return fullShapeAt(uvw)*0.34
+         +fullShapeAt(uvw+float3(0.0,0.040,0.0))*0.16
+         +fullShapeAt(uvw-float3(0.0,0.040,0.0))*0.16
+         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.085
+         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.085
+         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.085
+         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.085;
 }
 [numthreads(4,4,4)]
 void CSNoise(uint3 id : SV_DispatchThreadID){
@@ -738,19 +753,18 @@ void CSNoise(uint3 id : SV_DispatchThreadID){
     // 連続した広域形状と、輪郭だけを崩す Perlin-Worley を別々に焼き込む。
     float perlin2 = gnoise(uvw*2.0,2.0);
     float perlin4 = gnoise(uvw*4.0,4.0);
-    float fullShape=fullShapeAt(uvw)*0.50
-                   +fullShapeAt(uvw+float3(0.0,0.040,0.0))*0.25
-                   +fullShapeAt(uvw-float3(0.0,0.040,0.0))*0.25;
+    float fullShape=fullShapeColumnAt(uvw);
     // Perlin-Worleyの0は雲の外側を表すため、負の下限から再マップして空洞を
     // 持ち上げない。低周波Perlinは空間の連結性を補う範囲だけ混ぜ、雲体の
     // 境界を埋めて柱へ戻さない。
     // 低密度の外縁を持ち上げ過ぎると、離れた小塊まで同時に残って粒状になる。
-    // 0.82では大きな雲体の中間密度を保ちつつ、細い枝だけを自然に落とす。
-    float baseCloud=pow(saturate(fullShape),0.82);
+    // 0.74では大きな雲体の中間密度を保ちつつ、細い枝だけを自然に落とす。
+    float baseCloud=pow(saturate(fullShape),0.74);
     float billowCloud=perlin2*0.70+perlin4*0.30;
-    // 低周波の補助を足し過ぎると、本来の空洞まで埋まって柱状化する。
-    // 主形状を0.70、連結補助を0.30として、雲体の連続性と空洞を両立する。
-    float macroCloud=saturate(baseCloud*0.70+billowCloud*0.30);
+    // 低周波をそのまま足すと、同じX・Zの全高度へ密度が残って柱状化する。
+    // 主形状の大きさだけを変え、弱い補助だけを加えて空洞と連続性を両立する。
+    float broadMass=lerp(0.70,1.10,saturate(billowCloud));
+    float macroCloud=saturate(baseCloud*broadMass+billowCloud*0.12);
     noiseOut[id]=float2(macroCloud,fullShape);
 }
 )";
@@ -1190,10 +1204,10 @@ float cloudToweringStrength(float cloudType,float precipitation){
 // 雲種や降水を100%上書きしても全ての雲塊を塔にせず、広い連続領域だけを成熟させる。
 float cloudLocalToweringStrength(float4 weather,float cloudInterior){
     float authoredTower=cloudToweringStrength(weather.g,weather.b);
-    float broadPotential=smoothstep(0.38,0.70,saturate(weather.a));
-    float interiorPotential=smoothstep(0.20,0.85,saturate(cloudInterior));
+    float broadPotential=smoothstep(0.52,0.82,saturate(weather.a));
+    float interiorPotential=smoothstep(0.35,0.92,saturate(cloudInterior));
     float localPotential=broadPotential*interiorPotential;
-    return authoredTower*lerp(0.06,1.0,localPotential);
+    return authoredTower*lerp(0.08,1.0,localPotential);
 }
 // 通常雲から積乱雲の縦分布へ移る割合を、同じ局所発達強度から求める。
 float cloudStormProfileMix(float toweringStrength){
@@ -1432,14 +1446,14 @@ float3 cloudUVW(
     // XZとYを同じ物理尺度へ寄せ、厚い層だけが縦長のノイズへ伸びないようにする。
     // 天候による縦位相は430 mと240 mの物理距離で定義し、形状尺度を変えても
     // 同じ地点の持ち上がり量が変わらないようにする。0.07は固定の位相ずらしだけを担う。
-    // 高さ方向だけを3倍にすると、同じ層内へ縦の節が増えて細い柱へ分断される。
-    // 横方向と同じ基準周期へ戻し、厚みは雲層の実寸と局所雲柱の幅で表す。
-    float globalCanonicalY=physicalLayerHeight
-                         *cloudShapeVerticalSpan(upperBand)*1.6;
-    // 局所雲柱の高さは12%だけ混ぜる。全量を使うと雲頂の違いが急な
-    // アーチや穴へ変わるため、全球の連続性を主形状として残す。
-    float localCanonicalY=saturate(localLayerHeight)*1.05;
-    float canonicalY=lerp(globalCanonicalY,localCanonicalY,0.12)
+    // 高さ座標を層内の正規化値へ直接掛けると、雲頂が低い通常雲でもテクスチャを
+    // 一周して房が積み重なるため、横方向と同じ実寸周期へ戻す。
+    float verticalSpan=cloudShapeVerticalSpan(upperBand);
+    float globalCanonicalY=physicalLayerHeight*verticalSpan;
+    // 局所雲柱の高さは18%だけ混ぜる。雲頂の差を残しつつ、同じXZの雲が
+    // 局所雲柱の正規化によって複数周期へ引き伸ばされることを防ぐ。
+    float localCanonicalY=saturate(localLayerHeight)*verticalSpan;
+    float canonicalY=lerp(globalCanonicalY,localCanonicalY,0.18)
                     +(weather.g*430.0+weather.a*240.0)*shapeScale+0.07;
     float3 canonicalPosition=float3(
         (xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
@@ -1495,7 +1509,7 @@ float cloudDensityFromDimensionalProfile(
 // 詳細体積の二領域差が基本形状を動かせる最大量。
 // 雲頂ほど房状の盛り上がりを強くし、雲底は輪郭が沸騰しない範囲へ抑える。
 float cloudBillowMaximumOffset(float height){
-    return lerp(0.018,0.130,smoothstep(0.18,0.92,saturate(height)));
+    return lerp(0.018,0.082,smoothstep(0.18,0.92,saturate(height)));
 }
 // 合成値 G から 2・3 段目だけを復元する。生成式は G=0.55R+0.30B+0.15C なので、
 // R を除いた値は (G-0.55R)/0.45 で求められ、追加の体積採取を必要としない。
@@ -2049,6 +2063,11 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
             cloudDimensionalProfile(macro.heightProfile,weatherMask));
         float densityScale=cloudHeightPrecipitationDensityScale(h,macro.weather.b);
         if(envelopeDensity*densityScale>0.001){
+            // 詳細房は既存の基本形状の縁だけを変形し、基本形状が空の場所へ
+            // 新しい粒を発生させない。包絡判定だけで進めると、雲から離れた房が浮く。
+            float edgeBillowSupport=smoothstep(0.08,0.28,baseDensity);
+            billowVisibility*=edgeBillowSupport;
+            middleBillowVisibility*=edgeBillowSupport;
             // 縦分布と被覆を含む幾何密度を先に確定し、その表面を房変形と侵食で整える。
             // 高さ・降水の光学密度倍率を先に掛けて1へ飽和させると、積乱雲表面の侵食が消える。
             float coarseDensity=cloudDensityFromDimensionalProfile(
