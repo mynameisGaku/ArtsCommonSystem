@@ -113,6 +113,11 @@ f32 CloudShapeVerticalSpanForTest(
     return shapeScale / safeInverseHeight;
 }
 
+// 雲層ごとの低周波な高さ変化率をシェーダーと同じ値で検査する。
+f32 CloudShapeVerticalVariationForTest(bool upperBand) noexcept {
+    return upperBand ? 0.78f : 1.45f;
+}
+
 FVolumetricCloudLightBasis LightBasisHlslReferenceForTest(
     FVec3 sunDirection) noexcept {
     FVolumetricCloudLightBasis out{};
@@ -2442,19 +2447,19 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatglobalCanonicalY=physicalLayerHeight*"
-        "verticalSpan;"));
+        "verticalSpan*verticalVariation;"));
     EXPECT_TRUE(Contains(
         shader,
         "floatverticalSpan=cloudShapeVerticalSpan(upperBand);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatglobalCanonicalY=physicalLayerHeight*verticalSpan;"));
+        "floatverticalVariation=cloudShapeVerticalVariation(upperBand);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatlocalCanonicalY=saturate(localLayerHeight)*verticalSpan;"));
+        "floatlocalCanonicalY=saturate(localLayerHeight)*verticalSpan*verticalVariation;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatcanonicalY=lerp(globalCanonicalY,localCanonicalY,0.18)"));
+        "floatcanonicalY=lerp(globalCanonicalY,localCanonicalY,0.32)"));
     EXPECT_TRUE(Contains(shader, "float2cloudHeightShapeShear(floatlayerHeight,boolupperBand){" "floatbandScale=upperBand?0.25:1.0;" "returnfloat2(0.9284767,0.3713907)" "*(500.0*saturate(layerHeight)*bandScale);}"));
     EXPECT_TRUE(Contains(shader, "float2xz=p.xz-cloudWindWorld()" "+cloudHeightShapeShear(physicalLayerHeight,upperBand);"));
     EXPECT_EQ(CountOccurrences(shader, "cloudHeightShapeShear("), static_cast<std::size_t>(3));
@@ -3865,20 +3870,19 @@ ACS_TEST(VolumetricClouds,
         "lp,coverage,lightStep);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatglobalCanonicalY=physicalLayerHeight*"
-        "verticalSpan;"));
+        "floatglobalCanonicalY=physicalLayerHeight*verticalSpan*verticalVariation;"));
     EXPECT_TRUE(Contains(
         shader,
         "floatverticalSpan=cloudShapeVerticalSpan(upperBand);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatglobalCanonicalY=physicalLayerHeight*verticalSpan;"));
+        "floatverticalVariation=cloudShapeVerticalVariation(upperBand);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatlocalCanonicalY=saturate(localLayerHeight)*verticalSpan;"));
+        "floatlocalCanonicalY=saturate(localLayerHeight)*verticalSpan*verticalVariation;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatcanonicalY=lerp(globalCanonicalY,localCanonicalY,0.18)"));
+        "floatcanonicalY=lerp(globalCanonicalY,localCanonicalY,0.32)"));
     EXPECT_FALSE(Contains(
         shader,
         "floatcanonicalY=cachedHeight*"
@@ -5678,7 +5682,8 @@ ACS_TEST(VolumetricClouds,
     const auto unrotatedUvw =
         [&](FVec3 point, f32 height, f32 verticalSpan) noexcept {
             const f32 canonicalY =
-                height * verticalSpan +
+                height * verticalSpan *
+                    CloudShapeVerticalVariationForTest(false) +
                 (kWeatherType * 430.0f +
                  kWeatherAnvil * 240.0f) * kShapeScale + 0.07f;
             return FVec3{
@@ -5692,6 +5697,8 @@ ACS_TEST(VolumetricClouds,
                 unrotatedUvw(point, height, verticalSpan));
         };
     EXPECT_NEAR(kVerticalSpan, 1.974f, 1e-6f);
+    EXPECT_NEAR(CloudShapeVerticalVariationForTest(false), 1.45f, 1e-6f);
+    EXPECT_NEAR(CloudShapeVerticalVariationForTest(true), 0.78f, 1e-6f);
     constexpr f32 kWeatherVerticalMeters =
         kWeatherType * 430.0f + kWeatherAnvil * 240.0f;
     EXPECT_NEAR(kWeatherVerticalMeters, 338.1f, 1.0e-4f);
@@ -5747,7 +5754,8 @@ ACS_TEST(VolumetricClouds,
     const FVec3 verticalStart = absoluteUvw(
         FVec3{0.0f, 0.0f, 0.0f}, 0.0f, kVerticalSpan);
     const FVec3 verticalPeriod = absoluteUvw(
-        FVec3{0.0f, 0.0f, 0.0f}, 1.0f / kVerticalSpan,
+        FVec3{0.0f, 0.0f, 0.0f},
+        1.0f / (kVerticalSpan * CloudShapeVerticalVariationForTest(false)),
         kVerticalSpan);
     const FVec3 verticalDelta{
         verticalPeriod.x - verticalStart.x,

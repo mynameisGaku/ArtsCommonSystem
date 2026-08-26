@@ -1370,12 +1370,16 @@ float cloudShapeScale(){
     // CPU mirrors clamp(layer.z*0.0035,0.00012,0.00045) once per frame.
     return cloudFrameTerms.z;
 }
-// 基本形状の高さ方向も横方向と同じ物理尺度から求める。
-// 薄い層を単一断面へせず、厚い層を細かな数珠状にも分断しない範囲へ収める。
+// 基本形状の高さ方向へ、雲種ごとの低周波変化率を与える。
+// 下層は局所的な膨らみを出し、上層は薄い見え方を保つため、横方向と同じ尺度を
+// そのまま使わず、密度の高さプロファイルと干渉しない範囲へ分ける。
 float cloudShapeVerticalSpan(bool upperBand){
     float inverseThickness=upperBand
         ?cloudUpperLayer.z:cloudFrameTerms.w;
     return cloudShapeScale()/max(inverseThickness,1e-6);
+}
+float cloudShapeVerticalVariation(bool upperBand){
+    return upperBand?0.78:1.45;
 }
 float2 cloudWindWorld(){
     // CPU mirrors params.z*float2(0.9284767,0.3713907) once per frame.
@@ -1454,17 +1458,18 @@ float3 cloudUVW(
     float2 weatherWarp=float2(warpCos,warpSin)
                       *(weather.a-0.5)*190.0;
     float2 curlWarp=cachedCurl*22.0;
-    // XZとYを同じ物理尺度へ寄せ、厚い層だけが縦長のノイズへ伸びないようにする。
-    // 天候による縦位相は430 mと240 mの物理距離で定義し、形状尺度を変えても
-    // 同じ地点の持ち上がり量が変わらないようにする。0.07は固定の位相ずらしだけを担う。
+    // XZを基準に、下層だけ高さ方向の変化を少し早めて縦柱を崩す。天候による
+    // 縦位相は430 mと240 mの物理距離で定義し、形状尺度を変えても同じ地点の
+    // 持ち上がり量が変わらないようにする。0.07は固定の位相ずらしだけを担う。
     // 高さ座標を層内の正規化値へ直接掛けると、雲頂が低い通常雲でもテクスチャを
     // 一周して房が積み重なるため、横方向と同じ実寸周期へ戻す。
     float verticalSpan=cloudShapeVerticalSpan(upperBand);
-    float globalCanonicalY=physicalLayerHeight*verticalSpan;
-    // 局所雲柱の高さは18%だけ混ぜる。雲頂の差を残しつつ、同じXZの雲が
-    // 局所雲柱の正規化によって複数周期へ引き伸ばされることを防ぐ。
-    float localCanonicalY=saturate(localLayerHeight)*verticalSpan;
-    float canonicalY=lerp(globalCanonicalY,localCanonicalY,0.18)
+    float verticalVariation=cloudShapeVerticalVariation(upperBand);
+    float globalCanonicalY=physicalLayerHeight*verticalSpan*verticalVariation;
+    // 局所雲柱の高さを32%混ぜ、局所雲頂の膨らみを形状へ伝える。同じXZの雲が
+    // 正規化によって複数周期へ引き伸ばされないよう、全球高さも同じ倍率で進める。
+    float localCanonicalY=saturate(localLayerHeight)*verticalSpan*verticalVariation;
+    float canonicalY=lerp(globalCanonicalY,localCanonicalY,0.32)
                     +(weather.g*430.0+weather.a*240.0)*shapeScale+0.07;
     float3 canonicalPosition=float3(
         (xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
