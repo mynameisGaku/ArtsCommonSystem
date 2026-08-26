@@ -901,9 +901,11 @@ cbuffer CloudCB : register(b0) {
     float4 cloudCoverage;// xy=天候しきい値、zw=基本形状雑音の固定正規化範囲
     // xy=inverse weather transition widths, z=view fine step, w=light step
     float4 cloudCoverageReciprocals;
-    // CPU-hoisted camera/layer terms for the two curved-shell quadratics.
-    float4 cloudShellRayOrigin;// xyz=camera from planet centre, w=inner c
-    float4 cloudShellTerms;// x=outer c
+    // CPUで先行計算した曲面雲層の二次方程式項。
+    // xyz=惑星中心から見たカメラ, w=下層底面のc
+    float4 cloudShellRayOrigin;
+    // x=下層上面, yz=上層底面・上面のc
+    float4 cloudShellTerms;
     // 雲を «光を散らす媒質» として扱うための係数。これまでは shader 内の即値だった。
     // x=見る側の消散, y=光の側の消散, z=太陽光の散乱率, w=周囲散乱源の確率を混ぜる割合
     float4 cloudLightingExtinction;
@@ -1037,8 +1039,8 @@ float cloudLightStepFromBand(bool upperBand){
 }
 // 層の中での高さ (0=底, 1=天井)。上層に居るなら上層の中で測る。
 //
-// 2 層のあいだの隙間は下層の 1.0 に貼り付くので、cloudProfile がそこで 0 を返し、
-// 密度も 0 になる。**隙間を別に扱う必要は無い。**
+// 2層の間では下層の1.0へ貼り付いてcloudProfileが0を返す。歩進側はこの晴天域を
+// 独立した交差区間の間として飛ばし、ここでは密度の安全な0だけを保証する。
 float heightFractionFromAltitude(float altitude,bool upperBand){
     // FXC が分岐内の即時 return を未初期化扱いすることがあるため、下層の値で先に初期化し、
     // 上層だけを上書きして一つの経路から返す。高さの式と飽和処理の順序は変えない。
@@ -1072,15 +1074,11 @@ bool sphereRootsFromTerms(float b,float c,
     return hit;
 }
 
-// Return only the nearest continuous part of the shell.  Ignoring a possible
-// far-side re-entry avoids integrating through the planet and gives stable
-// depth/reprojection semantics for cameras below, inside, or above the layer.
-bool intersectCloudShell(float3 rayDir,out float t0,out float t1){
+// 一つの曲面雲層について、正の距離にある最初の連続区間を返す。
+// 地面による遮蔽と最大距離は呼び出し側で扱い、層の下・中・上では同じ交差規則を使う。
+bool intersectCloudShellTerms(float b,float innerC,float outerC,out float t0,out float t1){
     t0=0.0;
     t1=0.0;
-    float innerC=cloudShellRayOrigin.w;
-    float outerC=cloudShellTerms.x;
-    float b=dot(cloudShellRayOrigin.xyz,rayDir);
     float outerNear=0.0,outerFar=0.0;
     bool hitsOuter=sphereRootsFromTerms(
         b,outerC,outerNear,outerFar);
@@ -1104,42 +1102,60 @@ bool intersectCloudShell(float3 rayDir,out float t0,out float t1){
     return t1>t0;
 }
 
-// 任意の始点から見た最寄りの雲殻区間を求める。立体物用の透過率地図は画素ごとに
-// 始点が異なるため、カメラ専用にCPUで先行計算した係数は使わない。
-bool intersectCloudShellFromPosition(float3 rayOrigin,float3 rayDir,out float t0,out float t1){
-    t0=0.0;
-    t1=0.0;
+// 下層と上層の交差区間を視点から近い順へ詰める。返り値は有効な区間数。
+int packCloudBandIntervals(bool lowerHit,float2 lowerInterval,bool upperHit,float2 upperInterval,out float4 intervals){
+    intervals=float4(0,0,0,0);
+    if(lowerHit&&upperHit){
+        bool lowerFirst=lowerInterval.x<=upperInterval.x;
+        intervals=lowerFirst
+            ?float4(lowerInterval,upperInterval)
+            :float4(upperInterval,lowerInterval);
+        return 2;
+    }
+    if(lowerHit){
+        intervals.xy=lowerInterval;
+        return 1;
+    }
+    if(upperHit){
+        intervals.xy=upperInterval;
+        return 1;
+    }
+    return 0;
+}
+
+// カメラ固定の主描画では、CPUで先行計算した下層・上層の係数を使う。
+int intersectCloudBands(float3 rayDir,out float4 intervals){
+    float b=dot(cloudShellRayOrigin.xyz,rayDir);
+    float2 lowerInterval=float2(0,0);
+    bool lowerHit=intersectCloudShellTerms(b,cloudShellRayOrigin.w,cloudShellTerms.x,lowerInterval.x,lowerInterval.y);
+    float2 upperInterval=float2(0,0);
+    bool upperHit=false;
+    if(cloudUpperLayer.w>0.5){
+        upperHit=intersectCloudShellTerms(b,cloudShellTerms.y,cloudShellTerms.z,upperInterval.x,upperInterval.y);
+    }
+    return packCloudBandIntervals(lowerHit,lowerInterval,upperHit,upperInterval,intervals);
+}
+
+// 任意の始点に対する曲面高度の二次方程式c項を、巨大な半径の二乗差を避けて求める。
+float cloudShellCFromLocalPosition(float3 local,float altitude){
+    return dot(local.xz,local.xz)
+        +(local.y-altitude)
+         *(2.0*CLOUD_PLANET_RADIUS+local.y+altitude);
+}
+
+// 立体物用の透過率地図は画素ごとに始点が異なるため、下層・上層の係数をその場で求める。
+int intersectCloudBandsFromPosition(float3 rayOrigin,float3 rayDir,out float4 intervals){
     float3 local=rayOrigin-worldOrigin.xyz;
     float3 centreOffset=float3(local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
-    float outerAltitude=cloudUpperLayer.w>0.5
-        ?cloudUpperLayer.y:layer.y;
-    float innerC=dot(local.xz,local.xz)
-        +(local.y-layer.x)
-         *(2.0*CLOUD_PLANET_RADIUS+local.y+layer.x);
-    float outerC=dot(local.xz,local.xz)
-        +(local.y-outerAltitude)
-         *(2.0*CLOUD_PLANET_RADIUS+local.y+outerAltitude);
     float b=dot(centreOffset,rayDir);
-    float outerNear=0.0,outerFar=0.0;
-    bool hitsOuter=sphereRootsFromTerms(b,outerC,outerNear,outerFar);
-    if(hitsOuter&&outerFar>0.0){
-        float innerNear=0.0,innerFar=0.0;
-        bool hitsInner=sphereRootsFromTerms(b,innerC,innerNear,innerFar);
-        if(innerC<0.0){
-            if(hitsInner&&innerFar>0.0){
-                t0=max(innerFar,0.0);
-                t1=outerFar;
-            }
-        }else if(outerC<=0.0){
-            bool headingInward=b<0.0;
-            t1=(headingInward&&hitsInner&&innerNear>0.0)
-                ?innerNear:outerFar;
-        }else if(outerNear>0.0){
-            t0=outerNear;
-            t1=(hitsInner&&innerNear>t0)?innerNear:outerFar;
-        }
+    float2 lowerInterval=float2(0,0);
+    bool lowerHit=intersectCloudShellTerms(b,cloudShellCFromLocalPosition(local,layer.x),cloudShellCFromLocalPosition(local,layer.y),lowerInterval.x,lowerInterval.y);
+    float2 upperInterval=float2(0,0);
+    bool upperHit=false;
+    if(cloudUpperLayer.w>0.5){
+        upperHit=intersectCloudShellTerms(b,cloudShellCFromLocalPosition(local,cloudUpperLayer.x),cloudShellCFromLocalPosition(local,cloudUpperLayer.y),upperInterval.x,upperInterval.y);
     }
-    return t1>t0;
+    return packCloudBandIntervals(lowerHit,lowerInterval,upperHit,upperInterval,intervals);
 }
 // 短い8点の光円すい内では雲種と降水量を共有できる。二つの雲種補間を明示して、
 // 視線標本で一度だけ求めた同じ重みを各光標本へ再利用する。
@@ -2313,12 +2329,30 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
     float transmittance=1.0;
     float opticalDepth=0.0;
     float3 sun=sunDir.xyz;
-    float enter=0.0,exit=0.0;
-    if(sun.y>0.03&&intersectCloudShellFromPosition(rayOrigin,sun,enter,exit)){
+    float4 bandIntervals=float4(0,0,0,0);
+    int bandCount=intersectCloudBandsFromPosition(rayOrigin,sun,bandIntervals);
+    if(sun.y>0.03&&bandCount>0){
         const int SAMPLE_COUNT=32;
-        float stepLength=(exit-enter)/float(SAMPLE_COUNT);
-        float sampleDistance=enter+0.5*stepLength;
+        float firstLength=bandIntervals.y-bandIntervals.x;
+        float secondLength=bandCount>1
+            ?bandIntervals.w-bandIntervals.z:0.0;
+        float occupiedLength=max(firstLength+secondLength,1e-5);
+        int firstSampleCount=SAMPLE_COUNT;
+        if(bandCount>1){
+            firstSampleCount=clamp((int)round(float(SAMPLE_COUNT)*firstLength/occupiedLength),1,SAMPLE_COUNT-1);
+        }
         [loop] for(int sampleIndex=0;sampleIndex<SAMPLE_COUNT;++sampleIndex){
+            bool useSecondBand=sampleIndex>=firstSampleCount;
+            int bandSampleIndex=useSecondBand
+                ?sampleIndex-firstSampleCount:sampleIndex;
+            int bandSampleCount=useSecondBand
+                ?SAMPLE_COUNT-firstSampleCount:firstSampleCount;
+            float bandStart=useSecondBand
+                ?bandIntervals.z:bandIntervals.x;
+            float bandLength=useSecondBand?secondLength:firstLength;
+            float stepLength=bandLength/float(bandSampleCount);
+            float sampleDistance=bandStart
+                +(float(bandSampleIndex)+0.5)*stepLength;
             float3 p=rayOrigin+sun*sampleDistance;
             CloudMacroSample macro=sampleCloudMacroLighting(
                 p,saturate(params.x),stepLength);
@@ -2329,7 +2363,6 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
                          *cloudOpticalDepthScaleFromBand(
                              macro.upperBand>0.5);
             if(opticalDepth*cloudLightingExtinction.y>=12.0) break;
-            sampleDistance+=stepLength;
         }
         // 登録番号をt0..t3で連続させるため、通常は到達しない分岐でも詳細雑音を宣言へ残す。
         if(params.y<0.0){
@@ -2443,8 +2476,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         return;
     }
     float coverage=saturate(params.x), density=max(params.y,0.05);
-    float t0=0.0,t1=0.0;
-    if(!intersectCloudShell(dir,t0,t1)){
+    float4 bandIntervals=float4(0,0,0,0);
+    int cloudBandCount=intersectCloudBands(dir,bandIntervals);
+    if(cloudBandCount<=0){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -2456,10 +2490,15 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float MAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));
     float fadeStartRatio=saturate(cloudRange.y/max(cloudRange.x,1.0));
     float fadeStart=MAX_DISTANCE*fadeStartRatio;
-    t1=min(t1,MAX_DISTANCE);
+    float intervalStart=bandIntervals.x;
+    float intervalEnd=min(bandIntervals.y,MAX_DISTANCE);
+    float nextIntervalStart=bandIntervals.z;
+    float nextIntervalEnd=min(bandIntervals.w,MAX_DISTANCE);
+    bool hasNextInterval=cloudBandCount>1
+        &&nextIntervalEnd>nextIntervalStart;
     // 曲面雲層には有限な地平線区間がある。距離減衰はこの入口だけでレイ全体を
     // 棄却せず、後続の各密度標本へ適用する。
-    if(t1<=t0){
+    if(intervalEnd<=intervalStart){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -2480,18 +2519,22 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // 刻み数。参照描画では大きくする (cloudLightingAmbient.z に入っている)。
     int MAX_STEPS=(int)cloudLightingAmbient.z;
     if(MAX_STEPS<32) MAX_STEPS=32;
-    float span=t1-t0;
+    // 晴天の層間距離を標本予算へ含めず、実際に密度を持ち得る二つの区間だけで刻み幅を決める。
+    float occupiedSpan=intervalEnd-intervalStart;
+    if(hasNextInterval)
+        occupiedSpan+=nextIntervalEnd-nextIntervalStart;
     float baseFineStep=cloudCoverageReciprocals.z;
     // 採取上限の 1/8 は空領域から細密領域へ戻る処理に残し、残りを実積分へ使う。
     // 上限を下げた場合も区間終端へ到達し、参照描画では増やした採取回数が刻み幅へ反映される。
     int fineSampleBudget=MAX_STEPS-(MAX_STEPS>>3);
     int coarseSampleBudget=max(fineSampleBudget>>1,1);
-    float fineStep=max(baseFineStep,span/float(fineSampleBudget));
-    float coarseStep=max(fineStep*2.0,span/float(coarseSampleBudget));
+    float fineStep=max(baseFineStep,occupiedSpan/float(fineSampleBudget));
+    float coarseStep=max(fineStep*2.0,occupiedSpan/float(coarseSampleBudget));
     // 遠くから始まるレイほど刻みを広げる。地平線へ向かうレイは 1 画素の担当する
-    // 立体角が広く、細かく刻んでも結果に出ない。上向きのレイは t0 が小さいので
+    // 立体角が広く、細かく刻んでも結果に出ない。上向きのレイは区間入口が近いので
     // ここでは粗くならない。レイごとに一定の倍率にして、粗密の往復を乱さない。
-    float distanceLod=1.0+cloudRange.z*saturate(t0/max(MAX_DISTANCE,1.0));
+    float distanceLod=1.0+cloudRange.z
+        *saturate(intervalStart/max(MAX_DISTANCE,1.0));
     fineStep*=distanceLod;
     coarseStep*=distanceLod;
     // 実レイを持つ画素は形状と不透明度を現在値へ置換し、過去の積分位置を時間平均していない。
@@ -2540,23 +2583,36 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float finePhaseOffset=jit*fineStep;
     // 雲殻内から始まるレイは、最初の粗い区間を飛ばすとカメラ直前の密度を積分できない。
     // 最初の粗い区間だけ細密刻みで確認し、空なら従来の粗い探索へ戻す。
-    bool startsInsideShell=t0<=1e-4;
-    float t=t0+jit*(startsInsideShell?fineStep:coarseStep);
+    bool startsInsideShell=intervalStart<=1e-4;
+    float initialProbeStep=min(startsInsideShell?fineStep:coarseStep,intervalEnd-intervalStart);
+    float t=intervalStart+jit*initialProbeStep;
     bool nearDensity=startsInsideShell;
-    float refineUntil=startsInsideShell?min(t0+coarseStep,t1):t0;
+    float refineUntil=startsInsideShell
+        ?min(intervalStart+coarseStep,intervalEnd):intervalStart;
     [loop] for(int i=0;i<MAX_STEPS;i++){
+        bool intervalFinished=nearDensity
+            ?max(t-finePhaseOffset,intervalStart)>=intervalEnd
+            :t>=intervalEnd;
+        if(intervalFinished){
+            if(!hasNextInterval) break;
+            intervalStart=nextIntervalStart;
+            intervalEnd=nextIntervalEnd;
+            hasNextInterval=false;
+            // 薄い上層を粗い採取位相だけで飛ばさないよう、各後続層の先頭を細密区間で確認する。
+            float nextProbeStep=min(fineStep,intervalEnd-intervalStart);
+            t=intervalStart+jit*nextProbeStep;
+            nearDensity=true;
+            refineUntil=min(intervalStart+coarseStep,intervalEnd);
+        }
         float sampleT=t;
         float stepLength=fineStep;
         if(nearDensity){
             // 採取位相付きの位置から担当区間の始点を戻し、末尾の端数区間も全長を積分する。
             // 端数区間では同じ位相を区間内へ縮め、標本が雲層の外へ出ないようにする。
-            float fineCellStart=max(t-finePhaseOffset,t0);
-            if(fineCellStart>=t1) break;
-            stepLength=min(fineStep,t1-fineCellStart);
+            float fineCellStart=max(t-finePhaseOffset,intervalStart);
+            stepLength=min(fineStep,intervalEnd-fineCellStart);
             float intervalPhase=cloudRayIntervalPhase(jit,i);
             sampleT=fineCellStart+intervalPhase*stepLength;
-        }else if(t>=t1){
-            break;
         }
         // カメラ位置を含む完全な標本位置はワールド座標である。ここでカメラの高さを
         // 再び引くと、Editor のカメラ移動に合わせて雲層まで動いてしまう。
@@ -2586,13 +2642,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // 粗い採取点で密度を見つけたため、一つ前の区間へ戻して薄い雲縁も細かく積分する。
             // 粗い刻みの位相を流用せず、細密刻み内の同じ開始位相へ置き直す。
             float coarseProbeT=t;
-            refineUntil=coarseProbeT+coarseStep;
-            t=cloudRefinedSampleT(t0,coarseProbeT,fineStep,coarseStep,jit);
+            refineUntil=min(coarseProbeT+coarseStep,intervalEnd);
+            t=cloudRefinedSampleT(intervalStart,coarseProbeT,fineStep,coarseStep,jit);
             nearDensity=true;
             continue;
         }
         nearDensity=true;
-        refineUntil=max(refineUntil,t+coarseStep);
+        refineUntil=max(refineUntil,min(t+coarseStep,intervalEnd));
         // 積分間隔と現在距離の投影画素幅から、採取可能な房と侵食の帯域を別々に求める。
         // 最後の短い区間でも projectedSampleSpacing は fineStep を下回らず、細部が再出現しない。
         float billowVisibility=cloudBillowVisibilityFromSampleSpacing(projectedSampleSpacing);
@@ -6159,10 +6215,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         0.0f};
     cb.cloudCoverage = samplingTerms.coverage;
     cb.cloudCoverageReciprocals = samplingTerms.coverageReciprocals;
-    // Camera, rebase origin and layer are invariant for the complete trace
-    // dispatch. Build the two factorized shell quadratics once on the CPU
-    // instead of reconstructing both c terms and the same ray-origin b term
-    // in every quarter-resolution invocation.
+    // カメラ、再基準化原点、上下層は一回の視線計算中に不変である。各縮小画素で
+    // 同じ二次方程式項を組み直さず、曲面区間のc項をCPUで一度だけ求める。
     const FVec3 shellLocalOrigin{
         cam_pos.x - worldOrigin.x,
         cam_pos.y - worldOrigin.y,
@@ -6182,12 +6236,10 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         shellLocalOrigin.y + kVolumetricCloudPlanetRadius,
         shellLocalOrigin.z,
         shellC(m_Layer.base_height)};
-    // 上層があるなら殻の外側をそこまで伸ばす。伸ばさないとレイが下層の天井で止まり、
-    // 上層はいつまでも見えない。あいだの隙間は密度 0 なので粗い刻みで素通りする。
-    const f32 shellTopHeight =
-        hasUpperLayer ? m_UpperLayer.top_height : m_Layer.top_height;
-    cb.cloudShellTerms = FVec4{
-        shellC(shellTopHeight), 0.0f, 0.0f, 0.0f};
+    // 下層と上層を独立した区間にし、層間の晴天域を視線と雲影の標本予算へ含めない。
+    const f32 upperBaseShellC = hasUpperLayer ? shellC(m_UpperLayer.base_height) : 0.0f;
+    const f32 upperTopShellC = hasUpperLayer ? shellC(m_UpperLayer.top_height) : 0.0f;
+    cb.cloudShellTerms = FVec4{shellC(m_Layer.top_height), upperBaseShellC, upperTopShellC, 0.0f};
     cb.cloudUpperLayer = hasUpperLayer
         ? FVec4{m_UpperLayer.base_height, m_UpperLayer.top_height,
                 1.0f / (m_UpperLayer.top_height - m_UpperLayer.base_height),
@@ -6616,10 +6668,10 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         shell_local_origin.y + kVolumetricCloudPlanetRadius,
         shell_local_origin.z,
         shell_c(m_Layer.base_height)};
-    const f32 shell_top_height = has_upper_layer
-        ? m_UpperLayer.top_height : m_Layer.top_height;
-    cb.cloudShellTerms = FVec4{
-        shell_c(shell_top_height), 0.0f, 0.0f, 0.0f};
+    // 環境キューブマップも主描画と同じ二つの曲面区間を使う。
+    const f32 upper_base_shell_c = has_upper_layer ? shell_c(m_UpperLayer.base_height) : 0.0f;
+    const f32 upper_top_shell_c = has_upper_layer ? shell_c(m_UpperLayer.top_height) : 0.0f;
+    cb.cloudShellTerms = FVec4{shell_c(m_Layer.top_height), upper_base_shell_c, upper_top_shell_c, 0.0f};
     cb.cloudUpperLayer = has_upper_layer
         ? FVec4{
             m_UpperLayer.base_height,

@@ -1640,13 +1640,14 @@ ACS_TEST(VolumetricClouds,
         shader,
         "intMAX_STEPS=(int)cloudLightingAmbient.z;"
         "if(MAX_STEPS<32)MAX_STEPS=32;"));
-    EXPECT_TRUE(Contains(shader, "floatspan=t1-t0;"));
+    EXPECT_TRUE(Contains(shader, "floatoccupiedSpan=intervalEnd-intervalStart;"));
+    EXPECT_TRUE(Contains(shader, "if(hasNextInterval)occupiedSpan+=nextIntervalEnd-nextIntervalStart;"));
     EXPECT_TRUE(Contains(
         shader, "floatbaseFineStep=cloudCoverageReciprocals.z;"));
     EXPECT_TRUE(Contains(shader, "intfineSampleBudget=MAX_STEPS-(MAX_STEPS>>3);"));
     EXPECT_TRUE(Contains(shader, "intcoarseSampleBudget=max(fineSampleBudget>>1,1);"));
-    EXPECT_TRUE(Contains(shader, "floatfineStep=max(baseFineStep,span/float(fineSampleBudget));"));
-    EXPECT_TRUE(Contains(shader, "floatcoarseStep=max(fineStep*2.0,span/float(coarseSampleBudget));"));
+    EXPECT_TRUE(Contains(shader, "floatfineStep=max(baseFineStep,occupiedSpan/float(fineSampleBudget));"));
+    EXPECT_TRUE(Contains(shader, "floatcoarseStep=max(fineStep*2.0,occupiedSpan/float(coarseSampleBudget));"));
     EXPECT_FALSE(Contains(shader, "span/168.0"));
     EXPECT_FALSE(Contains(shader, "span/84.0"));
     EXPECT_FALSE(Contains(shader, "constintMAX_STEPS=128;"));
@@ -1672,8 +1673,8 @@ ACS_TEST(VolumetricClouds, CoarseOccupancyRewindPreservesTheFineSamplePhase) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(Contains(shader, "floatcloudRefinedSampleT(" "floatintervalStart,floatcoarseProbeT,floatfineStep," "floatcoarseStep,floatjitter){" "floatcoarseCellStart=max(coarseProbeT-coarseStep,intervalStart);" "returncoarseCellStart+jitter*fineStep;}"));
-    EXPECT_TRUE(Contains(shader, "floatcoarseProbeT=t;" "refineUntil=coarseProbeT+coarseStep;" "t=cloudRefinedSampleT(" "t0,coarseProbeT,fineStep,coarseStep,jit);"));
-    EXPECT_FALSE(Contains(shader, "t=max(t-coarseStep,t0);"));
+    EXPECT_TRUE(Contains(shader, "floatcoarseProbeT=t;" "refineUntil=min(coarseProbeT+coarseStep,intervalEnd);" "t=cloudRefinedSampleT(" "intervalStart,coarseProbeT,fineStep,coarseStep,jit);"));
+    EXPECT_FALSE(Contains(shader, "t=max(t-coarseStep,intervalStart);"));
 }
 
 ACS_TEST(VolumetricClouds, InteriorMarchChecksTheCameraAdjacentFineInterval) {
@@ -1702,11 +1703,11 @@ ACS_TEST(VolumetricClouds, InteriorMarchChecksTheCameraAdjacentFineInterval) {
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
-    EXPECT_TRUE(Contains(shader, "boolstartsInsideShell=t0<=1e-4;"));
-    EXPECT_TRUE(Contains(shader, "floatt=t0+jit*(startsInsideShell?fineStep:coarseStep);"));
+    EXPECT_TRUE(Contains(shader, "boolstartsInsideShell=intervalStart<=1e-4;"));
+    EXPECT_TRUE(Contains(shader, "floatinitialProbeStep=min(startsInsideShell?fineStep:coarseStep,intervalEnd-intervalStart);" "floatt=intervalStart+jit*initialProbeStep;"));
     EXPECT_TRUE(Contains(shader, "boolnearDensity=startsInsideShell;"));
-    EXPECT_TRUE(Contains(shader, "floatrefineUntil=startsInsideShell?min(t0+coarseStep,t1):t0;"));
-    EXPECT_FALSE(Contains(shader, "floatt=t0+jit*coarseStep;boolnearDensity=false;"));
+    EXPECT_TRUE(Contains(shader, "floatrefineUntil=startsInsideShell?min(intervalStart+coarseStep,intervalEnd):intervalStart;"));
+    EXPECT_FALSE(Contains(shader, "floatt=intervalStart+jit*coarseStep;boolnearDensity=false;"));
 }
 
 ACS_TEST(VolumetricClouds, FineSamplePhaseOwnsTheCompleteIntegrationInterval) {
@@ -1753,8 +1754,9 @@ ACS_TEST(VolumetricClouds, FineSamplePhaseOwnsTheCompleteIntegrationInterval) {
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(Contains(shader, "floatfinePhaseOffset=jit*fineStep;"));
     EXPECT_TRUE(Contains(shader, "[loop]for(inti=0;i<MAX_STEPS;i++){"));
-    EXPECT_TRUE(Contains(shader, "elseif(t>=t1){break;}"));
-    EXPECT_TRUE(Contains(shader, "floatfineCellStart=max(t-finePhaseOffset,t0);" "if(fineCellStart>=t1)break;" "stepLength=min(fineStep,t1-fineCellStart);" "floatintervalPhase=cloudRayIntervalPhase(jit,i);" "sampleT=fineCellStart+intervalPhase*stepLength;"));
+    EXPECT_TRUE(Contains(shader, "boolintervalFinished=nearDensity?max(t-finePhaseOffset,intervalStart)>=intervalEnd:t>=intervalEnd;"));
+    EXPECT_TRUE(Contains(shader, "if(intervalFinished){if(!hasNextInterval)break;intervalStart=nextIntervalStart;intervalEnd=nextIntervalEnd;hasNextInterval=false;"));
+    EXPECT_TRUE(Contains(shader, "floatfineCellStart=max(t-finePhaseOffset,intervalStart);" "stepLength=min(fineStep,intervalEnd-fineCellStart);" "floatintervalPhase=cloudRayIntervalPhase(jit,i);" "sampleT=fineCellStart+intervalPhase*stepLength;"));
     EXPECT_TRUE(Contains(shader, "float3p=camPos.xyz+dir*sampleT;"));
     EXPECT_TRUE(Contains(shader, "depthMoment+=sampleWeight*sampleT;"));
     EXPECT_TRUE(Contains(shader, "t+=fineStep;"));
@@ -5919,8 +5921,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
 
-ACS_TEST(VolumetricClouds,
-         CurvedShellRayInvariantQuadraticTermsAreCpuHoisted) {
+ACS_TEST(VolumetricClouds, CurvedBandRayInvariantQuadraticTermsAreCpuHoisted) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
@@ -5936,14 +5937,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         shader,
         "boolsphereRoots(float3localOrigin,float3rd,floataltitude,"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "boolintersectCloudShell("
-        "float3rayDir,outfloatt0,outfloatt1){"
-        "t0=0.0;t1=0.0;"
-        "floatinnerC=cloudShellRayOrigin.w;"
-        "floatouterC=cloudShellTerms.x;"
-        "floatb=dot(cloudShellRayOrigin.xyz,rayDir);"));
+    EXPECT_TRUE(Contains(shader, "boolintersectCloudShellTerms(" "floatb,floatinnerC,floatouterC," "outfloatt0,outfloatt1){" "t0=0.0;t1=0.0;"));
     EXPECT_TRUE(Contains(
         shader,
         "boolhitsOuter=sphereRootsFromTerms("
@@ -5952,9 +5946,10 @@ ACS_TEST(VolumetricClouds,
         shader,
         "boolhitsInner=sphereRootsFromTerms("
         "b,innerC,innerNear,innerFar);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "if(!intersectCloudShell(dir,t0,t1)){"));
+    EXPECT_TRUE(Contains(shader, "intintersectCloudBands(float3rayDir,outfloat4intervals){" "floatb=dot(cloudShellRayOrigin.xyz,rayDir);"));
+    EXPECT_TRUE(Contains(shader, "boollowerHit=intersectCloudShellTerms(" "b,cloudShellRayOrigin.w,cloudShellTerms.x,"));
+    EXPECT_TRUE(Contains(shader, "upperHit=intersectCloudShellTerms(" "b,cloudShellTerms.y,cloudShellTerms.z,"));
+    EXPECT_TRUE(Contains(shader, "intcloudBandCount=intersectCloudBands(dir,bandIntervals);" "if(cloudBandCount<=0){"));
     EXPECT_FALSE(Contains(
         shader,
         "float3localOrigin=rayOrigin-worldOrigin.xyz;"));
@@ -5987,10 +5982,9 @@ ACS_TEST(VolumetricClouds,
         "shellLocalOrigin.y+kVolumetricCloudPlanetRadius,"
         "shellLocalOrigin.z,"
         "shellC(m_Layer.base_height)};"));
-    EXPECT_TRUE(Contains(
-        compactSource,
-        "cb.cloudShellTerms=FVec4{"
-        "shellC(shellTopHeight),0.0f,0.0f,0.0f};"));
+    EXPECT_TRUE(Contains(compactSource, "constf32upperBaseShellC=hasUpperLayer?" "shellC(m_UpperLayer.base_height):0.0f;" "constf32upperTopShellC=hasUpperLayer?" "shellC(m_UpperLayer.top_height):0.0f;"));
+    EXPECT_TRUE(Contains(compactSource, "cb.cloudShellTerms=FVec4{" "shellC(m_Layer.top_height)," "upperBaseShellC,upperTopShellC,0.0f};"));
+    EXPECT_TRUE(Contains(compactSource, "cb.cloudShellTerms=FVec4{" "shell_c(m_Layer.top_height)," "upper_base_shell_c,upper_top_shell_c,0.0f};"));
 
     struct FShellTerms {
         FVec3 from_planet_center;
@@ -6098,6 +6092,60 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
+}
+
+ACS_TEST(VolumetricClouds, SplitCloudBandsExcludeClearGapFromFixedSampleBudgets) {
+    const FVec3 camera{0.0f, 0.0f, 0.0f};
+    const FVec3 up{0.0f, 1.0f, 0.0f};
+    const FVolumetricCloudLayer lowerLayer{2600.0f, 12000.0f, 0.035f};
+    const FVolumetricCloudLayer upperLayer{15000.0f, 17000.0f, 0.035f};
+    const FVolumetricCloudRayInterval lower = IntersectVolumetricCloudShell(camera, up, lowerLayer);
+    const FVolumetricCloudRayInterval upper = IntersectVolumetricCloudShell(camera, up, upperLayer);
+    EXPECT_TRUE(lower.hit);
+    EXPECT_TRUE(upper.hit);
+    EXPECT_NEAR(lower.enter, 2600.0f, 0.5f);
+    EXPECT_NEAR(lower.exit, 12000.0f, 0.5f);
+    EXPECT_NEAR(upper.enter, 15000.0f, 0.5f);
+    EXPECT_NEAR(upper.exit, 17000.0f, 0.5f);
+
+    const f32 lowerLength = lower.exit - lower.enter;
+    const f32 upperLength = upper.exit - upper.enter;
+    const f32 clearGap = upper.enter - lower.exit;
+    const f32 occupiedLength = lowerLength + upperLength;
+    const f32 enclosingLength = upper.exit - lower.enter;
+    EXPECT_NEAR(clearGap, 3000.0f, 1.0f);
+    EXPECT_NEAR(occupiedLength, 11400.0f, 1.0f);
+    EXPECT_NEAR(enclosingLength, occupiedLength + clearGap, 1.0f);
+
+    constexpr u32 kSampleCount = 32u;
+    u32 lowerSampleCount = static_cast<u32>(std::floor(static_cast<f32>(kSampleCount) * lowerLength / occupiedLength + 0.5f));
+    if (lowerSampleCount < 1u) lowerSampleCount = 1u;
+    if (lowerSampleCount >= kSampleCount) lowerSampleCount = kSampleCount - 1u;
+    const u32 upperSampleCount = kSampleCount - lowerSampleCount;
+    EXPECT_EQ(lowerSampleCount, 26u);
+    EXPECT_EQ(upperSampleCount, 6u);
+    const f32 lowerStep = lowerLength / static_cast<f32>(lowerSampleCount);
+    const f32 upperStep = upperLength / static_cast<f32>(upperSampleCount);
+    for (u32 sampleIndex = 0u; sampleIndex < lowerSampleCount; ++sampleIndex) {
+        const f32 sampleDistance = lower.enter + (static_cast<f32>(sampleIndex) + 0.5f) * lowerStep;
+        EXPECT_TRUE(sampleDistance >= lower.enter);
+        EXPECT_TRUE(sampleDistance <= lower.exit);
+        EXPECT_FALSE(sampleDistance > lower.exit && sampleDistance < upper.enter);
+    }
+    for (u32 sampleIndex = 0u; sampleIndex < upperSampleCount; ++sampleIndex) {
+        const f32 sampleDistance = upper.enter + (static_cast<f32>(sampleIndex) + 0.5f) * upperStep;
+        EXPECT_TRUE(sampleDistance >= upper.enter);
+        EXPECT_TRUE(sampleDistance <= upper.exit);
+        EXPECT_FALSE(sampleDistance > lower.exit && sampleDistance < upper.enter);
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "intpackCloudBandIntervals("));
+    EXPECT_TRUE(Contains(shader, "boollowerFirst=lowerInterval.x<=upperInterval.x;"));
+    EXPECT_TRUE(Contains(shader, "floatoccupiedSpan=intervalEnd-intervalStart;"));
+    EXPECT_FALSE(Contains(shader, "floatspan=bandIntervals.w-bandIntervals.x;"));
+    EXPECT_TRUE(Contains(shader, "floatnextProbeStep=min(fineStep,intervalEnd-intervalStart);" "t=intervalStart+jit*nextProbeStep;" "nearDensity=true;"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -7939,18 +7987,20 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_TRUE(!shader.empty());
 
-    EXPECT_TRUE(Contains(shader, "boolintersectCloudShellFromPosition(float3rayOrigin,float3rayDir,outfloatt0,outfloatt1){"));
-    EXPECT_TRUE(Contains(shader, "floatinnerC=dot(local.xz,local.xz)+(local.y-layer.x)*(2.0*CLOUD_PLANET_RADIUS+local.y+layer.x);"));
+    EXPECT_TRUE(Contains(shader, "intintersectCloudBandsFromPosition(float3rayOrigin,float3rayDir,outfloat4intervals){"));
+    EXPECT_TRUE(Contains(shader, "floatcloudShellCFromLocalPosition(float3local,floataltitude){returndot(local.xz,local.xz)+(local.y-altitude)*(2.0*CLOUD_PLANET_RADIUS+local.y+altitude);}"));
     EXPECT_TRUE(Contains(shader, "[numthreads(8,8,1)]voidCSCloudWorldShadow(uint3tid:SV_DispatchThreadID){"));
     EXPECT_TRUE(Contains(shader, "uint2outputPixel=tid.xy*updateStride+(uint2)cloudShadowUpdate.xy;"));
     EXPECT_TRUE(Contains(shader, "if(any(outputPixel>=uint2(width,height)))return;"));
     EXPECT_TRUE(Contains(shader, "cloudOut[outputPixel]=float4("));
     EXPECT_TRUE(Contains(shader, "constintSAMPLE_COUNT=32;"));
-    EXPECT_TRUE(Contains(shader, "floatstepLength=(exit-enter)/float(SAMPLE_COUNT);floatsampleDistance=enter+0.5*stepLength;"));
+    EXPECT_TRUE(Contains(shader, "floatoccupiedLength=max(firstLength+secondLength,1e-5);"));
+    EXPECT_TRUE(Contains(shader, "firstSampleCount=clamp((int)round(float(SAMPLE_COUNT)*firstLength/occupiedLength),1,SAMPLE_COUNT-1);"));
+    EXPECT_TRUE(Contains(shader, "floatstepLength=bandLength/float(bandSampleCount);" "floatsampleDistance=bandStart+(float(bandSampleIndex)+0.5)*stepLength;"));
     EXPECT_TRUE(Contains(shader, "floatsampleDensity=cloudLowLodDensityFromMacro(macro,macro.weatherMask)*max(params.y,0.0);"));
     EXPECT_TRUE(Contains(shader, "opticalDepth+=sampleDensity*stepLength*cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
     EXPECT_TRUE(Contains(shader, "transmittance=exp(-max(opticalDepth,0.0)*max(cloudLightingExtinction.y,0.0));"));
-    // 遠距離5点だけの内部照明キャッシュではなく、雲殻の全区間を32点で積分する。
+    // 遠距離5点だけの内部照明キャッシュではなく、晴天域を除く上下層を合計32点で積分する。
     const std::size_t worldShadowBegin = shader.find("voidCSCloudWorldShadow(");
     const std::size_t worldShadowEnd = shader.find("uintCloudTemporalBlockPhase4(", worldShadowBegin);
     EXPECT_TRUE(worldShadowBegin != std::string::npos);
