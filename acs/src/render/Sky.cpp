@@ -764,13 +764,14 @@ void CSNoise(uint3 id : SV_DispatchThreadID){
     // 持ち上げない。低周波Perlinは空間の連結性を補う範囲だけ混ぜ、雲体の
     // 境界を埋めて柱へ戻さない。
     // 低密度の外縁を持ち上げ過ぎると、離れた小塊まで同時に残って粒状になる。
-    // 0.74では大きな雲体の中間密度を保ちつつ、細い枝だけを自然に落とす。
-    float baseCloud=pow(saturate(fullShape),0.74);
+    // 主形状の内側だけを残し、低密度の枝を指数で持ち上げない。
+    // 指数で0.5未満を膨らませると、輪郭の外側へ粒状の雲が伸びやすい。
+    float baseCloud=saturate(fullShape);
     float billowCloud=perlin2*0.70+perlin4*0.30;
-    // 低周波をそのまま足すと、同じX・Zの全高度へ密度が残って柱状化する。
-    // 主形状の大きさだけを変え、弱い補助だけを加えて空洞と連続性を両立する。
-    float broadMass=lerp(0.70,1.10,saturate(billowCloud));
-    float macroCloud=saturate(baseCloud*broadMass+billowCloud*0.12);
+    // 低周波房は主形状の大きさだけを変え、主形状の外へ密度を足さない。
+    // 補助値の加算は同じX・Zの全高度へ薄い密度を残し、柱と浮遊粒を作る。
+    float broadMass=lerp(0.78,1.14,saturate(billowCloud));
+    float macroCloud=saturate(baseCloud*broadMass);
     noiseOut[id]=float2(macroCloud,fullShape);
 }
 )";

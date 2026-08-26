@@ -2323,17 +2323,16 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(broadMassForTest, 0.50f, 1.0e-6f);
     EXPECT_NEAR(cellularMassForTest, 0.50f, 1.0e-6f);
     EXPECT_NEAR(composedShapeForTest, 0.375f, 1.0e-6f);
-    EXPECT_TRUE(Contains(noiseShader, "floatbaseCloud=pow(saturate(fullShape),0.74);"));
+    EXPECT_TRUE(Contains(noiseShader, "floatbaseCloud=saturate(fullShape);"));
     EXPECT_TRUE(Contains(noiseShader, "floatbillowCloud=perlin2*0.70+perlin4*0.30;"));
-    EXPECT_TRUE(Contains(noiseShader, "floatbroadMass=lerp(0.70,1.10,saturate(billowCloud));"));
-    EXPECT_TRUE(Contains(noiseShader, "floatmacroCloud=saturate(baseCloud*broadMass+billowCloud*0.12);"));
+    EXPECT_TRUE(Contains(noiseShader, "floatbroadMass=lerp(0.78,1.14,saturate(billowCloud));"));
+    EXPECT_TRUE(Contains(noiseShader, "floatmacroCloud=saturate(baseCloud*broadMass);"));
     EXPECT_TRUE(Contains(noiseShader, "noiseOut[id]=float2(macroCloud,fullShape);"));
     const auto baseCloudForTest = [](f32 fullShape) noexcept {
-        return std::pow(SaturateForTest(fullShape), 0.74f);
+        return SaturateForTest(fullShape);
     };
-    // 低周波の外形をべき乗で整え、低い雲縁だけを落として粒を増やさない。
     EXPECT_NEAR(baseCloudForTest(1.0f), 1.0f, 0.0f);
-    EXPECT_TRUE(baseCloudForTest(0.50f) > 0.50f);
+    EXPECT_NEAR(baseCloudForTest(0.50f), 0.50f, 0.0f);
     EXPECT_NEAR(baseCloudForTest(0.0f), 0.0f, 0.0f);
     EXPECT_TRUE(Contains(
         detailShader, "RWTexture3D<float2>detailOut:register(u0);"));
