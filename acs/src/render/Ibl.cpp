@@ -990,9 +990,6 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device,
     /** 周回を除いたGPU標本化用の回転角。 */
     const f32 environment_yaw_radians = ToRadians(Mod(environment_yaw_degrees, 360.0f));
 
-    // env / irradiance / prefilter を全て無効化 → caller が Ensure* を呼び直す
-    ResetEnvCubemap();
-
     // 1) equirect Texture2D (R32G32B32A32_Float、CPU 提供データを直接 upload)
     TUniquePtr<IRhiTexture> equirect;
     {
@@ -1008,6 +1005,7 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device,
     }
 
     // 2) 出力 env cubemap (CSky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
+    TUniquePtr<IRhiTexture> environment_candidate;
     {
         FTextureDesc td{};
         td.width            = kEnvCubeSize;
@@ -1019,7 +1017,7 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device,
         td.per_slice_rtv    = true;
         auto r = CreateRhiTexture(device, td);
         if (r.IsErr()) return Err<void>(r.Error());
-        m_EnvCube = Move(r.Value());
+        environment_candidate = Move(r.Value());
     }
 
     // 3) 一時 VS/PS/Pipeline/CB
@@ -1085,11 +1083,15 @@ TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device,
         data.environment_yaw_radians = environment_yaw_radians;
         cb->Update(&data, sizeof(data));
 
-        cl.BeginRenderToTextureSlice(*m_EnvCube, face, 0, black);
+        cl.BeginRenderToTextureSlice(*environment_candidate, face, 0, black);
         cl.Draw(3);
     }
-    cl.EndRenderToTexture(*m_EnvCube);
+    cl.EndRenderToTexture(*environment_candidate);
 
+    // 候補への全描画を記録してから旧環境と派生地図を無効化する。
+    // 途中失敗では公開中の一式を変えず、次のフレームで再試行できる。
+    ResetEnvCubemap();
+    m_EnvCube = Move(environment_candidate);
     m_bEnvBuilt = true;
     return Ok();
 }

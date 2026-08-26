@@ -8,6 +8,7 @@
 #include "math/Camera.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
+#include "memory/Memory.h"
 #include "memory/MemorySystem.h"
 #include "render/Blit.h"
 #include "render/Fxaa.h"
@@ -45,6 +46,52 @@
 using namespace acs;
 
 namespace {
+
+/** GPU資源factoryの所有物確保を決定論的に拒否する試験用allocator。 */
+class CRejectAllocation final : public IAllocator {
+public:
+    /** 全ての確保要求を失敗させる。 */
+    void* Alloc(usize, usize, FSourceLoc) noexcept override
+    {
+        return nullptr;
+    }
+
+    /** 成功した確保を持たないため何もしない。 */
+    void Free(void*) noexcept override
+    {
+    }
+};
+
+/** 試験中だけ既定allocatorを差し替え、scope終了時に復元する。 */
+class CDefaultAllocatorScope final {
+public:
+    /** 指定allocatorを既定値として公開する。 */
+    explicit CDefaultAllocatorScope(IAllocator& allocator) noexcept : m_Previous(&DefaultAllocator())
+    {
+        SetDefaultAllocator(&allocator);
+    }
+
+    /** 試験前の既定allocatorへ戻す。 */
+    ~CDefaultAllocatorScope() noexcept
+    {
+        SetDefaultAllocator(m_Previous);
+    }
+
+    CDefaultAllocatorScope(const CDefaultAllocatorScope&) = delete;
+    CDefaultAllocatorScope& operator=(const CDefaultAllocatorScope&) = delete;
+
+private:
+    /** scope開始前の既定allocator。 */
+    IAllocator* m_Previous = nullptr;
+};
+
+/** 次のHDR環境読込に必要な最初の所有物確保を失敗させる。 */
+TResult<void> LoadEquirectWithAllocationFailure(CImageBasedLighting& lighting, IRhiDevice& device, IRhiCommandList& command_list, const f32* pixels, u32 width, u32 height) noexcept
+{
+    CRejectAllocation rejecting_allocator;
+    CDefaultAllocatorScope allocator_scope(rejecting_allocator);
+    return lighting.LoadEquirectHdrFromMemory(device, command_list, pixels, width, height);
+}
 
 std::string ReadWorkspaceSource(const char* relative_path)
 {
@@ -2725,6 +2772,26 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             EXPECT_TRUE(rotated_environment.LoadEquirectHdrFromMemory(device, *rotation_command, panorama, panorama_width, panorama_height, 1000001.0f).IsErr());
             EXPECT_TRUE(!rotated_environment.HasEnvCubemap());
             EXPECT_TRUE(rotated_environment.LoadEquirectHdrFromMemory(device, *rotation_command, panorama, panorama_width, panorama_height, 90.0f).IsOk());
+            IRhiTexture* const environment_before_failure = rotated_environment.EnvCubemap();
+            EXPECT_TRUE(environment_before_failure != nullptr);
+            if (environment_before_failure != nullptr) {
+                const TResult<void> derived_result = rotated_environment.RebuildDerivedMapsFromEnvironment(device, *rotation_command, *environment_before_failure);
+                EXPECT_TRUE(derived_result.IsOk());
+                if (derived_result.IsOk()) {
+                    IRhiTexture* const irradiance_before_failure = rotated_environment.IrradianceMap();
+                    IRhiTexture* const prefilter_before_failure = rotated_environment.PrefilterMap();
+                    const u32 prefilter_mips_before_failure = rotated_environment.PrefilterMips();
+                    const TResult<void> failed_replacement = LoadEquirectWithAllocationFailure(rotated_environment, device, *rotation_command, panorama, panorama_width, panorama_height);
+                    EXPECT_TRUE(failed_replacement.IsErr());
+                    EXPECT_TRUE(rotated_environment.EnvCubemap() == environment_before_failure);
+                    EXPECT_TRUE(rotated_environment.IrradianceMap() == irradiance_before_failure);
+                    EXPECT_TRUE(rotated_environment.PrefilterMap() == prefilter_before_failure);
+                    EXPECT_EQ(rotated_environment.PrefilterMips(), prefilter_mips_before_failure);
+                    EXPECT_TRUE(rotated_environment.HasEnvCubemap());
+                    EXPECT_TRUE(rotated_environment.HasIrradianceMap());
+                    EXPECT_TRUE(rotated_environment.HasPrefilterMap());
+                }
+            }
             rotation_command->End();
             EXPECT_TRUE(rotation_command->Submit());
             device.WaitIdle();

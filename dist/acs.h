@@ -54079,11 +54079,12 @@ public:
                                   const CSky& sky) noexcept;
 
     /**
-     * 既存 env cubemap を破棄し equirectangular HDR 画像から新しい env cubemap を作る。
+     * equirectangular HDR画像から新しいenv cubemapを作り、成功時だけ既存環境を置き換える。
      *
      * @details
-     * 内部で R32G32B32A32_Float の Texture2D に upload し、6 face をピクセルシェーダで
-     * 塗り直す。irradiance / prefilter は呼び出し側で再 Ensure する必要がある。
+     * 内部でR32G32B32A32_FloatのTexture2Dへuploadし、6面をピクセルシェーダで塗る。
+     * 生成途中で失敗した場合は既存のenv、irradiance、prefilterを維持する。成功時は
+     * envだけを置き換えて派生地図を無効化するため、呼び出し側で再Ensureする必要がある。
      * @param device リソース生成に使う RHI デバイス。
      * @param cl コマンドを積むコマンドリスト。
      * @param rgba_float width × height × 4 個の float (row-major / top-down、v=0 が天頂 +Y、v=1 が天底 -Y)。
@@ -54095,10 +54096,11 @@ public:
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     /**
-     * 既存env cubemapを破棄し、Y軸回転したequirectangular HDR画像から作り直す。
+     * Y軸回転したequirectangular HDR画像から作り、成功時だけ既存環境を置き換える。
      *
      * @details 正の回転は画像内の+Z方向を+X方向へ移す。TrueHDRIでは同じ角度を
      * FTrueHdriLightData::ResolveSunDirectionへ渡すことで背景、間接光、平行光を一致させる。
+     * 生成途中で失敗した場合は公開中のenv、irradiance、prefilterを変更しない。
      * 5引数版は回転角0度でこの関数を呼ぶ互換入口である。
      * @param device リソース生成に使うRHIデバイス。
      * @param cl コマンドを積むコマンドリスト。

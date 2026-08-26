@@ -497,6 +497,30 @@ ACS_TEST(LinearLightingContract, EquirectYawUsesTheSamePositiveRotationAsTrueHdr
     EXPECT_TRUE(Contains(source, "return LoadEquirectHdrFromMemory(device, cl, rgba_float, width, height, 0.0f);"));
 }
 
+ACS_TEST(LinearLightingContract, EquirectReplacementPublishesOnlyAfterCandidateRendering) {
+    const std::string source = ReadRenderSource("Ibl.cpp");
+    const std::string load = ExtractSection(source, "TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(IRhiDevice& device", "void CImageBasedLighting::SetDirectLightExclusion(");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!load.empty());
+
+    const std::size_t candidate_create = load.find("TUniquePtr<IRhiTexture> environment_candidate;");
+    const std::size_t candidate_end = load.find("cl.EndRenderToTexture(*environment_candidate);");
+    const std::size_t reset = load.find("ResetEnvCubemap();", candidate_end);
+    const std::size_t publish = load.find("m_EnvCube = Move(environment_candidate);", reset);
+    const std::size_t ready = load.find("m_bEnvBuilt = true;", publish);
+    EXPECT_TRUE(candidate_create != std::string::npos);
+    EXPECT_TRUE(candidate_end != std::string::npos);
+    EXPECT_TRUE(reset != std::string::npos);
+    EXPECT_TRUE(publish != std::string::npos);
+    EXPECT_TRUE(ready != std::string::npos);
+    EXPECT_TRUE(candidate_create < candidate_end);
+    EXPECT_TRUE(candidate_end < reset);
+    EXPECT_TRUE(reset < publish);
+    EXPECT_TRUE(publish < ready);
+    EXPECT_EQ(CountOccurrences(load, "ResetEnvCubemap();"), static_cast<std::size_t>(1u));
+    EXPECT_FALSE(Contains(load, "BeginRenderToTextureSlice(*m_EnvCube"));
+}
+
 ACS_TEST(LinearLightingContract,
          IblPrefilterAllocatesSamplesByGgxLobeWidth) {
     const std::string source = ReadRenderSource("Ibl.cpp");
