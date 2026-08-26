@@ -118,11 +118,12 @@ public:
      * Ramamoorthi-Hanrahan の L_l,m 球面調和係数 9 個を求めて out_sh_rgb に書き出す。
      * 各 out_sh_rgb[i].xyz が RGB 係数で .w は不使用 (CB layout の便宜上 FVec4)。後段
      * CPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
-     * として diffuse irradiance を近似する。規約: v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
+     * としてdiffuse irradianceを近似する。出力は放射輝度のSH係数であり、CPbrShaderが
+     * cubemapと同じE/πへ正規化する。規約: v=0が+Y、v=1が-Y、u=0がphi=-π。
      * @param rgba_float equirect 画像の RGBA float ピクセル列。
      * @param width 画像の幅 (px)。
      * @param height 画像の高さ (px)。
-     * @param out_sh_rgb 計算した SH 係数 9 個の書き出し先。
+     * @param out_sh_rgb 計算したSH係数9個の書き出し先。nullなら何もしない。
      */
     static void ComputeSh9FromEquirect(const f32* rgba_float,
                                         u32 width, u32 height,

@@ -895,6 +895,7 @@ TResult<void> CImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
 void CImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
                                                   u32 width, u32 height,
                                                   FVec4 out_sh_rgb[9]) noexcept {
+    if (!out_sh_rgb) return;
     // 初期化
     for (u32 i = 0; i < 9; ++i) out_sh_rgb[i] = FVec4{0, 0, 0, 0};
     if (!rgba_float || width == 0 || height == 0) return;
@@ -931,7 +932,7 @@ void CImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
             const f32 ny = cos_t;
             const f32 nz = sin_t * cos_p;
 
-            const u32 idx = (y * width + x) * 4u;
+            const usize idx = (static_cast<usize>(y) * width + x) * 4u;
             const f32 r = rgba_float[idx + 0];
             const f32 g = rgba_float[idx + 1];
             const f32 b = rgba_float[idx + 2];

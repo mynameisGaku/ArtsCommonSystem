@@ -530,7 +530,10 @@ float3 Sh9Irradiance(float3 N, float4 L[9]) {
              + 2.0 * c1 * (L[4].rgb * x * y + L[7].rgb * x * z + L[5].rgb * y * z)
              + c3 * L[6].rgb * z * z
              + c1 * L[8].rgb * (x * x - y * y);
-    return max(e, float3(0, 0, 0));    // clamp 負値 (アンダーシュート対策)
+    // 論文式は半球積分Eを返すが、ACSのirradiance cubemapはE/πを保存する。
+    // 同じ材質応答へ揃え、SH9だけがπ倍明るくなる不整合を防ぐ。
+    float3 normalized_irradiance = e * (1.0 / PI);
+    return max(normalized_irradiance, float3(0, 0, 0));
 }
 // SH 9 «radiance» reconstruction (コサイン畳み込み無しの素の SH 評価)。環境 prefilter cubemap が
 // 無い backend (raw-DX12) で specular IBL の反射元 radiance を SH9 から近似するのに使う。

@@ -307,8 +307,9 @@ public:
      * SH 9 (Ramamoorthi) ambient mode を有効化する。
      *
      * @details
-     * 有効化中は cubemap irradiance ではなく SH 9 から復元した diffuse irradiance を使う。
-     * SetSh9(nullptr) で OFF に戻す。SetIbl が前段で呼ばれてないと意味がない。
+     * 有効化中はcubemap irradianceではなくSH 9から復元した拡散環境光を使う。復元値は
+     * cubemapと同じE/πへ正規化されるため、同じ環境で切り替えても明るさ尺度が変わらない。
+     * SetSh9(nullptr)でOFFに戻す。SetIblが前段で呼ばれてないと意味がない。
      * @param sh9_or_null ComputeSh9FromEquirect で得た 9 RGB 係数。null で OFF。
      */
     void SetSh9(const FVec4* sh9_or_null) noexcept;

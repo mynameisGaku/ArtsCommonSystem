@@ -2,7 +2,10 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 
+#include "container/Array.h"
 #include "foundation/Types.h"
+#include "math/Math.h"
+#include "render/Ibl.h"
 
 #include <cmath>
 #include <filesystem>
@@ -78,6 +81,28 @@ f32 DecodeSrgbChannel(f32 value) {
         : std::pow(
             (value + 0.055f) / 1.055f,
             2.4f);
+}
+
+/** 放射輝度SH9を指定方向で評価する。 */
+f32 EvaluateSh9RadianceForTest(const FVec4 coefficients[9], FVec3 direction) {
+    const f32 x = direction.x;
+    const f32 y = direction.y;
+    const f32 z = direction.z;
+    return coefficients[0].x * 0.282095f + coefficients[1].x * (0.488603f * y) + coefficients[2].x * (0.488603f * z) + coefficients[3].x * (0.488603f * x) + coefficients[4].x * (1.092548f * x * y) + coefficients[5].x * (1.092548f * y * z) + coefficients[6].x * (0.315392f * (3.0f * z * z - 1.0f)) + coefficients[7].x * (1.092548f * x * z) + coefficients[8].x * (0.546274f * (x * x - y * y));
+}
+
+/** 論文のSH9半球積分をACSのcubemapと同じE/πで評価する。 */
+f32 EvaluateNormalizedSh9DiffuseForTest(const FVec4 coefficients[9], FVec3 normal) {
+    constexpr f32 c1 = 0.429043f;
+    constexpr f32 c2 = 0.511664f;
+    constexpr f32 c3 = 0.743125f;
+    constexpr f32 c4 = 0.886227f;
+    constexpr f32 c5 = 0.247708f;
+    const f32 x = normal.x;
+    const f32 y = normal.y;
+    const f32 z = normal.z;
+    const f32 irradiance = c4 * coefficients[0].x + 2.0f * c2 * (coefficients[3].x * x + coefficients[1].x * y + coefficients[2].x * z) - c5 * coefficients[6].x + 2.0f * c1 * (coefficients[4].x * x * y + coefficients[7].x * x * z + coefficients[5].x * y * z) + c3 * coefficients[6].x * z * z + c1 * coefficients[8].x * (x * x - y * y);
+    return irradiance / kPi;
 }
 
 } // namespace
@@ -519,6 +544,47 @@ ACS_TEST(LinearLightingContract, EquirectReplacementPublishesOnlyAfterCandidateR
     EXPECT_TRUE(publish < ready);
     EXPECT_EQ(CountOccurrences(load, "ResetEnvCubemap();"), static_cast<std::size_t>(1u));
     EXPECT_FALSE(Contains(load, "BeginRenderToTextureSlice(*m_EnvCube"));
+}
+
+ACS_TEST(LinearLightingContract, Sh9ProjectionMatchesYUpRadianceAndNormalizedDiffuse) {
+    constexpr u32 width = 256u;
+    constexpr u32 height = 128u;
+    TArray<f32> panorama;
+    const bool allocated = panorama.TrySetNum(static_cast<usize>(width) * height * 4u);
+    EXPECT_TRUE(allocated);
+    if (!allocated) return;
+
+    for (u32 y = 0u; y < height; ++y) {
+        const f32 theta = (static_cast<f32>(y) + 0.5f) * kPi / static_cast<f32>(height);
+        const f32 radiance = 1.0f + 0.5f * Cos(theta);
+        for (u32 x = 0u; x < width; ++x) {
+            const usize index = (static_cast<usize>(y) * width + x) * 4u;
+            panorama[index + 0u] = radiance;
+            panorama[index + 1u] = radiance;
+            panorama[index + 2u] = radiance;
+            panorama[index + 3u] = 1.0f;
+        }
+    }
+
+    FVec4 coefficients[9]{};
+    CImageBasedLighting::ComputeSh9FromEquirect(panorama.GetData(), width, height, coefficients);
+    EXPECT_NEAR(EvaluateSh9RadianceForTest(coefficients, FVec3{0.0f, 1.0f, 0.0f}), 1.5f, 2.0e-3f);
+    EXPECT_NEAR(EvaluateSh9RadianceForTest(coefficients, FVec3{0.0f, -1.0f, 0.0f}), 0.5f, 2.0e-3f);
+    EXPECT_NEAR(EvaluateSh9RadianceForTest(coefficients, FVec3{0.0f, 0.0f, 1.0f}), 1.0f, 2.0e-3f);
+    EXPECT_NEAR(EvaluateNormalizedSh9DiffuseForTest(coefficients, FVec3{0.0f, 1.0f, 0.0f}), 4.0f / 3.0f, 2.0e-3f);
+    EXPECT_NEAR(EvaluateNormalizedSh9DiffuseForTest(coefficients, FVec3{0.0f, -1.0f, 0.0f}), 2.0f / 3.0f, 2.0e-3f);
+    EXPECT_NEAR(EvaluateNormalizedSh9DiffuseForTest(coefficients, FVec3{0.0f, 0.0f, 1.0f}), 1.0f, 2.0e-3f);
+    CImageBasedLighting::ComputeSh9FromEquirect(panorama.GetData(), width, height, nullptr);
+}
+
+ACS_TEST(LinearLightingContract, PbrSh9UsesTheSameNormalizedIrradianceAsCubemap) {
+    const std::string source = ReadRenderSource("PbrShader.cpp");
+    const std::string sh9 = ExtractSection(source, "float3 Sh9Irradiance(float3 N, float4 L[9])", "float3 Sh9Radiance(float3 d, float4 L[9])");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!sh9.empty());
+    EXPECT_TRUE(Contains(sh9, "float3 normalized_irradiance = e * (1.0 / PI);"));
+    EXPECT_TRUE(Contains(sh9, "return max(normalized_irradiance, float3(0, 0, 0));"));
+    EXPECT_FALSE(Contains(sh9, "return max(e, float3(0, 0, 0));"));
 }
 
 ACS_TEST(LinearLightingContract,

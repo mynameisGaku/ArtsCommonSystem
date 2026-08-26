@@ -483,7 +483,7 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const CSky& sky)", desc: "<code>CSky</code> の空グラデーションと太陽から環境 cubemap(1024² ×6)をキャプチャ。動的な fallback 雲は含めない。" },
         { sig: "TResult&lt;void&gt; LoadEquirectHdrFromMemory(IRhiDevice&, IRhiCommandList&, const f32* rgba_float, u32 width, u32 height[, f32 environment_yaw_degrees])", desc: "equirect HDR画像からenv cubemapを作り直す。回転角は正方向で+Zを+Xへ移し、省略版は0度。生成途中で失敗した場合は公開中のenv、irradiance、prefilterを維持する。" },
         { sig: "TResult&lt;void&gt; EnsureIrradiance(...) / EnsurePrefilter(...)", desc: "環境から拡散 irradiance(64² ×6) / 鏡面 prefilter(512² ×6, 7 mip)を生成。" },
-        { sig: "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])", desc: "equirect 画像から SH9 係数 9 個を CPU 計算(diffuse irradiance の圧縮版)。" },
+        { sig: "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])", desc: "equirect画像から放射輝度のSH9係数9個をCPU計算する。PBR評価時はcubemapと同じE/πへ正規化される。" },
         { sig: "void DrawSkybox(...) / void DrawEnvSkybox(...)", desc: "cubemap を全画面 skybox として現在の RT に描く既存互換入口。" },
         { sig: "void DrawSkyboxCameraRelative(...) / void DrawEnvSkyboxCameraRelative(...)", desc: "カメラ相対逆行列から環境空を描き、遠方座標でも視線精度を保つ。" },
         { sig: "IRhiTexture* BrdfLut() / EnvCubemap() / IrradianceMap() / PrefilterMap() / u32 PrefilterMips()", desc: "生成済みテクスチャの取得(SetIbl に渡す)。" },
