@@ -1050,7 +1050,8 @@ static const uint CLOUD_SHADOW_CACHE_HEIGHT=32u;
 // 遠距離5点だけをキャッシュで置き換え、信頼度が不足する場所は正確な積分へ戻す。
 static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
 // 部分更新で古い光路と現在の光路を連続化し、更新格子だけが点滅するのを防ぐ。
-static const float CLOUD_SHADOW_PARTIAL_BLEND=0.72;
+// 4フレームに1回更新するため、1回の置換量を約4分の1へ抑えて格子差を分散する。
+static const float CLOUD_SHADOW_PARTIAL_BLEND=0.28;
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
 // origin, so xz^2/(R+y)^2 stays below 0.0016.  The fourth-order expansion of
 // sqrt((R+y)^2+xz^2)-R removes a per-density-sample square root while retaining

@@ -8349,7 +8349,8 @@ ACS_TEST(VolumetricClouds,
         "densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;"
         "++densityHeightIndex){"));
     EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
-    EXPECT_TRUE(Contains(shader, "staticconstfloatCLOUD_SHADOW_PARTIAL_BLEND=0.72;"));
+    // 4位相更新の1回分を大きく置き換えると、自己影の更新格子が点滅する。
+    EXPECT_TRUE(Contains(shader, "staticconstfloatCLOUD_SHADOW_PARTIAL_BLEND=0.28;"));
     EXPECT_TRUE(Contains(shader, "float4shadowValue=float4(meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
     EXPECT_TRUE(Contains(shader, "if(cloudShadowUpdate.w<0.5){"));
     EXPECT_TRUE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
