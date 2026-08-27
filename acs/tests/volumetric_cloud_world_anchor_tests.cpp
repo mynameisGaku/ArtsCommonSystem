@@ -362,14 +362,15 @@ f32 CloudToweringStrengthForTest(f32 cloudType, f32 precipitation) noexcept {
     return typeTower > precipitationTower ? typeTower : precipitationTower;
 }
 
-// 作者指定の積乱雲強度を、低周波天候場と被覆中心で局所化する。
+// 作者指定の積乱雲強度を、低周波天候場と被覆中心で連続した発達域へ局所化する。
 f32 CloudLocalToweringStrengthForTest(f32 cloudType, f32 precipitation, f32 convectivePotential, f32 cloudInterior) noexcept
 {
     const f32 authoredTower = CloudToweringStrengthForTest(cloudType, precipitation);
     const f32 broadPotential = SmoothStepForTest(0.66f, 0.92f, SaturateForTest(convectivePotential));
     const f32 interiorPotential = SmoothStepForTest(0.50f, 0.96f, SaturateForTest(cloudInterior));
     const f32 localPotential = broadPotential * interiorPotential;
-    return authoredTower * localPotential * localPotential;
+    const f32 coherentPotential = SmoothStepForTest(0.12f, 0.82f, localPotential);
+    return authoredTower * coherentPotential;
 }
 
 // 局所発達強度から積乱雲の高さ分布へ混ぜる割合を求める。
@@ -3709,12 +3710,13 @@ ACS_TEST(VolumetricClouds,
     // 作者が全域を積乱雲へ寄せても、低周波の発達域と被覆中心だけが成熟する。
     const f32 weakPotentialTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 0.0f, 1.0f);
     const f32 edgeTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 1.0f, 0.0f);
-    const f32 developingTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 0.54f, 1.0f);
+    const f32 developingTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 0.76f, 1.0f);
     const f32 matureTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 1.0f, 1.0f);
     EXPECT_NEAR(weakPotentialTower, 0.0f, 0.0f);
     EXPECT_NEAR(edgeTower, 0.0f, 0.0f);
-    EXPECT_NEAR(developingTower, 0.0f, 0.0f);
+    EXPECT_NEAR(developingTower, 0.215992f, 1.0e-5f);
     EXPECT_NEAR(matureTower, 1.0f, 0.0f);
+    EXPECT_TRUE(developingTower > 0.10f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
@@ -3949,7 +3951,10 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatprecipitationTower=smoothstep(0.25,0.85,saturate(precipitation));"));
-    EXPECT_TRUE(Contains(shader, "returnauthoredTower*localPotential*localPotential;}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcoherentPotential=smoothstep(0.12,0.82,localPotential);"
+        "returnauthoredTower*coherentPotential;}"));
     EXPECT_TRUE(Contains(shader, "returnmax(typeTower,precipitationTower);}"));
     EXPECT_TRUE(Contains(
         shader,

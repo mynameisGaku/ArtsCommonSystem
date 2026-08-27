@@ -1240,8 +1240,10 @@ float cloudLocalToweringStrength(float4 weather,float cloudInterior){
     float interiorPotential=smoothstep(0.50,0.96,saturate(cloudInterior));
     float localPotential=broadPotential*interiorPotential;
     // 対流域の外側では通常雲の高さへ戻し、全域指定時にも縁へ塔を残さない。
-    // 二つの平滑補間をさらに掛け合わせ、成熟した雲中心だけが積乱雲の高さへ遷移する。
-    return authoredTower*localPotential*localPotential;
+    // 局所候補を二乗すると中間の発達域がさらに狭まり、光路上で細い柱へ分断される。
+    // 下限を保った平滑補間で、成熟域の上限を変えずに隣接する雲塊を連続させる。
+    float coherentPotential=smoothstep(0.12,0.82,localPotential);
+    return authoredTower*coherentPotential;
 }
 // 通常雲から積乱雲の縦分布へ移る割合を、同じ局所発達強度から求める。
 float cloudStormProfileMix(float toweringStrength){
