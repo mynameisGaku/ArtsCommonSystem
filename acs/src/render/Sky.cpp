@@ -721,8 +721,8 @@ float remap(float v,float a,float b,float c,float d){
 float fullShapeAt(float3 uvw){
     // 低周波の3Dゆがみで雲塊の側面を上下へずらし、同じX・Zの房が
     // 高さ方向へ一直線に積み重なるのを防ぐ。追加計算は初回焼き込みだけで行う。
-    float warpX=gnoise(uvw+float3(0.173,0.417,0.619),1.0);
-    float warpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);
+    float warpX=gnoise((uvw+float3(0.173,0.417,0.619))*2.0,2.0);
+    float warpZ=gnoise((uvw+float3(0.731,0.251,0.847))*2.0,2.0);
     float3 domainWarp=float3(
         warpX-0.5,(warpX+warpZ)*0.5-0.5,warpZ-0.5)
         *float3(0.22,0.28,0.22);

@@ -2466,8 +2466,10 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(noiseShader, "floatperlin16=gnoise(warpedUvw*16.0,16.0);"));
     EXPECT_TRUE(Contains(noiseShader, "floatperlin4=gnoise(warpedUvw*4.0,4.0);"));
     EXPECT_TRUE(Contains(noiseShader, "floatperlin8=gnoise(warpedUvw*8.0,8.0);"));
-    EXPECT_TRUE(Contains(noiseShader, "floatwarpX=gnoise(uvw+float3(0.173,0.417,0.619),1.0);"));
-    EXPECT_TRUE(Contains(noiseShader, "floatwarpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);"));
+    EXPECT_TRUE(Contains(noiseShader, "floatwarpX=gnoise((uvw+float3(0.173,0.417,0.619))*2.0,2.0);"));
+    EXPECT_TRUE(Contains(noiseShader, "floatwarpZ=gnoise((uvw+float3(0.731,0.251,0.847))*2.0,2.0);"));
+    EXPECT_FALSE(Contains(noiseShader, "floatwarpX=gnoise(uvw+float3(0.173,0.417,0.619),1.0);"));
+    EXPECT_FALSE(Contains(noiseShader, "floatwarpZ=gnoise(uvw+float3(0.731,0.251,0.847),1.0);"));
     EXPECT_TRUE(Contains(noiseShader, "float3warpedUvw=uvw+domainWarp;"));
     EXPECT_TRUE(Contains(noiseShader, "floatperlin2=gnoise(warpedUvw*2.0,2.0);"));
     EXPECT_TRUE(Contains(noiseShader, "floatperlinFull=perlin2*0.50+perlin4*0.38+perlin8*0.10+perlin16*0.02;"));
