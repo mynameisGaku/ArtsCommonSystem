@@ -1321,18 +1321,22 @@ float cloudProfileFromTypeWeights(
         *lerp(0.64,1.0,smoothstep(0.12,0.52,h));
     float profile=lerp(stratus,stratocumulus,typeWeights.x);
     profile=lerp(profile,cumulus,typeWeights.y);
-    // 積乱雲本体はかなとこが十分に立ち上がるまで密度支持を保つ。
-    // 本体、肩、かなとこを別々の山として最大化すると中層に密度0の谷ができるため、
-    // 本体を緩やかに細めた上へかなとこを重ね、塔の支持領域を連続させる。
+    // 積乱雲本体は下部の胴体を厚く、中層から上部へ緩やかに細める。
+    // 全高をほぼ一定密度で埋めると、3D形状を積分しても一枚の雲膜に見えるため、
+    // 本体の立体的な減衰を先に作り、その上へかなとこを連続して重ねる。
     float stormRiseEnd=riseEnds.w;
     float stormRiseBegin=stormRiseEnd*0.20;
     float stormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)
-                   *(1.0-0.34*smoothstep(0.34,0.74,h))
+                   *(1.0-0.38*smoothstep(0.30,0.78,h))
                    *(1.0-smoothstep(0.78,0.995,h));
+    // 胴体とかなとこの間は小さな肩でつなぎ、密度0の棚を作らない。
+    float stormShoulder=smoothstep(0.42,0.56,h)
+                       *(1.0-smoothstep(0.66,0.82,h))*0.08;
     float anvil=smoothstep(0.56,0.70,h)
-               *(1.0-smoothstep(0.80,0.995,h))*0.22;
+               *(1.0-smoothstep(0.80,0.995,h))*0.24;
     // 本体が雲頂側で連続しているため、かなとこは別の棚にならず不足部分だけを補う。
-    float storm=saturate(stormBody+anvil*(1.0-stormBody));
+    float storm=saturate(
+        stormBody+(stormShoulder+anvil)*(1.0-stormBody));
     float stormMix=cloudStormProfileMix(toweringStrength);
     return saturate(lerp(profile,storm,stormMix));
 }

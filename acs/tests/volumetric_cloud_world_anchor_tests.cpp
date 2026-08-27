@@ -623,12 +623,14 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 toweringStrength, f3
     const f32 stormRiseEnd = riseEnds.w;
     const f32 stormRiseBegin = stormRiseEnd * 0.20f;
     const f32 stormBody = SmoothStepForTest(stormRiseBegin, stormRiseEnd, height) *
-        (1.0f - 0.34f * SmoothStepForTest(0.34f, 0.74f, height)) *
+        (1.0f - 0.38f * SmoothStepForTest(0.30f, 0.78f, height)) *
         (1.0f - SmoothStepForTest(0.78f, 0.995f, height));
+    const f32 stormShoulder = SmoothStepForTest(0.42f, 0.56f, height) *
+        (1.0f - SmoothStepForTest(0.66f, 0.82f, height)) * 0.08f;
     const f32 anvil = SmoothStepForTest(0.56f, 0.70f, height) *
-        (1.0f - SmoothStepForTest(0.80f, 0.995f, height)) * 0.22f;
+        (1.0f - SmoothStepForTest(0.80f, 0.995f, height)) * 0.24f;
     const f32 storm = SaturateForTest(
-        stormBody + anvil * (1.0f - stormBody));
+        stormBody + (stormShoulder + anvil) * (1.0f - stormBody));
     const f32 stormMix = CloudStormProfileMixForTest(toweringStrength);
     return profile + (storm - profile) * stormMix;
 }
@@ -4028,9 +4030,13 @@ ACS_TEST(VolumetricClouds,
         "returnmin(layerRiseEnds/max(columnSpan,0.001),"
         "float4(0.95,0.95,0.95,0.95));}"));
     EXPECT_TRUE(Contains(shader, "floatstormRiseEnd=riseEnds.w;"));
-    EXPECT_TRUE(Contains(shader, "floatstormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)" "*(1.0-0.34*smoothstep(0.34,0.74,h))" "*(1.0-smoothstep(0.78,0.995,h));"));
-    EXPECT_TRUE(Contains(shader, "floatanvil=smoothstep(0.56,0.70,h)" "*(1.0-smoothstep(0.80,0.995,h))*0.22;"));
-    EXPECT_TRUE(Contains(shader, "floatstorm=saturate(stormBody+anvil*(1.0-stormBody));"));
+    EXPECT_TRUE(Contains(shader, "floatstormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)" "*(1.0-0.38*smoothstep(0.30,0.78,h))" "*(1.0-smoothstep(0.78,0.995,h));"));
+    EXPECT_TRUE(Contains(shader, "floatstormShoulder=smoothstep(0.42,0.56,h)" "*(1.0-smoothstep(0.66,0.82,h))*0.08;"));
+    EXPECT_TRUE(Contains(shader, "floatanvil=smoothstep(0.56,0.70,h)" "*(1.0-smoothstep(0.80,0.995,h))*0.24;"));
+    EXPECT_TRUE(Contains(shader, "floatstorm=saturate(stormBody+(stormShoulder+anvil)*(1.0-stormBody));"));
+    EXPECT_FALSE(Contains(shader, "floatstormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)" "*(1.0-0.34*smoothstep(0.34,0.74,h))" "*(1.0-smoothstep(0.78,0.995,h));"));
+    EXPECT_FALSE(Contains(shader, "floatstormBody=smoothstep(stormRiseBegin,stormRiseEnd,h)" "*(1.0-0.44*smoothstep(0.18,0.56,h))" "*(1.0-smoothstep(0.78,0.995,h));"));
+    EXPECT_FALSE(Contains(shader, "floatstorm=saturate(stormBody+anvil*(1.0-stormBody));"));
     EXPECT_TRUE(Contains(shader, "floatstormMix=cloudStormProfileMix(toweringStrength);"));
     EXPECT_TRUE(Contains(shader, "floatcloudStormProfileMix(floattoweringStrength){" "returnsaturate(toweringStrength*0.92);}"));
     EXPECT_TRUE(Contains(shader, "floatcloudProfileBaseRiseEnd(" "floatcloudType,floattoweringStrength,floatcolumnSpan,boolupperBand){" "float4riseEnds=cloudBaseRiseEnds(upperBand,columnSpan);" "float2typeWeights=cloudProfileTypeWeights(cloudType);" "floatlowCloudRise=lerp(riseEnds.x,riseEnds.y,typeWeights.x);" "lowCloudRise=lerp(lowCloudRise,riseEnds.z,typeWeights.y);" "returnlerp(lowCloudRise,riseEnds.w," "cloudStormProfileMix(toweringStrength));}"));
