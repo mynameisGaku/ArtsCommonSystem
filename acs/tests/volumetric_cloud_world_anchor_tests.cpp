@@ -90,7 +90,7 @@ DensityFrameTermsHlslReferenceForTest(
         windOffset * 0.9284767f,
         windOffset * 0.3713907f};
     const f32 authoredShapeScale =
-        layer.horizontal_noise_scale * 0.0022f;
+        layer.horizontal_noise_scale * 0.0030f;
     out.shape_scale =
         authoredShapeScale < 0.00004f
             ? 0.00004f
@@ -758,6 +758,19 @@ f32 CloudInteriorDensityContrastForTest(
     return boundedDensity + (contrasted - boundedDensity) * contrastWeight;
 }
 
+// 雲頂で低周波形状の明暗を強め、上面の厚みを読める密度へ戻す。
+f32 CloudTopReliefDensityForTest(
+    f32 baseDensity, f32 height, f32 toweringStrength) noexcept {
+    const f32 boundedDensity = SaturateForTest(baseDensity);
+    const f32 boundedHeight = SaturateForTest(height);
+    const f32 boundedTowering = SaturateForTest(toweringStrength);
+    const f32 topWeight = SmoothStepForTest(0.40f, 0.84f, boundedHeight) *
+        (0.34f + (0.60f - 0.34f) * boundedTowering);
+    const f32 relieved = SaturateForTest(
+        0.5f + (boundedDensity - 0.5f) * 1.60f);
+    return boundedDensity + (relieved - boundedDensity) * topWeight;
+}
+
 // 公式式を正規化済み雑音へ一度だけ適用する。
 f32 CloudDensityFromDimensionalProfileForTest(
     f32 baseDensity, f32 dimensionalProfile) noexcept {
@@ -1206,6 +1219,41 @@ ACS_TEST(VolumetricClouds, InteriorDensityContrastKeepsTheCentreAndWidensTheMidd
         EXPECT_TRUE(current + 1.0e-6f >= previous);
         previous = current;
     }
+}
+
+ACS_TEST(VolumetricClouds, TopReliefKeepsTheCentreAndRevealsCloudTopVariation) {
+    EXPECT_NEAR(
+        CloudTopReliefDensityForTest(0.5f, 0.40f, 1.0f),
+        0.5f, 0.0f);
+    EXPECT_NEAR(
+        CloudTopReliefDensityForTest(0.20f, 0.20f, 1.0f),
+        0.20f, 1.0e-6f);
+
+    const f32 lower = CloudTopReliefDensityForTest(0.20f, 0.96f, 1.0f);
+    const f32 upper = CloudTopReliefDensityForTest(0.80f, 0.96f, 1.0f);
+    EXPECT_TRUE(lower < 0.20f);
+    EXPECT_TRUE(upper > 0.80f);
+    EXPECT_TRUE(upper - lower > 0.80f);
+    EXPECT_TRUE(
+        CloudTopReliefDensityForTest(0.80f, 0.96f, 1.0f) >
+        CloudTopReliefDensityForTest(0.80f, 0.96f, 0.0f));
+
+    f32 previous = 0.0f;
+    for (u32 step = 0u; step <= 100u; ++step) {
+        const f32 density = static_cast<f32>(step) / 100.0f;
+        const f32 current = CloudTopReliefDensityForTest(
+            density, 0.96f, 1.0f);
+        EXPECT_TRUE(current + 1.0e-6f >= previous);
+        previous = current;
+    }
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(Contains(shader, "floattopWeight=smoothstep(0.40,0.84,saturate(height))*lerp(0.34,0.60,saturate(toweringStrength));"));
+    EXPECT_TRUE(Contains(shader, "floatrelieved=saturate(0.5+(saturate(baseDensity)-0.5)*1.60);"));
+    EXPECT_FALSE(Contains(shader, "floattopWeight=smoothstep(0.46,0.88,saturate(height))*lerp(0.30,0.54,saturate(toweringStrength));"));
+    EXPECT_FALSE(Contains(shader, "floatrelieved=saturate(0.5+(saturate(baseDensity)-0.5)*1.42);"));
 }
 
 ACS_TEST(VolumetricClouds, LayerSettingsAreSanitized) {
@@ -1967,7 +2015,7 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
 }
 
 ACS_TEST(VolumetricClouds, BaseShapeLodRejectsUnresolvableFrequencies) {
-    constexpr f32 kShapeScale = 0.035f * 0.0022f;
+    constexpr f32 kShapeScale = 0.035f * 0.0030f;
     constexpr f32 kDomainScales[]{1.0f, 1.83f, 3.17f, 4.73f};
     f32 previousFine[4]{1.0f, 1.0f, 1.0f, 1.0f};
     f32 previousDomain[4]{1.0f, 1.0f, 1.0f, 1.0f};
@@ -6243,6 +6291,11 @@ ACS_TEST(VolumetricClouds,
         ExtractRawShader(source, "const char* kCloudCS"));
     const std::string compactSource = CompactShader(source);
     EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "f32shapeScale=authoredScale*0.0030f;"
+        "if(shapeScale<0.00004f)shapeScale=0.00004f;"
+        "if(shapeScale>0.00020f)shapeScale=0.00020f;"));
 
     // 視線と光の各採取で繰り返していた値は、フレームごとの定数へ移してある。
     // 高度からの層内位置も、同じ採取点で高度を再計算しない形を保つ。
@@ -6261,7 +6314,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatcloudShapeScale(){"
-        "//CPU側でlayer.z*0.0022を0.00004～0.00020に収め、1フレームに一度だけ求めた倍率を使う。"
+        "//CPU側でlayer.z*0.0030を0.00004～0.00020に収め、1フレームに一度だけ求めた倍率を使う。"
         "returncloudFrameTerms.z;}"));
     EXPECT_TRUE(Contains(
         shader,
@@ -6387,6 +6440,10 @@ ACS_TEST(VolumetricClouds,
             }
         }
     }
+    const auto standardLayerTerms =
+        ResolveVolumetricCloudDensityFrameTerms(
+            FVolumetricCloudLayer{2600.0f, 12000.0f, 0.035f}, 0.0f);
+    EXPECT_NEAR(standardLayerTerms.shape_scale, 0.000105f, 1.0e-8f);
     FVolumetricCloudLayer hostileLayer{};
     hostileLayer.top_height = std::numeric_limits<f32>::infinity();
     hostileLayer.horizontal_noise_scale =

@@ -1419,7 +1419,7 @@ float2 cloudColumnHeightAndSpan(float h,float topShift,float baseLift,float towe
 // bake 済み volume は tile あたり 4..32 cells を既に含む。world frequency を下げ、
 // 小さな blob の反復ではなく連続した cloud bank を作る。
 float cloudShapeScale(){
-    // CPU側で layer.z * 0.0022 を 0.00004～0.00020 に収め、1フレームに一度だけ求めた倍率を使う。
+    // CPU側で layer.z * 0.0030 を 0.00004～0.00020 に収め、1フレームに一度だけ求めた倍率を使う。
     return cloudFrameTerms.z;
 }
 // 基本形状の高さ方向へ、雲種ごとの低周波変化率を与える。
@@ -1605,11 +1605,11 @@ float cloudInteriorDensityContrast(
 // 雲底と中層には適用せず、密度の連続性と雲中の視程を変えない。
 float cloudTopReliefDensity(
     float baseDensity,float height,float toweringStrength){
-    float topWeight=smoothstep(0.46,0.88,saturate(height))
-                   *lerp(0.30,0.54,saturate(toweringStrength));
+    float topWeight=smoothstep(0.40,0.84,saturate(height))
+                   *lerp(0.34,0.60,saturate(toweringStrength));
     // 高密度側を1へ押し付ける smoothstep は雲頂を一枚の面へ均すため、
     // 基準密度の中心から傾きを少しだけ広げ、明暗の順序と平均を保つ。
-    float relieved=saturate(0.5+(saturate(baseDensity)-0.5)*1.42);
+    float relieved=saturate(0.5+(saturate(baseDensity)-0.5)*1.60);
     return lerp(saturate(baseDensity),relieved,topWeight);
 }
 // 詳細体積の二領域差が基本形状を動かせる最大量。
@@ -4864,9 +4864,9 @@ FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
     f32 authoredScale = layer.horizontal_noise_scale;
     if (!std::isfinite(authoredScale)) authoredScale = 0.02f;
     // 128^3形状を約18 km幅へ引き伸ばすと、雲塊の一単位が画面上でぼけて
-    // 大きな板に見える。雲塊の連続性を保てる範囲で尺度を詰め、同じ標本数の
-    // まま中規模の房を見せる。
-    f32 shapeScale = authoredScale * 0.0022f;
+    // 大きな板に見える。低周波の連結性を保ちつつ、主形状の房が読める尺度へ
+    // 詰め、同じ標本数のまま中規模の雲塊を見せる。
+    f32 shapeScale = authoredScale * 0.0030f;
     if (shapeScale < 0.00004f) shapeScale = 0.00004f;
     if (shapeScale > 0.00020f) shapeScale = 0.00020f;
     out.shape_scale = shapeScale;
