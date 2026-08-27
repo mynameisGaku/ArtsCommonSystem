@@ -749,6 +749,9 @@ struct FEditorHost {
     bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
     /** 環境光へ最後に反映できた雲設定と固定間隔の更新世代。0は晴天空。 */
     u32                      ibl_baked_cloud_signature = 0u;
+    /** 物理大気を最後に焼いた観測者高度。高度移動時は空を再積分する。 */
+    f32                      ibl_baked_observer_altitude = 0.0f;
+    bool                     ibl_baked_observer_altitude_valid = false;
     bool                     sh9_dirty = true;         // 空が変わった → SH9 環境光(拡散+鏡面)を再計算
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
@@ -3918,6 +3921,8 @@ constexpr u32 kPhysicalSkyEquirectHeight = 1024u;
 // spend hundreds of millions of nested atmosphere samples on the UI thread.
 constexpr u32 kPhysicalSkyCpuFallbackWidth = 512u;
 constexpr u32 kPhysicalSkyCpuFallbackHeight = 256u;
+/** 物理空の環境光を高度移動に追従させる再焼き込み間隔。 */
+constexpr f32 kPhysicalSkyRebakeAltitudeMeters = 100.0f;
 
 void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
     // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く CSky と同じ色» を渡し、
@@ -4338,6 +4343,8 @@ void BeginSceneResourceRetirement(FEditorHost& h) noexcept {
 
 /** 晴天空の環境光を必要時だけ生成し、このフレームで更新できたかを返す。 */
 bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
+bool Pass_AtmosphereIbl(
+    FEditorHost& h, IRhiCommandList* cl, f32 observer_altitude) noexcept;
 
 TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 96u) noexcept {
     if (cells < 2u) cells = 2u;
@@ -9148,7 +9155,20 @@ void Pass_UpdateSh9(FEditorHost& h) noexcept {
 
 // CSkyまたは物理大気から環境キューブマップ、放射照度、鏡面事前畳み込み、BRDF表を作る。
 // 面ごとの描画を行うため、描画パスの外側かつ影パスより前に呼ぶ。
-bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
+bool Pass_AtmosphereIbl(
+    FEditorHost& h, IRhiCommandList* cl, f32 observer_altitude) noexcept {
+    const f32 safe_observer_altitude =
+        std::isfinite(static_cast<double>(observer_altitude)) &&
+            observer_altitude > 0.0f
+            ? observer_altitude : 0.0f;
+    if (h.ibl_ready && h.q_sky_mode == 1 &&
+        (!h.ibl_baked_observer_altitude_valid ||
+         std::fabs(safe_observer_altitude - h.ibl_baked_observer_altitude) >=
+             kPhysicalSkyRebakeAltitudeMeters)) {
+        // 物理空は観測者の位置から積分するため、高度が変われば同じ太陽でも
+        // レイリー散乱とミー散乱の光路が変わる。
+        h.ibl_dirty = true;
+    }
     // 呼び出し側が同じフレームの雲入り環境光生成を重ねないための結果。
     bool environmentUpdated = false;
     if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
@@ -9183,17 +9203,19 @@ bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
                     acs::TArray<f32> sky;
                     u32 skyWidth = kPhysicalSkyEquirectWidth;
                     u32 skyHeight = kPhysicalSkyEquirectHeight;
-                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(
+                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirectAtAltitude(
                         *idev, *cl, ap,
                         skyWidth,
                         skyHeight,
+                        safe_observer_altitude,
                         sky);
                     if (!gpu) {
                         skyWidth = kPhysicalSkyCpuFallbackWidth;
                         skyHeight = kPhysicalSkyCpuFallbackHeight;
-                        sky = acs::CAtmosphere::BakeEquirect(
+                        sky = acs::CAtmosphere::BakeEquirectAtAltitude(
                             skyWidth,
                             skyHeight,
+                            safe_observer_altitude,
                             ap);
                     }
                     for (u32 si = 0; si < sky.Num(); ++si) sky[si] *= kAtmosScale;
@@ -9211,6 +9233,8 @@ bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
             h.ibl_dirty = false;
             if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
             else {
+                h.ibl_baked_observer_altitude = safe_observer_altitude;
+                h.ibl_baked_observer_altitude_valid = true;
                 h.ibl_baked_cloud_signature = 0u;
                 environmentUpdated = true;
                 ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)", h.q_sky_mode == 1 ? "物理大気" : "CSky", h.ibl3d.PrefilterMips());
@@ -9218,6 +9242,11 @@ bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
         }
     }
     return environmentUpdated;
+}
+
+/** 高度指定のない既存呼び出しは地表付近の既定高度へ委譲する。 */
+bool Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
+    return Pass_AtmosphereIbl(h, cl, 0.0f);
 }
 
 /**
@@ -10206,7 +10235,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             h.profiler_work.atmosphere_cpu_ms);
         FScopedRhiGpuTiming atmosphereGpuScope(
             cl, ERhiGpuTimingPass::Atmosphere);
-        baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl);
+        baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl, eye.y);
     }
 
     // --- シャドウパス (光源視点で深度を焼く)。出力 sh を本体パスが PCF/CSM 比較に使う ---
@@ -13068,7 +13097,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->vxgi_pipe_clear.Reset(); host->vxgi_pipe_vox.Reset(); host->vxgi_pipe_res.Reset();
     host->vxgi_cs_clear.Reset(); host->vxgi_cs_vox.Reset(); host->vxgi_cs_res.Reset();
     host->vxgi_cb_vox.Reset(); host->vxgi_cb_res.Reset(); host->vxgi_ready = false;
-    host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true; host->ibl_baked_cloud_signature = 0u;
+    host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true; host->ibl_baked_cloud_signature = 0u; host->ibl_baked_observer_altitude = 0.0f; host->ibl_baked_observer_altitude_valid = false;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Reset();
     // Per-node material and custom-mesh caches are component members; release

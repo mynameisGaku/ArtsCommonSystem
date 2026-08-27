@@ -747,6 +747,36 @@ ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {
                 std::fabs(horizon.z - nadir.z) > 1.0e-5f);
 }
 
+ACS_TEST(Atmosphere, CpuEnvironmentBakeUsesObserverAltitude) {
+    FAtmosphereParams params{};
+    params.sun_dir = FVec3{0.1f, 0.95f, 0.2f};
+    params.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
+    params.ray_steps = 16u;
+    params.sun_steps = 6u;
+
+    const TArray<f32> ground = CAtmosphere::BakeEquirectAtAltitude(
+        8u, 4u, 0.0f, params);
+    const TArray<f32> high = CAtmosphere::BakeEquirectAtAltitude(
+        8u, 4u, 20000.0f, params);
+    EXPECT_EQ(ground.Num(), high.Num());
+
+    bool differs = false;
+    for (usize index = 0u; index < ground.Num(); ++index) {
+        if (std::fabs(ground[index] - high[index]) > 1.0e-7f) {
+            differs = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(differs);
+
+    const std::string source = ReadAtmosphereSource();
+    EXPECT_TRUE(Contains(source, "safe_altitude, view_dir, params"));
+    EXPECT_TRUE(Contains(source, "groundAlbedo.w"));
+    EXPECT_TRUE(Contains(
+        source,
+        "kBottom+max(groundAlbedo.w,0.0)"));
+}
+
 ACS_TEST(Atmosphere, CpuSingleScatterIntegratesViewTransferBeforeCurrentSegment) {
     const std::string source = ReadAtmosphereSource();
     const std::size_t begin = source.find("FVec3 SingleScatter(");
@@ -1586,7 +1616,7 @@ ACS_TEST(Atmosphere, EditorCloudEnvironmentLightingUsesBoundedMotionGenerationWi
     const auto drawBegin = source.find("void DrawScene3D(");
     const auto draw = drawBegin != source.npos
         ? source.substr(drawBegin) : source.substr(0u, 0u);
-    const auto baseUpdate = draw.find("baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl);");
+    const auto baseUpdate = draw.find("baseEnvironmentUpdated = Pass_AtmosphereIbl(h, cl, eye.y);");
     const auto cloudIbl = draw.find("Pass_VolumetricCloudIbl_Internal(h, *cl, cloudsActive, baseEnvironmentUpdated);", baseUpdate);
     const auto sourceReset = draw.find("h.cloud_environment_source_ready = false;", cloudIbl);
     const auto beginScene = draw.find("cl->BeginRenderToTexture(*hdrRt", sourceReset);

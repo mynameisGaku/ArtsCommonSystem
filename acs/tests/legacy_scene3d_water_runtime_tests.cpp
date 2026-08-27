@@ -460,7 +460,7 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
             "if (rebuild_base_environment) {")
             != std::string::npos);
         EXPECT_TRUE(ensure.find(
-            "m_Atmosphere.BakeEquirect(")
+            "m_Atmosphere.BakeEquirectAtAltitude(")
             != std::string::npos);
         EXPECT_TRUE(ensure.find(
             "m_Clouds.BuildEnvironmentCubemap(")

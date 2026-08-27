@@ -7406,6 +7406,22 @@ ACS_TEST(VolumetricClouds, EditorAndCppAdaptersUploadThePhysicalGroundLighting)
     EXPECT_TRUE(Contains(legacy, "SunDirection(),sun_radiance,physicalHorizon"));
 }
 
+ACS_TEST(VolumetricClouds, EnvironmentSkyBakeTracksObserverAltitude)
+{
+    const std::string legacy = ReadLegacyScene3DAdapterSource();
+    EXPECT_TRUE(!legacy.empty());
+    EXPECT_TRUE(Contains(
+        legacy,
+        "const f32 observer_altitude =\n"
+        "        m_Camera.Eye().y > 0.0f ? m_Camera.Eye().y : 0.0f;"));
+    EXPECT_TRUE(Contains(legacy, "m_IblBakedCloudSignature"));
+    EXPECT_TRUE(Contains(legacy, "BakeEquirectAtAltitude("));
+    EXPECT_TRUE(Contains(
+        legacy,
+        "const u16 observer_altitude_bucket =\n"
+        "        QuantizedIblObserverAltitude("));
+}
+
 ACS_TEST(VolumetricClouds,
          GroundHorizonUsesProjectionAwareAnalyticPixelCoverage) {
     const std::string source = ReadSkySource();

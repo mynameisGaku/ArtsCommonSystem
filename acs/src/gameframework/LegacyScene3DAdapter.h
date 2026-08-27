@@ -1426,7 +1426,10 @@ private:
     /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
     bool m_AerialPerspectiveEnabled = false;
 
-    /** 既存alignment padding内で保持する、環境光へ焼いた雲形状・照明の署名。 */
+    /** boolと署名の間の既存alignment paddingで保持する、焼き込み観測者高度の単位。 */
+    u16 m_IblBakedObserverAltitudeBucket = 0u;
+
+    /** 環境光へ焼いた雲形状・照明の署名。 */
     u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */

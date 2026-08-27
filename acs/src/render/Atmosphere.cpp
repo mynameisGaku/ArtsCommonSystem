@@ -18,6 +18,15 @@ constexpr f32 kGroundRadius = kSkyAtmosphereGroundRadiusMeters;
 /** 大気上端半径 (m、地表から 100 km)。 */
 constexpr f32 kAtmosphereRadius = kSkyAtmosphereTopRadiusMeters;
 
+/** 焼き込み観測者の高度を大気モデルの範囲へ収める。 */
+f32 SanitizeBakeAltitude(f32 altitude) noexcept {
+    if (!std::isfinite(static_cast<double>(altitude)) || altitude < 0.0f)
+        return 0.0f;
+    return altitude > kSkyAtmosphereTopAltitudeMeters
+        ? kSkyAtmosphereTopAltitudeMeters
+        : altitude;
+}
+
 /** Rayleigh の scale height (m、8 km)。 */
 constexpr f32 kRayleighH        = 8000.0f;
 
@@ -428,8 +437,15 @@ FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept {
 /** equirect 画像の各方向で単散乱を評価し RGBA float 配列を焼く。 */
 TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
                                      const FAtmosphereParams& params) noexcept {
+    return BakeEquirectAtAltitude(width, height, 2.0f, params);
+}
+
+TArray<f32> CAtmosphere::BakeEquirectAtAltitude(
+    u32 width, u32 height, f32 altitude,
+    const FAtmosphereParams& params) noexcept {
     TArray<f32> out;
     out.SetNum(static_cast<usize>(width) * height * 4u);
+    const f32 safe_altitude = SanitizeBakeAltitude(altitude);
 
     for (u32 y = 0; y < height; ++y) {
         const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(height) * kPi;
@@ -442,7 +458,7 @@ TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
             const FVec3 view_dir{sin_t * Sin(phi), cos_t, sin_t * Cos(phi)};
 
             const FVec3 col = CAtmosphere::EvaluateSkyRadiance(
-                2.0f, view_dir, params);
+                safe_altitude, view_dir, params);
 
             const u32 idx = (y * width + x) * 4u;
             out[idx + 0] = col.x;
@@ -652,7 +668,7 @@ ATMO_COMMON_HLSL
 "  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
 "  float theta=uv.y*PI; float phi=uv.x*2.0*PI-PI; float st=sin(theta),ct=cos(theta);\n"
 "  float3 dir=float3(st*sin(phi),ct,st*cos(phi)); float3 sd=normalize(sunDir.xyz);\n"
-"  float3 P0=float3(0,kBottom+0.005,0); float tAtm=RaySphere(P0,dir,kTop);\n"
+"  float3 P0=float3(0,kBottom+max(groundAlbedo.w,0.0),0); float tAtm=RaySphere(P0,dir,kTop);\n"
 "  float tGround=RaySphereNearGround(P0,dir,kBottom);\n"
 "  bool hitGround=tGround>0.0 && tGround<tAtm; float tMax=hitGround?tGround:tAtm;\n"
 "  float3 col=float3(0,0,0);\n"
@@ -1329,6 +1345,14 @@ void CSkyAtmosphere::CompositeLocalFogCameraRelative(IRhiCommandList& cl, IRhiTe
 bool CSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                                   const FAtmosphereParams& params,
                                   u32 width, u32 height, TArray<f32>& out) noexcept {
+    return BakeEquirectAtAltitude(
+        device, cl, params, width, height, 2.0f, out);
+}
+
+bool CSkyAtmosphere::BakeEquirectAtAltitude(
+    IRhiDevice& device, IRhiCommandList& cl,
+    const FAtmosphereParams& params, u32 width, u32 height,
+    f32 altitude, TArray<f32>& out) noexcept {
     if (!m_Ready) return false;
     FVec3 sd = params.sun_dir;
     {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
@@ -1340,7 +1364,7 @@ bool CSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
         params.ground_albedo.x > 0.0f ? params.ground_albedo.x : 0.0f,
         params.ground_albedo.y > 0.0f ? params.ground_albedo.y : 0.0f,
         params.ground_albedo.z > 0.0f ? params.ground_albedo.z : 0.0f,
-        0.0f};
+        SanitizeBakeAltitude(altitude) * 0.001f};
     m_Cb->Update(&cb, sizeof(cb));
 
     // 1) 大気 LUT は定数なので初回だけ焼く。AP と equirect bake のどちらが先でも共有する。

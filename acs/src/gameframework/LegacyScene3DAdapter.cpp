@@ -61,6 +61,23 @@ constexpr f32 kShadowDepthBias = 0.0025f;
 // 環境光を焼き直す太陽の移動量 (2 乗)。小さすぎると毎フレーム焼いて重くなり、
 // 大きすぎると夕暮れの色が付いてこない。約 1.7 度ぶん。
 constexpr f32 kIblRebakeThresholdSquared = 0.0009f;
+/** 観測者高度がこの差を超えたら空の散乱積分を焼き直す。 */
+constexpr f32 kIblRebakeAltitudeThresholdMeters = 100.0f;
+/** 焼き込み判定用の高度単位を、余白へ収まる16ビット値へ変換する。 */
+u16 QuantizedIblObserverAltitude(f32 observer_altitude) noexcept {
+    if (!std::isfinite(static_cast<double>(observer_altitude)) ||
+        observer_altitude <= 0.0f) {
+        return 0u;
+    }
+    const f32 bounded_altitude = observer_altitude >
+            kSkyAtmosphereTopAltitudeMeters
+        ? kSkyAtmosphereTopAltitudeMeters : observer_altitude;
+    const f32 units = bounded_altitude / kIblRebakeAltitudeThresholdMeters;
+    const f32 max_bucket = static_cast<f32>(std::numeric_limits<u16>::max());
+    return units >= max_bucket
+        ? std::numeric_limits<u16>::max()
+        : static_cast<u16>(units + 0.5f);
+}
 
 // 大気を焼く解像度。1024 の cubemap に対して 2:1 の元が要る (足りないと天頂に同心円が出る)。
 constexpr u32 kAtmosphereEquirectWidth = 2048u;
@@ -1562,12 +1579,16 @@ void ALegacyScene3DAdapter::RenderSky(
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
+    const f32 observer_altitude =
+        m_Camera.Eye().y > 0.0f ? m_Camera.Eye().y : 0.0f;
     // 成功した雲描画だけを数え、同じ描画を複数回焼かない更新世代へ変換する。
     const u64 cloud_frame = m_Clouds.LastFrameWorkload().submission_index;
     const u32 cloud_signature =
         m_CloudsDrawn && m_CloudParams.bAffectEnvironmentLighting
             ? m_Clouds.RenderedEnvironmentLightingUpdateSignature()
             : 0u;
+    const u16 observer_altitude_bucket =
+        QuantizedIblObserverAltitude(observer_altitude);
 
     // 空本体は太陽が有意に動いたときだけ即時更新する。雲の有効・無効も表示との
     // 不一致を残さないため即時だが、有効中の連続補間は固定frame間隔へまとめる。
@@ -1579,10 +1600,13 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         rebuild_base_environment =
             dx * dx + dy * dy + dz * dz
                 >= kIblRebakeThresholdSquared;
+        rebuild_base_environment = rebuild_base_environment ||
+            observer_altitude_bucket != m_IblBakedObserverAltitudeBucket;
         if (!rebuild_base_environment) {
             if (cloud_signature == m_IblBakedCloudSignature) return true;
 
-            const bool cloud_mode_changed = (cloud_signature == 0u) != (m_IblBakedCloudSignature == 0u);
+            const bool cloud_mode_changed = (cloud_signature == 0u) !=
+                (m_IblBakedCloudSignature == 0u);
             if (!cloud_mode_changed && !CVolumetricClouds::IsEnvironmentLightingRefreshFrame(cloud_frame)) {
                 return true;
             }
@@ -1619,16 +1643,16 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         u32 height = kAtmosphereEquirectHeight;
 
         bool baked = m_Atmosphere.Ready()
-            && m_Atmosphere.BakeEquirect(
+            && m_Atmosphere.BakeEquirectAtAltitude(
                 device, command_list, atmosphere,
-                width, height, equirect);
+                width, height, observer_altitude, equirect);
 
         if (!baked) {
             // GPU で焼けない環境向けの代替処理。同期で回すので解像度を落とす。
             width = kAtmosphereCpuEquirectWidth;
             height = kAtmosphereCpuEquirectHeight;
-            equirect = CAtmosphere::BakeEquirect(
-                width, height, atmosphere);
+            equirect = CAtmosphere::BakeEquirectAtAltitude(
+                width, height, observer_altitude, atmosphere);
             baked = equirect.Num() != 0u;
         }
 
@@ -1684,6 +1708,7 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     // 現在のsubmission fenceまで遅延解放する。frame途中のFlush/WaitIdleは挟まない。
 
     m_IblBakedSunDirection = sun;
+    m_IblBakedObserverAltitudeBucket = observer_altitude_bucket;
     m_IblBakedCloudSignature = cloud_signature;
     m_IblReady = true;
     return true;
@@ -4594,6 +4619,7 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_CloudsHeight = 0u;
     m_CloudsSizedForReference = false;
     m_AtmosphereTried = false;
+    m_IblBakedObserverAltitudeBucket = 0u;
     m_IblBakedCloudSignature = ~u32{0};
     m_IblReady = false;
     m_IblBakedSunDirection = FVec3{0.0f, 0.0f, 0.0f};

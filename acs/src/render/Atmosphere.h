@@ -124,6 +124,15 @@ public:
      */
     static TArray<f32> BakeEquirect(u32 width, u32 height,
                                     const FAtmosphereParams& params) noexcept;
+
+    /**
+     * 指定高度の観測者位置から CPU で equirect 画像を焼く。
+     *
+     * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
+     */
+    static TArray<f32> BakeEquirectAtAltitude(
+        u32 width, u32 height, f32 altitude,
+        const FAtmosphereParams& params) noexcept;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
@@ -164,6 +173,16 @@ public:
     bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                       const FAtmosphereParams& params,
                       u32 width, u32 height, TArray<f32>& out) noexcept;
+
+    /**
+     * 指定高度の観測者位置から GPU で大気 equirect を焼く。
+     *
+     * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
+     */
+    bool BakeEquirectAtAltitude(
+        IRhiDevice& device, IRhiCommandList& cl,
+        const FAtmosphereParams& params, u32 width, u32 height,
+        f32 altitude, TArray<f32>& out) noexcept;
 
     /**
      * Aerial perspective の camera-volume LUT を焼いて返す。
