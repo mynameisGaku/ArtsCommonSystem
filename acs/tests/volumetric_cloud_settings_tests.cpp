@@ -655,6 +655,8 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "*lightTerminationOcclusion>18.0"));
     EXPECT_FALSE(Contains(source, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float cloudReducedIntervalScatteringWeight("));
+    EXPECT_TRUE(Contains(source, "float cosA=clamp(dot(-dir,sun),-1.0,1.0);"));
+    EXPECT_FALSE(Contains(source, "float cosA=clamp(dot(dir,sun),-1.0,1.0);"));
     EXPECT_TRUE(Contains(source, "float forwardPhase=hg(cosA,cloudLightingPhase.x);"));
     EXPECT_TRUE(Contains(source, "float backwardPhase=hg(cosA,cloudLightingPhase.y);"));
     EXPECT_FALSE(Contains(source, "4.0*hg("));
