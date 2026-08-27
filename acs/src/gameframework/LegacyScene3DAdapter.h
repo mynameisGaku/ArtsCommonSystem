@@ -1599,6 +1599,9 @@ private:
 
     /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
     f32 m_EnvironmentLightMultiplier = 1.0f;
+
+    /** 現在のRHIでBRDF LUTが使えないと確認済みか。 */
+    bool m_BrdfLutUnavailable = false;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

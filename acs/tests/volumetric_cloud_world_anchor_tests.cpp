@@ -3501,6 +3501,44 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
+         BaseShapeGateKeepsRawNoiseForOneDensityNormalization) {
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+
+    const std::size_t viewGate = shader.find(
+        "floatshape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);");
+    const std::size_t viewResult = shader.find(
+        "shapeResult=saturate(a.r);", viewGate);
+    const std::size_t lightGate = shader.find(
+        "floatshape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);",
+        viewResult + 1u);
+    const std::size_t lightResult = shader.find(
+        "shapeResult=saturate(a.r);", lightGate);
+    EXPECT_TRUE(viewGate != std::string::npos);
+    EXPECT_TRUE(viewResult != std::string::npos);
+    EXPECT_TRUE(lightGate != std::string::npos);
+    EXPECT_TRUE(lightResult != std::string::npos);
+    EXPECT_TRUE(viewGate < viewResult);
+    EXPECT_TRUE(lightGate < lightResult);
+    EXPECT_FALSE(Contains(shader, "shapeResult=saturate(shape);"));
+
+    // 整形済み値をもう一度固定範囲へ入れると、同じ入力でも芯側だけが早く1へ張り付く。
+    const auto normalize = [](f32 raw) noexcept {
+        const f32 clamped = std::clamp(
+            (raw - 0.18f) / (0.68f - 0.18f), 0.0f, 1.0f);
+        return std::pow(clamped, 1.55f);
+    };
+    const f32 rawShape = 0.56f;
+    const f32 contrastedShape = std::clamp(
+        0.5f + (rawShape - 0.5f) * 1.24f, 0.0f, 1.0f);
+    EXPECT_TRUE(normalize(rawShape) < 1.0f);
+    EXPECT_TRUE(normalize(contrastedShape) > normalize(rawShape));
+    EXPECT_TRUE(normalize(rawShape) < normalize(contrastedShape));
+}
+
+ACS_TEST(VolumetricClouds,
          WeatherCoverageParticipatesInDimensionalProfileOnce) {
     EXPECT_NEAR(
         CloudDimensionalProfileForTest(1.0f, 0.0f), 0.0f, 0.0f);
@@ -4625,7 +4663,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "cloudShapeDomainVisibility("));
     EXPECT_FALSE(Contains(shader, "cloudGovernedShapeErosion("));
     EXPECT_FALSE(Contains(shader, "cloudCenteredShape"));
-    EXPECT_TRUE(Contains(shader, "shapeResult=saturate(shape);"));
+    // 形状判定は整形済み値で行い、密度の正規化は後段で一度だけ行う。
+    EXPECT_TRUE(Contains(shader, "shapeResult=saturate(a.r);"));
     const std::size_t viewShapeBegin =
         shader.find(
             "voidcloudBaseShape("

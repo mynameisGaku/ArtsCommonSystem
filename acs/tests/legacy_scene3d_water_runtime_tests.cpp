@@ -475,9 +475,34 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
             "m_IblBakedCloudSignature = cloud_signature;")
             != std::string::npos);
         EXPECT_TRUE(ensure.find(
+            "if (m_BrdfLutUnavailable) return false;")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
+            "m_BrdfLutUnavailable = true;")
+            != std::string::npos);
+        EXPECT_TRUE(ensure.find(
             "m_CloudParams.Wind,\n                m_Time")
             == std::string::npos);
         EXPECT_TRUE(ensure.find("command_list.Submit(") == std::string::npos);
+    }
+
+    EXPECT_TRUE(header.find(
+        "bool m_BrdfLutUnavailable = false;")
+        != std::string::npos);
+    const std::size_t release_begin = source.find(
+        "void ALegacyScene3DAdapter::ReleaseGpu()");
+    const std::size_t release_end = source.find(
+        "void ALegacyScene3DAdapter::JoinCpuCompileWorkers()",
+        release_begin);
+    EXPECT_TRUE(release_begin != std::string::npos);
+    EXPECT_TRUE(release_end != std::string::npos);
+    if (release_begin != std::string::npos
+        && release_end != std::string::npos) {
+        const std::string release = source.substr(
+            release_begin, release_end - release_begin);
+        EXPECT_TRUE(release.find(
+            "m_BrdfLutUnavailable = false;")
+            != std::string::npos);
     }
 
     // 表示用EnvCubemapは雲なしのまま描き、画面用雲は従来の後段合成を一度だけ使う。

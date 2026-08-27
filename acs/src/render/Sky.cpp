@@ -1727,7 +1727,10 @@ void cloudBaseShape(
     // 詳細な房と侵食は後段の密度処理へ分離し、別位相の領域で雲体を分断しない。
     float shape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
     [branch] if(shape<rejectionThreshold-1e-5) return;
-    shapeResult=saturate(shape);
+    // 後段の密度処理は焼き込み前の固定範囲を一度だけ正規化する。
+    // ここで整形済みのshapeを渡すと、低周波値へしきい値変換を二重に掛けて
+    // 芯を早く飽和させ、雲縁だけを灰色の膜として残してしまう。
+    shapeResult=saturate(a.r);
 }
 // 光円すい側も視線側と同じ低周波形状を使い、自己影だけが別の雲模様にならないようにする。
 void cloudBaseShapeLighting(
@@ -1737,7 +1740,8 @@ void cloudBaseShapeLighting(
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
     float shape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
     [branch] if(shape<rejectionThreshold-1e-5) return;
-    shapeResult=saturate(shape);
+    // 視線側と同じく、後段で一度だけ固定雑音範囲を正規化する。
+    shapeResult=saturate(a.r);
 }
 
 // 視線採取では天候、渦、基本形状を占有判定用に一度だけ評価し、詳細密度へ再利用する。

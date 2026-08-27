@@ -1574,8 +1574,11 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
         }
     }
 
-    // BRDF LUT は太陽に依存しないので一度だけ。
+    // BRDF LUT は太陽に依存しないので一度だけ。現在のRHIで失敗した場合も、
+    // 同じsceneの全frameで高価な生成を繰り返さず、GPU再初期化時にだけ再判定する。
+    if (m_BrdfLutUnavailable) return false;
     if (!m_Ibl.HasBrdfLut() && m_Ibl.EnsureBrdfLut(device, command_list).IsErr()) {
+        m_BrdfLutUnavailable = true;
         ACS_LOG_WARN("Scene3D: BRDF LUT bake failed; environment lighting stays off");
         return false;
     }
@@ -4568,6 +4571,7 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_SkyGpuState = ESkyGpuState::Unavailable;
     m_GpuReady = false;
     m_GpuAttempted = false;
+    m_BrdfLutUnavailable = false;
 }
 
 void ALegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
