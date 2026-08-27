@@ -1484,8 +1484,9 @@ void ALegacyScene3DAdapter::RenderClouds(
         m_CloudParams.UpperLayer.CoverageScale,
         m_CloudParams.UpperLayer.DensityScale});
 
-    // 雲の散乱式は放射輝度を使う。空・大気と同じ換算を通さないと、通常C++経路だけ雲が暗くなる。
-    const FVec3 sun_radiance = PhysicalSunIntensity(SunColorForAtmosphere());
+    // 雲APIは色×強度のシーン放射輝度を受け取る。大気専用の22.0基準へ換算すると、
+    // Editor経路と単位がずれて雲だけ白飛びする。
+    const FVec3 sun_radiance = SunColorForAtmosphere();
     // 通常の C++ 描画でも、遠方座標に左右されない視線復元行列を渡す。
     const FMat4 cloud_camera_relative_inverse_view_projection = BuildCameraRelativeInverseViewProjection(m_Camera.View(), m_Camera.Projection());
 
