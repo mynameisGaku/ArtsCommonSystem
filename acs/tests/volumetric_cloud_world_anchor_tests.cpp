@@ -114,8 +114,26 @@ f32 CloudShapeVerticalSpanForTest(
 }
 
 // 雲層ごとの低周波な高さ変化率をシェーダーと同じ値で検査する。
-f32 CloudShapeVerticalVariationForTest(bool upperBand) noexcept {
-    return upperBand ? 0.78f : 6.00f;
+f32 CloudShapeVerticalVariationForTest(
+    bool upperBand, f32 shapeScale, f32 inverseLayerHeight,
+    f32 toweringStrength) noexcept {
+    const f32 verticalSpan = CloudShapeVerticalSpanForTest(
+        shapeScale, inverseLayerHeight);
+    const f32 boundedTowering = toweringStrength < 0.0f
+        ? 0.0f : (toweringStrength > 1.0f ? 1.0f : toweringStrength);
+    const f32 targetCycles = upperBand
+        ? 0.72f
+        : 0.72f + (1.30f - 0.72f) * boundedTowering;
+    const f32 unclampedVariation =
+        targetCycles / (verticalSpan > 0.08f ? verticalSpan : 0.08f);
+    if (upperBand) {
+        return unclampedVariation < 1.20f
+            ? 1.20f
+            : (unclampedVariation > 4.00f ? 4.00f : unclampedVariation);
+    }
+    return unclampedVariation < 1.20f
+        ? 1.20f
+        : (unclampedVariation > 8.50f ? 8.50f : unclampedVariation);
 }
 
 FVolumetricCloudLightBasis LightBasisHlslReferenceForTest(
@@ -348,8 +366,8 @@ f32 CloudToweringStrengthForTest(f32 cloudType, f32 precipitation) noexcept {
 f32 CloudLocalToweringStrengthForTest(f32 cloudType, f32 precipitation, f32 convectivePotential, f32 cloudInterior) noexcept
 {
     const f32 authoredTower = CloudToweringStrengthForTest(cloudType, precipitation);
-    const f32 broadPotential = SmoothStepForTest(0.52f, 0.82f, SaturateForTest(convectivePotential));
-    const f32 interiorPotential = SmoothStepForTest(0.35f, 0.92f, SaturateForTest(cloudInterior));
+    const f32 broadPotential = SmoothStepForTest(0.66f, 0.92f, SaturateForTest(convectivePotential));
+    const f32 interiorPotential = SmoothStepForTest(0.50f, 0.96f, SaturateForTest(cloudInterior));
     const f32 localPotential = broadPotential * interiorPotential;
     return authoredTower * localPotential * localPotential;
 }
@@ -394,7 +412,7 @@ f32 AccumulateReducedCloudOrderForTest(
 
 // 詳細体積が基本形状を膨張または侵食できる最大量を求める。
 f32 CloudBillowMaximumOffsetForTest(f32 height) noexcept {
-    return 0.018f + (0.082f - 0.018f) *
+    return 0.024f + (0.130f - 0.024f) *
         SmoothStepForTest(0.18f, 0.92f, SaturateForTest(height));
 }
 
@@ -492,7 +510,15 @@ f32 CloudColumnTopShiftForTest(
     f32 warp, f32 shapePhaseX, f32 shapePhaseY) noexcept {
     const f32 core = SmoothStepForTest(0.08f, 0.92f, SaturateForTest(cloudInterior));
     const f32 toweringStrength = CloudLocalToweringStrengthForTest(cloudType, precipitation, warp, cloudInterior);
-    const f32 amplitude = 0.018f + (0.070f - 0.018f) * toweringStrength;
+    const f32 typePuff = SmoothStepForTest(0.26f, 0.72f, SaturateForTest(cloudType));
+    const f32 precipitationPuff = SmoothStepForTest(0.20f, 0.70f, SaturateForTest(precipitation));
+    const f32 precipitationRelief = precipitationPuff * 0.80f;
+    const f32 puffRelief =
+        typePuff > precipitationRelief ? typePuff : precipitationRelief;
+    const f32 boundedTowering = SaturateForTest(toweringStrength);
+    const f32 reliefStrength =
+        puffRelief > boundedTowering ? puffRelief : boundedTowering;
+    const f32 amplitude = 0.018f + (0.100f - 0.018f) * reliefStrength;
     const f32 warpPattern =
         SmoothStepForTest(0.36f, 0.64f, warp) * 2.0f - 1.0f;
     const f32 typePattern = cloudType * 2.0f - 1.0f;
@@ -593,13 +619,14 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 toweringStrength, f3
     const f32 stormRiseEnd = riseEnds.w;
     const f32 stormRiseBegin = stormRiseEnd * 0.20f;
     const f32 stormBody = SmoothStepForTest(stormRiseBegin, stormRiseEnd, height) *
-        (1.0f - 0.42f * SmoothStepForTest(0.48f, 0.82f, height)) *
-        (1.0f - SmoothStepForTest(0.84f, 0.98f, height));
-    const f32 anvil = SmoothStepForTest(0.58f, 0.72f, height) *
-        (1.0f - SmoothStepForTest(0.90f, 0.99f, height)) * 0.84f;
-    const f32 storm = stormBody > anvil ? stormBody : anvil;
+        (1.0f - 0.34f * SmoothStepForTest(0.34f, 0.74f, height)) *
+        (1.0f - SmoothStepForTest(0.78f, 0.995f, height));
+    const f32 anvil = SmoothStepForTest(0.56f, 0.70f, height) *
+        (1.0f - SmoothStepForTest(0.80f, 0.995f, height)) * 0.22f;
+    const f32 storm = SaturateForTest(
+        stormBody + anvil * (1.0f - stormBody));
     const f32 stormMix = CloudStormProfileMixForTest(toweringStrength);
-    return (1.0f - stormMix) * profile + stormMix * storm;
+    return profile + (storm - profile) * stormMix;
 }
 
 // 積乱雲の中層で天候場のしきい値を上げ、正の被覆領域そのものを細くする。
@@ -703,9 +730,11 @@ f32 CloudDimensionalProfileForTest(
 
 // 基本雑音を固定範囲で正規化する。
 f32 CloudNormalizedBaseDensityForTest(f32 baseNoise) noexcept {
-    return RemapUnitRangeForTest(
-        baseNoise, kCloudBaseNoiseLowerForTest,
-        kCloudBaseNoiseUpperForTest);
+    return Pow(
+        RemapUnitRangeForTest(
+            baseNoise, kCloudBaseNoiseLowerForTest,
+            kCloudBaseNoiseUpperForTest),
+        1.28f);
 }
 
 // 公式式を正規化済み雑音へ一度だけ適用する。
@@ -3463,8 +3492,8 @@ ACS_TEST(VolumetricClouds,
     constexpr f32 kEdgeNoise = kCloudBaseNoiseLowerForTest;
     const f32 topLimit = CloudBillowMaximumOffsetForTest(1.0f);
     const f32 baseLimit = CloudBillowMaximumOffsetForTest(0.0f);
-    EXPECT_NEAR(baseLimit, 0.018f, 1.0e-6f);
-    EXPECT_NEAR(topLimit, 0.082f, 1.0e-6f);
+    EXPECT_NEAR(baseLimit, 0.024f, 1.0e-6f);
+    EXPECT_NEAR(topLimit, 0.130f, 1.0e-6f);
     EXPECT_TRUE(topLimit > baseLimit);
 
     // 後段の最大光学密度倍率で可視になる薄い房を、内側の棄却で落とさない。
@@ -3548,10 +3577,12 @@ ACS_TEST(VolumetricClouds,
                     CloudDensityFromDimensionalProfileForTest(
                         baseDensity, dimensionalProfile);
                 const f32 directOfficial = SaturateForTest(
-                    SaturateForTest(
-                        (noise - kCloudBaseNoiseLowerForTest) /
-                        (kCloudBaseNoiseUpperForTest -
-                         kCloudBaseNoiseLowerForTest)) *
+                    Pow(
+                        SaturateForTest(
+                            (noise - kCloudBaseNoiseLowerForTest) /
+                            (kCloudBaseNoiseUpperForTest -
+                             kCloudBaseNoiseLowerForTest)),
+                        1.28f) *
                     (SaturateForTest(verticalProfile) *
                      SaturateForTest(weatherMask)));
                 EXPECT_NEAR(
@@ -3682,7 +3713,7 @@ ACS_TEST(VolumetricClouds,
     const f32 matureTower = CloudLocalToweringStrengthForTest(1.0f, 0.85f, 1.0f, 1.0f);
     EXPECT_NEAR(weakPotentialTower, 0.0f, 0.0f);
     EXPECT_NEAR(edgeTower, 0.0f, 0.0f);
-    EXPECT_NEAR(developingTower, 0.0001623265f, 1.0e-7f);
+    EXPECT_NEAR(developingTower, 0.0f, 0.0f);
     EXPECT_NEAR(matureTower, 1.0f, 0.0f);
 
     const std::string source = ReadSkySource();
@@ -3710,8 +3741,8 @@ ACS_TEST(VolumetricClouds,
     const f32 tallCoreStrength = CloudLocalToweringStrengthForTest(1.0f, 0.0f, 1.0f, 1.0f);
     const f32 compressedEdgeStrength = CloudLocalToweringStrengthForTest(1.0f, 0.0f, 0.0f, 0.0f);
     const f32 stratusCoreStrength = CloudLocalToweringStrengthForTest(0.0f, 0.0f, 1.0f, 1.0f);
-    EXPECT_NEAR(tallCore, 0.070f, 1e-6f);
-    EXPECT_NEAR(compressedEdge, -0.017595f, 1e-6f);
+    EXPECT_NEAR(tallCore, 0.100f, 1e-6f);
+    EXPECT_NEAR(compressedEdge, -0.09775f, 1e-6f);
     EXPECT_NEAR(stratusCore, 0.018f, 1e-6f);
     EXPECT_NEAR(tallCoreStrength, 1.0f, 0.0f);
     EXPECT_NEAR(compressedEdgeStrength, 0.0f, 0.0f);
@@ -3760,7 +3791,7 @@ ACS_TEST(VolumetricClouds,
             const f32 cloudType = static_cast<f32>(typeStep) / 20.0f;
             for (const f32 shapePhaseX : {-0.18f, 0.18f}) {
                 for (const f32 shapePhaseY : {-0.16f, 0.16f}) {
-                    EXPECT_TRUE(std::fabs(CloudColumnTopShiftForTest(0.60f, cloudType, 1.0f, warp, shapePhaseX, shapePhaseY)) <= 0.070001f);
+                    EXPECT_TRUE(std::fabs(CloudColumnTopShiftForTest(0.60f, cloudType, 1.0f, warp, shapePhaseX, shapePhaseY)) <= 0.100001f);
                 }
             }
         }
@@ -3799,9 +3830,9 @@ ACS_TEST(VolumetricClouds,
             minimumBridgeProfile = bridgeProfile;
         }
     }
-    EXPECT_TRUE(minimumBridgeProfile > 0.72f);
-    EXPECT_TRUE(stormWaist > 0.80f);
-    EXPECT_TRUE(stormAnvil > 0.80f);
+    EXPECT_TRUE(minimumBridgeProfile > 0.70f);
+    EXPECT_TRUE(stormWaist > 0.78f);
+    EXPECT_TRUE(stormAnvil > 0.73f);
     EXPECT_TRUE(stormTop < stormAnvil);
     EXPECT_TRUE(stormTop < minimumBridgeProfile);
     EXPECT_TRUE(stormBody > 0.80f);
@@ -3851,8 +3882,8 @@ ACS_TEST(VolumetricClouds,
     const f32 tallCoreTop = CloudColumnTopForTest(tallCore, tallCoreStrength, false, 9400.0f);
     const f32 compressedEdgeTop = CloudColumnTopForTest(compressedEdge, compressedEdgeStrength, false, 9400.0f);
     const f32 stratusCoreTop = CloudColumnTopForTest(stratusCore, stratusCoreStrength, false, 9400.0f);
-    EXPECT_NEAR(tallCoreTop, 0.990f, 1e-6f);
-    EXPECT_NEAR(compressedEdgeTop, 0.362405f, 1e-6f);
+    EXPECT_NEAR(tallCoreTop, 0.995f, 1e-6f);
+    EXPECT_NEAR(compressedEdgeTop, 0.28225f, 1e-6f);
     EXPECT_NEAR(stratusCoreTop, 0.398f, 1e-6f);
     EXPECT_TRUE((tallCoreTop - compressedEdgeTop) * 9400.0f > 5400.0f);
     EXPECT_TRUE(compressedEdgeTop * 9400.0f < 4000.0f);
@@ -4078,7 +4109,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(
         CloudNormalizedBaseDensityForTest(0.18f), 0.0f, 0.0f);
     EXPECT_NEAR(
-        CloudNormalizedBaseDensityForTest(0.34f), 0.5f, 1.0e-6f);
+        CloudNormalizedBaseDensityForTest(0.34f), 0.4117955f, 1.0e-6f);
     EXPECT_NEAR(
         CloudNormalizedBaseDensityForTest(0.50f), 1.0f, 0.0f);
 
@@ -5742,6 +5773,7 @@ ACS_TEST(VolumetricClouds,
     const FVec2 fixedWarp{-37.0f, 52.5f};
     constexpr f32 kShapeScale = 0.00021f;
     constexpr f32 kInverseLayerHeight = 1.0f / 9400.0f;
+    constexpr f32 kToweringStrength = 0.0f;
     const f32 kVerticalSpan = CloudShapeVerticalSpanForTest(
         kShapeScale, kInverseLayerHeight);
     constexpr f32 kWeatherType = 0.63f;
@@ -5759,7 +5791,9 @@ ACS_TEST(VolumetricClouds,
         [&](FVec3 point, f32 height, f32 verticalSpan) noexcept {
             const f32 canonicalY =
                 height * verticalSpan *
-                    CloudShapeVerticalVariationForTest(false) +
+                    CloudShapeVerticalVariationForTest(
+                        false, kShapeScale, kInverseLayerHeight,
+                        kToweringStrength) +
                 (kWeatherType * 430.0f +
                  kWeatherAnvil * 240.0f) * kShapeScale + 0.07f;
             return FVec3{
@@ -5773,8 +5807,16 @@ ACS_TEST(VolumetricClouds,
                 unrotatedUvw(point, height, verticalSpan));
         };
     EXPECT_NEAR(kVerticalSpan, 1.974f, 1e-6f);
-    EXPECT_NEAR(CloudShapeVerticalVariationForTest(false), 6.00f, 1e-6f);
-    EXPECT_NEAR(CloudShapeVerticalVariationForTest(true), 0.78f, 1e-6f);
+    EXPECT_NEAR(
+        CloudShapeVerticalVariationForTest(
+            false, kShapeScale, kInverseLayerHeight,
+            kToweringStrength),
+        1.20f, 1e-6f);
+    EXPECT_NEAR(
+        CloudShapeVerticalVariationForTest(
+            true, kShapeScale, kInverseLayerHeight,
+            kToweringStrength),
+        1.20f, 1e-6f);
     constexpr f32 kWeatherVerticalMeters =
         kWeatherType * 430.0f + kWeatherAnvil * 240.0f;
     EXPECT_NEAR(kWeatherVerticalMeters, 338.1f, 1.0e-4f);
@@ -5831,7 +5873,9 @@ ACS_TEST(VolumetricClouds,
         FVec3{0.0f, 0.0f, 0.0f}, 0.0f, kVerticalSpan);
     const FVec3 verticalPeriod = absoluteUvw(
         FVec3{0.0f, 0.0f, 0.0f},
-        1.0f / (kVerticalSpan * CloudShapeVerticalVariationForTest(false)),
+        1.0f / (kVerticalSpan * CloudShapeVerticalVariationForTest(
+            false, kShapeScale, kInverseLayerHeight,
+            kToweringStrength)),
         kVerticalSpan);
     const FVec3 verticalDelta{
         verticalPeriod.x - verticalStart.x,
