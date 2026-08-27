@@ -8058,6 +8058,14 @@ ACS_TEST(VolumetricClouds,
         "float2worldXz=q+cloudWindWorld();"));
     EXPECT_TRUE(Contains(
         shader,
+        "floatcloudInteriorDensityContrast(floatdensity,floatheight,floatweatherMask){"
+        "floatmiddleBand=smoothstep(0.10,0.30,saturate(height))"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcontrastWeight=0.42*middleBand*coreWeight;"
+        "floatcontrasted=saturate(0.5+(saturate(density)-0.5)*1.32);"));
+    EXPECT_TRUE(Contains(
+        shader,
         "float3cloudShadowWorldPositionAtAltitude(float2worldXz,floataltitude){"
         "float2d=worldXz-worldOrigin.xz;"
         "floatradius=CLOUD_PLANET_RADIUS+altitude;"));

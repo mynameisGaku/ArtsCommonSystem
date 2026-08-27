@@ -1566,6 +1566,19 @@ float cloudDensityFromDimensionalProfile(
     // 平方根は低密度の端部を過剰に残し、雲底の柱と灰色の棚を生みやすい。
     return saturate(baseDensity)*saturate(dimensionalProfile);
 }
+// 雲体の中層だけ、既に存在する密度の明暗幅を広げる。0の外形へ密度を足さず、
+// 1の芯も飽和させたままなので、雲縁の位置と連続性を変えずに雲中の厚みを読ませる。
+// 低詳細度の自己遮蔽と表示密度で同じ補正を使い、光だけが別の雲形状になるのを防ぐ。
+float cloudInteriorDensityContrast(
+    float density,float height,float weatherMask){
+    float middleBand=smoothstep(0.10,0.30,saturate(height))
+                    *(1.0-smoothstep(0.70,0.94,saturate(height)));
+    float coreWeight=smoothstep(0.22,0.76,saturate(weatherMask));
+    float contrastWeight=0.42*middleBand*coreWeight;
+    float contrasted=saturate(
+        0.5+(saturate(density)-0.5)*1.32);
+    return lerp(saturate(density),contrasted,contrastWeight);
+}
 // 雲頂だけ低周波形状の明暗を少し強め、平らな板ではなく膨らみと谷を見せる。
 // 雲底と中層には適用せず、密度の連続性と雲中の視程を変えない。
 float cloudTopReliefDensity(
@@ -2026,6 +2039,8 @@ float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float we
             cloudDimensionalProfile(macro.heightProfile,weatherMask));
         if(dimensionalDensity>0.001){
             float h=saturate(macro.height);
+            dimensionalDensity=cloudInteriorDensityContrast(
+                dimensionalDensity,h,weatherMask);
             densityResult=saturate(
                 dimensionalDensity
                 *cloudHeightPrecipitationDensityScale(h,macro.weather.b));
@@ -2114,6 +2129,7 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                     *smoothstep(0.10,0.86,h)*erosionVisibility;
                 d=saturate(d*lerp(1.0,interiorLobe,interiorLobeWeight));
             }
+            d=cloudInteriorDensityContrast(d,h,weatherMask);
             // 光学密度の補正は形状処理の後へ掛ける。詳細を無効にした経路は従来値と一致する。
             densityResult=saturate(d*densityScale);
         }
