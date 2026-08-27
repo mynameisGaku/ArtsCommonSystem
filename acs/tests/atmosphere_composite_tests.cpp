@@ -747,6 +747,25 @@ ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {
                 std::fabs(horizon.z - nadir.z) > 1.0e-5f);
 }
 
+ACS_TEST(Atmosphere, CpuFallbackDoesNotInjectUnintegratedLight) {
+    const std::string source = ReadAtmosphereSource();
+    const auto begin = source.find("FVec3 SingleScatter(");
+    const auto end = source.find("/** 指定方向を正規化", begin);
+    EXPECT_TRUE(begin != source.npos);
+    EXPECT_TRUE(end != source.npos);
+    if (begin == source.npos || end == source.npos) return;
+
+    const std::string single_scatter = source.substr(begin, end - begin);
+    EXPECT_FALSE(Contains(single_scatter, "kMs"));
+    EXPECT_FALSE(Contains(single_scatter, "kIso"));
+    EXPECT_TRUE(Contains(
+        single_scatter,
+        "beta_r.x * phase_r * inscatter_r.x"));
+    EXPECT_TRUE(Contains(
+        single_scatter,
+        "beta_m * phase_m * inscatter_m.x"));
+}
+
 ACS_TEST(Atmosphere, CpuEnvironmentBakeUsesObserverAltitude) {
     FAtmosphereParams params{};
     params.sun_dir = FVec3{0.1f, 0.95f, 0.2f};

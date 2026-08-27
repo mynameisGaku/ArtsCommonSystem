@@ -295,14 +295,13 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         view_od_o += d_o;
     }
 
-    // CPU fallback はGPUの多重散乱表を持たないため、単散乱へ等方成分を少量加える。
-    // 主経路のCPU/GPU一致を優先し、この近似はGPUの多重散乱表を使えない場合だけ残す。
-    const f32 kIso = 1.0f / (4.0f * kPi);
-    const f32 kMs  = 0.18f;                  // 多重散乱の強さ (視覚調整、控えめにして白飛び回避)
+    // CPU代替経路ではGPUの多重散乱表を参照できないため、計算していない
+    // 等方光を足さず、Rayleigh/Mieの単散乱と吸収だけを返す。明るさを保つ
+    // ための視覚補正を混ぜると、GPU経路と物理的な意味が変わる。
     const FVec3 result{
-        sun_intensity.x * (beta_r.x * (phase_r + kMs * kIso) * inscatter_r.x + beta_m * (phase_m + kMs * kIso) * inscatter_m.x),
-        sun_intensity.y * (beta_r.y * (phase_r + kMs * kIso) * inscatter_r.y + beta_m * (phase_m + kMs * kIso) * inscatter_m.y),
-        sun_intensity.z * (beta_r.z * (phase_r + kMs * kIso) * inscatter_r.z + beta_m * (phase_m + kMs * kIso) * inscatter_m.z),
+        sun_intensity.x * (beta_r.x * phase_r * inscatter_r.x + beta_m * phase_m * inscatter_m.x),
+        sun_intensity.y * (beta_r.y * phase_r * inscatter_r.y + beta_m * phase_m * inscatter_m.y),
+        sun_intensity.z * (beta_r.z * phase_r * inscatter_r.z + beta_m * phase_m * inscatter_m.z),
     };
     return result;
 }
