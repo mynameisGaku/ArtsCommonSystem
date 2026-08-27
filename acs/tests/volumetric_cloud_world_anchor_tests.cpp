@@ -607,10 +607,10 @@ f32 CloudStormProfileForTest(f32 height, f32 cloudType, f32 toweringStrength, f3
     const f32 stratus = SmoothStepForTest(0.0f, riseEnds.x, height) *
         (1.0f - SmoothStepForTest(0.38f, 0.50f, height));
     const f32 stratocumulus = SmoothStepForTest(0.0f, riseEnds.y, height) *
-        (1.0f - SmoothStepForTest(0.72f, 0.90f, height)) *
+        (1.0f - SmoothStepForTest(0.72f, 0.98f, height)) *
         (0.78f + 0.22f * SmoothStepForTest(0.08f, 0.42f, height));
     const f32 cumulus = SmoothStepForTest(0.0f, riseEnds.z, height) *
-        (1.0f - SmoothStepForTest(0.62f, 0.94f, height)) *
+        (1.0f - SmoothStepForTest(0.62f, 0.995f, height)) *
         (0.64f + 0.36f * SmoothStepForTest(0.12f, 0.52f, height));
     const f32 mixedLowCloud = stratus +
         (stratocumulus - stratus) * stratocumulusWeight;
@@ -3885,6 +3885,12 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(tallCoreTop, 0.995f, 1e-6f);
     EXPECT_NEAR(compressedEdgeTop, 0.28225f, 1e-6f);
     EXPECT_NEAR(stratusCoreTop, 0.398f, 1e-6f);
+    const f32 normalCloudTopProfile =
+        CloudStormProfileForTest(0.88f, 0.50f, 0.0f, 9400.0f);
+    const f32 normalCloudCeilingProfile =
+        CloudStormProfileForTest(0.995f, 0.50f, 0.0f, 9400.0f);
+    EXPECT_TRUE(normalCloudTopProfile > 0.25f);
+    EXPECT_TRUE(normalCloudCeilingProfile < 0.01f);
     EXPECT_TRUE((tallCoreTop - compressedEdgeTop) * 9400.0f > 5400.0f);
     EXPECT_TRUE(compressedEdgeTop * 9400.0f < 4000.0f);
     EXPECT_NEAR(CloudColumnHeightForTest(tallCoreTop, tallCore, 0.0f, tallCoreStrength, false, 9400.0f), 1.0f, 1e-6f);
@@ -3985,7 +3991,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatcloudColumnTop(" "floattopShift,floattoweringStrength,boolupperBand){" "floatordinaryTop=clamp(" "3000.0*cloudFrameTerms.w,0.38,0.88);" "floatlowerCenter=lerp(" "ordinaryTop,0.92,saturate(toweringStrength));" "floattopCenter=upperBand?0.96:lowerCenter;" "floatshiftScale=upperBand?0.30:1.0;" "floatminimumTop=upperBand?0.90:max(lowerCenter-0.12,0.20);" "returnclamp(topCenter+topShift*shiftScale,minimumTop,0.995);}"));
     EXPECT_TRUE(Contains(shader, "float2cloudColumnHeightAndSpan(" "floath,floattopShift,floatbaseLift,floattoweringStrength," "boolupperBand){" "h=saturate(h);" "floatbandScale=upperBand?0.35:1.0;" "floatlocalBase=saturate(baseLift*bandScale);" "floatlocalTop=max(" "cloudColumnTop(topShift,toweringStrength,upperBand),localBase+0.08);" "floatcolumnSpan=max(localTop-localBase,0.001);" "returnfloat2(saturate((h-localBase)/columnSpan),columnSpan);}"));
     EXPECT_FALSE(Contains(shader, "cloudConvectiveHeight("));
-    EXPECT_TRUE(Contains(shader, "float4(0.50,0.90,0.94,0.999),h.xxxx);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float4(0.50,0.98,0.995,0.999),h.xxxx);"));
     EXPECT_FALSE(Contains(shader, "sharedLightProfileTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightColumnTerms"));
     EXPECT_TRUE(Contains(shader, "floatviewWeatherMask=macro.densityWeatherMask;"));

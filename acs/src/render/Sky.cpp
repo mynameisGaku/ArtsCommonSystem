@@ -1295,7 +1295,11 @@ float cloudProfileFromTypeWeights(
     float4 rise=smoothstep(
         float4(0.0,0.0,0.0,0.0),
         riseEnds,h.xxxx);
-    float4 fall=1.0-smoothstep(float4(0.38,0.72,0.62,0.94),float4(0.50,0.90,0.94,0.999),h.xxxx);
+    // 雲柱を局所高さへ再配置した後は、雲頂付近まで密度支持を残す。
+    // 固定層座標の終端を使うと通常雲の上部だけが先に消え、薄い板や粒の列に見える。
+    float4 fall=1.0-smoothstep(
+        float4(0.38,0.72,0.62,0.94),
+        float4(0.50,0.98,0.995,0.999),h.xxxx);
     float stratus=rise.x*fall.x;
     // 層積雲と積雲は凝結直後を少し薄くし、中層で本体密度へ連続的に達する。
     // 下端を最初から一様な密度にすると、3D形状の縦節が灰色の柱として残る。
