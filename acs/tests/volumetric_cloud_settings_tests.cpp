@@ -86,7 +86,7 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     /** GPU へ渡せる範囲へ直した照明。 */
     const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
     EXPECT_NEAR(lighting.ViewExtinction, 0.0f, 0.0f);
-    EXPECT_NEAR(lighting.LightExtinction, 2.0f, 0.0f);
+    EXPECT_NEAR(lighting.LightExtinction, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.SunScatter, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.SunScatteringLuminanceScale, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.PowderStrength, 0.0f, 0.0f);
@@ -135,10 +135,10 @@ ACS_TEST(VolumetricCloudSettings, DefaultExtinctionKeepsReferenceLayerDepthBound
         2500.0f * kVolumetricCloudReferenceExtinctionPerMeter *
         lighting.ViewExtinction;
 
-    EXPECT_NEAR(lighting.ViewExtinction, 2.0f, 0.0f);
-    EXPECT_NEAR(lighting.LightExtinction, 2.0f, 0.0f);
-    EXPECT_NEAR(referenceOpticalDepth, 3.2f, 1.0e-6f);
-    EXPECT_TRUE(referenceOpticalDepth < 4.0f);
+    EXPECT_NEAR(lighting.ViewExtinction, 1.0f, 0.0f);
+    EXPECT_NEAR(lighting.LightExtinction, 1.0f, 0.0f);
+    EXPECT_NEAR(referenceOpticalDepth, 1.6f, 1.0e-6f);
+    EXPECT_TRUE(referenceOpticalDepth < 2.0f);
 }
 
 ACS_TEST(VolumetricCloudSettings, DirectionalLuminanceCompensationIsFiniteAndDoesNotReplaceAlbedo)
@@ -347,8 +347,8 @@ ACS_TEST(VolumetricCloudSettings, LocalViewDistanceIsContinuousInsideAndOutsideL
     constexpr f32 baseHeight = 2600.0f;
     constexpr f32 topHeight = 5200.0f;
     constexpr f32 maximumDistance = 250000.0f;
-    /** 層厚の4倍から求まる中央部の局所視程。 */
-    constexpr f32 interiorDistance = 10400.0f;
+    /** 層厚から求まる中央部の局所視程。 */
+    constexpr f32 interiorDistance = 2600.0f;
 
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(baseHeight, baseHeight, topHeight, maximumDistance), interiorDistance, 0.01f);
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, baseHeight, topHeight, maximumDistance), interiorDistance, 0.01f);
@@ -370,11 +370,12 @@ ACS_TEST(VolumetricCloudSettings, LocalViewDistanceIsContinuousInsideAndOutsideL
     EXPECT_TRUE(EvaluateVolumetricCloudInteriorViewDistance(5400.0f, baseHeight, topHeight, maximumDistance) < 12000.0f);
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(8000.0f, baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
 
-    /** 薄い層と厚い層は公開した8～35 kmの範囲へ収まる。 */
+    /** 薄い層と厚い層は公開した2.5～16 kmの範囲へ収まる。 */
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(500.0f, 0.0f, 1000.0f, maximumDistance), kVolumetricCloudInteriorMinDistance, 0.01f);
-    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(5000.0f, 0.0f, 10000.0f, maximumDistance), kVolumetricCloudInteriorMaxDistance, 0.01f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(5000.0f, 0.0f, 10000.0f, maximumDistance), 10000.0f, 0.01f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(5000.0f, 0.0f, 20000.0f, maximumDistance), kVolumetricCloudInteriorMaxDistance, 0.01f);
     /** 利用側が局所視程より短く指定した場合は、その指定を広げない。 */
-    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, baseHeight, topHeight, 6000.0f), 6000.0f, 0.0f);
+    EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, baseHeight, topHeight, 2000.0f), 2000.0f, 0.0f);
     /** 不正な高度または層は正規化した遠景距離へ戻る。 */
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(std::numeric_limits<f32>::quiet_NaN(), baseHeight, topHeight, maximumDistance), maximumDistance, 0.0f);
     EXPECT_NEAR(EvaluateVolumetricCloudInteriorViewDistance(3900.0f, topHeight, baseHeight, maximumDistance), maximumDistance, 0.0f);

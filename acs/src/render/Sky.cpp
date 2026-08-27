@@ -732,10 +732,9 @@ float fullShapeAt(float3 uvw){
     float perlin8 = gnoise(warpedUvw*8.0,8.0);
     float perlin16 = gnoise(warpedUvw*16.0,16.0);
     // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
-    // 中～高周波を少し増やし、同じX・Zへ細い房が縦に積み重なるのを抑える。
-    // 低周波の連続性を主形状の基準に戻し、16セル級の変化は後段の侵食へ任せる。
-    // 高周波を主形状へ混ぜ過ぎると、上空視点で雲体が粒と細柱へ分断される。
-    float perlinFull = perlin2*0.56+perlin4*0.32
+    // 大きな雲塊を連結したまま、2セル級から4セル級へ少し重みを移して
+    // 中規模の膨らみと谷を戻す。高周波を増やさないため、粒と細柱を増やさない。
+    float perlinFull = perlin2*0.50+perlin4*0.38
                       +perlin8*0.10+perlin16*0.02;
     float wa = worley(warpedUvw,4.0);
     float wb = worley(warpedUvw,8.0);
@@ -1562,7 +1561,9 @@ float cloudNormalizedBaseDensity(float baseNoise){
     // 高密度の芯と空洞の差が失われる。強いS字変換は細い柱を作るため避ける。
     float normalized=remapc(
         baseNoise,cloudCoverage.z,cloudCoverage.w,0.0,1.0);
-    return pow(normalized,1.28);
+    // 低密度の外縁を長い視線へ残し過ぎると、積分後に薄い灰色の膜へ均される。
+    // 1.55へ緩やかに寄せ、0と1の端点を保ったまま芯と縁の差を実密度へ伝える。
+    return pow(normalized,1.55);
 }
 // 積雲の凝結高度では同じ天候塊の底面が概ね揃う。3D雑音の高い点だけを先に
 // 可視化すると逆円すい状の尾になるため、雲底近傍だけに低い密度下限を置く。
@@ -1657,7 +1658,11 @@ float cloudBaseShapeBand(
     float billowSignal=smoothstep(0.18,0.70,saturate(shapeBands.g));
     float topDetail=smoothstep(0.35,0.90,saturate(height));
     float maximumErosion=fineVisibility*lerp(0.18,0.34,topDetail);
-    return saturate(shapeBands.r)
+    // 低密度の外縁は長い光路で灰色の霧へ広がり、高密度の芯は光路平均で平坦になる。
+    // 中心値と端点を保ったまま傾きだけを1.24倍にし、新しい雲や採取点は増やさない。
+    float rawShape=saturate(shapeBands.r);
+    float contrastedShape=saturate(0.5+(rawShape-0.5)*1.24);
+    return contrastedShape
           *lerp(1.0-maximumErosion,1.0,billowSignal);
 }
 // 二領域を混ぜた被覆値の実測百分位へ合わせ、入力0.1/0.5/0.9が

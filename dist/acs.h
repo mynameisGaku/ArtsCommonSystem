@@ -59334,10 +59334,10 @@ struct FVolumetricCloudLighting {
      * 実際の消散係数は、手続き密度と作者密度にこの値および
      * `kVolumetricCloudReferenceExtinctionPerMeter`を掛けた`m^-1`になる。
      */
-    f32 ViewExtinction = 5.0f;
+    f32 ViewExtinction = 1.0f;
 
     /** 光の方向の消散。見る方向と揃える。 */
-    f32 LightExtinction = 5.0f;
+    f32 LightExtinction = 1.0f;
 
     /**
      * 消散した光のうち散乱に回る割合（単散乱アルベド）。
@@ -59536,13 +59536,13 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
 inline constexpr f32 kVolumetricCloudMinDistance = 1000.0f;
 
 /** 雲層内で局所的な雲塊を追う距離を層厚から求める倍率。 */
-inline constexpr f32 kVolumetricCloudInteriorDistanceScale = 4.0f;
+inline constexpr f32 kVolumetricCloudInteriorDistanceScale = 1.0f;
 
 /** 薄い雲層でも距離フェードが近景へ見えないように保つ最短の層内視程。 */
-inline constexpr f32 kVolumetricCloudInteriorMinDistance = 8000.0f;
+inline constexpr f32 kVolumetricCloudInteriorMinDistance = 2500.0f;
 
 /** 雲層内の水平レイが遠距離の平均色へ収束しないようにする最長の層内視程。 */
-inline constexpr f32 kVolumetricCloudInteriorMaxDistance = 35000.0f;
+inline constexpr f32 kVolumetricCloudInteriorMaxDistance = 16000.0f;
 
 /** 雲層境界の外側で局所視程から遠景距離へ戻す近接帯の、層厚に対する割合。 */
 inline constexpr f32 kVolumetricCloudBoundaryTransitionFraction = 0.5f;
@@ -59653,7 +59653,7 @@ f32 EvaluateVolumetricCloudDistanceFade(f32 sample_distance, f32 max_distance, f
 /**
  * カメラ高度に応じて、一つの雲層内と境界近傍で使う局所的な最大描画距離を求める。
  *
- * @details 層内では層厚の4倍を8～35 kmへ収めた局所視程を使う。層境界の外側50%を
+ * @details 層内では層厚の1倍を2.5～16 kmへ収めた局所視程を使う。層境界の外側50%を
  * 近接帯とし、そこで局所視程から指定距離へ逆距離補間する。境界直上または直下で遠距離の
  * 平均色へ戻らず、進入・内部・退出を連続して描ける。
  *
