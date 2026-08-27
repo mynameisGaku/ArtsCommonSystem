@@ -733,8 +733,10 @@ float fullShapeAt(float3 uvw){
     float perlin16 = gnoise(warpedUvw*16.0,16.0);
     // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
     // 中～高周波を少し増やし、同じX・Zへ細い房が縦に積み重なるのを抑える。
-    float perlinFull = perlin2*0.46+perlin4*0.36
-                      +perlin8*0.14+perlin16*0.04;
+    // 低周波の連続性を主形状の基準に戻し、16セル級の変化は後段の侵食へ任せる。
+    // 高周波を主形状へ混ぜ過ぎると、上空視点で雲体が粒と細柱へ分断される。
+    float perlinFull = perlin2*0.56+perlin4*0.32
+                      +perlin8*0.10+perlin16*0.02;
     float wa = worley(warpedUvw,4.0);
     float wb = worley(warpedUvw,8.0);
     float wc = worley(warpedUvw,16.0);
@@ -744,17 +746,18 @@ float fullShapeAt(float3 uvw){
     // 細胞補正の振幅は抑え、低周波の連続した雲塊へ局所的な房だけを重ねる。
     // 遷移が広過ぎると雲塊の大半が同じ密度へ寄り、照明の陰影が一枚の板になる。
     // 遷移を少し締め、芯と縁の差を戻しながら空洞が粒へ分断されない範囲に保つ。
-    float broadMass=smoothstep(0.42,0.64,perlinFull);
-    float lobeMass=smoothstep(0.30,0.82,wa);
+    // 雲体の発生境界を少し広く保ち、低周波の谷を細い穴へしない。
+    float broadMass=smoothstep(0.38,0.64,perlinFull);
+    float lobeMass=smoothstep(0.34,0.78,wa);
     float cellularMass=smoothstep(0.36,0.88,worleyFull);
     // 焼き込み済みの低周波形状を外形の内側の大きな房にも使う。外形へ足し算せず、
     // 既存の連続した雲体を上下へ濃淡化するため、粒状の浮遊物を増やさない。
     float interiorLobe=smoothstep(0.24,0.78,perlinFull);
-    float bodyVariation=lerp(0.86,1.18,interiorLobe);
+    float bodyVariation=lerp(0.90,1.12,interiorLobe);
     // 大きな房の振幅だけを広げ、主形状の外側へ新しい粒を足さずに
     // 連続した雲塊の中の膨らみと谷を読み取れるようにする。
-    return broadMass*bodyVariation*lerp(0.58,1.12,lobeMass)
-                   *lerp(0.86,1.02,cellularMass);
+    return broadMass*bodyVariation*lerp(0.72,1.08,lobeMass)
+                   *lerp(0.90,1.02,cellularMass);
 }
 float fullShapeColumnAt(float3 uvw){
     // 水平だけでなく上下も平均し、同じ柱の細い縦筋を焼き込み時に抑える。
@@ -1236,7 +1239,12 @@ float cloudLocalToweringStrength(float4 weather,float cloudInterior){
     // 広域の対流候補だけでは塔にせず、天候域の中心へ入った場所だけを成熟させる。
     // 外周まで同じ縦分布へすると一枚の壁になり、中心だけへ絞り過ぎると細柱になるため、
     // 両方の平滑遷移を残して発達域の幅を確保する。
-    float broadPotential=smoothstep(0.66,0.92,saturate(weather.a));
+    // 雲種・降水を明示した場合は、手続き天候場が低くても発達域の下限を残す。
+    // これを持たないと全域を積乱雲へ設定しても通常雲の低い雲頂へ戻り、高さが失われる。
+    float authoredFloor=0.45*authoredTower;
+    float broadPotential=max(
+        smoothstep(0.66,0.92,saturate(weather.a)),
+        authoredFloor);
     float interiorPotential=smoothstep(0.50,0.96,saturate(cloudInterior));
     float localPotential=broadPotential*interiorPotential;
     // 対流域の外側では通常雲の高さへ戻し、全域指定時にも縁へ塔を残さない。
@@ -1580,9 +1588,11 @@ float cloudInteriorDensityContrast(
     float middleBand=smoothstep(0.10,0.30,saturate(height))
                     *(1.0-smoothstep(0.70,0.94,saturate(height)));
     float coreWeight=smoothstep(0.22,0.76,saturate(weatherMask));
-    float contrastWeight=0.42*middleBand*coreWeight;
+    // 中層の雲中心でも低周波形状の差が光路積算前に残るよう、中心0.5を
+    // 固定したまま補正量を広げる。新しい雑音採取は行わず、柱状化を増やさない。
+    float contrastWeight=0.56*middleBand*coreWeight;
     float contrasted=saturate(
-        0.5+(saturate(density)-0.5)*1.32);
+        0.5+(saturate(density)-0.5)*1.60);
     return lerp(saturate(density),contrasted,contrastWeight);
 }
 // 雲頂だけ低周波形状の明暗を少し強め、平らな板ではなく膨らみと谷を見せる。
