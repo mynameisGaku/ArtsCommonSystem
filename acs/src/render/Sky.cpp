@@ -1050,6 +1050,8 @@ static const float CLOUD_PLANET_RADIUS=6360000.0;
 static const uint CLOUD_SHADOW_CACHE_HEIGHT=32u;
 // 遠距離5点だけをキャッシュで置き換え、信頼度が不足する場所は正確な積分へ戻す。
 static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
+// 部分更新で古い光路と現在の光路を連続化し、更新格子だけが点滅するのを防ぐ。
+static const float CLOUD_SHADOW_PARTIAL_BLEND=0.72;
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
 // origin, so xz^2/(R+y)^2 stays below 0.0016.  The fourth-order expansion of
 // sqrt((R+y)^2+xz^2)-R removes a per-density-sample square root while retaining
@@ -2430,8 +2432,22 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
             totalColumnDepth-groundDepth-halfSegmentDepth
                 +upperColumnDepth,0.0);
         float sampleGroundDepth=groundDepth+halfSegmentDepth;
-        cloudShadowOut[outputVoxel]=float4(
+        // 現在フレームの自己影情報。部分更新時は直前の有限値と補間する。
+        float4 shadowValue=float4(
             meanDepth,disagreement,skyDepth,sampleGroundDepth);
+        if(cloudShadowUpdate.w<0.5){
+            // 未更新の縦列は最大3フレーム前の値を持つ。部分更新時だけ有効値と
+            // 混ぜ、初回・全更新では現在の光路をそのまま採用する。
+            float4 previousValue=cloudShadowOut[outputVoxel];
+            bool previousFinite=all(previousValue==previousValue)
+                              &&all(previousValue>=0.0)
+                              &&all(previousValue<65504.0);
+            if(previousFinite){
+                shadowValue=lerp(
+                    previousValue,shadowValue,CLOUD_SHADOW_PARTIAL_BLEND);
+            }
+        }
+        cloudShadowOut[outputVoxel]=shadowValue;
         groundDepth+=columnSegmentDepth[outputHeightIndex];
     }
 }
@@ -2491,7 +2507,22 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
         }
         transmittance=exp(-max(opticalDepth,0.0)*max(cloudLightingExtinction.y,0.0));
     }
-    cloudOut[outputPixel]=float4(saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);
+    // 現在フレームの立体物用雲影情報。部分更新時は直前の有限値と補間する。
+    float4 worldShadowValue=float4(
+        saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);
+    if(cloudShadowUpdate.w<0.5){
+        // 立体物用地図も部分更新の境界だけを急に切り替えず、雲影の移動を
+        // 数フレームへ分散する。全更新時は古い影を残さない。
+        float4 previousValue=cloudOut[outputPixel];
+        bool previousFinite=all(previousValue==previousValue)
+                          &&all(previousValue>=0.0)
+                          &&all(previousValue<65504.0);
+        if(previousFinite){
+            worldShadowValue=lerp(
+                previousValue,worldShadowValue,CLOUD_SHADOW_PARTIAL_BLEND);
+        }
+    }
+    cloudOut[outputPixel]=worldShadowValue;
 }
 
 uint CloudTemporalBlockPhase4(uint2 blockQ,uint phaseIndex) {

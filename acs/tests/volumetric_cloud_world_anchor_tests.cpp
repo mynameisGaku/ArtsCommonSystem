@@ -8105,7 +8105,9 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     EXPECT_TRUE(Contains(shader, "[numthreads(8,8,1)]voidCSCloudWorldShadow(uint3tid:SV_DispatchThreadID){"));
     EXPECT_TRUE(Contains(shader, "uint2outputPixel=tid.xy*updateStride+(uint2)cloudShadowUpdate.xy;"));
     EXPECT_TRUE(Contains(shader, "if(any(outputPixel>=uint2(width,height)))return;"));
-    EXPECT_TRUE(Contains(shader, "cloudOut[outputPixel]=float4("));
+    EXPECT_TRUE(Contains(shader, "float4worldShadowValue=float4(saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);"));
+    EXPECT_TRUE(Contains(shader, "worldShadowValue=lerp(previousValue,worldShadowValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_TRUE(Contains(shader, "cloudOut[outputPixel]=worldShadowValue;"));
     EXPECT_TRUE(Contains(shader, "constintSAMPLE_COUNT=32;"));
     EXPECT_TRUE(Contains(shader, "floatoccupiedLength=max(firstLength+secondLength,1e-5);"));
     EXPECT_TRUE(Contains(shader, "firstSampleCount=clamp((int)round(float(SAMPLE_COUNT)*firstLength/occupiedLength),1,SAMPLE_COUNT-1);"));
@@ -8266,7 +8268,12 @@ ACS_TEST(VolumetricClouds,
         "densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;"
         "++densityHeightIndex){"));
     EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
-    EXPECT_TRUE(Contains(shader, "cloudShadowOut[outputVoxel]=float4(" "meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
+    EXPECT_TRUE(Contains(shader, "staticconstfloatCLOUD_SHADOW_PARTIAL_BLEND=0.72;"));
+    EXPECT_TRUE(Contains(shader, "float4shadowValue=float4(meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
+    EXPECT_TRUE(Contains(shader, "if(cloudShadowUpdate.w<0.5){"));
+    EXPECT_TRUE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
+    EXPECT_TRUE(Contains(shader, "shadowValue=lerp(previousValue,shadowValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_TRUE(Contains(shader, "cloudShadowOut[outputVoxel]=shadowValue;"));
     EXPECT_TRUE(Contains(shader, "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
     EXPECT_FALSE(Contains(shader, "CSCloudShadowFinalize"));
     EXPECT_FALSE(Contains(shader, "cloudShadowCache.Load("));
