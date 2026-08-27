@@ -500,6 +500,20 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
         && release_end != std::string::npos) {
         const std::string release = source.substr(
             release_begin, release_end - release_begin);
+        EXPECT_TRUE(release.find("m_Clouds.Shutdown();")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_Atmosphere.Shutdown();")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_Ibl.Shutdown();")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_Shadow.Shutdown();")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_CloudsReady = false;")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_IblReady = false;")
+            != std::string::npos);
+        EXPECT_TRUE(release.find("m_ShadowReady = false;")
+            != std::string::npos);
         EXPECT_TRUE(release.find(
             "m_BrdfLutUnavailable = false;")
             != std::string::npos);

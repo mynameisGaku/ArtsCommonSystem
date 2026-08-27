@@ -4499,6 +4499,10 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_BlitPendingShaders = {};
     m_SpritePendingShaders = {};
     m_SkyPendingShaders = {};
+    m_Clouds.Shutdown();
+    m_Atmosphere.Shutdown();
+    m_Ibl.Shutdown();
+    m_Shadow.Shutdown();
     m_Sky.Shutdown();
     m_NormalDepth.Shutdown();
     m_Ssao.Shutdown();
@@ -4569,6 +4573,17 @@ void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_DepthSnapshotFailed = false;
     m_SsssRequested = false;
     m_SkyGpuState = ESkyGpuState::Unavailable;
+    m_CloudsReady = false;
+    m_CloudsDrawn = false;
+    m_CloudsWidth = 0u;
+    m_CloudsHeight = 0u;
+    m_CloudsSizedForReference = false;
+    m_AtmosphereTried = false;
+    m_IblBakedCloudSignature = ~u32{0};
+    m_IblReady = false;
+    m_IblBakedSunDirection = FVec3{0.0f, 0.0f, 0.0f};
+    m_ShadowReady = false;
+    m_ShadowCascadeCount = 0u;
     m_GpuReady = false;
     m_GpuAttempted = false;
     m_BrdfLutUnavailable = false;
