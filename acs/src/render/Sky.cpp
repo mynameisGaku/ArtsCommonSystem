@@ -2240,7 +2240,7 @@ float traceCloudShadowPattern(
 
 // 利用可否、光学的深さ、混合率を、初期化済みの一つの値として返す。
 // FXCが早期棄却経路を未初期化と誤判定することを避ける。
-float3 sampleCloudShadowTail(float3 lp,float density){
+float3 sampleCloudShadowTail(float3 lp){
     // 全ての棄却経路で一つの初期値を保ち、D3D12上の孤立した明暗画素を防ぐ。
     float3 result=float3(0.0,0.0,0.0);
     if(shadowState.x>0.5){
@@ -2266,8 +2266,9 @@ float3 sampleCloudShadowTail(float3 lp,float density){
                           && all(cached<65504.0);
             if(finiteValue){
                 // yは二つの採取模様の差であり、大きい場所は正確な遠距離積分へ戻す。
-                float tauDisagreement=
-                    cached.y*density*cloudLightingExtinction.y;
+                // cached.yは形状密度を光線上へ積分した光学的深さの差である。
+                // 現在地点の局所密度は掛けず、信頼度判定では無次元の差として比較する。
+                float tauDisagreement=cached.y;
                 if(tauDisagreement<=shadowState.y){
                     float confidenceWeight=1.0-smoothstep(
                         shadowState.y*0.60,
@@ -2789,7 +2790,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             }
             bool cachedFarTail=false;
             if(!lightTerminated && CLOUD_MAIN_SHADOW_CACHE_ENABLED){
-                float3 cachedTailSample=sampleCloudShadowTail(lp,density);
+                float3 cachedTailSample=sampleCloudShadowTail(lp);
                 if(cachedTailSample.x>0.5){
                     float cachedTail=cachedTailSample.y;
                     float cacheWeight=cachedTailSample.z;
@@ -2836,6 +2837,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     exactTail,cachedTailForBlend,cacheBlendWeight);
             }
             lightDepth=max(lightDepth,0.0);
+            // lightDepthは形状密度と距離を既に積分した値なので、ここでは
+            // 設定された全体密度と光方向の消散係数だけを一度掛ける。
+            // 光線標本の局所密度を再度掛けないため、密度の二重計上にならない。
             float tauL=lightDepth*density*cloudLightingExtinction.y;
             float beer=exp(-tauL);
             // 二次・三次とも、光源側と視線側へ同じ次数の消散縮小率を使う。

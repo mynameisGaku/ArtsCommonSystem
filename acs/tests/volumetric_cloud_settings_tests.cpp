@@ -651,7 +651,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
 
-    EXPECT_TRUE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
+    EXPECT_TRUE(Contains(source, "cached.y"));
+    EXPECT_FALSE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
+    EXPECT_TRUE(Contains(source, "float tauL=lightDepth*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(source, "*lightTerminationOcclusion>18.0"));
     EXPECT_FALSE(Contains(source, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float cloudReducedIntervalScatteringWeight("));

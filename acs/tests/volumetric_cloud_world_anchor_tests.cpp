@@ -5004,13 +5004,17 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
         "lightTangent,lightBitangent,"
         "coneSin,coneCos);"));
     EXPECT_FALSE(Contains(shader, "detailedLightDepth"));
+    EXPECT_TRUE(Contains(shader, "if(blendCachedTail&&!lightTerminated){"));
     EXPECT_TRUE(Contains(
         shader,
-        "if(blendCachedTail&&!lightTerminated){"
-        "floatexactTail=max(lightDepth-exactFarStart,0.0);"
+        "floatexactTail=max(lightDepth-exactFarStart,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader,
         "lightDepth=exactFarStart+lerp("
-        "exactTail,cachedTailForBlend,cacheBlendWeight);"
-        "}lightDepth=max(lightDepth,0.0);"
+        "exactTail,cachedTailForBlend,cacheBlendWeight);"));
+    EXPECT_TRUE(Contains(shader, "}lightDepth=max(lightDepth,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader,
         "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(
         shader, "floatlightStep=cloudCoverageReciprocals.w;"));
@@ -5042,7 +5046,7 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_TRUE(nearTailOrigin != std::string::npos);
     EXPECT_TRUE(nearLoop < nearTailOrigin);
     EXPECT_TRUE(nearTailOrigin < cacheAttempt);
-    EXPECT_TRUE(Contains(shader, "float3cachedTailSample=sampleCloudShadowTail(lp,density);"));
+    EXPECT_TRUE(Contains(shader, "float3cachedTailSample=sampleCloudShadowTail(lp);"));
 }
 
 ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpperLayer)
@@ -7409,6 +7413,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatphaseMulti=hg(cosA,cloudMultiPhase.x);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(shader, "phaseMulti=clamp(" "phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);"));
     EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);"));
     EXPECT_FALSE(Contains(shader, "inScatterVertical"));
@@ -8055,6 +8062,10 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floattauDisagreement="
+        "cached.y;"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "floattauDisagreement="
         "cached.y*density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(
         shader,
@@ -8116,7 +8127,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=true;"));
     EXPECT_TRUE(Contains(
         shader,
-        "float3cachedTailSample=sampleCloudShadowTail(lp,density);"
+        "float3cachedTailSample=sampleCloudShadowTail(lp);"
         "if(cachedTailSample.x>0.5){"));
     EXPECT_TRUE(Contains(
         shader,
