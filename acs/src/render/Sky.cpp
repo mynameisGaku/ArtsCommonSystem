@@ -3610,13 +3610,6 @@ float CloudCameraAltitude(){
     float q=radialXzSquared/radialY;
     return local.y+q*(0.5-q/radialY*0.125);
 }
-bool CloudCameraInsideCloudLayer(){
-    float cameraAltitude=CloudCameraAltitude();
-    bool insideLower=cameraAltitude>=layer.x&&cameraAltitude<layer.y;
-    bool insideUpper=cloudUpperLayer.w>0.5&&
-        cameraAltitude>=cloudUpperLayer.x&&cameraAltitude<cloudUpperLayer.y;
-    return insideLower||insideUpper;
-}
 // 地上視点でだけ地面の地平線より下を除外する。雲層内または雲層より上では、
 // 下向きの視線が雲を通過して地面へ向かうため、地平線除外を適用しない。
 bool CloudCameraBelowCloudBase(){
@@ -3769,6 +3762,11 @@ bool CloudCameraInsideCloudLayer(){
         cameraAltitude>=cloudUpperLayer.x&&cameraAltitude<cloudUpperLayer.y;
     return insideLower||insideUpper;
 }
+// 雲層内では雲の代表深度を、雲より手前の大気区間として再利用しない。
+// その区間は既に雲の積分へ含まれているため、雲中からは大気の先行距離を0にする。
+float CloudCompositeAtmosphereDistance(float cloudDistance){
+    return CloudCameraInsideCloudLayer()?0.0:max(cloudDistance,0.0);
+}
 // 地上視点でだけ地面の地平線より下を除外する。雲層内または雲層より上では、
 // 下向きの視線が雲を通過して地面へ向かうため、地平線除外を適用しない。
 bool CloudCameraBelowCloudBase(){
@@ -3828,7 +3826,8 @@ float4 PSMainAtmos(VSOut v):SV_TARGET {
     }
 
     float maxDistance = max(atmosphereParams.x, 1e-3);
-    float slice = sqrt(saturate(cloudHit.x / maxDistance));
+    float atmosphereDistance=CloudCompositeAtmosphereDistance(cloudHit.x);
+    float slice = sqrt(saturate(atmosphereDistance / maxDistance));
     float4 inScatterSample = atmosphereVolume.SampleLevel(
         atmosphereVolume_sampler, float3(v.uv, slice), 0.0);
     float4 transmittanceSample = atmosphereTransmittance.SampleLevel(

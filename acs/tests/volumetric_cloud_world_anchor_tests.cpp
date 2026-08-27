@@ -7726,12 +7726,21 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(!shader.empty());
 
-    // The temporal/bilateral representative distance, not scene far depth or
-    // a layer constant, determines the atmosphere-volume slice.
+    // 雲外では時間・空間再構成後の代表距離を使い、雲中では雲の積分と重なる前景大気区間を作らない。
     EXPECT_TRUE(Contains(
         shader, "float2 cloudHit = cloudDepth.SampleLevel("));
-    EXPECT_TRUE(Contains(
+    EXPECT_FALSE(Contains(
         shader, "sqrt(saturate(cloudHit.x / maxDistance))"));
+    EXPECT_TRUE(Contains(
+        shader, "float CloudCompositeAtmosphereDistance(float cloudDistance){"));
+    EXPECT_TRUE(Contains(
+        shader, "return CloudCameraInsideCloudLayer()?0.0:max(cloudDistance,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader, "float atmosphereDistance=CloudCompositeAtmosphereDistance(cloudHit.x);"));
+    EXPECT_FALSE(Contains(
+        shader, "float slice = sqrt(saturate(cloudHit.x / maxDistance));"));
+    EXPECT_TRUE(Contains(
+        shader, "float slice = sqrt(saturate(atmosphereDistance / maxDistance));"));
     EXPECT_TRUE(Contains(
         shader, "atmosphereVolume.SampleLevel("));
     EXPECT_TRUE(Contains(
