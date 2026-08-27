@@ -2599,41 +2599,42 @@ ACS_TEST(VolumetricClouds,
         "floatcloudMacroDensity(floatperlinField,floatlobeField){"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatbodyPotential=perlinField*0.82+lobeField*0.18;"));
+        "floatbodyPotential=perlinField*0.74+lobeField*0.26;"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatoccupancy=smoothstep(0.46,0.64,bodyPotential);"));
+        "floatsupport=smoothstep(0.34,0.52,bodyPotential);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatinterior=smoothstep(0.40,0.74,bodyPotential);"));
+        "floatinterior=smoothstep(0.44,0.70,bodyPotential);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatlobeRelief=smoothstep(0.34,0.72,lobeField);"));
+        "floatlobeRelief=smoothstep(0.30,0.74,lobeField);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatinteriorDensity=lerp(0.46,1.0,interior);"));
+        "floatinteriorDensity=lerp(0.34,1.0,interior);"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "floatlobeDensity=lerp(0.88,1.08,lobeRelief);"));
+        "floatlobeLift=(lobeRelief-0.5)*0.16*interior;"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "returnsaturate(occupancy*interiorDensity*lobeDensity);"));
+        "returnsaturate(support*(interiorDensity+lobeLift));"));
     EXPECT_TRUE(Contains(
         noiseShader,
         "floatfullShape=fullShapeColumnAt(uvw);"));
     EXPECT_FALSE(Contains(noiseShader, "worleyFull-1.0"));
-    const f32 bodyPotentialForTest = 0.54f * 0.82f + 0.55f * 0.18f;
+    const f32 bodyPotentialForTest = 0.54f * 0.74f + 0.55f * 0.26f;
     const f32 supportForTest =
-        SmoothStepForTest(0.46f, 0.64f, bodyPotentialForTest);
+        SmoothStepForTest(0.34f, 0.52f, bodyPotentialForTest);
     const f32 interiorForTest =
-        SmoothStepForTest(0.40f, 0.74f, bodyPotentialForTest);
-    const f32 lobeReliefForTest = SmoothStepForTest(0.34f, 0.72f, 0.55f);
-    const f32 interiorDensityForTest = 0.46f + 0.54f * interiorForTest;
-    const f32 lobeDensityForTest = 0.88f + 0.20f * lobeReliefForTest;
+        SmoothStepForTest(0.44f, 0.70f, bodyPotentialForTest);
+    const f32 lobeReliefForTest = SmoothStepForTest(0.30f, 0.74f, 0.55f);
+    const f32 interiorDensityForTest = 0.34f + 0.66f * interiorForTest;
+    const f32 lobeLiftForTest =
+        (lobeReliefForTest - 0.5f) * 0.16f * interiorForTest;
     const f32 composedShapeForTest =
-        supportForTest * interiorDensityForTest * lobeDensityForTest;
-    EXPECT_NEAR(bodyPotentialForTest, 0.5418f, 1.0e-6f);
-    EXPECT_NEAR(supportForTest, 0.4318558f, 1.0e-6f);
+        supportForTest * (interiorDensityForTest + lobeLiftForTest);
+    EXPECT_NEAR(bodyPotentialForTest, 0.5426f, 1.0e-6f);
+    EXPECT_NEAR(supportForTest, 1.0f, 1.0e-6f);
     EXPECT_TRUE(composedShapeForTest > 0.25f);
     EXPECT_TRUE(composedShapeForTest < supportForTest);
     EXPECT_TRUE(Contains(noiseShader, "floatmacroCloud=saturate(fullShape);"));

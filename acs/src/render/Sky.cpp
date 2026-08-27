@@ -933,19 +933,22 @@ float3 cloudWarpedShapeDomain(float3 uvw){
         *float3(0.22,0.28,0.22);
     return uvw+domainWarp;
 }
-// 低周波の連結性場から、雲体の占有域と内部濃度を同時に作る。占有域だけを
-// 0/1へ潰してから密度へ流用すると雲の谷が消えるため、等値面の内側にも
-// 連続した濃淡を残し、Worleyは房の起伏だけへ使う。
+// 低周波の連結性場から、雲体の支持域、内部濃度、房の起伏を順に作る。
+// これらを乗算して同時に縮めると、平均的な雲体まで細い高密度部分へ痩せるため、
+// 最初に一つの連続した支持域を確定し、その内側だけへ濃淡とWorleyの起伏を重ねる。
 float cloudMacroDensity(float perlinField,float lobeField){
-    // 主成分を低周波Perlinへ寄せ、雲銀行の連結性を保つ。Worleyを境界へ
-    // 強く入れると、隣接する大きな雲が房の集合へ分断される。
-    float bodyPotential=perlinField*0.82+lobeField*0.18;
-    float occupancy=smoothstep(0.46,0.64,bodyPotential);
-    float interior=smoothstep(0.40,0.74,bodyPotential);
-    float lobeRelief=smoothstep(0.34,0.72,lobeField);
-    float interiorDensity=lerp(0.46,1.0,interior);
-    float lobeDensity=lerp(0.88,1.08,lobeRelief);
-    return saturate(occupancy*interiorDensity*lobeDensity);
+    // Perlinを本体、Worleyを局所的な房の位置として混ぜる。Worleyは境界を
+    // 決めず、隣接する本体を分断しない範囲へ留める。
+    float bodyPotential=perlinField*0.74+lobeField*0.26;
+    // 支持域は一つの等値面から作り、内部濃度はその内側でだけ増やす。
+    float support=smoothstep(0.34,0.52,bodyPotential);
+    float interior=smoothstep(0.44,0.70,bodyPotential);
+    float lobeRelief=smoothstep(0.30,0.74,lobeField);
+    float interiorDensity=lerp(0.34,1.0,interior);
+    // 房起伏は内部濃度へ加える。支持域・内部濃度・房起伏の三つを個別に
+    // 乗算しないため、広い雲体の低密度部分が消えず、房だけが明暗として残る。
+    float lobeLift=(lobeRelief-0.5)*0.16*interior;
+    return saturate(support*(interiorDensity+lobeLift));
 }
 float fullShapeAt(float3 uvw){
     float3 warpedUvw=cloudWarpedShapeDomain(uvw);
