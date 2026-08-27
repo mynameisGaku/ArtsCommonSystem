@@ -7168,7 +7168,9 @@ ACS_TEST(VolumetricClouds, EditorAndCppAdaptersUploadTheCurrentGroundLighting)
     EXPECT_TRUE(!legacy.empty());
     EXPECT_TRUE(Contains(editor, "lighting.SkyZenithColor=host.sky_zenith;lighting.GroundColor=host.sky_ground;host.vclouds3d.SetLighting(lighting);"));
     EXPECT_TRUE(Contains(legacy, "lighting.SkyZenithColor=m_Sky.ZenithColor();lighting.GroundColor=m_Sky.GroundColor();m_Clouds.SetLighting(lighting);"));
-    const auto sunRadiance = legacy.find("constFVec3sun_radiance=SunColorForAtmosphere();");
+    EXPECT_TRUE(Contains(legacy, "FVec3ALegacyScene3DAdapter::SunColorForClouds()constnoexcept{"));
+    EXPECT_TRUE(Contains(legacy, "if(m_Lights.DirectionalCount()==0u)returnkDefaultCloudSunColor;"));
+    const auto sunRadiance = legacy.find("constFVec3sun_radiance=SunColorForClouds();");
     const auto renderClouds = legacy.find("m_Clouds.RenderComputeCameraRelative(", sunRadiance);
     EXPECT_TRUE(sunRadiance != legacy.npos);
     EXPECT_TRUE(renderClouds != legacy.npos);

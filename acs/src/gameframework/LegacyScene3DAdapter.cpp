@@ -38,6 +38,9 @@ namespace {
 constexpr FVec3 kDefaultSunDirection{0.45f, 0.82f, -0.38f};
 constexpr FVec3 kDefaultSunColor{1.55f, 1.48f, 1.36f};
 constexpr FVec3 kDefaultSkySunColor{1.0f, 0.95f, 0.85f};
+// Editorの既定値 (色1.0, 0.95, 0.85 × 強度2.35) と同じ雲用の光。
+// 大気用の放射輝度換算は雲の入力単位と異なるため、ここでは使わない。
+constexpr FVec3 kDefaultCloudSunColor{2.35f, 2.2325f, 1.9975f};
 constexpr FVec3 kDefaultWaterSunColor{4.8f, 4.35f, 3.9f};
 constexpr FVec3 kDefaultAmbient{0.055f, 0.075f, 0.11f};
 
@@ -1411,6 +1414,12 @@ FVec3 ALegacyScene3DAdapter::SunColorForAtmosphere() const noexcept {
     return m_Lights.DirectionalLights()[0].color;
 }
 
+FVec3 ALegacyScene3DAdapter::SunColorForClouds() const noexcept {
+    if (m_Lights.DirectionalCount() == 0u) return kDefaultCloudSunColor;
+
+    return m_Lights.DirectionalLights()[0].color;
+}
+
 FVec3 ALegacyScene3DAdapter::PhysicalSunIntensity(FVec3 sun_color) noexcept {
     // 光の色には強さが掛かっている。一番大きい成分を «設定した強さ» とみなし、
     // 残りを色味として扱う。editor_abi と同じ換算 (既定 2.35 のとき 22.0)。
@@ -1486,7 +1495,7 @@ void ALegacyScene3DAdapter::RenderClouds(
 
     // 雲APIは色×強度のシーン放射輝度を受け取る。大気専用の22.0基準へ換算すると、
     // Editor経路と単位がずれて雲だけ白飛びする。
-    const FVec3 sun_radiance = SunColorForAtmosphere();
+    const FVec3 sun_radiance = SunColorForClouds();
     // 通常の C++ 描画でも、遠方座標に左右されない視線復元行列を渡す。
     const FMat4 cloud_camera_relative_inverse_view_projection = BuildCameraRelativeInverseViewProjection(m_Camera.View(), m_Camera.Projection());
 

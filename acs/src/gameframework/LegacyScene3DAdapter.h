@@ -1237,6 +1237,13 @@ private:
     FVec3 SunColorForAtmosphere() const noexcept;
 
     /**
+     * 雲へ渡す太陽の色を返す。
+     *
+     * @return シーンの光の色 (色×強度)。光が無ければEditorと同じ既定値。
+     */
+    FVec3 SunColorForClouds() const noexcept;
+
+    /**
      * 太陽の色を大気の放射輝度へ直す。
      *
      * @details 一番大きい成分を «設定した強さ» とみなし、残りを色味として扱う。
