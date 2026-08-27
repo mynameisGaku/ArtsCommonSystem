@@ -712,6 +712,8 @@ ACS_TEST(Atmosphere, CpuAndGpuUseTheSamePhysicalShell) {
     EXPECT_TRUE(Contains(source, "大気上端半径 (m、地表から 100 km)"));
     EXPECT_TRUE(Contains(source, "static const float kBottom = 6360.0;"));
     EXPECT_TRUE(Contains(source, "static const float kTop    = 6460.0;"));
+    EXPECT_TRUE(Contains(source, "static const float  kMieE  = 4.4 * 0.001;"));
+    EXPECT_FALSE(Contains(source, "static const float  kMieE  = 4.440 * 0.001;"));
     EXPECT_FALSE(Contains(source, "地表から 60 km"));
 }
 
