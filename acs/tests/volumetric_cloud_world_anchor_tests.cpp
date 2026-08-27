@@ -7397,7 +7397,7 @@ ACS_TEST(VolumetricClouds, EditorAndCppAdaptersUploadThePhysicalGroundLighting)
     EXPECT_TRUE(Contains(legacy, "lighting.GroundColor=CAtmosphere::EvaluateSkyRadiance("));
     EXPECT_TRUE(Contains(legacy, "FVec3ALegacyScene3DAdapter::SunColorForClouds()constnoexcept{"));
     EXPECT_TRUE(Contains(legacy, "if(m_Lights.DirectionalCount()==0u)returnkDefaultCloudSunColor;"));
-    const auto sunRadiance = legacy.find("constFVec3sun_radiance=SunColorForClouds();");
+    const auto sunRadiance = legacy.find("constFVec3sun_radiance=PhysicalSunIntensity(SunColorForClouds());");
     const auto renderClouds = legacy.find("m_Clouds.RenderComputeCameraRelative(", sunRadiance);
     EXPECT_TRUE(sunRadiance != legacy.npos);
     EXPECT_TRUE(renderClouds != legacy.npos);
