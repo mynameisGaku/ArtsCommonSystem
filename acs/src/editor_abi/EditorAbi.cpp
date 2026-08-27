@@ -3804,6 +3804,9 @@ cbuffer Sky : register(b0) {
     float4   horizon;         // rgb = 地平色
     float4   ground;          // rgb = 地面側色
     float4   sun;             // xyz = 太陽方向 (world)
+    float4   physical;        // x = 物理空の有効状態, y = 観測者高度(km)
+    float4   physical_sun;    // xyz = 太陽放射輝度
+    float4   physical_ground; // xyz = 地表アルベド
 };
 struct VSOut { float4 pos : SV_POSITION; float2 ndc : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
@@ -3813,22 +3816,170 @@ VSOut VSMain(uint id : SV_VertexID) {
     o.pos = float4(o.ndc, 1.0, 1.0);             // z=1 (最遠)
     return o;
 }
+
+// CSky初期化に失敗した場合も、物理空モードを固定色へ戻さないための
+// 軽量な画面方向積分。係数と密度はCAtmosphere/CSkyAtmosphereと同じ。
+static const float kPhysicalGroundRadiusKm = 6360.0;
+static const float kPhysicalTopRadiusKm = 6460.0;
+static const float3 kPhysicalRayleighBeta = float3(5.802, 13.558, 33.1) * 0.001;
+static const float kPhysicalMieBeta = 3.996 * 0.001;
+static const float kPhysicalMieAbsorption = 4.4 * 0.001;
+static const float3 kPhysicalOzoneAbsorption = float3(0.650, 1.881, 0.085) * 0.001;
+static const float kPhysicalRayleighScaleHeightKm = 8.0;
+static const float kPhysicalMieScaleHeightKm = 1.2;
+static const float kPhysicalMieAnisotropy = 0.8;
+static const int kPhysicalViewSteps = 24;
+static const int kPhysicalTransmittanceSteps = 16;
+static const float kPhysicalSunDiscRadianceScale = 30.0;
+
+float PhysicalRayleighPhase(float c) {
+    return 3.0 / (16.0 * 3.14159265) * (1.0 + c * c);
+}
+float PhysicalMiePhase(float c) {
+    float g = kPhysicalMieAnisotropy;
+    float g2 = g * g;
+    float denominator = max(1.0 + g2 - 2.0 * g * c, 1.0e-4);
+    return (1.0 - g2) /
+        (4.0 * 3.14159265 * pow(denominator, 1.5));
+}
+float PhysicalRaySphereOuter(float3 origin, float3 direction, float radius) {
+    float b = dot(origin, direction);
+    float c = dot(origin, origin) - radius * radius;
+    float discriminant = b * b - c;
+    return discriminant >= 0.0
+        ? -b + sqrt(discriminant) : -1.0;
+}
+float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
+    float b = dot(origin, direction);
+    float c = dot(origin, origin) - radius * radius;
+    float discriminant = b * b - c;
+    if (discriminant < 0.0) return -1.0;
+    float distance = -b - sqrt(discriminant);
+    return distance > 0.0 ? distance : -1.0;
+}
+void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
+                          out float mie_density, out float3 extinction) {
+    float safe_altitude = max(altitude_km, 0.0);
+    rayleigh_density = exp(-safe_altitude / kPhysicalRayleighScaleHeightKm);
+    mie_density = exp(-safe_altitude / kPhysicalMieScaleHeightKm);
+    float ozone = saturate(1.0 - abs(safe_altitude - 25.0) / 15.0);
+    extinction = kPhysicalRayleighBeta * rayleigh_density
+        + (kPhysicalMieBeta + kPhysicalMieAbsorption) * mie_density
+        + kPhysicalOzoneAbsorption * ozone;
+}
+float3 PhysicalTransmittance(float3 origin, float3 direction,
+                             float distance) {
+    if (distance <= 0.0) return float3(1.0, 1.0, 1.0);
+    float ground_distance = PhysicalRaySphereNear(
+        origin, direction, kPhysicalGroundRadiusKm);
+    if (ground_distance > 0.0 && ground_distance < distance)
+        return float3(0.0, 0.0, 0.0);
+    float step_length = distance / float(kPhysicalTransmittanceSteps);
+    float3 optical_depth = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (int i = 0; i < kPhysicalTransmittanceSteps; ++i) {
+        float3 sample_position = origin + direction *
+            (step_length * (float(i) + 0.5));
+        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        float3 rayleigh_density;
+        float mie_density;
+        float3 extinction;
+        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
+        optical_depth += extinction * step_length;
+    }
+    return exp(-optical_depth);
+}
+float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
+                           float3 sun_intensity, float altitude_km,
+                           float3 ground_albedo) {
+    float3 origin = float3(0.0, kPhysicalGroundRadiusKm +
+        max(altitude_km, 0.0), 0.0);
+    float top_distance = PhysicalRaySphereOuter(
+        origin, view_direction, kPhysicalTopRadiusKm);
+    if (top_distance <= 0.0) return float3(0.0, 0.0, 0.0);
+    float ground_distance = PhysicalRaySphereNear(
+        origin, view_direction, kPhysicalGroundRadiusKm);
+    bool hits_ground = ground_distance > 0.0 && ground_distance < top_distance;
+    float ray_distance = hits_ground ? ground_distance : top_distance;
+    float step_length = ray_distance / float(kPhysicalViewSteps);
+    float3 view_transmittance = float3(1.0, 1.0, 1.0);
+    float3 radiance = float3(0.0, 0.0, 0.0);
+    float cos_view_sun = dot(view_direction, sun_direction);
+    float rayleigh_phase = PhysicalRayleighPhase(cos_view_sun);
+    float mie_phase = PhysicalMiePhase(cos_view_sun);
+    [loop]
+    for (int i = 0; i < kPhysicalViewSteps; ++i) {
+        float3 sample_position = origin + view_direction *
+            (step_length * (float(i) + 0.5));
+        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        if (altitude < 0.0) continue;
+        float3 rayleigh_density;
+        float mie_density;
+        float3 extinction;
+        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
+        float sun_distance = PhysicalRaySphereOuter(
+            sample_position, sun_direction, kPhysicalTopRadiusKm);
+        float3 sun_transmittance = PhysicalTransmittance(
+            sample_position, sun_direction, sun_distance);
+        float3 source = sun_intensity * sun_transmittance * (
+            kPhysicalRayleighBeta * rayleigh_density * rayleigh_phase
+            + kPhysicalMieBeta * mie_density * mie_phase);
+        float3 segment_tau = extinction * step_length;
+        float3 segment_transfer = (1.0 - exp(-segment_tau)) /
+            max(segment_tau, 1.0e-6);
+        radiance += view_transmittance * source * step_length * segment_transfer;
+        view_transmittance *= exp(-segment_tau);
+    }
+    if (hits_ground) {
+        float3 ground_position = origin + view_direction * ground_distance;
+        float3 ground_normal = normalize(ground_position);
+        float sun_cosine = max(dot(ground_normal, sun_direction), 0.0);
+        float sun_distance = PhysicalRaySphereOuter(
+            ground_position + ground_normal * 0.001,
+            sun_direction, kPhysicalTopRadiusKm);
+        float3 sun_transmittance = PhysicalTransmittance(
+            ground_position + ground_normal * 0.001,
+            sun_direction, sun_distance);
+        float3 ground_radiance = max(ground_albedo, 0.0)
+            * sun_intensity * sun_transmittance
+            * (sun_cosine / 3.14159265);
+        radiance += view_transmittance * ground_radiance;
+    }
+    return max(radiance, 0.0);
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     // クリップ空間の near/far をワールドへ逆射影し、その差を視線方向とする (透視/正射の両方で正しい)。
     float4 wn = mul(float4(v.ndc, 0.0, 1.0), inv_view_proj); wn /= wn.w;
     float4 wf = mul(float4(v.ndc, 1.0, 1.0), inv_view_proj); wf /= wf.w;
     float3 dir = normalize(wf.xyz - wn.xyz);
     float  t = dir.y;
+    float  physical_atmosphere = physical.x;
     float3 sky;
-    if (t >= 0.0) sky = lerp(horizon.rgb, zenith.rgb, pow(saturate(t), 0.55));   // 地平→天頂
-    else          sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
+    if (physical_atmosphere >= 0.5) {
+        sky = EvaluatePhysicalSky(
+            dir, normalize(sun.xyz), physical_sun.xyz,
+            physical.y, physical_ground.xyz);
+    } else if (t >= 0.0) {
+        sky = lerp(horizon.rgb, zenith.rgb, pow(saturate(t), 0.55));   // 地平→天頂
+    } else {
+        sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
+    }
     float  sd = max(dot(dir, normalize(sun.xyz)), 0.0);
-    sky += float3(1.0, 0.94, 0.80) * (pow(sd, 600.0) * 2.2 + pow(sd, 40.0) * 0.35 + pow(sd, 8.0) * 0.10); // 太陽 (円盤 + 控えめハロ)
+    if (physical_atmosphere >= 0.5) {
+        sky += physical_sun.xyz * kPhysicalSunDiscRadianceScale * pow(sd, 600.0);
+    } else {
+        sky += float3(1.0, 0.94, 0.80) * (pow(sd, 600.0) * 2.2 + pow(sd, 40.0) * 0.35 + pow(sd, 8.0) * 0.10); // 太陽 (円盤 + 控えめハロ)
+    }
     return float4(sky, 1.0);   // Phase2: 線形出力 (CPostProcess が一度だけ tonemap。Reinhard も除去)
 }
 )";
 
-struct FSkyCb { FMat4 inv_view_proj; FVec4 zenith, horizon, ground, sun; };  // 128 bytes
+struct FSkyCb {
+    FMat4 inv_view_proj;
+    FVec4 zenith, horizon, ground, sun;
+    FVec4 physical, physical_sun, physical_ground;
+};  // 176 bytes
 
 // 無限グリッド: y=0 (ortho では z=0) の «視点中心の大クアッド» をフラグメントで格子化。
 // fwidth でアンチエイリアス線幅を一定に、距離フェードで無限に見せる。minor=1単位 / major=10単位 + 軸色。
@@ -10755,6 +10906,19 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         sk.horizon= FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };   // 地平
         sk.ground = FVec4{ h.sky_ground.x,  h.sky_ground.y,  h.sky_ground.z,  0 };   // 下半球
         sk.sun    = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0 };   // 太陽方向 (world)。シーンのライト方向と一致。
+        const bool physical_atmosphere = h.q_sky_mode == 1;
+        const f32 physical_sun_radiance =
+            PhysicalAtmosphereSunRadiance(h.sun_intensity);
+        sk.physical = FVec4{
+            physical_atmosphere ? 1.0f : 0.0f,
+            physical_atmosphere ? eye.y * 0.001f : 0.0f,
+            0.0f, 0.0f};
+        sk.physical_sun = FVec4{
+            physical_sun_radiance * h.sun_color.x,
+            physical_sun_radiance * h.sun_color.y,
+            physical_sun_radiance * h.sun_color.z,
+            0.0f};
+        sk.physical_ground = FVec4{0.10f, 0.12f, 0.10f, 0.0f};
         h.sky_cb->Update(&sk, sizeof(sk));
         cl->SetPipeline(*h.sky_pipe);
         cl->SetConstantBuffer(0, *h.sky_cb);

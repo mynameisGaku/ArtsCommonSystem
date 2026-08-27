@@ -1557,6 +1557,19 @@ ACS_TEST(Atmosphere, RawSkyScatteringRejectsGroundOccludedSunPath) {
     EXPECT_TRUE(Contains(editorSource, "h.sky3d.RenderPhysicalAtmosphere("));
 }
 
+ACS_TEST(Atmosphere, EditorSkyFallbackKeepsPhysicalScatteringMode) {
+    const std::string source = ReadEditorAbiSource();
+    EXPECT_TRUE(Contains(source, "float4   physical;"));
+    EXPECT_TRUE(Contains(source, "float3 EvaluatePhysicalSky("));
+    EXPECT_TRUE(Contains(source, "PhysicalRayleighPhase"));
+    EXPECT_TRUE(Contains(source, "PhysicalMiePhase"));
+    EXPECT_TRUE(Contains(source, "PhysicalTransmittance"));
+    EXPECT_TRUE(Contains(source, "float  physical_atmosphere = physical.x;"));
+    EXPECT_TRUE(Contains(source, "sk.physical = FVec4{"));
+    EXPECT_TRUE(Contains(source, "physical_atmosphere ? eye.y * 0.001f : 0.0f"));
+    EXPECT_TRUE(Contains(source, "sk.physical_sun = FVec4{"));
+}
+
 ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {
     const std::string source = ReadEditorAbiSource();
     const auto helperBegin = source.find("void UpdateVolumetricCloudLighting_Internal(");
