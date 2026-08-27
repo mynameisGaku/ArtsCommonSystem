@@ -761,15 +761,15 @@ float fullShapeAt(float3 uvw){
 }
 float fullShapeColumnAt(float3 uvw){
     // 水平だけでなく上下も平均し、同じ柱の細い縦筋を焼き込み時に抑える。
-    // 中心の形状を少し多く残し、近傍平均で房の明暗まで消さない。
-    // 近傍標本の数は変えず、焼き込み後の実行時負荷と時間安定性を保つ。
-    return fullShapeAt(uvw)*0.60
-         +fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.08
-         +fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.08
-         +fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.08
-         +fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.08
-         +fullShapeAt(uvw+float3(0.0,0.060,0.0))*0.04
-         +fullShapeAt(uvw-float3(0.0,0.060,0.0))*0.04;
+    // 中央を0.78へ寄せ、近傍は薄く混ぜて雲塊の明暗と境界を残す。
+    // 標本数と重み合計は変えず、焼き込み後の実行時負荷と時間安定性を保つ。
+    return fullShapeAt(uvw)*0.78
+         +fullShapeAt(uvw+float3(0.028,0.0,0.0))*0.045
+         +fullShapeAt(uvw-float3(0.028,0.0,0.0))*0.045
+         +fullShapeAt(uvw+float3(0.0,0.0,0.028))*0.045
+         +fullShapeAt(uvw-float3(0.0,0.0,0.028))*0.045
+         +fullShapeAt(uvw+float3(0.0,0.045,0.0))*0.02
+         +fullShapeAt(uvw-float3(0.0,0.045,0.0))*0.02;
 }
 [numthreads(4,4,4)]
 void CSNoise(uint3 id : SV_DispatchThreadID){

@@ -2426,28 +2426,28 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         noiseShader, "floatfullShapeColumnAt(float3uvw){"));
     EXPECT_TRUE(Contains(
-        noiseShader, "returnfullShapeAt(uvw)*0.60"));
+        noiseShader, "returnfullShapeAt(uvw)*0.78"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw+float3(0.035,0.0,0.0))*0.08"));
+        "fullShapeAt(uvw+float3(0.028,0.0,0.0))*0.045"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw-float3(0.035,0.0,0.0))*0.08"));
+        "fullShapeAt(uvw-float3(0.028,0.0,0.0))*0.045"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw+float3(0.0,0.0,0.035))*0.08"));
+        "fullShapeAt(uvw+float3(0.0,0.0,0.028))*0.045"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw-float3(0.0,0.0,0.035))*0.08"));
+        "fullShapeAt(uvw-float3(0.0,0.0,0.028))*0.045"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw+float3(0.0,0.060,0.0))*0.04"));
+        "fullShapeAt(uvw+float3(0.0,0.045,0.0))*0.02"));
     EXPECT_TRUE(Contains(
         noiseShader,
-        "fullShapeAt(uvw-float3(0.0,0.060,0.0))*0.04"));
+        "fullShapeAt(uvw-float3(0.0,0.045,0.0))*0.02"));
     // 平滑化の重み合計を1に保ち、雲の平均密度を変えない。
     constexpr f32 shapeColumnWeightSum =
-        0.60f + 4.0f * 0.08f + 2.0f * 0.04f;
+        0.78f + 4.0f * 0.045f + 2.0f * 0.02f;
     EXPECT_NEAR(shapeColumnWeightSum, 1.0f, 1.0e-6f);
     EXPECT_TRUE(Contains(
         noiseShader,
