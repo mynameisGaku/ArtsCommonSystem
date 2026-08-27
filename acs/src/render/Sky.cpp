@@ -1520,6 +1520,13 @@ float3 cloudUVW(
     float2 weatherWarp=float2(warpCos,warpSin)
                       *(weather.a-0.5)*190.0;
     float2 curlWarp=cachedCurl*22.0;
+    // 風の平行移動だけでは主雲塊が数秒間ほぼ静止して見えるため、既に採取した
+    // 天候位相から場所ごとの対流変形を作る。全域へ同じ移動量を足さず、雲種と
+    // ゆがみの組み合わせで横方向と高さを少しずつ変えるので、輪郭の沸騰や柱化を抑える。
+    float convectionPhase=cloudLocalConvectionPhase(weather);
+    float2 convectionWarp=float2(
+        convectionPhase*(0.070+0.030*saturate(weather.g)),
+        convectionPhase*(0.050+0.020*saturate(weather.a)));
     // XZを基準に、下層だけ高さ方向の変化を少し早めて縦柱を崩す。天候による
     // 縦位相は430 mと240 mの物理距離で定義し、形状尺度を変えても同じ地点の
     // 持ち上がり量が変わらないようにする。0.07は固定の位相ずらしだけを担う。
@@ -1533,10 +1540,11 @@ float3 cloudUVW(
     float localCanonicalY=saturate(localLayerHeight)*verticalSpan*verticalVariation;
     float canonicalY=lerp(globalCanonicalY,localCanonicalY,0.32)
                     +(weather.g*430.0+weather.a*240.0)*shapeScale+0.07;
+    canonicalY+=convectionPhase*lerp(0.04,0.12,saturate(toweringStrength));
     float3 canonicalPosition=float3(
-        (xz.x+weatherWarp.x+curlWarp.x)*shapeScale,
+        (xz.x+weatherWarp.x+curlWarp.x)*shapeScale+convectionWarp.x,
         canonicalY,
-        (xz.y+weatherWarp.y+curlWarp.y)*shapeScale);
+        (xz.y+weatherWarp.y+curlWarp.y)*shapeScale+convectionWarp.y);
     // 直交回転で物理尺度を保ったまま世界軸との整列を外す。同じXZの上下で
     // tile周期が一致して断面が積み重なる、煙柱状の反復を防ぐ。
     return rotateNoise(canonicalPosition);

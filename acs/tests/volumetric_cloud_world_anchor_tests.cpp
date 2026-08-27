@@ -6586,6 +6586,13 @@ ACS_TEST(VolumetricClouds,
         "curlUv+=float4(0.0,0.0,cloudEvolution.z,cloudEvolution.w);"));
     EXPECT_TRUE(Contains(
         shader,
+        "floatconvectionPhase=cloudLocalConvectionPhase(weather);"
+        "float2convectionWarp=float2("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "canonicalY+=convectionPhase*lerp(0.04,0.12,saturate(toweringStrength));"));
+    EXPECT_TRUE(Contains(
+        shader,
         "detailDomainA+float3(0.19,0.67,0.41)"
         "+float3(cloudEvolution.z,cloudEvolution.w,-cloudEvolution.z)"));
     EXPECT_TRUE(Contains(
