@@ -2105,11 +2105,12 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                     0.42,0.58,smoothstep(0.18,0.92,h));
                 eroded=max(eroded,billowedDensity*erosionFloor);
                 d=lerp(billowedDensity,eroded,erosionVisibility);
-                // 低周波の房を密度へも弱く反映し、均一な灰色の板ではなく
-                // 雲内部の明暗と厚みを作る。振幅は小さくし、輪郭や採取安定性は変えない。
+                // 低周波の房を密度へ明確に反映し、均一な灰色の板ではなく
+                // 雲内部の明暗と厚みを作る。高周波の穴ではなく広い房だけを使い、
+                // 輪郭と採取間隔の安定性は変えない。
                 float interiorLobe=lerp(
-                    0.90,1.10,smoothstep(0.22,0.78,detailFar));
-                float interiorLobeWeight=0.45
+                    0.82,1.18,smoothstep(0.26,0.74,detailFar));
+                float interiorLobeWeight=0.55
                     *smoothstep(0.10,0.86,h)*erosionVisibility;
                 d=saturate(d*lerp(1.0,interiorLobe,interiorLobeWeight));
             }

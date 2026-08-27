@@ -3268,6 +3268,9 @@ ACS_TEST(VolumetricClouds,
     const std::size_t erosion = shader.find(
         "remapc(billowedDensity,detail*erosion,1.0,0.0,1.0)",
         billowedDensity);
+    const std::size_t interiorLobe = shader.find(
+        "floatinteriorLobe=lerp(0.82,1.18,smoothstep(0.26,0.74,detailFar));",
+        erosion);
     const std::size_t finalDensity = shader.find("densityResult=saturate(d*densityScale);", erosion);
     EXPECT_TRUE(profile != std::string::npos);
     EXPECT_TRUE(base != std::string::npos);
@@ -3299,6 +3302,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(billow < billowedCoarse);
     EXPECT_TRUE(billowedCoarse < billowedDensity);
     EXPECT_TRUE(billowedDensity < erosion);
+    EXPECT_TRUE(interiorLobe != std::string::npos);
+    EXPECT_TRUE(erosion < interiorLobe);
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatinteriorLobeWeight=0.55*smoothstep(0.10,0.86,h)*erosionVisibility;"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "floatinteriorLobe=lerp(0.90,1.10,smoothstep(0.22,0.78,detailFar));"));
     EXPECT_TRUE(erosion < finalDensity);
     EXPECT_FALSE(Contains(
         shader,
