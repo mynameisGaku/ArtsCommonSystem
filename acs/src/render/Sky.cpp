@@ -1431,13 +1431,13 @@ float cloudShapeVerticalSpan(bool upperBand){
     return cloudShapeScale()/max(inverseThickness,1e-6);
 }
 float cloudShapeVerticalVariation(bool upperBand,float toweringStrength){
-    // 下層の物理厚で縦方向の進行距離を補正し、通常雲は約0.72周期、
+    // 下層の物理厚で縦方向の進行距離を補正し、通常雲は約0.95周期、
     // 局所対流核は約1.30周期に収める。層厚を無視して一律に増やすと、
     // 同じ雲塊が縦に再出現して帯状になるため、発達強度から周期を決める。
     float verticalSpan=cloudShapeVerticalSpan(upperBand);
     float targetCycles=upperBand
         ?0.72
-        :lerp(0.72,1.30,saturate(toweringStrength));
+        :lerp(0.95,1.30,saturate(toweringStrength));
     float variation=targetCycles/max(verticalSpan,0.08);
     return upperBand
         ?clamp(variation,1.20,4.00)

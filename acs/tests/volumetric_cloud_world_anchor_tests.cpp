@@ -123,7 +123,7 @@ f32 CloudShapeVerticalVariationForTest(
         ? 0.0f : (toweringStrength > 1.0f ? 1.0f : toweringStrength);
     const f32 targetCycles = upperBand
         ? 0.72f
-        : 0.72f + (1.30f - 0.72f) * boundedTowering;
+        : 0.95f + (1.30f - 0.95f) * boundedTowering;
     const f32 unclampedVariation =
         targetCycles / (verticalSpan > 0.08f ? verticalSpan : 0.08f);
     if (upperBand) {
