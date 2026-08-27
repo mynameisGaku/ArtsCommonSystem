@@ -287,14 +287,14 @@ ACS_TEST(Atmosphere,
         "if(disc>=0.0){ result=-b+sqrt(disc); } return result;"));
     EXPECT_TRUE(Contains(
         source,
-        "if(disc>=0.0){ result=-b-sqrt(disc); } return result;"));
+        "float RaySphereNear(float3 ro,float3 rd,float r){"));
     EXPECT_TRUE(Contains(
         source,
-        "if(disc>=0.0){ float t=-b-sqrt(disc); "
-        "if(t>0.0){ result=t; } } return result;"));
+        "if(disc>=0.0){ float nearT=-b-sqrt(disc); "
+        "if(nearT>=0.0) result=nearT; } return result;"));
     EXPECT_EQ(
         CountOccurrences(source, "float result=-1.0;"),
-        static_cast<std::size_t>(3u));
+        static_cast<std::size_t>(2u));
 
     // The 8x8 solid-angle grid and ordering are unchanged; unsigned integer
     // math maps directly to the non-negative dispatch/sample domain.
@@ -548,7 +548,8 @@ ACS_TEST(Atmosphere,
     if (begin == std::string::npos || end == std::string::npos) return;
 
     const std::string shader = source.substr(begin, end - begin);
-    EXPECT_TRUE(Contains(shader, "float RaySphereNearGround"));
+    EXPECT_TRUE(Contains(shader, "float tGround=RaySphereNear(P0,dir,kBottom);"));
+    EXPECT_FALSE(Contains(shader, "float RaySphereNearGround"));
     EXPECT_TRUE(Contains(shader, "bool hitGround="));
     EXPECT_TRUE(Contains(shader, "float tMax=hitGround?tGround:tAtm"));
     EXPECT_TRUE(Contains(shader, "L+=Tview*groundUnit;"));
@@ -715,6 +716,28 @@ ACS_TEST(Atmosphere, CpuAndGpuUseTheSamePhysicalShell) {
     EXPECT_TRUE(Contains(source, "static const float  kMieE  = 4.4 * 0.001;"));
     EXPECT_FALSE(Contains(source, "static const float  kMieE  = 4.440 * 0.001;"));
     EXPECT_FALSE(Contains(source, "地表から 60 km"));
+}
+
+ACS_TEST(Atmosphere, GpuTransmittanceLutRejectsGroundOccludedSunPaths) {
+    const std::string source = ReadAtmosphereSource();
+    const auto begin = source.find("const char* kTransCS");
+    const auto end = source.find("// Multi-scattering LUT", begin);
+    EXPECT_TRUE(begin != source.npos);
+    EXPECT_TRUE(end != source.npos);
+    if (begin == source.npos || end == source.npos) return;
+
+    const std::string shader = source.substr(begin, end - begin);
+    // CPU積分と同じく、地面へ入る太陽光線を大気透過率表へ焼き込まない。
+    EXPECT_TRUE(Contains(shader, "float tGround=RaySphereNear(P,dir,kBottom);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "(tGround>=0.0 && tGround<tTop)"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float4(0,0,0,1); return;"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "tTop<=0){ transOut[id.xy]=float4(1,1,1,1); return;"));
 }
 
 ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {

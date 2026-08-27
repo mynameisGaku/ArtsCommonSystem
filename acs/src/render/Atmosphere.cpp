@@ -558,6 +558,7 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "float RayleighPhase(float c){ return 3.0/(16.0*PI)*(1.0+c*c); }\n" \
 "float HgPhase(float c,float g){ float g2=g*g; float d=1.0+g2-2.0*g*c; return (1.0-g2)/(4.0*PI*max(pow(max(d,1e-4),1.5),1e-6)); }\n" \
 "float RaySphere(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ result=-b+sqrt(disc); } return result; }\n" \
+"float RaySphereNear(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ float nearT=-b-sqrt(disc); if(nearT>=0.0) result=nearT; } return result; }\n" \
 "float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
 "void TransUvToParams(float2 uv,out float r,out float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); }\n"
 
@@ -571,7 +572,9 @@ ATMO_COMMON_HLSL
 "  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
 "  float r,mu; TransUvToParams(uv,r,mu);\n"
 "  float3 P=float3(0,r,0); float3 dir=float3(sqrt(saturate(1.0-mu*mu)),mu,0);\n"
-"  float tTop=RaySphere(P,dir,kTop); if(tTop<=0){ transOut[id.xy]=float4(1,1,1,1); return; }\n"
+"  float tTop=RaySphere(P,dir,kTop);\n"
+"  float tGround=RaySphereNear(P,dir,kBottom);\n"
+"  if(tTop<=0 || (tGround>=0.0 && tGround<tTop)){ transOut[id.xy]=float4(0,0,0,1); return; }\n"
 "  const int N=40; float dt=tTop/N; float3 tau=0;\n"
 "  [loop] for(int i=0;i<N;i++){ float3 sp=P+dir*(dt*(i+0.5)); float alt=length(sp)-kBottom; float3 sR; float sM; float3 ext; SampleMedium(max(alt,0.0),sR,sM,ext); tau+=ext*dt; }\n"
 "  transOut[id.xy]=float4(exp(-tau),1.0);\n"
@@ -594,7 +597,6 @@ ATMO_COMMON_HLSL
 "  float3 b=lerp(transLut.Load(int3(p0.x,p1.y,0)).rgb,transLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);\n"
 "  return lerp(a,b,f.y);\n"
 "}\n"
-"float RaySphereNear(float3 ro,float3 rd,float rad){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c; if(disc>=0.0){ result=-b-sqrt(disc); } return result; }\n"
 "[numthreads(8,8,1)]\n"
 "void CSMulti(uint3 id : SV_DispatchThreadID){\n"
 "  const uint W=32,H=32; if(id.x>=W||id.y>=H) return;\n"
@@ -657,10 +659,6 @@ ATMO_COMMON_HLSL
 "  float3 b=lerp(multiLut.Load(int3(p0.x,p1.y,0)).rgb,multiLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);\n"
 "  return lerp(a,b,f.y);\n"
 "}\n"
-"float RaySphereNearGround(float3 ro,float3 rd,float rad){\n"
-"  float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c;\n"
-"  if(disc>=0.0){ float t=-b-sqrt(disc); if(t>0.0){ result=t; } } return result;\n"
-"}\n"
 "[numthreads(8,8,1)]\n"
 "void CSBake(uint3 id : SV_DispatchThreadID){\n"
 "  uint W,H; bakeOut.GetDimensions(W,H); if(id.x>=W||id.y>=H) return;\n"
@@ -668,7 +666,7 @@ ATMO_COMMON_HLSL
 "  float theta=uv.y*PI; float phi=uv.x*2.0*PI-PI; float st=sin(theta),ct=cos(theta);\n"
 "  float3 dir=float3(st*sin(phi),ct,st*cos(phi)); float3 sd=normalize(sunDir.xyz);\n"
 "  float3 P0=float3(0,kBottom+max(groundAlbedo.w,0.0),0); float tAtm=RaySphere(P0,dir,kTop);\n"
-"  float tGround=RaySphereNearGround(P0,dir,kBottom);\n"
+"  float tGround=RaySphereNear(P0,dir,kBottom);\n"
 "  bool hitGround=tGround>0.0 && tGround<tAtm; float tMax=hitGround?tGround:tAtm;\n"
 "  float3 col=float3(0,0,0);\n"
 "  if(tMax>0.0){\n"
