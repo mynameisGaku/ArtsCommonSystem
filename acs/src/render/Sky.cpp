@@ -2142,8 +2142,8 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                 // 雲内部の明暗と厚みを作る。高周波の穴ではなく広い房だけを使い、
                 // 輪郭と採取間隔の安定性は変えない。
                 float interiorLobe=lerp(
-                    0.82,1.18,smoothstep(0.26,0.74,detailFar));
-                float interiorLobeWeight=0.55
+                    0.74,1.26,smoothstep(0.18,0.82,detailFar));
+                float interiorLobeWeight=0.72
                     *smoothstep(0.10,0.86,h)*erosionVisibility;
                 d=saturate(d*lerp(1.0,interiorLobe,interiorLobeWeight));
             }
