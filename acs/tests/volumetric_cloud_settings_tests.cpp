@@ -663,6 +663,15 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(lowLodDensity, "dimensionalDensity"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudHeightPrecipitationDensityScale("));
     EXPECT_FALSE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.heightProfile"));
+    EXPECT_TRUE(Contains(source, "float cloudDensitySupportFromShape("));
+    EXPECT_TRUE(Contains(source, "return cloudNormalizedBaseDensity(shapeBands.r);"));
+    EXPECT_TRUE(Contains(source, "float cloudShapeErosionBand("));
+    EXPECT_TRUE(Contains(source, "float cloudDensityFromShapeErosion("));
+    EXPECT_TRUE(Contains(source, "[branch] if(normalizedShape<=rejectionDensity+1e-5) return;"));
+    EXPECT_FALSE(Contains(source, "float boundarySupport=smoothstep("));
+    EXPECT_TRUE(Contains(source, "float erosionThreshold=erosion*erosionAmount;"));
+    EXPECT_TRUE(Contains(source, "float opticalDensity=shape*profile;"));
+    EXPECT_TRUE(Contains(source, "return saturate(opticalDensity);"));
     EXPECT_TRUE(Contains(source, "if(upperBand) weatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));

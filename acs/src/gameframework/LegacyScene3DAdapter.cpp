@@ -1480,10 +1480,15 @@ void ALegacyScene3DAdapter::RenderClouds(
         (m_CloudParams.BaseAltitude + m_CloudParams.TopAltitude) * 0.5f;
     lighting.SunTransmittance = SunTransmittanceAtAltitude(midAltitude, SunDirection());
 
-    // 雲頂は天頂の空を、雲底は地平の空を受ける。空の色は m_Sky が持っている値を使う
-    // (見えている空は大気から焼いたものだが、上下の «色の傾き» はこちらで足りる)。
-    lighting.SkyZenithColor = m_Sky.ZenithColor();
-    lighting.GroundColor = m_Sky.GroundColor();
+    // 表示用空を大気から焼く経路と同じ散乱積分を雲の環境光へ渡す。従来の
+    // m_Sky固定色を使うと、背景だけ物理空でも雲の上下照明は別の空になる。
+    FAtmosphereParams atmosphere = m_AtmosphereParams;
+    atmosphere.sun_dir = SunDirection();
+    atmosphere.sun_intensity = PhysicalSunIntensity(SunColorForAtmosphere());
+    lighting.SkyZenithColor = CAtmosphere::EvaluateSkyRadiance(
+        midAltitude, FVec3{0.0f, 1.0f, 0.0f}, atmosphere);
+    lighting.GroundColor = CAtmosphere::EvaluateSkyRadiance(
+        midAltitude, FVec3{0.0f, -1.0f, 0.0f}, atmosphere);
     m_Clouds.SetLighting(lighting);
     m_Clouds.SetWeather(m_CloudParams.Weather);
     m_Clouds.SetRange(m_CloudParams.Range);
@@ -1499,7 +1504,9 @@ void ALegacyScene3DAdapter::RenderClouds(
     // 通常の C++ 描画でも、遠方座標に左右されない視線復元行列を渡す。
     const FMat4 cloud_camera_relative_inverse_view_projection = BuildCameraRelativeInverseViewProjection(m_Camera.View(), m_Camera.Projection());
 
-    m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_radiance, m_Sky.HorizonColor(), m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
+    const FVec3 physicalHorizon = CAtmosphere::EvaluateSkyRadiance(
+        midAltitude, FVec3{0.0f, 0.002f, 1.0f}, atmosphere);
+    m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_radiance, physicalHorizon, m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
 
     // 入力やGPU資源が不正で計算命令を積めなかった場合は、古い履歴を現在の雲として
     // 合成せず、環境光にも反映しない。
@@ -1539,8 +1546,16 @@ void ALegacyScene3DAdapter::RenderSky(
 
     // 環境光をまだ焼けていないとき用。解析的な空で埋める。
     if (m_SkyGpuState == ESkyGpuState::Ready) {
+        // raw DX12では環境キューブを作れないため、固定色のCSkyへ戻さず、
+        // 画面方向ごとの物理大気積分を直接描く。
+        FAtmosphereParams atmosphere = m_AtmosphereParams;
+        atmosphere.sun_dir = SunDirection();
+        atmosphere.sun_intensity =
+            PhysicalSunIntensity(SunColorForAtmosphere());
         m_Sky.SetFallbackCloudTime(m_Time);
-        m_Sky.Render(command_list, m_Camera);
+        m_Sky.RenderPhysicalAtmosphere(
+            command_list, m_Camera, atmosphere.sun_intensity,
+            m_Camera.Eye().y, atmosphere.ground_albedo);
     }
 }
 

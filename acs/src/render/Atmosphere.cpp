@@ -13,10 +13,10 @@ namespace acs {
 namespace {
 
 /** 地表半径 (m、Earth)。 */
-constexpr f32 kGroundRadius     = 6360000.0f;
+constexpr f32 kGroundRadius = kSkyAtmosphereGroundRadiusMeters;
 
-/** 大気上端半径 (m、地表から 60 km)。 */
-constexpr f32 kAtmosphereRadius = 6420000.0f;
+/** 大気上端半径 (m、地表から 100 km)。 */
+constexpr f32 kAtmosphereRadius = kSkyAtmosphereTopRadiusMeters;
 
 /** Rayleigh の scale height (m、8 km)。 */
 constexpr f32 kRayleighH        = 8000.0f;
@@ -81,6 +81,13 @@ f32 RaySphereNear(FVec3 ro, FVec3 rd, f32 radius) noexcept {
     if (disc < 0.0f) return -1.0f;
     const f32 t = -b - Sqrt(disc);
     return t > 0.0f ? t : -1.0f;
+}
+
+/** 指定した大気経路が地表球へ入るなら、太陽光は地面に遮られている。 */
+bool IsGroundOccluded(FVec3 ro, FVec3 rd, f32 atmosphere_distance) noexcept {
+    const f32 ground_distance = RaySphereNear(ro, rd, kGroundRadius);
+    return ground_distance > 0.0f &&
+           ground_distance < atmosphere_distance;
 }
 
 /**
@@ -197,11 +204,14 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
     f32 t_atm = RaySphereOuter(ro, rd, kAtmosphereRadius);
     if (t_atm <= 0) return FVec3{0, 0, 0};
 
+    const u32 safe_ray_steps = ray_steps > 0u ? ray_steps : 1u;
+    const u32 safe_sun_steps = sun_steps > 0u ? sun_steps : 1u;
+
     const f32 cos_view_sun = Dot(rd, sun_dir);
     const f32 phase_r = PhaseRayleigh(cos_view_sun);
     const f32 phase_m = PhaseHG(cos_view_sun, MieG());
 
-    const f32 step_len = t_atm / static_cast<f32>(ray_steps);
+    const f32 step_len = t_atm / static_cast<f32>(safe_ray_steps);
     const FVec3 beta_r = RayleighBeta();
     const f32  beta_m = MieBeta();
 
@@ -211,9 +221,8 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
     f32 view_od_r = 0, view_od_m = 0, view_od_o = 0;
     const FVec3 beta_o = OzoneAbsorption();
 
-    // 注: ray_steps=32 は十分でリング状バンドはほぼ出ず、出力側 TPDF ディザが 8bit バンドを処理する。
-    // ここに per-direction ジッタを入れるとベイク (時間平滑化されない) にグレインが残るため midpoint を維持。
-    for (u32 i = 0; i < ray_steps; ++i) {
+    // 注: ベイクは時間平滑化されないため、方向ごとの乱数ジッタを入れず中点を使う。
+    for (u32 i = 0; i < safe_ray_steps; ++i) {
         const FVec3 sample_pos = ro + rd * (step_len * (static_cast<f32>(i) + 0.5f));
         const f32 alt = Sqrt(Dot(sample_pos, sample_pos)) - kGroundRadius;
         if (alt < 0) {
@@ -223,16 +232,15 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         const f32 d_r = DensityRayleigh(alt) * step_len;
         const f32 d_m = DensityMie(alt)      * step_len;
         const f32 d_o = DensityOzone(alt)    * step_len;
-        view_od_r += d_r;
-        view_od_m += d_m;
-        view_od_o += d_o;
 
         // 太陽光線が sample_pos へ届く透過率
         const f32 t_sun = RaySphereOuter(sample_pos, sun_dir, kAtmosphereRadius);
-        if (t_sun <= 0) continue;
-        const FVec3 T_sun = Transmittance(sample_pos, sun_dir, t_sun, sun_steps);
+        if (t_sun <= 0 || IsGroundOccluded(sample_pos, sun_dir, t_sun))
+            continue;
+        const FVec3 T_sun = Transmittance(sample_pos, sun_dir, t_sun, safe_sun_steps);
 
-        // view side 透過率 (現位置までの累積、オゾン消衰込み)
+        // view side 透過率は現在の区間へ入る前の値を使う。区間内の散乱は
+        // Beer-Lambertの解析積分で後段へまとめ、GPU経路と同じ順序にする。
         const f32 beta_m_ext = beta_m + MieAbsorption();
         const FVec3 tau_view{
             beta_r.x * view_od_r + beta_m_ext * view_od_m + beta_o.x * view_od_o,
@@ -241,14 +249,45 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         };
         const FVec3 T_view{Exp(-tau_view.x), Exp(-tau_view.y), Exp(-tau_view.z)};
 
-        const FVec3 T_combined{T_sun.x * T_view.x, T_sun.y * T_view.y, T_sun.z * T_view.z};
-        inscatter_r = inscatter_r + T_combined * (d_r);
-        inscatter_m = inscatter_m + T_combined * (d_m);
+        const FVec3 segment_tau{
+            beta_r.x * d_r + beta_m_ext * d_m + beta_o.x * d_o,
+            beta_r.y * d_r + beta_m_ext * d_m + beta_o.y * d_o,
+            beta_r.z * d_r + beta_m_ext * d_m + beta_o.z * d_o,
+        };
+        const FVec3 segment_t{
+            Exp(-segment_tau.x), Exp(-segment_tau.y), Exp(-segment_tau.z)};
+        const f32 transfer_r_x = segment_tau.x > 1.0e-7f
+            ? (1.0f - segment_t.x) / segment_tau.x : 1.0f;
+        const f32 transfer_r_y = segment_tau.y > 1.0e-7f
+            ? (1.0f - segment_t.y) / segment_tau.y : 1.0f;
+        const f32 transfer_r_z = segment_tau.z > 1.0e-7f
+            ? (1.0f - segment_t.z) / segment_tau.z : 1.0f;
+        const FVec3 segment_r{
+            T_sun.x * d_r * transfer_r_x,
+            T_sun.y * d_r * transfer_r_y,
+            T_sun.z * d_r * transfer_r_z,
+        };
+        const FVec3 segment_m{
+            T_sun.x * d_m * transfer_r_x,
+            T_sun.y * d_m * transfer_r_y,
+            T_sun.z * d_m * transfer_r_z,
+        };
+        inscatter_r = inscatter_r + FVec3{
+            T_view.x * segment_r.x,
+            T_view.y * segment_r.y,
+            T_view.z * segment_r.z};
+        inscatter_m = inscatter_m + FVec3{
+            T_view.x * segment_m.x,
+            T_view.y * segment_m.y,
+            T_view.z * segment_m.z};
+
+        view_od_r += d_r;
+        view_od_m += d_m;
+        view_od_o += d_o;
     }
 
-    // 多重散乱近似: 2 次以降の散乱は方向依存が薄れ «等方» に近い。単散乱の蓄積
-    // (inscatter_r/m) を等方位相 1/4π で再評価し ms 強度を掛けて加算 → 空が暗くなりすぎず、
-    // 地平線/薄明が自然に満ちる (Rayleigh+Mie+ozone の完全 LUT は将来の GPU 化で)。
+    // CPU fallback はGPUの多重散乱表を持たないため、単散乱へ等方成分を少量加える。
+    // 主経路のCPU/GPU一致を優先し、この近似はGPUの多重散乱表を使えない場合だけ残す。
     const f32 kIso = 1.0f / (4.0f * kPi);
     const f32 kMs  = 0.18f;                  // 多重散乱の強さ (視覚調整、控えめにして白飛び回避)
     const FVec3 result{
@@ -257,6 +296,15 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         sun_intensity.z * (beta_r.z * (phase_r + kMs * kIso) * inscatter_r.z + beta_m * (phase_m + kMs * kIso) * inscatter_m.z),
     };
     return result;
+}
+
+/** 指定方向を正規化し、退化していれば天頂方向へ戻す。 */
+FVec3 NormalizeAtmosphereDirection(FVec3 value) noexcept {
+    const f32 length_squared = Dot(value, value);
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-12f)
+        return FVec3{0.0f, 1.0f, 0.0f};
+    const f32 inverse_length = 1.0f / Sqrt(length_squared);
+    return value * inverse_length;
 }
 
 /**
@@ -329,6 +377,23 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
 
 } // namespace
 
+FVec3 CAtmosphere::EvaluateSkyRadiance(
+    f32 altitude, FVec3 view_dir,
+    const FAtmosphereParams& params) noexcept {
+    if (!std::isfinite(altitude) || altitude < 0.0f) altitude = 0.0f;
+    const FVec3 viewer{0.0f, kGroundRadius + altitude, 0.0f};
+    const FVec3 view = NormalizeAtmosphereDirection(view_dir);
+    const FVec3 sun = NormalizeAtmosphereDirection(params.sun_dir);
+    const u32 ray_steps = params.ray_steps > 0u ? params.ray_steps : 1u;
+    const u32 sun_steps = params.sun_steps > 0u ? params.sun_steps : 1u;
+    if (RaySphereNear(viewer, view, kGroundRadius) > 0.0f) {
+        return GroundHemisphere(viewer, view, sun, params.sun_intensity,
+                                params.ground_albedo, ray_steps, sun_steps);
+    }
+    return SingleScatter(viewer, view, sun, params.sun_intensity,
+                         ray_steps, sun_steps);
+}
+
 /**
  * 指定した高度で、太陽方向へ抜ける大気透過率を返す。
  *
@@ -366,23 +431,6 @@ TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
     TArray<f32> out;
     out.SetNum(static_cast<usize>(width) * height * 4u);
 
-    FVec3 sun_dir;
-    {
-        f32 l2 = params.sun_dir.x*params.sun_dir.x
-               + params.sun_dir.y*params.sun_dir.y
-               + params.sun_dir.z*params.sun_dir.z;
-        if (l2 < 1e-12f) sun_dir = FVec3{0, 1, 0};
-        else {
-            f32 inv = 1.0f / Sqrt(l2);
-            sun_dir = FVec3{params.sun_dir.x*inv, params.sun_dir.y*inv, params.sun_dir.z*inv};
-        }
-    }
-    // 観察者位置: 地表 + 数 m (camera 高度的なもの)。地球中心が原点なので
-    // (0, ground_radius + 2, 0) に置く。
-    const FVec3 viewer{0, kGroundRadius + 2.0f, 0};
-    const u32 ray_steps = params.ray_steps > 0u ? params.ray_steps : 1u;
-    const u32 sun_steps = params.sun_steps > 0u ? params.sun_steps : 1u;
-
     for (u32 y = 0; y < height; ++y) {
         const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(height) * kPi;
         const f32 sin_t = Sin(theta);
@@ -393,16 +441,8 @@ TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
             // equirect 規約: theta=0 が +Y、phi=0 が +Z
             const FVec3 view_dir{sin_t * Sin(phi), cos_t, sin_t * Cos(phi)};
 
-            FVec3 col;
-            if (RaySphereNear(viewer, view_dir, kGroundRadius) > 0.0f) {
-                col = GroundHemisphere(viewer, view_dir, sun_dir,
-                                       params.sun_intensity,
-                                       params.ground_albedo,
-                                       ray_steps, sun_steps);
-            } else {
-                col = SingleScatter(viewer, view_dir, sun_dir, params.sun_intensity,
-                                    ray_steps, sun_steps);
-            }
+            const FVec3 col = CAtmosphere::EvaluateSkyRadiance(
+                2.0f, view_dir, params);
 
             const u32 idx = (y * width + x) * 4u;
             out[idx + 0] = col.x;

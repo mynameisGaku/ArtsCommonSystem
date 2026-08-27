@@ -151,6 +151,24 @@ ACS_TEST(SkyFallbackClouds, RenderDoesNotAdvanceSimulationTime) {
     EXPECT_TRUE(!Contains(skySource, "m_Time += 1.0f / 60.0f"));
 }
 
+ACS_TEST(SkyAtmosphere, RawFallbackUsesPhysicalScatteringInsteadOfFixedGradient) {
+    /** 環境キューブが使えない経路でも物理空を選べる空描画。 */
+    CSky sky;
+    EXPECT_NEAR(sky.SunRadius(), kSkySolarDiscRadiusOneMinusCosine, 1.0e-8f);
+
+    /** raw DX12 fallbackの画面方向積分が物理散乱部品を持つことを固定する。 */
+    const std::string skySource = ReadRenderSource("Sky.cpp");
+    EXPECT_TRUE(Contains(skySource, "EvaluatePhysicalSky"));
+    EXPECT_TRUE(Contains(skySource, "PhysicalRayleighPhase"));
+    EXPECT_TRUE(Contains(skySource, "PhysicalMiePhase"));
+    EXPECT_TRUE(Contains(skySource, "PhysicalTransmittance"));
+    EXPECT_TRUE(Contains(skySource, "segment_transfer"));
+    EXPECT_TRUE(Contains(skySource, "kPhysicalGroundRadiusKm = 6360.0"));
+    EXPECT_TRUE(Contains(skySource, "kPhysicalTopRadiusKm = 6460.0"));
+    const std::string adapterSource = ReadRenderSource("../gameframework/LegacyScene3DAdapter.cpp");
+    EXPECT_TRUE(Contains(adapterSource, "RenderPhysicalAtmosphere"));
+}
+
 ACS_TEST(SkySunProfile, FallbackAndCapturedEnvironmentUseTheSameBoundedProfile) {
     /** 画面へ直接描く空の実装ソース。 */
     const std::string skySource = ReadRenderSource("Sky.cpp");

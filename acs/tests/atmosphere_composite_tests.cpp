@@ -36,6 +36,23 @@ std::string ReadAtmosphereSource() {
         std::istreambuf_iterator<char>{}};
 }
 
+std::string ReadSkySource() {
+    const std::filesystem::path testFile{__FILE__};
+    const std::filesystem::path sourcePath =
+        testFile.parent_path().parent_path() /
+        "src" / "render" / "Sky.cpp";
+    std::ifstream stream(sourcePath, std::ios::binary);
+    if (!stream) {
+        stream.open(
+            std::filesystem::path{"acs"} / "src" /
+            "render" / "Sky.cpp",
+            std::ios::binary);
+    }
+    return std::string{
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}};
+}
+
 std::string ReadEditorAbiSource() {
     const std::filesystem::path testFile{__FILE__};
     const std::filesystem::path sourcePath =
@@ -677,6 +694,77 @@ ACS_TEST(Atmosphere, EnvironmentBakeInterpolatesAtmosphereLuts) {
         shader, "int2 px=int2(uv*float2(255.0,63.0)+0.5)"));
     EXPECT_FALSE(Contains(
         shader, "int2 px=int2(uv*float2(31.0,31.0)+0.5)"));
+}
+
+ACS_TEST(Atmosphere, CpuAndGpuUseTheSamePhysicalShell) {
+    const std::string source = ReadAtmosphereSource();
+    EXPECT_TRUE(!source.empty());
+
+    EXPECT_NEAR(kSkyAtmosphereGroundRadiusMeters, 6360000.0f, 0.0f);
+    EXPECT_NEAR(kSkyAtmosphereTopAltitudeMeters, 100000.0f, 0.0f);
+    EXPECT_NEAR(kSkyAtmosphereTopRadiusMeters, 6460000.0f, 0.0f);
+    EXPECT_TRUE(Contains(
+        source,
+        "constexpr f32 kGroundRadius = kSkyAtmosphereGroundRadiusMeters;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "constexpr f32 kAtmosphereRadius = kSkyAtmosphereTopRadiusMeters;"));
+    EXPECT_TRUE(Contains(source, "大気上端半径 (m、地表から 100 km)"));
+    EXPECT_TRUE(Contains(source, "static const float kBottom = 6360.0;"));
+    EXPECT_TRUE(Contains(source, "static const float kTop    = 6460.0;"));
+    EXPECT_FALSE(Contains(source, "地表から 60 km"));
+}
+
+ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {
+    FAtmosphereParams params{};
+    params.sun_dir = FVec3{0.0f, 1.0f, 0.0f};
+    params.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
+    params.ray_steps = 32u;
+    params.sun_steps = 8u;
+
+    const FVec3 zenith = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, 1.0f, 0.0f}, params);
+    const FVec3 horizon = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, 0.002f, 1.0f}, params);
+    const FVec3 nadir = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, -1.0f, 0.0f}, params);
+
+    const FVec3 samples[3] = {zenith, horizon, nadir};
+    for (const FVec3& sample : samples) {
+        EXPECT_TRUE(std::isfinite(static_cast<double>(sample.x)));
+        EXPECT_TRUE(std::isfinite(static_cast<double>(sample.y)));
+        EXPECT_TRUE(std::isfinite(static_cast<double>(sample.z)));
+        EXPECT_TRUE(sample.x >= 0.0f);
+        EXPECT_TRUE(sample.y >= 0.0f);
+        EXPECT_TRUE(sample.z >= 0.0f);
+    }
+
+    // 天頂を太陽方向へ向けた昼の空では、波長の短い青の散乱が赤を上回る。
+    EXPECT_TRUE(zenith.z > zenith.x);
+    // 地平線と地表は同じ固定色ではなく、視線透過とMie/Rayleigh散乱で分かれる。
+    EXPECT_TRUE(std::fabs(horizon.x - nadir.x) > 1.0e-5f ||
+                std::fabs(horizon.y - nadir.y) > 1.0e-5f ||
+                std::fabs(horizon.z - nadir.z) > 1.0e-5f);
+}
+
+ACS_TEST(Atmosphere, CpuSingleScatterIntegratesViewTransferBeforeCurrentSegment) {
+    const std::string source = ReadAtmosphereSource();
+    const std::size_t begin = source.find("FVec3 SingleScatter(");
+    const std::size_t end = source.find("/** 指定方向を正規化", begin);
+    EXPECT_TRUE(begin != std::string::npos);
+    EXPECT_TRUE(end != std::string::npos);
+    if (begin == std::string::npos || end == std::string::npos || begin >= end)
+        return;
+
+    const std::string function = source.substr(begin, end - begin);
+    const std::size_t currentSegment = function.find("const FVec3 segment_tau{");
+    const std::size_t scatter = function.find("inscatter_r = inscatter_r +", currentSegment);
+    const std::size_t accumulate = function.find("view_od_r += d_r;", scatter);
+    EXPECT_TRUE(currentSegment != std::string::npos);
+    EXPECT_TRUE(scatter != std::string::npos);
+    EXPECT_TRUE(accumulate != std::string::npos);
+    EXPECT_TRUE(currentSegment < scatter);
+    EXPECT_TRUE(scatter < accumulate);
 }
 
 ACS_TEST(Atmosphere, MultiScatteringUsesUniformSolidAngleDirections) {
@@ -1378,6 +1466,44 @@ ACS_TEST(Atmosphere, CloudSunTransmittanceRespondsToElevationAndGroundOcclusion)
     EXPECT_NEAR(blocked.x, 0.0f, 0.0f);
     EXPECT_NEAR(blocked.y, 0.0f, 0.0f);
     EXPECT_NEAR(blocked.z, 0.0f, 0.0f);
+}
+
+ACS_TEST(Atmosphere, SkyScatteringDoesNotIlluminateThroughTheGround) {
+    /** 地平線下の太陽では、空へ届く直射散乱が存在しない。 */
+    FAtmosphereParams params;
+    params.sun_dir = FVec3{0.0f, -1.0f, 0.0f};
+    params.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
+
+    const FVec3 zenith = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, 1.0f, 0.0f}, params);
+    const FVec3 horizon = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, 0.0f, 1.0f}, params);
+    const FVec3 ground = CAtmosphere::EvaluateSkyRadiance(
+        2000.0f, FVec3{0.0f, -1.0f, 0.0f}, params);
+
+    EXPECT_NEAR(zenith.x, 0.0f, 0.0f);
+    EXPECT_NEAR(zenith.y, 0.0f, 0.0f);
+    EXPECT_NEAR(zenith.z, 0.0f, 0.0f);
+    EXPECT_NEAR(horizon.x, 0.0f, 0.0f);
+    EXPECT_NEAR(horizon.y, 0.0f, 0.0f);
+    EXPECT_NEAR(horizon.z, 0.0f, 0.0f);
+    EXPECT_NEAR(ground.x, 0.0f, 0.0f);
+    EXPECT_NEAR(ground.y, 0.0f, 0.0f);
+    EXPECT_NEAR(ground.z, 0.0f, 0.0f);
+}
+
+ACS_TEST(Atmosphere, RawSkyScatteringRejectsGroundOccludedSunPath) {
+    const std::string source = ReadSkySource();
+    const std::string shader = ExtractRawShader(source, "const char* kSkyHLSL");
+    const std::string editorSource = ReadEditorAbiSource();
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "PhysicalRaySphereNear(\n"
+        "        origin, direction, kPhysicalGroundRadiusKm)"));
+    EXPECT_TRUE(Contains(shader, "ground_distance > 0.0 && ground_distance < distance"));
+    EXPECT_TRUE(Contains(shader, "return float3(0.0, 0.0, 0.0);"));
+    EXPECT_TRUE(Contains(editorSource, "h.sky3d.RenderPhysicalAtmosphere("));
 }
 
 ACS_TEST(Atmosphere, EditorCloudLightingUsesNormalizedLayerAndCurrentSky) {

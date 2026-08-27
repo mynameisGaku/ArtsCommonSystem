@@ -510,7 +510,7 @@ struct FEditorHost {
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     // 既定は無効。FogDensity が正なら単一色の高さフォグを有効にする。
     bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;
-    i32   q_sky_mode         = 0;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
+    i32   q_sky_mode         = 1;     // 0=CSky(グラデ+雲) / 1=CAtmosphere(Rayleigh+Mie)。GPU失敗時はCPU散乱積分へ戻る
     f32   q_cloud_coverage   = 0.42f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
     f32   q_cloud_render_scale = 0.75f;   // 内部の 1/4 寸法描画を基準にした品質倍率。
     // 診断時だけ等倍・512刻み・時間再構成なしにする。
@@ -9979,8 +9979,22 @@ void UpdateVolumetricCloudLighting_Internal(FEditorHost& host) noexcept {
     lighting.SunScatteringLuminanceScale =
         host.q_cloud_sun_scattering_luminance_scale;
     lighting.SunTransmittance = SunTransmittanceAtAltitude(middleAltitude, host.sun_dir);
-    lighting.SkyZenithColor = host.sky_zenith;
-    lighting.GroundColor = host.sky_ground;
+    if (host.q_sky_mode == 1) {
+        FAtmosphereParams atmosphere{};
+        atmosphere.sun_dir = host.sun_dir;
+        const f32 sun_radiance = PhysicalAtmosphereSunRadiance(host.sun_intensity);
+        atmosphere.sun_intensity = FVec3{
+            sun_radiance * host.sun_color.x,
+            sun_radiance * host.sun_color.y,
+            sun_radiance * host.sun_color.z};
+        lighting.SkyZenithColor = CAtmosphere::EvaluateSkyRadiance(
+            middleAltitude, FVec3{0.0f, 1.0f, 0.0f}, atmosphere);
+        lighting.GroundColor = CAtmosphere::EvaluateSkyRadiance(
+            middleAltitude, FVec3{0.0f, -1.0f, 0.0f}, atmosphere);
+    } else {
+        lighting.SkyZenithColor = host.sky_zenith;
+        lighting.GroundColor = host.sky_ground;
+    }
     host.vclouds3d.SetLighting(lighting);
 }
 
@@ -10657,7 +10671,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
 
     // --- (1) スカイ: 物理大気モード(q_sky_mode==1 + IBL 焼成済)は env cubemap を skybox 描画して «背景=IBL=一致»。
-    //         それ以外はエンジン標準 CSky (グラデ + 手続き雲)。CSky Init 失敗時のみ自前 kSky3DHLSL。
+    //         IBLを作れないraw経路はCSkyの直接散乱へ戻し、0の互換モードだけ固定グラデーションを使う。
     {
     editor_profiler::FCpuScope atmosphereScope(
         h.profiler_work.atmosphere_cpu_ms);
@@ -10679,7 +10693,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     } else if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
         h.sky3d.SetSunColor(h.sun_color);     // 太陽の色も追従
-        h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
+        h.sky3d.SetZenithColor(h.sky_zenith); // 互換空とフォールバック雲の設定を維持
         h.sky3d.SetHorizonColor(h.sky_horizon);
         h.sky3d.SetGroundColor(h.sky_ground);
         h.sky3d.SetFallbackCloudsEnabled(
@@ -10688,7 +10702,23 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetFallbackClouds(h.q_cloud_coverage, h.q_cloud_density);
         h.sky3d.SetFallbackCloudWind(h.q_cloud_wind);
         h.sky3d.SetFallbackCloudTime(h.time);
-        h.sky3d.Render(*cl, cam);
+        if (h.q_sky_mode == 1) {
+            // IBLを作れないraw DX12でも、固定色グラデーションへ戻さず、
+            // 同じRayleigh/Mie/オゾン吸収を画面方向ごとに積分する。
+            FAtmosphereParams atmosphere{};
+            atmosphere.sun_dir = h.sun_dir;
+            const f32 sun_radiance =
+                PhysicalAtmosphereSunRadiance(h.sun_intensity);
+            atmosphere.sun_intensity = FVec3{
+                sun_radiance * h.sun_color.x,
+                sun_radiance * h.sun_color.y,
+                sun_radiance * h.sun_color.z};
+            h.sky3d.RenderPhysicalAtmosphere(
+                *cl, cam, atmosphere.sun_intensity, cam.Eye().y,
+                atmosphere.ground_albedo);
+        } else {
+            h.sky3d.Render(*cl, cam);
+        }
     } else if (h.sky_pipe && h.sky_cb) {
         FSkyCb sk{};
         sk.inv_view_proj = camera_relative_inv_vp;

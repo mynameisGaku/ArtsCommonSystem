@@ -4304,7 +4304,12 @@ ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
         EXPECT_TRUE(water < clouds);
         EXPECT_TRUE(clouds < reflection);
         EXPECT_TRUE(reflection < post);
-        EXPECT_TRUE(legacy_sky.find("m_Sky.Render(") != std::string::npos);
+        const bool renders_legacy_sky =
+            legacy_sky.find("m_Sky.Render(") != std::string::npos;
+        const bool renders_physical_sky =
+            legacy_sky.find("m_Sky.RenderPhysicalAtmosphere(") !=
+            std::string::npos;
+        EXPECT_TRUE(renders_legacy_sky || renders_physical_sky);
     }
 
     EXPECT_TRUE(rhi.find("EndRenderToTextureMrt(") !=

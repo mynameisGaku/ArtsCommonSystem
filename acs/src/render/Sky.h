@@ -219,6 +219,21 @@ public:
     void PresetNight()  noexcept;
 
     /**
+     * 環境キューブを使えない経路でも、物理大気の空を直接描く。
+     *
+     * @details レイリー散乱、ミー散乱、オゾン吸収、区間透過を画面方向ごとに
+     * 評価する。入力は描画時だけに渡し、CSky本体の公開レイアウトを変えない。
+     * @param cl 描画コマンドを積むコマンドリスト。
+     * @param camera 視線復元に使うカメラ。
+     * @param sun_intensity 太陽の線形HDR放射輝度。
+     * @param altitude_meters 視点の地表からの高度 (m)。
+     * @param ground_albedo 地表のRGBアルベド。負値は0へ丸める。
+     */
+    void RenderPhysicalAtmosphere(IRhiCommandList& cl, const CCamera& camera,
+                                  FVec3 sun_intensity, f32 altitude_meters,
+                                  FVec3 ground_albedo) noexcept;
+
+    /**
      * 現在の太陽方向を返す (CStandardShader / IBL と整合させたいときに)。
      *
      * @return 正規化済みの太陽方向ベクトル。
@@ -330,6 +345,11 @@ private:
 
     /** 雲の基本 RGB 色。 */
     FVec3 m_FallbackCloudColor = FVec3{1.0f, 1.0f, 1.0f};
+
+    /** 共通の空描画実装へ互換空または物理空の入力を渡す。 */
+    void RenderInternal(IRhiCommandList& cl, const CCamera& camera,
+                        bool physical_atmosphere, FVec3 sun_intensity,
+                        f32 altitude_meters, FVec3 ground_albedo) noexcept;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */

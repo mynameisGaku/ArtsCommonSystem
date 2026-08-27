@@ -18,6 +18,14 @@ namespace acs {
 // CPUとGPUで評価する物理大気散乱。Rayleigh散乱とMie散乱を方向ごとに評価し、
 // 環境キューブ地図、拡散環境光、鏡面反射用事前計算へ同じ空の光を供給する。
 
+/** 地球モデルの地表半径 (m)。CPU積分とGPU参照表で共通に使う。 */
+inline constexpr f32 kSkyAtmosphereGroundRadiusMeters = 6360000.0f;
+/** 大気を無視できる上端までの高度 (m)。 */
+inline constexpr f32 kSkyAtmosphereTopAltitudeMeters = 100000.0f;
+/** 地球中心から測った大気上端半径 (m)。 */
+inline constexpr f32 kSkyAtmosphereTopRadiusMeters =
+    kSkyAtmosphereGroundRadiusMeters + kSkyAtmosphereTopAltitudeMeters;
+
 /** 確保処理と検証で共有する空気遠近法の体積表品質。 */
 inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
 inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
@@ -88,6 +96,20 @@ FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept;
 
 class CAtmosphere {
 public:
+    /**
+     * 指定高度・指定方向の空の放射輝度を、BakeEquirect と同じ物理積分で返す。
+     *
+     * @details Rayleigh散乱、Mie散乱、オゾン吸収、太陽光の大気透過を同じ区間積分で
+     * 評価する。空だけでなく地面へ当たる方向は、地表反射と視線透過を連続的に返す。
+     * 雲や水面の環境照明が、表示中の空と別の固定色にならないように使う。
+     * @param altitude 地表からの高度 (m)。負値は地表へ丸める。
+     * @param view_dir 観察方向。正規化されていなくてもよい。
+     * @param params 太陽方向・強度、地表アルベド、積分段数。
+     * @return 指定方向の線形HDR放射輝度。入力が退化しても有限値を返す。
+     */
+    static FVec3 EvaluateSkyRadiance(f32 altitude, FVec3 view_dir,
+                                     const FAtmosphereParams& params) noexcept;
+
     /**
      * CPU で equirect 画像を焼いて RGBA float 配列を返す。
      *

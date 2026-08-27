@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // 手続き生成スカイ実装
 #include "render/Sky.h"
+#include "render/Atmosphere.h"
 #if !WITH_RENDER_DILIGENT
 #include "render/Dx12/Dx12Shader.h"
 #endif
@@ -32,6 +33,9 @@ cbuffer CSky : register(b0) {
     float4   ground_color;
     float4   cloud_params0;       // x=coverage(0..1), y=density(sharpness), z=time, w=enabled(0/1)
     float4   cloud_params1;       // xyz=cloud_color, w=wind_speed
+    float4   physical_params;     // x=有効状態, y=視点高度(km), z/w=予約
+    float4   physical_sun_intensity; // xyz=太陽放射輝度, w=予約
+    float4   physical_ground_albedo; // xyz=地表アルベド, w=予約
 };
 
 struct VSOut {
@@ -144,6 +148,148 @@ float CloudDensity3(float3 p, float coverage, float windOff) {
     return result;                                         // smoothstep でコントラスト強調 (くっきり)
 }
 
+// ---- 物理大気 fallback ----------------------------------------------------
+// 大気表を作れない raw DX12 でも、CSky の固定色へ戻さず同じ物理量を積分する。
+// 単位はGPU大気表と同じ km。地表半径・上端半径・密度高さ・散乱係数は
+// render/Atmosphere.cpp の共通大気モデルと一致させる。
+static const float kPhysicalGroundRadiusKm = 6360.0;
+static const float kPhysicalTopRadiusKm = 6460.0;
+static const float3 kPhysicalRayleighBeta = float3(5.802, 13.558, 33.1) * 0.001;
+static const float kPhysicalMieBeta = 3.996 * 0.001;
+static const float kPhysicalMieAbsorption = 4.4 * 0.001;
+static const float3 kPhysicalOzoneAbsorption = float3(0.650, 1.881, 0.085) * 0.001;
+static const float kPhysicalRayleighScaleHeightKm = 8.0;
+static const float kPhysicalMieScaleHeightKm = 1.2;
+static const float kPhysicalMieAnisotropy = 0.8;
+
+float PhysicalRayleighPhase(float cos_theta) {
+    return 3.0 / (16.0 * 3.14159265) * (1.0 + cos_theta * cos_theta);
+}
+
+float PhysicalMiePhase(float cos_theta) {
+    float g = kPhysicalMieAnisotropy;
+    float g2 = g * g;
+    float denominator = max(1.0 + g2 - 2.0 * g * cos_theta, 1.0e-4);
+    return (1.0 - g2) /
+        (4.0 * 3.14159265 * pow(denominator, 1.5));
+}
+
+float PhysicalRaySphereOuter(float3 origin, float3 direction, float radius) {
+    float b = dot(origin, direction);
+    float c = dot(origin, origin) - radius * radius;
+    float discriminant = b * b - c;
+    return discriminant >= 0.0
+        ? -b + sqrt(discriminant) : -1.0;
+}
+
+float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
+    float b = dot(origin, direction);
+    float c = dot(origin, origin) - radius * radius;
+    float discriminant = b * b - c;
+    if (discriminant < 0.0) return -1.0;
+    float distance = -b - sqrt(discriminant);
+    return distance > 0.0 ? distance : -1.0;
+}
+
+void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
+                          out float mie_density, out float3 extinction) {
+    float safe_altitude = max(altitude_km, 0.0);
+    rayleigh_density = exp(-safe_altitude / kPhysicalRayleighScaleHeightKm);
+    mie_density = exp(-safe_altitude / kPhysicalMieScaleHeightKm);
+    float ozone = saturate(1.0 - abs(safe_altitude - 25.0) / 15.0);
+    extinction = kPhysicalRayleighBeta * rayleigh_density
+        + (kPhysicalMieBeta + kPhysicalMieAbsorption) * mie_density
+        + kPhysicalOzoneAbsorption * ozone;
+}
+
+float3 PhysicalTransmittance(float3 origin, float3 direction,
+                             float distance) {
+    if (distance <= 0.0) return float3(1.0, 1.0, 1.0);
+    // 太陽光線が地表球へ入る場合は、地球の内部を透過させず遮蔽する。
+    float ground_distance = PhysicalRaySphereNear(
+        origin, direction, kPhysicalGroundRadiusKm);
+    if (ground_distance > 0.0 && ground_distance < distance)
+        return float3(0.0, 0.0, 0.0);
+    const int kTransmittanceSteps = 8;
+    float step_length = distance / float(kTransmittanceSteps);
+    float3 optical_depth = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (int i = 0; i < kTransmittanceSteps; ++i) {
+        float3 sample_position = origin + direction *
+            (step_length * (float(i) + 0.5));
+        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        float3 rayleigh_density;
+        float mie_density;
+        float3 extinction;
+        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
+        optical_depth += extinction * step_length;
+    }
+    return exp(-optical_depth);
+}
+
+float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
+                           float3 sun_intensity, float altitude_km,
+                           float3 ground_albedo) {
+    float3 origin = float3(0.0, kPhysicalGroundRadiusKm + max(altitude_km, 0.0), 0.0);
+    float top_distance = PhysicalRaySphereOuter(
+        origin, view_direction, kPhysicalTopRadiusKm);
+    if (top_distance <= 0.0) return float3(0.0, 0.0, 0.0);
+
+    float ground_distance = PhysicalRaySphereNear(
+        origin, view_direction, kPhysicalGroundRadiusKm);
+    bool hits_ground = ground_distance > 0.0 && ground_distance < top_distance;
+    float ray_distance = hits_ground ? ground_distance : top_distance;
+    const int kViewSteps = 16;
+    float step_length = ray_distance / float(kViewSteps);
+    float3 view_transmittance = float3(1.0, 1.0, 1.0);
+    float3 radiance = float3(0.0, 0.0, 0.0);
+    float cos_view_sun = dot(view_direction, sun_direction);
+    float rayleigh_phase = PhysicalRayleighPhase(cos_view_sun);
+    float mie_phase = PhysicalMiePhase(cos_view_sun);
+
+    [loop]
+    for (int i = 0; i < kViewSteps; ++i) {
+        float3 sample_position = origin + view_direction *
+            (step_length * (float(i) + 0.5));
+        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        if (altitude < 0.0) continue;
+
+        float3 rayleigh_density;
+        float mie_density;
+        float3 extinction;
+        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
+        float sun_distance = PhysicalRaySphereOuter(
+            sample_position, sun_direction, kPhysicalTopRadiusKm);
+        float3 sun_transmittance = PhysicalTransmittance(
+            sample_position, sun_direction, sun_distance);
+        float3 source = sun_intensity * sun_transmittance * (
+            kPhysicalRayleighBeta * rayleigh_density * rayleigh_phase
+            + kPhysicalMieBeta * mie_density * mie_phase);
+        float3 segment_tau = extinction * step_length;
+        float3 segment_transfer = (1.0 - exp(-segment_tau)) /
+            max(segment_tau, 1.0e-6);
+        radiance += view_transmittance * source * step_length * segment_transfer;
+        view_transmittance *= exp(-segment_tau);
+    }
+
+    if (hits_ground) {
+        float3 ground_position = origin + view_direction * ground_distance;
+        float3 ground_normal = normalize(ground_position);
+        float sun_cosine = max(dot(ground_normal, sun_direction), 0.0);
+        float sun_distance = PhysicalRaySphereOuter(
+            ground_position + ground_normal * 0.001,
+            sun_direction, kPhysicalTopRadiusKm);
+        float3 sun_transmittance = PhysicalTransmittance(
+            ground_position + ground_normal * 0.001,
+            sun_direction, sun_distance);
+        float3 ground_radiance = max(ground_albedo, 0.0)
+            * sun_intensity * sun_transmittance
+            * (sun_cosine / 3.14159265);
+        radiance += view_transmittance * ground_radiance;
+    }
+    return max(radiance, 0.0);
+}
+
 // IGN ベースの dither (8-bit 量子化前にバンディングを消す)。
 float SkyDither(float2 pix, float t) {
     pix += t * float2(5.588238, 1.715728);
@@ -158,8 +304,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 2) 高さ角でグラデ。dir.y = 0 が地平線、+1 が天頂、-1 が真下。
     //    指数を 0.5 に緩めて天頂までの遷移を滑らかにする。
     float t = dir.y;
+    float physical_atmosphere = physical_params.x;
     float3 sky;
-    if (t >= 0.0) {
+    if (physical_atmosphere >= 0.5) {
+        sky = EvaluatePhysicalSky(
+            dir, sundn, physical_sun_intensity.xyz,
+            physical_params.y, physical_ground_albedo.xyz);
+    } else if (t >= 0.0) {
         sky = lerp(horizon_color.xyz, zenith_color.xyz, pow(saturate(t), 0.5));
     } else {
         sky = lerp(horizon_color.xyz, ground_color.xyz, pow(saturate(-t), 0.5));
@@ -177,10 +328,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float haloWeight = haloProfile * haloProfile * 0.28 * (1.0 - discWeight);
     float horizonBand = exp(-abs(t) * 12.0);
     float forwardGlow = exp(-sunAngle / max(sun_params.y * 0.35, 1.0e-5)) * horizonBand * 0.18;
-    sky += sun_color.xyz * forwardGlow;
+    if (physical_atmosphere < 0.5) sky += sun_color.xyz * forwardGlow;
 
     // 3) 太陽円盤は画素微分で輪郭だけを滑らかにし、光彩は太陽色への混合を0.28へ制限する。
-    sky = lerp(sky, sun_color.xyz, saturate(discWeight + haloWeight));
+    float3 sun_disc_color = physical_atmosphere >= 0.5
+        ? physical_sun_intensity.xyz : sun_color.xyz;
+    sky = lerp(sky, sun_disc_color, saturate(discWeight + haloWeight));
 
     // 4) volumetric clouds: 雲スラブ [h0,h1] を視線方向にレイマーチして密度を積分。各サンプルで太陽へ
     //    ライトマーチして自己影 (Beer-Lambert) → 立体的な雲。地平線より上のみ。
@@ -267,6 +420,15 @@ struct FSkyCb {
 
     /** 雲パラメータ1 (xyz=cloud_color, w=wind_speed)。 */
     FVec4 cloud1;
+
+    /** 物理大気切替と視点高度 (km)。 */
+    FVec4 physical;
+
+    /** 物理大気へ渡す太陽放射輝度。 */
+    FVec4 physical_sun;
+
+    /** 物理大気へ渡す地表アルベド。 */
+    FVec4 physical_ground;
 };
 
 /**
@@ -643,8 +805,35 @@ void CSky::PresetNight() noexcept {
 }
 
 /** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
-void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
+void CSky::RenderInternal(IRhiCommandList& cl, const CCamera& camera,
+                          bool physical_atmosphere, FVec3 sun_intensity,
+                          f32 altitude_meters, FVec3 ground_albedo) noexcept {
     if (!m_Pipeline || !m_Cb) return;
+    /** 有限かつ非負の太陽放射輝度へ入力を正規化する。 */
+    const auto sanitize_radiance = [](f32 value) noexcept {
+        if (!std::isfinite(value) || value < 0.0f) return 0.0f;
+        return value > 65504.0f ? 65504.0f : value;
+    };
+    sun_intensity = FVec3{
+        sanitize_radiance(sun_intensity.x),
+        sanitize_radiance(sun_intensity.y),
+        sanitize_radiance(sun_intensity.z)};
+    if (!std::isfinite(altitude_meters) || altitude_meters < 0.0f) {
+        altitude_meters = 0.0f;
+    }
+    if (altitude_meters > kSkyAtmosphereTopAltitudeMeters) {
+        altitude_meters = kSkyAtmosphereTopAltitudeMeters;
+    }
+    /** 地表反射率を物理的な0～1の範囲へ収める。 */
+    const auto sanitize_albedo = [](f32 value) noexcept {
+        if (!std::isfinite(value) || value < 0.0f) return 0.0f;
+        return value > 1.0f ? 1.0f : value;
+    };
+    ground_albedo = FVec3{
+        sanitize_albedo(ground_albedo.x),
+        sanitize_albedo(ground_albedo.y),
+        sanitize_albedo(ground_albedo.z)};
+
     FSkyCb cb{};
     cb.inv_view_proj = BuildCameraRelativeInverseViewProjection(camera.View(), camera.Projection());
     const FVec3 eye = camera.Eye();
@@ -660,12 +849,28 @@ void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
                           m_FallbackCloudTime, m_FallbackCloudsEnabled ? 1.0f : 0.0f};
     cb.cloud1     = FVec4{m_FallbackCloudColor.x, m_FallbackCloudColor.y,
                           m_FallbackCloudColor.z, m_FallbackCloudWind};
+    cb.physical   = FVec4{physical_atmosphere ? 1.0f : 0.0f,
+                          altitude_meters * 0.001f, 0.0f, 0.0f};
+    cb.physical_sun = FVec4{sun_intensity.x, sun_intensity.y,
+                            sun_intensity.z, 0.0f};
+    cb.physical_ground = FVec4{ground_albedo.x, ground_albedo.y,
+                               ground_albedo.z, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.Draw(3);    // VB 無し、SV_VertexID で 3 頂点
+}
 
+void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
+    RenderInternal(cl, camera, false, FVec3{}, 0.0f, FVec3{});
+}
+
+void CSky::RenderPhysicalAtmosphere(
+    IRhiCommandList& cl, const CCamera& camera, FVec3 sun_intensity,
+    f32 altitude_meters, FVec3 ground_albedo) noexcept {
+    RenderInternal(cl, camera, true, sun_intensity, altitude_meters,
+                   ground_albedo);
 }
 
 // ===================== CVolumetricClouds (GPU レイマーチ) =====================
@@ -674,7 +879,7 @@ namespace {
 // 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
 // 太陽へ light-march (Beer) + dual-lobe HG + 有界な内部散乱近似を積分。出力=非premult色+alpha。
 // ---- Perlin-Worley 3D noise を init で 1 回焼く ----
-// 128^3 RG16F: R=低周波 Perlin-Worley/Worley 合成、G=追加領域用 Perlin-Worley。繰り返し可能。
+// 128^3 RG16F: R=固定雑音域へ保存した低周波雲塊、G=輪郭を削る中周波侵食場。繰り返し可能。
 // per-voxel に worley 27-cell を計算するのは «高価» だが init 1 回だけなので実用 (per-frame march では
 // この焼き上がりテクスチャを 1 fetch する → 速くて crisp)。
 const char* kNoiseGenCS = R"(
@@ -718,7 +923,7 @@ float remap(float v,float a,float b,float c,float d){
 }
 // 主形状だけを水平4方向へ短く平均する。高周波の尖った枝を焼き込み時に消し、
 // 高さ方向の3D変化は残したまま、実行時の追加採取なしで雲体を連続させる。
-float fullShapeAt(float3 uvw){
+float3 cloudWarpedShapeDomain(float3 uvw){
     // 低周波の3Dゆがみで雲塊の側面を上下へずらし、同じX・Zの房が
     // 高さ方向へ一直線に積み重なるのを防ぐ。追加計算は初回焼き込みだけで行う。
     float warpX=gnoise((uvw+float3(0.173,0.417,0.619))*2.0,2.0);
@@ -726,37 +931,34 @@ float fullShapeAt(float3 uvw){
     float3 domainWarp=float3(
         warpX-0.5,(warpX+warpZ)*0.5-0.5,warpZ-0.5)
         *float3(0.22,0.28,0.22);
-    float3 warpedUvw=uvw+domainWarp;
+    return uvw+domainWarp;
+}
+// 低周波の連結性場から、雲体の占有域と内部濃度を同時に作る。占有域だけを
+// 0/1へ潰してから密度へ流用すると雲の谷が消えるため、等値面の内側にも
+// 連続した濃淡を残し、Worleyは房の起伏だけへ使う。
+float cloudMacroDensity(float perlinField,float lobeField){
+    // 主成分を低周波Perlinへ寄せ、雲銀行の連結性を保つ。Worleyを境界へ
+    // 強く入れると、隣接する大きな雲が房の集合へ分断される。
+    float bodyPotential=perlinField*0.82+lobeField*0.18;
+    float occupancy=smoothstep(0.46,0.64,bodyPotential);
+    float interior=smoothstep(0.40,0.74,bodyPotential);
+    float lobeRelief=smoothstep(0.34,0.72,lobeField);
+    float interiorDensity=lerp(0.46,1.0,interior);
+    float lobeDensity=lerp(0.88,1.08,lobeRelief);
+    return saturate(occupancy*interiorDensity*lobeDensity);
+}
+float fullShapeAt(float3 uvw){
+    float3 warpedUvw=cloudWarpedShapeDomain(uvw);
     float perlin2 = gnoise(warpedUvw*2.0,2.0);
     float perlin4 = gnoise(warpedUvw*4.0,4.0);
     float perlin8 = gnoise(warpedUvw*8.0,8.0);
-    float perlin16 = gnoise(warpedUvw*16.0,16.0);
-    // 主形状は2～8セルを基準にし、16セル級の細部は後段の侵食へ任せる。
-    // 大きな雲塊を連結したまま、2セル級から4セル級へ少し重みを移して
-    // 中規模の膨らみと谷を戻す。高周波を増やさないため、粒と細柱を増やさない。
-    float perlinFull = perlin2*0.50+perlin4*0.38
-                      +perlin8*0.10+perlin16*0.02;
+    // 主形状は2～8セルだけで連結性を決め、16セル級は実行時の侵食へ任せる。
+    // 低周波を単純な足し算の濃淡ではなく、雲体の存在域を決める場として扱う。
+    float perlinFull = perlin2*0.62+perlin4*0.30+perlin8*0.08;
     float wa = worley(warpedUvw,4.0);
-    float wb = worley(warpedUvw,8.0);
-    float wc = worley(warpedUvw,16.0);
-    float worleyFull = wa*0.82+wb*0.15+wc*0.03;
-    // 低周波Perlinで連続した雲塊の外形を作り、4セルWorleyで大きな房だけを
-    // 主形状の内側へ残す。8・16セルは弱い補助に下げ、粒状の柱を作らない。
-    // 細胞補正の振幅は抑え、低周波の連続した雲塊へ局所的な房だけを重ねる。
-    // 遷移が広過ぎると雲塊の大半が同じ密度へ寄り、照明の陰影が一枚の板になる。
-    // 遷移を少し締め、芯と縁の差を戻しながら空洞が粒へ分断されない範囲に保つ。
-    // 雲体の発生境界を少し広く保ち、低周波の谷を細い穴へしない。
-    float broadMass=smoothstep(0.38,0.64,perlinFull);
-    float lobeMass=smoothstep(0.34,0.78,wa);
-    float cellularMass=smoothstep(0.36,0.88,worleyFull);
-    // 焼き込み済みの低周波形状を外形の内側の大きな房にも使う。外形へ足し算せず、
-    // 既存の連続した雲体を上下へ濃淡化するため、粒状の浮遊物を増やさない。
-    float interiorLobe=smoothstep(0.24,0.78,perlinFull);
-    float bodyVariation=lerp(0.90,1.12,interiorLobe);
-    // 大きな房の振幅だけを広げ、主形状の外側へ新しい粒を足さずに
-    // 連続した雲塊の中の膨らみと谷を読み取れるようにする。
-    return broadMass*bodyVariation*lerp(0.72,1.08,lobeMass)
-                   *lerp(0.90,1.02,cellularMass);
+    // 4セルWorleyは低周波房の局所的な連結性だけへ使い、高周波の細胞場を
+    // 主形状へ混ぜない。これで一つの房が粒の集合へ分解されるのを防ぐ。
+    return cloudMacroDensity(perlinFull,wa);
 }
 float fullShapeColumnAt(float3 uvw){
     // 水平だけでなく上下も平均し、同じ柱の細い縦筋を焼き込み時に抑える。
@@ -775,22 +977,26 @@ void CSNoise(uint3 id : SV_DispatchThreadID){
     if(id.x>=128u||id.y>=128u||id.z>=128u) return;
     float3 uvw=(float3(id)+0.5)/128.0;
     // 連続した広域形状と、輪郭だけを崩す Perlin-Worley を別々に焼き込む。
-    float perlin2 = gnoise(uvw*2.0,2.0);
-    float perlin4 = gnoise(uvw*4.0,4.0);
     float fullShape=fullShapeColumnAt(uvw);
-    // Perlin-Worleyの0は雲の外側を表すため、負の下限から再マップして空洞を
-    // 持ち上げない。低周波Perlinは空間の連結性を補う範囲だけ混ぜ、雲体の
-    // 境界を埋めて柱へ戻さない。
-    // 低密度の外縁を持ち上げ過ぎると、離れた小塊まで同時に残って粒状になる。
-    // 主形状の内側だけを残し、低密度の枝を指数で持ち上げない。
-    // 指数で0.5未満を膨らませると、輪郭の外側へ粒状の雲が伸びやすい。
-    float baseCloud=saturate(fullShape);
-    float billowCloud=perlin2*0.70+perlin4*0.30;
-    // 低周波房は主形状の大きさだけを変え、主形状の外へ密度を足さない。
-    // 補助値の加算は同じX・Zの全高度へ薄い密度を残し、柱と浮遊粒を作る。
-    float broadMass=lerp(0.78,1.14,saturate(billowCloud));
-    float macroCloud=saturate(baseCloud*broadMass);
-    noiseOut[id]=float2(macroCloud,fullShape);
+    // Rは連結性を担う低周波雲塊、GはRと異なる中周波の侵食場として焼き込む。
+    // 同じ主形状を二つの成分へ複製すると、実行時に見えている補正が密度へ届かず、
+    // 視線と自己影が均一な柱を共有するため、ここで役割を分離する。
+    // Rはすでに低周波ポテンシャルから切り出した雲体支持域なので、ここで
+    // 別の低周波房を乗算して外側へ薄い密度を戻さない。
+    // 実行時のRは焼き込み前から使っている固定雑音域へ保存する。占有域を
+    // 0～1のまま保存して後段でもう一度0.18～0.68へ正規化すると、雲体内部が
+    // 早く1へ飽和して平坦になるため、保存形式と読み出し形式を一致させる。
+    float macroCloud=saturate(fullShape);
+    macroCloud=macroCloud>1e-4
+        ?remap(macroCloud,0.0,1.0,0.18,0.68):0.0;
+    float3 warpedUvw=cloudWarpedShapeDomain(uvw);
+    float erosionPerlin=gnoise(warpedUvw*8.0,8.0)*0.58
+                       +gnoise(warpedUvw*16.0,16.0)*0.42;
+    float erosionWorley=worley(warpedUvw,8.0)*0.35
+                       +worley(warpedUvw,16.0)*0.45
+                       +worley(warpedUvw,32.0)*0.20;
+    float erosionField=saturate(erosionPerlin*0.45+erosionWorley*0.55);
+    noiseOut[id]=float2(macroCloud,erosionField);
 }
 )";
 
@@ -995,7 +1201,7 @@ RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
 // xy=太陽方向の平均深さと二標本差、zw=空・地面方向の積算密度。
 RWTexture3D<float4> cloudShadowOut : register(u2);
-Texture3D<float2> shapeNoise     : register(t0);   // (低周波形状, 全帯域形状)
+Texture3D<float2> shapeNoise     : register(t0);   // (低周波雲塊, 中周波侵食)
 Texture2D    weatherMap          : register(t1);   // coverage/type/precipitation/warp
 Texture3D<float2> detailNoise    : register(t2);   // (低周波房, 三帯域侵食)
 Texture2D    curlNoise           : register(t3);   // independent world-space curl field
@@ -1555,16 +1761,17 @@ float3 cloudUVW(
 float cloudPositiveDensityNoiseThreshold(){
     return cloudCoverage.z;
 }
-// 基本雑音を焼き込み式から実測した固定範囲で正規化する。
+// 基本雑音を焼き込み式から実測した固定範囲で線形正規化する。形状の外縁を
+// ここで指数変換すると、支持域と光学量が同じ値へ混ざり、雲体全体が痩せる。
 float cloudNormalizedBaseDensity(float baseNoise){
-    // 外形しきい値を通過した値を正規化した後、低密度側だけを少し抑える。
-    // 線形値をそのまま使うと、広い雲縁が長い視線で積算されて灰色の霧になり、
-    // 高密度の芯と空洞の差が失われる。強いS字変換は細い柱を作るため避ける。
-    float normalized=remapc(
+    return remapc(
         baseNoise,cloudCoverage.z,cloudCoverage.w,0.0,1.0);
-    // 低密度の外縁を長い視線へ残し過ぎると、積分後に薄い灰色の膜へ均される。
-    // 1.55へ緩やかに寄せ、0と1の端点を保ったまま芯と縁の差を実密度へ伝える。
-    return pow(normalized,1.55);
+}
+// 正規化済みの形状を、焼き込み雑音の固定範囲へ戻す。空間棄却で空を表す0を
+// 固定範囲の下端へ置き換えないため、後段の房変形が空間へ密度を復活させない。
+float cloudRawBaseNoiseFromDensity(float baseDensity){
+    return lerp(
+        cloudCoverage.z,cloudCoverage.w,saturate(baseDensity));
 }
 // 積雲の凝結高度では同じ天候塊の底面が概ね揃う。3D雑音の高い点だけを先に
 // 可視化すると逆円すい状の尾になるため、雲底近傍だけに低い密度下限を置く。
@@ -1577,24 +1784,43 @@ float cloudCondensationBaseSupport(
     float support=lerp(0.42,0.36,saturate(toweringStrength));
     return localBaseEntry*baseBand*weatherCore*support;
 }
+// 正規化した形状密度から、雲体として残す支持域を求める。支持域は高さや被覆で
+// 動かさず、3D形状の外縁を一度だけ滑らかに切るため、同じ雲体の断面が高さごとに
+// 別の等値面へ移動しない。
+float cloudDensitySupportFromShape(float baseDensity){
+    float shape=saturate(baseDensity);
+    return smoothstep(0.08,0.28,shape);
+}
 // 既に正規化した3D形状を、凝結面の有界な支持密度までだけ持ち上げる。
 float cloudAnchoredBaseDensity(
     float baseDensity,float height,float weatherMask,
     float toweringStrength){
     float condensationSupport=cloudCondensationBaseSupport(
         height,weatherMask,toweringStrength)*0.28;
-    return max(saturate(baseDensity),condensationSupport);
+    // 凝結補助も3D本体の支持域内だけへ許可する。天候だけでmaxを取ると、
+    // 基本形状が空の場所に水平な薄膜を生成し、長い視線で灰色へ均される。
+    float shapeSupport=cloudDensitySupportFromShape(baseDensity);
+    return max(
+        saturate(baseDensity),condensationSupport*shapeSupport);
 }
-// 高さ分布と被覆は3D形状を削り取るしきい値ではなく、密度の重みとして適用する。
-// 減算式で不足分を引くと中間層の低い値が全て0になり、尖った柱と粒へ分断される。
+// 高さ分布と被覆から、その地点の光学密度を決める。空間の支持域と光学密度を
+// 分離し、被覆を雲体の境界へ直接掛けて薄い縦膜を作らない。
 float cloudDimensionalProfile(float verticalProfile,float weatherMask){
     return saturate(verticalProfile)*saturate(weatherMask);
 }
+// 密度場を「すでに境界を整えた形状」と「高さ・被覆による光学量」に分けて
+// 合成する。profile=0は空、profile=1は形状密度そのものとなる。形状支持をここで
+// 再度掛けないため、遠方だけ外縁が別の等値面へ縮むことや、密度を二重に削ることを避ける。
+float cloudProfileCarvedDensity(
+    float baseDensity,float dimensionalProfile){
+    float profile=saturate(dimensionalProfile);
+    float shape=saturate(baseDensity);
+    float opticalDensity=shape*profile;
+    return saturate(opticalDensity);
+}
 float cloudDensityFromDimensionalProfile(
     float baseDensity,float dimensionalProfile){
-    // 高さと被覆は、薄い縁を平方根で持ち上げず、体積密度へ線形に掛ける。
-    // 平方根は低密度の端部を過剰に残し、雲底の柱と灰色の棚を生みやすい。
-    return saturate(baseDensity)*saturate(dimensionalProfile);
+    return cloudProfileCarvedDensity(baseDensity,dimensionalProfile);
 }
 // 雲体の中層だけ、既に存在する密度の明暗幅を広げる。0の外形へ密度を足さず、
 // 1の芯も飽和させたままなので、雲縁の位置と連続性を変えずに雲中の厚みを読ませる。
@@ -1649,22 +1875,41 @@ float cloudShapeFrequencyVisibility(
                     *domainScale*frequency;
     return 1.0-smoothstep(0.22,0.52,footprint);
 }
-// Rの連続した低周波雲体を支持範囲として残し、同じ標本のGに焼き込んだ
-// Perlin-Worleyだけで輪郭を内側へ削る。雲頂ほど房を強めるが、削減率を
-// 14～26%へ制限して天候中心の雲体を粒へ分断しない。
+// Rの連続した低周波雲体を固定雑音域から正規化して占有域へ戻す。Gはここで境界へ掛けず、
+// 雲内部の密度侵食場として別経路へ渡す。占有判定へ高周波を混ぜると、
+// 雲塊の輪郭と内部密度が同じ細胞場に拘束され、遠景で柱と粒へ分解される。
 float cloudBaseShapeBand(
     float2 shapeBands,float sampleSpacing,float domainScale,float height){
-    float fineVisibility=cloudShapeFrequencyVisibility(
-        sampleSpacing,domainScale,32.0);
-    float billowSignal=smoothstep(0.18,0.70,saturate(shapeBands.g));
-    float topDetail=smoothstep(0.35,0.90,saturate(height));
-    float maximumErosion=fineVisibility*lerp(0.18,0.34,topDetail);
-    // 低密度の外縁は長い光路で灰色の霧へ広がり、高密度の芯は光路平均で平坦になる。
-    // 中心値と端点を保ったまま傾きだけを1.24倍にし、新しい雲や採取点は増やさない。
-    float rawShape=saturate(shapeBands.r);
-    float contrastedShape=saturate(0.5+(rawShape-0.5)*1.24);
-    return contrastedShape
-          *lerp(1.0-maximumErosion,1.0,billowSignal);
+    // 引数の採取間隔・高さは既存の呼び出し契約を保つ。占有域は低周波Rだけで
+    // 決め、Gの帯域制御は cloudShapeErosionBand へ分離する。R=0は空のまま扱う。
+    return cloudNormalizedBaseDensity(shapeBands.r);
+}
+// Gの中周波場を、既存の雲体内部を削るための値へ変換する。細部の解像度が
+// 足りない場合は平均値へ戻し、LOD境界で細胞模様が突然再出現しないようにする。
+float cloudShapeErosionBand(
+    float2 shapeBands,float sampleSpacing,float domainScale,float height){
+    float erosionVisibility=cloudShapeFrequencyVisibility(
+        sampleSpacing,domainScale,16.0);
+    float verticalWeight=lerp(
+        0.72,1.0,smoothstep(0.18,0.86,saturate(height)));
+    float visibility=saturate(erosionVisibility*verticalWeight);
+    return lerp(0.5,saturate(shapeBands.g),visibility);
+}
+// 低周波の占有域へ、Gの侵食場を密度として適用する。雲体の外へ密度を足さず、
+// baseDensityが0なら必ず0を返すため、細部が新しい粒や柱を発生させない。
+float cloudDensityFromShapeErosion(
+    float baseDensity,float erosionField,float height){
+    float density=saturate(baseDensity);
+    float erosion=saturate(erosionField);
+    float topWeight=smoothstep(0.16,0.88,saturate(height));
+    float erosionAmount=lerp(0.16,0.30,topWeight);
+    float erosionThreshold=erosion*erosionAmount;
+    float erodedDensity=remapc(
+        density,erosionThreshold,1.0,0.0,1.0);
+    // 雲底は連続した凝結面を保ち、雲頂へ向かうほど細胞場の谷を読ませる。
+    float erosionFloor=lerp(0.78,0.48,topWeight);
+    erodedDensity=max(erodedDensity,density*erosionFloor);
+    return saturate(erodedDensity);
 }
 // 二領域を混ぜた被覆値の実測百分位へ合わせ、入力0.1/0.5/0.9が
 // およそ10%/52%/90%の正の被覆領域になるようにする。
@@ -1720,28 +1965,40 @@ float cloudWeatherMask(float4 weather,float coverage){
 }
 void cloudBaseShape(
     float3 uvw,float rejectionThreshold,float sampleSpacing,float height,
-    out float shapeResult){
+    out float shapeResult,out float erosionResult){
     shapeResult=0.0;
+    erosionResult=0.5;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
     // 第1領域を雲体の低周波形状として使い、雲の連続した塊を先に確定する。
     // 詳細な房と侵食は後段の密度処理へ分離し、別位相の領域で雲体を分断しない。
-    float shape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
-    [branch] if(shape<rejectionThreshold-1e-5) return;
-    // 後段の密度処理は焼き込み前の固定範囲を一度だけ正規化する。
-    // ここで整形済みのshapeを渡すと、低周波値へしきい値変換を二重に掛けて
-    // 芯を早く飽和させ、雲縁だけを灰色の膜として残してしまう。
-    shapeResult=saturate(a.r);
+    float normalizedShape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
+    float rejectionDensity=cloudNormalizedBaseDensity(
+        max(rejectionThreshold-cloudBillowMaximumOffset(height),
+            cloudCoverage.z));
+    // 空の0を固定範囲の下端へ戻すと、後段の房変形が空間へ密度を復活させる。
+    // 正の形状だけを生雑音域へ戻し、棄却値以下は空のまま保持する。
+    [branch] if(normalizedShape<=rejectionDensity+1e-5) return;
+    // 空は0のまま保持し、実在する形状だけを固定雑音域へ戻して後段へ渡す。
+    // これで棄却用の空間判定と視線・自己影の密度入力が同じ形状場になる。
+    shapeResult=cloudRawBaseNoiseFromDensity(normalizedShape);
+    erosionResult=cloudShapeErosionBand(a,sampleSpacing,1.0,height);
 }
 // 光円すい側も視線側と同じ低周波形状を使い、自己影だけが別の雲模様にならないようにする。
 void cloudBaseShapeLighting(
     float3 uvw,float rejectionThreshold,float sampleSpacing,float height,
-    out float shapeResult){
+    out float shapeResult,out float erosionResult){
     shapeResult=0.0;
+    erosionResult=0.5;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
-    float shape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
-    [branch] if(shape<rejectionThreshold-1e-5) return;
-    // 視線側と同じく、後段で一度だけ固定雑音範囲を正規化する。
-    shapeResult=saturate(a.r);
+    float normalizedShape=cloudBaseShapeBand(a,sampleSpacing,1.0,height);
+    float rejectionDensity=cloudNormalizedBaseDensity(
+        max(rejectionThreshold-cloudBillowMaximumOffset(height),
+            cloudCoverage.z));
+    // 視線側と同じく、空の形状を生雑音の下端値へ変換しない。
+    [branch] if(normalizedShape<=rejectionDensity+1e-5) return;
+    // 視線側と同じ正規化形状を固定雑音域へ戻し、自己影だけ別の主形状にしない。
+    shapeResult=cloudRawBaseNoiseFromDensity(normalizedShape);
+    erosionResult=cloudShapeErosionBand(a,sampleSpacing,1.0,height);
 }
 
 // 視線採取では天候、渦、基本形状を占有判定用に一度だけ評価し、詳細密度へ再利用する。
@@ -1753,6 +2010,8 @@ struct CloudMacroSample {
     float weatherMask;
     // 高さ別のかなとこ・くびれを加える前の柱内部位置。局所雲頂を高さから独立させる。
     float columnInterior;
+    // 低周波雲体の内部を削る中周波侵食場。視線、光、低詳細度で同じ値を使う。
+    float shapeErosion;
     // 作者指定の積乱雲強度を低周波天候場で局所化した値。高さ、くびれ、かなとこで共有する。
     float toweringStrength;
     // 最終密度の被覆境界から雲柱内部までを表す補間値。
@@ -1792,6 +2051,7 @@ CloudMacroSample sampleCloudMacro(
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
     macro.columnInterior=0.0;
+    macro.shapeErosion=0.5;
     macro.toweringStrength=0.0;
     macro.densityWeatherMask=0.0;
     macro.heightProfile=0.0;
@@ -1841,10 +2101,11 @@ CloudMacroSample sampleCloudMacro(
             // 後段の詳細体積が外側へ膨らませられる最大量を早期棄却にも含める。
             cloudBaseShape(
                 sampleUvw,
-                rejectionThreshold-cloudBillowMaximumOffset(macro.height),
+                rejectionThreshold,
                 sampleSpacing,
                 macro.height,
-                macro.baseNoise);
+                macro.baseNoise,
+                macro.shapeErosion);
         }
     }
     return macro;
@@ -1857,6 +2118,7 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
     macro.columnInterior=0.0;
+    macro.shapeErosion=0.5;
     macro.toweringStrength=0.0;
     macro.densityWeatherMask=0.0;
     macro.heightProfile=0.0;
@@ -1898,10 +2160,11 @@ CloudMacroSample sampleCloudMacroLighting(
                 cloudUVW(
                     p,macro.weather,macro.curl,macro.layerHeight,
                     macro.height,macro.toweringStrength,upperBand),
-                rejectionThreshold-cloudBillowMaximumOffset(macro.height),
+                rejectionThreshold,
                 sampleSpacing,
                 macro.height,
-                macro.baseNoise);
+                macro.baseNoise,
+                macro.shapeErosion);
         }
     }
     return macro;
@@ -1934,13 +2197,17 @@ float2 sampleCloudFarLightingDensityAndScale(
         if(sampledProfile>0.0){
             float rejectionThreshold=cloudPositiveDensityNoiseThreshold();
             float baseNoise=0.0;
+            float shapeErosion=0.5;
             float2 curl=cloudCurlOffset(p);
             cloudBaseShapeLighting(
                 cloudUVW(p,weather,curl,layerHeight,sampleHeight,toweringStrength,upperBand),
-                rejectionThreshold,sampleSpacing,sampleHeight,baseNoise);
+                rejectionThreshold,sampleSpacing,sampleHeight,baseNoise,
+                shapeErosion);
             float baseDensity=cloudNormalizedBaseDensity(baseNoise);
             baseDensity=cloudAnchoredBaseDensity(
                 baseDensity,sampleHeight,weatherMask,toweringStrength);
+            baseDensity=cloudDensityFromShapeErosion(
+                baseDensity,shapeErosion,sampleHeight);
             float dimensionalDensity=cloudDensityFromDimensionalProfile(
                 baseDensity,cloudDimensionalProfile(
                     sampledProfile,weatherMask));
@@ -2072,6 +2339,8 @@ float cloudLowLodDensityFromPositiveWeatherMacro(CloudMacroSample macro,float we
         baseDensity=cloudAnchoredBaseDensity(
             baseDensity,macro.height,weatherMask,
             macro.toweringStrength);
+        baseDensity=cloudDensityFromShapeErosion(
+            baseDensity,macro.shapeErosion,macro.height);
         baseDensity=cloudTopReliefDensity(
             baseDensity,macro.height,macro.toweringStrength);
         float dimensionalDensity=cloudDensityFromDimensionalProfile(
@@ -2098,6 +2367,8 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
             baseDensity,h,weatherMask,macro.toweringStrength);
         baseDensity=cloudTopReliefDensity(
             baseDensity,h,macro.toweringStrength);
+        baseDensity=cloudDensityFromShapeErosion(
+            baseDensity,macro.shapeErosion,h);
         // 基本形状の外側でも、詳細体積が到達できる範囲だけは密度評価へ進める。
         float envelopeBaseDensity=cloudNormalizedBaseDensity(
             macro.baseNoise+cloudBillowMaximumOffset(h));
@@ -2139,9 +2410,19 @@ float cloudDensityFromPositiveWeatherMacro(float3 p,CloudMacroSample macro,float
                     ndA,ndB,h,middleBillowVisibility);
                 float billowedBaseDensity=cloudNormalizedBaseDensity(
                     macro.baseNoise+billowOffset);
+                // 房の正方向変形は、低周波の本体が存在する範囲だけへ許可する。
+                // 空の下端値へ変形量を加えると、孤立した粒や柱が新しく発生する。
+                float detailExpansionSupport=cloudDensitySupportFromShape(
+                    baseDensity);
+                float billowExpansionLimit=baseDensity+
+                    (1.0-baseDensity)*detailExpansionSupport;
+                billowedBaseDensity=min(
+                    billowedBaseDensity,billowExpansionLimit);
                 billowedBaseDensity=cloudAnchoredBaseDensity(
                     billowedBaseDensity,h,weatherMask,
                     macro.toweringStrength);
+                billowedBaseDensity=cloudDensityFromShapeErosion(
+                    billowedBaseDensity,macro.shapeErosion,h);
                 float billowedCoarseDensity=cloudDensityFromDimensionalProfile(
                     billowedBaseDensity,
                     cloudDimensionalProfile(macro.heightProfile,weatherMask));
