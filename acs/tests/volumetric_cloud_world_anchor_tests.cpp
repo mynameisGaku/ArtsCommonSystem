@@ -8058,6 +8058,11 @@ ACS_TEST(VolumetricClouds,
         "float2worldXz=q+cloudWindWorld();"));
     EXPECT_TRUE(Contains(
         shader,
+        "float3cloudShadowWorldPositionAtAltitude(float2worldXz,floataltitude){"
+        "float2d=worldXz-worldOrigin.xz;"
+        "floatradius=CLOUD_PLANET_RADIUS+altitude;"));
+    EXPECT_TRUE(Contains(
+        shader,
         "floatsag=d2/max(radius+root,1.0);"));
     EXPECT_TRUE(Contains(
         shader,
@@ -8086,12 +8091,28 @@ ACS_TEST(VolumetricClouds,
         "if(tauDisagreement>shadowState.y)"
         "returnfloat3(0.0,0.0,0.0);"));
     EXPECT_TRUE(Contains(shader, "floatcolumnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];"));
+    EXPECT_TRUE(Contains(shader, "floatupperColumnDepth=0.0;"));
+    EXPECT_TRUE(Contains(shader, "if(cloudUpperLayer.w>0.5){"));
+    EXPECT_TRUE(Contains(shader, "float2columnWorldXz=shadowGrid.xy+float2("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[loop]for(uintupperDensityHeightIndex=0u;"
+        "upperDensityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;"
+        "++upperDensityHeightIndex){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudShadowWorldPositionAtAltitude(columnWorldXz,"
+        "lerp(cloudUpperLayer.x,cloudUpperLayer.y,upperHeight));"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "upperColumnDepth+=max(upperDensity,0.0)"
+        "*upperCellWorldStep*cloudOpticalDepthScaleFromBand(true);"));
     EXPECT_TRUE(Contains(
         shader,
         "[loop]for(uintdensityHeightIndex=0u;"
         "densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;"
         "++densityHeightIndex){"));
-    EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth,0.0);"));
+    EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
     EXPECT_TRUE(Contains(shader, "cloudShadowOut[outputVoxel]=float4(" "meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
     EXPECT_TRUE(Contains(shader, "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
     EXPECT_FALSE(Contains(shader, "CSCloudShadowFinalize"));

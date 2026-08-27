@@ -2185,20 +2185,23 @@ float cloudBillowLightDepthResidual(
     return residual;
 }
 
-// 移流を除いた安定XZ座標と正規化高度から、現在の曲面雲層上の点を復元する。
-// 有理化した沈み量により地球半径同士の減算を避け、誤差を1画素未満に抑える。
-float3 cloudShadowWorldPosition(float3 uvw){
-    float2 q=shadowGrid.xy
-             +float2(uvw.x/max(shadowGrid.z,1e-8),
-                     uvw.z/max(shadowGrid.w,1e-8));
-    float2 worldXz=q+cloudWindWorld();
-    float altitude=lerp(layer.x,layer.y,saturate(uvw.y));
+// 移流を除いた安定XZ座標と高度から、現在の曲面雲層上の点を復元する。
+// 有理化した沈み量により地球半径同士の減算を避け、下層・上層で同じ曲面を使う。
+float3 cloudShadowWorldPositionAtAltitude(float2 worldXz,float altitude){
     float2 d=worldXz-worldOrigin.xz;
     float radius=CLOUD_PLANET_RADIUS+altitude;
     float d2=dot(d,d);
     float root=sqrt(max(radius*radius-d2,0.0));
     float sag=d2/max(radius+root,1.0);
     return float3(worldXz.x,worldOrigin.y+altitude-sag,worldXz.y);
+}
+float3 cloudShadowWorldPosition(float3 uvw){
+    float2 q=shadowGrid.xy
+             +float2(uvw.x/max(shadowGrid.z,1e-8),
+                     uvw.z/max(shadowGrid.w,1e-8));
+    float2 worldXz=q+cloudWindWorld();
+    float altitude=lerp(layer.x,layer.y,saturate(uvw.y));
+    return cloudShadowWorldPositionAtAltitude(worldXz,altitude);
 }
 
 // キャッシュの各画素は、採取間隔に合わせて侵食帯域を制限した近距離3点の後へ対応する。
@@ -2330,6 +2333,34 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
     float columnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];
     float totalColumnDepth=0.0;
     float cellWorldStep=(layer.y-layer.x)/float(CLOUD_SHADOW_CACHE_HEIGHT);
+    float upperColumnDepth=0.0;
+    if(cloudUpperLayer.w>0.5){
+        // 下層の空側へ届く光は、層間の晴天域を通った後に上層も通過する。
+        // 下層キャッシュの32区間とは別に上層の列全体だけを一度積算し、
+        // 上層を有効にしたときも環境光の遮蔽を欠落させない。
+        float2 columnWorldXz=shadowGrid.xy
+            +float2(
+                (float(outputColumn.x)+0.5)/max(shadowGrid.z,1e-8),
+                (float(outputColumn.y)+0.5)/max(shadowGrid.w,1e-8))
+            +cloudWindWorld();
+        float upperCellWorldStep=(cloudUpperLayer.y-cloudUpperLayer.x)
+            /float(CLOUD_SHADOW_CACHE_HEIGHT);
+        [loop] for(uint upperDensityHeightIndex=0u;
+                   upperDensityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
+                   ++upperDensityHeightIndex){
+            float upperHeight=(float(upperDensityHeightIndex)+0.5)
+                /float(CLOUD_SHADOW_CACHE_HEIGHT);
+            float3 upperP=cloudShadowWorldPositionAtAltitude(
+                columnWorldXz,
+                lerp(cloudUpperLayer.x,cloudUpperLayer.y,upperHeight));
+            CloudMacroSample upperMacro=sampleCloudMacroLighting(
+                upperP,coverage,upperCellWorldStep);
+            float upperDensity=cloudLowLodDensityFromMacro(
+                upperMacro,upperMacro.densityWeatherMask);
+            upperColumnDepth+=max(upperDensity,0.0)
+                *upperCellWorldStep*cloudOpticalDepthScaleFromBand(true);
+        }
+    }
     // Nubis 2023と同じく、空方向の密度を事前積算する。同じXZ列は高度ごとに一度だけ評価し、
     // 各高度から別々レイマーチする重複を避ける。
     [loop] for(uint densityHeightIndex=0u;densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++densityHeightIndex){
@@ -2364,7 +2395,8 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
         }
         float halfSegmentDepth=0.5*columnSegmentDepth[outputHeightIndex];
         float skyDepth=max(
-            totalColumnDepth-groundDepth-halfSegmentDepth,0.0);
+            totalColumnDepth-groundDepth-halfSegmentDepth
+                +upperColumnDepth,0.0);
         float sampleGroundDepth=groundDepth+halfSegmentDepth;
         cloudShadowOut[outputVoxel]=float4(
             meanDepth,disagreement,skyDepth,sampleGroundDepth);
