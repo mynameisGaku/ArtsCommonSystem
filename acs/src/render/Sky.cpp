@@ -1528,7 +1528,7 @@ float3 cloudUVW(
     return rotateNoise(canonicalPosition);
 }
 // Perlin-Worley形状は0付近を雲の外側として持つ。外形は焼き込み後の実測範囲
-// 0.18～0.50で一度だけ決め、高さと被覆が薄い場所でも3D形状の連結性を保つ。
+// 0.18～0.68で一度だけ決め、高さと被覆が薄い場所でも3D形状の連結性を保つ。
 // 密度の減衰は後段で行う。
 float cloudPositiveDensityNoiseThreshold(){
     return cloudCoverage.z;
@@ -3916,7 +3916,7 @@ constexpr u32 kVolumetricCloudEnvironmentViewSteps = 64u;
 // 再マップ前のPerlin-Worley形状で、雲体の外側を棄却する下端。
 constexpr f32 kVolumetricCloudBaseNoiseLower = 0.18f;
 // 再マップ前のPerlin-Worley形状で、芯の密度へ到達する上端。
-constexpr f32 kVolumetricCloudBaseNoiseUpper = 0.50f;
+constexpr f32 kVolumetricCloudBaseNoiseUpper = 0.68f;
 // 64x6方向のray marchとIBL畳み込みは高価なので、連続補間中は最大でも
 // この成功雲frame数ごとに一度だけ更新する。30は60 Hz時に約0.5秒。
 constexpr u64 kVolumetricCloudEnvironmentRefreshInterval = 30u;

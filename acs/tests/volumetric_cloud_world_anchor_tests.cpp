@@ -690,7 +690,7 @@ f32 CloudColumnTopForTest(f32 topShift, f32 toweringStrength, bool upperBand, f3
 
 // 基本形状の侵食後分布から独立に求めた固定正規化範囲。
 constexpr f32 kCloudBaseNoiseLowerForTest = 0.18f;
-constexpr f32 kCloudBaseNoiseUpperForTest = 0.50f;
+constexpr f32 kCloudBaseNoiseUpperForTest = 0.68f;
 
 // 完成密度が正になり得る生の雑音下限を求める。
 f32 CloudPositiveDensityNoiseThresholdForTest() noexcept {
@@ -4122,9 +4122,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(
         CloudNormalizedBaseDensityForTest(0.18f), 0.0f, 0.0f);
     EXPECT_NEAR(
-        CloudNormalizedBaseDensityForTest(0.34f), 0.4117955f, 1.0e-6f);
+        CloudNormalizedBaseDensityForTest(0.34f), 0.2325905f, 1.0e-6f);
     EXPECT_NEAR(
-        CloudNormalizedBaseDensityForTest(0.50f), 1.0f, 0.0f);
+        CloudNormalizedBaseDensityForTest(0.50f), 0.5648204f, 1.0e-6f);
+    EXPECT_NEAR(
+        CloudNormalizedBaseDensityForTest(0.68f), 1.0f, 0.0f);
+    EXPECT_TRUE(
+        CloudNormalizedBaseDensityForTest(0.50f) <
+        CloudNormalizedBaseDensityForTest(0.68f));
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
@@ -4350,7 +4355,7 @@ ACS_TEST(VolumetricClouds,
         "constexprf32kVolumetricCloudBaseNoiseLower=0.18f;"));
     EXPECT_TRUE(Contains(
         compactSource,
-        "constexprf32kVolumetricCloudBaseNoiseUpper=0.50f;"));
+        "constexprf32kVolumetricCloudBaseNoiseUpper=0.68f;"));
     EXPECT_TRUE(Contains(
         compactSource,
         "out.coverage=FVec4{"
@@ -5166,7 +5171,7 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
     EXPECT_NEAR(occupancyWeatherThreshold, 0.54f, 1.0e-6f);
     EXPECT_NEAR(densityWeatherThreshold, 0.5688f, 1.0e-6f);
     EXPECT_NEAR(kCloudBaseNoiseLowerForTest, 0.18f, 0.0f);
-    EXPECT_NEAR(kCloudBaseNoiseUpperForTest, 0.50f, 0.0f);
+    EXPECT_NEAR(kCloudBaseNoiseUpperForTest, 0.68f, 0.0f);
 
     /** 厚さ2500mの下層を基準幅1.6へ写す採取尺度。 */
     constexpr f32 lowerSamplingScale = 1.6f / 2500.0f;
