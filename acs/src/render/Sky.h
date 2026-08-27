@@ -404,10 +404,10 @@ struct FVolumetricCloudLighting {
      * 実際の消散係数は、手続き密度と作者密度にこの値および
      * `kVolumetricCloudReferenceExtinctionPerMeter`を掛けた`m^-1`になる。
      */
-    f32 ViewExtinction = 5.0f;
+    f32 ViewExtinction = 2.0f;
 
-    /** 光の方向の消散。見る方向と揃える。 */
-    f32 LightExtinction = 5.0f;
+    /** 光の方向の消散。見る方向と揃え、基準層の光学的深さを過飽和させない。 */
+    f32 LightExtinction = 2.0f;
 
     /**
      * 消散した光のうち散乱に回る割合（単散乱アルベド）。

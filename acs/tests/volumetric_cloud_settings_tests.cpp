@@ -86,7 +86,7 @@ ACS_TEST(VolumetricCloudSettings, LightingRejectsNonFiniteAndUnsafeCoefficients)
     /** GPU へ渡せる範囲へ直した照明。 */
     const FVolumetricCloudLighting lighting = SanitizeVolumetricCloudLighting(requested);
     EXPECT_NEAR(lighting.ViewExtinction, 0.0f, 0.0f);
-    EXPECT_NEAR(lighting.LightExtinction, 5.0f, 0.0f);
+    EXPECT_NEAR(lighting.LightExtinction, 2.0f, 0.0f);
     EXPECT_NEAR(lighting.SunScatter, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.SunScatteringLuminanceScale, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.PowderStrength, 0.0f, 0.0f);
@@ -124,6 +124,21 @@ ACS_TEST(VolumetricCloudSettings, DefaultLightingKeepsWaterDropletScatteringNear
     // 補償量は媒質と視線で変わるため、未測定の一律増幅を既定にしない。
     EXPECT_NEAR(lighting.SunScatteringLuminanceScale, 1.0f, 0.0f);
     EXPECT_NEAR(lighting.ViewExtinction, lighting.LightExtinction, 0.0f);
+}
+
+ACS_TEST(VolumetricCloudSettings, DefaultExtinctionKeepsReferenceLayerDepthBounded)
+{
+    /** 基準層へ一様密度1で入ったときの既定照明。 */
+    const FVolumetricCloudLighting lighting{};
+    /** 2500 m基準層の物理消散を、設定倍率込みで一度だけ求める。 */
+    const f32 referenceOpticalDepth =
+        2500.0f * kVolumetricCloudReferenceExtinctionPerMeter *
+        lighting.ViewExtinction;
+
+    EXPECT_NEAR(lighting.ViewExtinction, 2.0f, 0.0f);
+    EXPECT_NEAR(lighting.LightExtinction, 2.0f, 0.0f);
+    EXPECT_NEAR(referenceOpticalDepth, 3.2f, 1.0e-6f);
+    EXPECT_TRUE(referenceOpticalDepth < 4.0f);
 }
 
 ACS_TEST(VolumetricCloudSettings, DirectionalLuminanceCompensationIsFiniteAndDoesNotReplaceAlbedo)
