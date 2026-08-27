@@ -711,7 +711,7 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     EXPECT_TRUE(Contains(ambientBlock, "float ambientDensityScale=max(density*distanceFade,0.0);"));
     EXPECT_TRUE(Contains(ambientBlock, "lowLodDensity*ambientDensityScale"));
     EXPECT_FALSE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion*multiOcclusion;"));
+    EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion;"));
     EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*diffuseOcclusion"));
     EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(source, "float2 cloudAmbientFallbackOpticalDepth(CloudMacroSample macro,float localDensity)"));

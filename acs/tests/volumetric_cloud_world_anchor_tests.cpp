@@ -7640,6 +7640,10 @@ ACS_TEST(VolumetricClouds,
         ambient,
         "saturate(1.0-lowLodDensity*distanceFade)"));
     EXPECT_TRUE(Contains(ambient, "floatskyAmbientZenithWeight=lerp(" "0.3333333,0.6666667,saturate(h));" "float3skyAmbient=cloudSkyZenith.w>0.5?lerp(" "skyCol.rgb,cloudSkyZenith.rgb," "skyAmbientZenithWeight):skyCol.rgb;"));
+    EXPECT_TRUE(Contains(
+        ambient,
+        "floatdiffuseOcclusion=multiOcclusion;"
+        "floatreducedAmbientExtinction=0.60*diffuseOcclusion*cloudLightingExtinction.y;"));
     EXPECT_FALSE(Contains(ambient, "tauL"));
     EXPECT_FALSE(Contains(ambient, "sun.y"));
 
@@ -7665,7 +7669,7 @@ ACS_TEST(VolumetricClouds,
         const f32 blend = std::clamp(cacheWeight, 0.0f, 1.0f);
         const f32 opticalDepth = fallbackDepth +
             (cachedDepth * ambientDensityScale - fallbackDepth) * blend;
-        const f32 diffuseOcclusion = lighting.MultiScatterOcclusion * lighting.MultiScatterOcclusion;
+        const f32 diffuseOcclusion = lighting.MultiScatterOcclusion;
         const f32 reducedExtinction = 0.60f * diffuseOcclusion * lighting.LightExtinction;
         return std::exp(-reducedExtinction * opticalDepth);
     };
@@ -7674,11 +7678,22 @@ ACS_TEST(VolumetricClouds,
     const f32 edge = visibility(0.15f, 0.85f, 1.6f, 1.0f, 0.15f, 1.0f, true);
     const f32 enclosed = visibility(0.85f, 0.65f, 1.6f, 1.0f, 1.10f, 1.0f, true);
     const f32 enclosedUnderGap = visibility(0.85f, 0.65f, 1.6f, 1.0f, 0.10f, 1.0f, true);
+    const f32 enclosedFallbackDepth = fallbackOpticalDepth(
+        0.85f, 0.65f, 1.6f, 1.0f, kFallbackBandThickness,
+        kFallbackColumnSpan, true);
+    const f32 enclosedOpticalDepth = enclosedFallbackDepth +
+        (1.10f * 1.6f - enclosedFallbackDepth);
+    const f32 formerEnclosed = std::exp(
+        -0.60f * lighting.MultiScatterOcclusion *
+        lighting.MultiScatterOcclusion * lighting.LightExtinction *
+        enclosedOpticalDepth);
     EXPECT_NEAR(clear, 1.0f, 1e-6f);
     EXPECT_TRUE(edge < clear);
     EXPECT_TRUE(enclosed < edge);
     EXPECT_TRUE(enclosed < enclosedUnderGap);
     EXPECT_TRUE(enclosed > 0.0f);
+    // 過去の二乗遮蔽では雲中の環境光が残り過ぎるため、現行式はより深い陰影を作る。
+    EXPECT_TRUE(enclosed < formerEnclosed);
     // 作者指定の密度倍率は積算密度の消散へ反映する。
     const f32 ordinaryCore = visibility(0.85f, 0.5f, 1.0f, 1.0f, 0.80f, 1.0f, true);
     const f32 denseCore = visibility(0.85f, 0.5f, 2.1f, 1.0f, 0.80f, 1.0f, true);

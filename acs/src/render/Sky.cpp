@@ -2932,10 +2932,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             float ambientDensityScale=max(density*distanceFade,0.0);
             float ambientLocalDensity=max(
                 lowLodDensity*ambientDensityScale,0.0);
-            // 空半球の環境光は大気と雲で既に何度も散乱して方向を失っているため、
-            // 二次散乱用の遮蔽率をそのまま掛けると、公開された雲底係数をさらに半分以下へ落としてしまう。
-            // 三次散乱と同じ縮小率で拡散輸送を近似し、追加採取なしで雲頂と雲底の明暗差を保つ。
-            float diffuseOcclusion=multiOcclusion*multiOcclusion;
+            // 空半球の環境光は方向を失っているが、入射光路の消散まで三次散乱の
+            // 縮小率で二重に弱めるものではない。二乗は三次散乱の経路専用とし、
+            // 環境光の遮蔽は一段分だけ緩和することで、雲中の明暗差を残す。
+            float diffuseOcclusion=multiOcclusion;
             float reducedAmbientExtinction=0.60*diffuseOcclusion*cloudLightingExtinction.y;
             float2 fallbackAmbientDepth=
                 cloudAmbientFallbackOpticalDepth(macro,ambientLocalDensity);
