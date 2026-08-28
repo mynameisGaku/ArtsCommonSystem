@@ -649,9 +649,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setLayer, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setUpper, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setReference, "InvalidateCloudHistory_Internal(false);"));
-    EXPECT_TRUE(Contains(setLighting, "InvalidateCloudHistory_Internal(false);"));
+    EXPECT_TRUE(Contains(setLighting, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setWeather, "InvalidateCloudHistory_Internal(true);"));
-    EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(false);"));
+    EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudDimensionalProfile("));
@@ -664,23 +664,43 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(lowLodDensity, "cloudHeightPrecipitationDensityScale("));
     EXPECT_FALSE(Contains(lowLodDensity, "baseDensity*weatherMask*macro.heightProfile"));
     EXPECT_TRUE(Contains(source, "float cloudDensitySupportFromShape("));
-    EXPECT_TRUE(Contains(source, "return cloudNormalizedBaseDensity(shapeBands.r);"));
-    EXPECT_TRUE(Contains(source, "float cloudShapeErosionBand("));
-    EXPECT_TRUE(Contains(source, "float cloudDensityFromShapeErosion("));
+    EXPECT_TRUE(Contains(source, "float completedPerlinWorleyShape("));
+    EXPECT_FALSE(Contains(source, "const char* kNoiseDownsampleCS"));
+    EXPECT_TRUE(Contains(source, "const char* kNoiseFilterCS"));
+    EXPECT_TRUE(Contains(source, "float4 filteredShapes=shapeNoise.SampleLevel("));
+    EXPECT_TRUE(Contains(source, "float cloudFilteredBaseNoise("));
+    EXPECT_FALSE(Contains(source, "float cloudPerlinWorleyShape("));
+    EXPECT_TRUE(Contains(source, "return cloudStoredBaseNoise(normalizedShape);"));
     EXPECT_TRUE(Contains(source, "[branch] if(normalizedShape<=rejectionDensity+1e-5) return;"));
     EXPECT_FALSE(Contains(source, "float boundarySupport=smoothstep("));
-    EXPECT_TRUE(Contains(source, "float erosionThreshold=erosion*erosionAmount;"));
+    EXPECT_FALSE(Contains(source, "float erosionThreshold=erosion*erosionAmount;"));
     EXPECT_TRUE(Contains(source, "float opticalDensity=shape*profile;"));
     EXPECT_TRUE(Contains(source, "return saturate(opticalDensity);"));
     EXPECT_TRUE(Contains(source, "if(upperBand) macro.weatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
 
-    EXPECT_TRUE(Contains(source, "float4 sampleCloudSunDepths("));
-    EXPECT_TRUE(Contains(source, "result=cached;"));
-    EXPECT_FALSE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
-    EXPECT_TRUE(Contains(source, "float4 correctedDepths=max("));
-    EXPECT_TRUE(Contains(source, "lightDepths+detailDepthResidual.xxxx"));
+    EXPECT_TRUE(Contains(source, "void sampleCloudSunTransmittance("));
+    EXPECT_TRUE(Contains(source, "firstVisibility=saturate(cachedFirst);"));
+    EXPECT_TRUE(Contains(source, "secondVisibility=saturate(cachedSecond);"));
+    EXPECT_TRUE(Contains(source, "thirdVisibility=saturate(cachedThird);"));
+    EXPECT_TRUE(Contains(source, "float4 cloudSunTransmittanceFromDepth("));
+    EXPECT_TRUE(Contains(source, "float4 cloudApplySunDepthResidual("));
+    EXPECT_TRUE(Contains(source, "float cloudR16TransmittanceHalfUlp("));
+    EXPECT_TRUE(Contains(source, "float cloudAmplifiedR16VisibilityReliability("));
+    EXPECT_TRUE(Contains(source, "float cloudSunDepthResidualCacheReliability("));
+    EXPECT_TRUE(Contains(source, "const float subnormalHalfUlp=0.0000000298023223876953125;"));
+    EXPECT_FALSE(Contains(source, "if(detailDepthResidual>=0.0) return 1.0;"));
+    EXPECT_TRUE(Contains(source, "if(cacheBlendWeight>0.0){"));
+    EXPECT_TRUE(Contains(source, "if(cacheBlendWeight<1.0){"));
+    EXPECT_TRUE(Contains(source, "cacheBlendWeight*=cacheReliability;"));
+    EXPECT_FALSE(Contains(
+        source, "if(!cloudSunDepthResidualUsesReliableCache("));
+    EXPECT_TRUE(Contains(source, "float4 exactFirstVisibility=cloudSunTransmittanceFromDepth("));
+    EXPECT_TRUE(Contains(source, "float4 correctedCachedFirst=cloudApplySunDepthResidual("));
+    EXPECT_TRUE(Contains(source, "float4 firstVisibility=lerp("));
+    EXPECT_FALSE(Contains(source, "float4 correctedDepths=max("));
+    EXPECT_FALSE(Contains(source, "lightDepths=lerp("));
     EXPECT_TRUE(Contains(source, "if(lightDepth*max(terminationScale,0.0)>18.0)"));
     EXPECT_FALSE(Contains(source, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float cloudReducedIntervalScatteringWeight("));
@@ -700,10 +720,8 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
     EXPECT_TRUE(Contains(source, "float thirdContribution=multiContribution*multiContribution;"));
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
-    EXPECT_TRUE(Contains(source, "float secondLightTransmittance=cloudAverageSunTransmittance("));
-    EXPECT_TRUE(Contains(source, "lightExtinction*multiOcclusion);"));
-    EXPECT_TRUE(Contains(source, "float thirdLightTransmittance=cloudAverageSunTransmittance("));
-    EXPECT_TRUE(Contains(source, "lightExtinction*thirdOcclusion);"));
+    EXPECT_TRUE(Contains(source, "cloudAverageSunTransmittance(secondVisibility);"));
+    EXPECT_TRUE(Contains(source, "cloudAverageSunTransmittance(thirdVisibility);"));
     EXPECT_TRUE(Contains(source, "float directionalScatteringScale=cloudLightingExtinction.z"));
     EXPECT_TRUE(Contains(source, "*cloudLightingGround.w;"));
     EXPECT_TRUE(Contains(source, "float3 singleSunL=sunAtCloud*directionalScatteringScale"));
@@ -728,109 +746,127 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "hg(cosA,cloudLightingPhase.x)*phaseBlend"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
-
 ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutDoubleAttenuation)
 {
     /** GPU シェーダーを含む雲描画の実装。 */
     const std::string source = ReadRenderFile("Sky.cpp");
-    /** 影キャッシュの上下積算密度から空と地面の可視率を求める範囲。 */
+    /** 一次環境光の代替積分、キャッシュ混合、照度への適用範囲。 */
     const std::string ambientBlock = SliceBetween(
-        source, "float ambientDensityScale=", "float intervalOpacity=1.0-intervalTransmittance;");
+        source,
+        "float ambientLocalDensity=max(",
+        "float intervalOpacity=1.0-intervalTransmittance;");
     EXPECT_TRUE(!ambientBlock.empty());
-    EXPECT_TRUE(Contains(ambientBlock, "float ambientDensityScale=max(density*distanceFade,0.0);"));
-    EXPECT_TRUE(Contains(ambientBlock, "lowLodDensity*ambientDensityScale"));
-    EXPECT_FALSE(Contains(ambientBlock, "float ambientLocalDensity=saturate(lowLodDensity*density);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float diffuseOcclusion=multiOcclusion;"));
-    EXPECT_TRUE(Contains(ambientBlock, "float reducedAmbientExtinction=0.60*diffuseOcclusion"));
-    EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.y;"));
-    EXPECT_TRUE(Contains(source, "float2 cloudAmbientFallbackOpticalDepth(CloudMacroSample macro,float localDensity)"));
-    EXPECT_TRUE(Contains(source, "float columnThickness=max(bandThickness,0.0)"));
-    EXPECT_TRUE(Contains(source, "*max(macro.columnSpan,0.0);"));
-    EXPECT_TRUE(Contains(source, "*cloudOpticalDepthScaleFromBand(upperBand);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float2 fallbackAmbientDepth="));
-    EXPECT_TRUE(Contains(ambientBlock, "cloudAmbientFallbackOpticalDepth(macro,ambientLocalDensity);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float fallbackSkyAmbientDepth=fallbackAmbientDepth.x;"));
-    EXPECT_TRUE(Contains(ambientBlock, "float fallbackGroundAmbientDepth=fallbackAmbientDepth.y;"));
-    EXPECT_FALSE(Contains(ambientBlock, "0.35+0.65"));
-    EXPECT_TRUE(Contains(ambientBlock, "float3 cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
-    EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.y*ambientDensityScale"));
-    EXPECT_TRUE(Contains(ambientBlock, "cachedAmbientDepth.z*ambientDensityScale"));
-    EXPECT_FALSE(Contains(source, "ambientSurfaceProbability"));
-    EXPECT_FALSE(Contains(source, "lowLodDensityAndProfile"));
-    EXPECT_FALSE(Contains(ambientBlock, "lowLodDensity*distanceFade"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientVisibility="));
-    EXPECT_TRUE(Contains(ambientBlock, "exp(-reducedAmbientExtinction*skyAmbientOpticalDepth);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float groundAmbientVisibility="));
-    EXPECT_TRUE(Contains(ambientBlock, "exp(-reducedAmbientExtinction*groundAmbientOpticalDepth);"));
-    EXPECT_TRUE(Contains(ambientBlock, "float skyAmbientZenithWeight=lerp("));
-    EXPECT_TRUE(Contains(ambientBlock, "0.3333333,0.6666667,saturate(h)"));
-    EXPECT_TRUE(Contains(ambientBlock, "skyCol.rgb,cloudSkyZenith.rgb,"));
-    EXPECT_TRUE(Contains(ambientBlock, "skyAmbientZenithWeight"));
-    EXPECT_TRUE(Contains(ambientBlock, "*skyAmbientVisibility*cloudLightingExtinction.z;"));
-    EXPECT_TRUE(Contains(ambientBlock, "*bottomWeight*groundAmbientVisibility"));
-    EXPECT_TRUE(Contains(ambientBlock, "*cloudLightingExtinction.z;"));
-    EXPECT_FALSE(Contains(ambientBlock, "tauL"));
-    EXPECT_FALSE(Contains(ambientBlock, "sun.y"));
-    EXPECT_FALSE(Contains(ambientBlock, "transmit"));
-    EXPECT_FALSE(Contains(source, "float viewDepth=1.0-transmit;"));
-    EXPECT_FALSE(Contains(source, "float ambientOcclusion="));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "lowLodDensity*density*distanceFade"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "float ambientExtinction=max(cloudLightingExtinction.y,0.0);"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "float4 fallbackAmbientVisibility=cloudHemisphericVisibility("));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "float3 cachedAmbientVisibility="));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "sampleCloudAmbientVisibility(p);"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "float skyAmbientVisibility=lerp("));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "fallbackAmbientVisibility.x,"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "cachedAmbientVisibility.y,"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "cachedAmbientVisibility.x);"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "float groundAmbientVisibility=lerp("));
+    EXPECT_FALSE(Contains(ambientBlock, "multiOcclusion"));
+    EXPECT_FALSE(Contains(ambientBlock, "MultiScatterOcclusion"));
+    EXPECT_FALSE(Contains(ambientBlock, "cachedAmbientVisibility.y*"));
+    EXPECT_FALSE(Contains(ambientBlock, "cachedAmbientVisibility.z*"));
+    EXPECT_FALSE(Contains(ambientBlock, "sampleCloudAmbientDepth"));
+    EXPECT_FALSE(Contains(ambientBlock, "reducedAmbientExtinction"));
 
-    /** 0 から 1 へ制限するシェーダー側 saturate の対応式。 */
-    const auto saturate = [](f32 value) noexcept {
-        if (value < 0.0f) return 0.0f;
-        if (value > 1.0f) return 1.0f;
-        return value;
-    };
-    /** 低 LOD 密度とキャッシュの積算密度から入射側の可視率を求める対応式。 */
-    const auto visibility = [saturate](f32 lowLodDensity, f32 density, f32 distanceFade, f32 cachedDepth, f32 lightExtinction, f32 multiScatterOcclusion) noexcept {
-        const f32 safeFade = saturate(distanceFade);
-        const f32 ambientDensityScale = density * safeFade > 0.0f
-            ? density * safeFade : 0.0f;
-        const f32 scaledDensity = lowLodDensity * ambientDensityScale;
-        const f32 localDensity = scaledDensity > 0.0f ? scaledDensity : 0.0f;
-        /** 層中央から局所雲柱上端までの均質媒質を積分した代替光学的厚さ。 */
-        constexpr f32 kFallbackBoundaryFraction = 0.50f;
-        constexpr f32 kFallbackBandThickness = 2500.0f;
-        constexpr f32 kFallbackColumnSpan = 0.80f;
-        const f32 fallbackDepth = localDensity * kFallbackBandThickness * kFallbackColumnSpan * kFallbackBoundaryFraction * kVolumetricCloudReferenceExtinctionPerMeter;
-        const f32 opticalDepth = cachedDepth >= 0.0f
-            ? cachedDepth * ambientDensityScale : fallbackDepth;
-        /** 二次散乱と同じ縮小率を使う拡散光用の消散率。 */
-        const f32 diffuseOcclusion = multiScatterOcclusion;
-        const f32 reducedExtinction = 0.60f * diffuseOcclusion * lightExtinction;
-        return std::exp(-reducedExtinction * opticalDepth);
-    };
+    EXPECT_TRUE(Contains(
+        source,
+        "float ambientExtinction=max(params.y,0.0)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "*max(cloudLightingExtinction.y,0.0);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudHemisphericVisibility("));
+    EXPECT_TRUE(Contains(
+        source,
+        "pathDepth*ambientExtinction"));
+    EXPECT_FALSE(Contains(
+        source,
+        "ambientExtinction=max(params.y,0.0)"
+        "*max(cloudLightingMulti.x,0.0)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "float skyAmbientZenithWeight=lerp("));
+    EXPECT_TRUE(Contains(
+        source,
+        "*skyAmbientVisibility*cloudLightingExtinction.z;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "*bottomWeight*groundAmbientVisibility"));
 
-    for (u32 densityStep = 0u; densityStep <= 4u; ++densityStep) {
-        /** 検査対象の局所密度。 */
-        const f32 density = static_cast<f32>(densityStep) * 0.25f;
-        for (u32 depthStep = 0u; depthStep <= 100u; ++depthStep) {
-            const f32 cachedDepth = static_cast<f32>(depthStep) * 0.016f;
-            const f32 result = visibility(density, 1.0f, 1.0f, cachedDepth, 5.0f, 0.28f);
-            EXPECT_TRUE(std::isfinite(result));
-            EXPECT_TRUE(result >= 0.0f && result <= 1.0f);
+    /** シェーダーと同じ4点半球積分。 */
+    const auto hemisphericVisibility = [](f32 opticalDepth) noexcept {
+        constexpr f32 directionCosines[4] = {
+            0.0694318442029737f,
+            0.3300094782075719f,
+            0.6699905217924281f,
+            0.9305681557970262f,
+        };
+        constexpr f32 irradianceWeights[4] = {
+            0.0241522034128332f,
+            0.2152140822717850f,
+            0.4369310725907611f,
+            0.3237026417246206f,
+        };
+        if (opticalDepth <= 0.0f) return 1.0f;
+        f32 result = 0.0f;
+        for (u32 sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex) {
+            result += irradianceWeights[sampleIndex] *
+                std::exp(-opticalDepth / directionCosines[sampleIndex]);
         }
-    }
-
-    EXPECT_NEAR(visibility(0.0f, 1.0f, 1.0f, 0.0f, 5.0f, 0.28f), 1.0f, 0.0f);
-    EXPECT_TRUE(std::isfinite(visibility(0.75f, 1.0f, 1.0f, -1.0f, 5.0f, 0.28f)));
-    EXPECT_TRUE(visibility(0.75f, 1.0f, 1.0f, 1.2f, 5.0f, 0.28f) < visibility(0.75f, 1.0f, 1.0f, 0.2f, 5.0f, 0.28f));
-    EXPECT_TRUE(visibility(0.75f, 2.0f, 1.0f, 0.8f, 5.0f, 0.28f) < visibility(0.75f, 1.0f, 1.0f, 0.8f, 5.0f, 0.28f));
-    EXPECT_NEAR(visibility(0.75f, 2.0f, 0.0f, 1.6f, 5.0f, 0.28f), 1.0f, 1.0e-6f);
-    // キャッシュ済み光路を使う場合、同じ点の局所密度を再度掛けても光路は増えない。
-    // 旧式は局所密度だけで可視率を変え、同じ媒質を二重に減衰させていた。
-    const f32 sparseSurface = visibility(
-        0.10f, 1.0f, 1.0f, 0.65f, 5.0f, 0.28f);
-    const f32 denseSurface = visibility(
-        0.90f, 1.0f, 1.0f, 0.65f, 5.0f, 0.28f);
-    EXPECT_NEAR(sparseSurface, denseSurface, 0.0f);
-
-    /** 二点半球近似は雲底でも天頂色を、雲頂でも地平色を残す。 */
-    const auto zenithWeight = [saturate](f32 height) noexcept {
-        return 0.3333333f + (0.6666667f - 0.3333333f) * saturate(height);
+        return result;
     };
-    EXPECT_NEAR(zenithWeight(0.0f), 0.3333333f, 1.0e-6f);
-    EXPECT_NEAR(zenithWeight(1.0f), 0.6666667f, 1.0e-6f);
-    EXPECT_NEAR(zenithWeight(0.5f), 0.5f, 1.0e-6f);
-    EXPECT_TRUE(zenithWeight(-1.0f) >= 0.0f && zenithWeight(2.0f) <= 1.0f);
+    /** 代替光路だけを消散し、キャッシュ済み可視率は直接混ぜる。 */
+    const auto resolveVisibility =
+        [&hemisphericVisibility](
+            f32 fallbackDepth, f32 cachedVisibility,
+            f32 cacheWeight, f32 extinction) noexcept {
+            const f32 fallbackVisibility =
+                hemisphericVisibility(fallbackDepth * extinction);
+            const f32 boundedWeight =
+                cacheWeight < 0.0f ? 0.0f :
+                (cacheWeight > 1.0f ? 1.0f : cacheWeight);
+            return fallbackVisibility +
+                (cachedVisibility - fallbackVisibility) * boundedWeight;
+        };
+
+    const f32 sparseFallback =
+        resolveVisibility(0.15f, 0.42f, 0.0f, 5.0f);
+    const f32 denseFallback =
+        resolveVisibility(1.20f, 0.42f, 0.0f, 5.0f);
+    EXPECT_TRUE(denseFallback < sparseFallback);
+    EXPECT_NEAR(
+        resolveVisibility(0.15f, 0.42f, 1.0f, 5.0f),
+        0.42f, 1e-7f);
+    EXPECT_NEAR(
+        resolveVisibility(1.20f, 0.42f, 1.0f, 5.0f),
+        0.42f, 1e-7f);
+    EXPECT_TRUE(
+        resolveVisibility(0.15f, 0.42f, 0.5f, 5.0f) >
+        resolveVisibility(1.20f, 0.42f, 0.5f, 5.0f));
 }

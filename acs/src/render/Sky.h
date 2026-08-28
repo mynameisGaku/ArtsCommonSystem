@@ -961,30 +961,30 @@ struct FVolumetricCloudEvolutionFrameTerms {
 FVolumetricCloudEvolutionFrameTerms ResolveVolumetricCloudEvolutionFrameTerms(
     f32 time, f32 wind_speed) noexcept;
 
-/**
- * Normalized sun direction and its continuous Duff/Frisvad tangent basis.
- *
- * The basis is frame-invariant and is shared by every cloud view/light probe.
- */
+/** 正規化した太陽方向と、全ての雲採取で共有する連続な直交基底。 */
 struct FVolumetricCloudLightBasis {
+    /** 正規化済みの太陽方向。 */
     FVec3 direction{0.0f, 1.0f, 0.0f};
+    /** 太陽円盤上の一方の軸を表す単位接線。 */
     FVec3 tangent{1.0f, 0.0f, 0.0f};
+    /** 太陽方向と接線に直交する単位接線。 */
     FVec3 bitangent{0.0f, 0.0f, -1.0f};
 };
 
+/** 太陽方向から連続な直交基底を求め、非有限または零方向では天頂方向へ戻す。 */
 FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
     FVec3 sun_direction) noexcept;
 
 /**
- * 遠方の太陽方向積分と、空・地面方向の積算密度を保持するキャッシュ。
+ * 遠方の太陽方向積分と、空・地面方向の半球透過率を保持するキャッシュ。
  *
- * 現在の密度場から一つの3次元テクスチャへ生成する。同じXZ列の32高度を
- * 一スレッドで積算し、雲中でも頭上の空隙と厚い雲芯を分ける。高周波差分は固定8区間の
- * 近距離側3点を使い、太陽方向キャッシュの信頼度が不足する場所では8点全てを正確な積分へ戻す。
+ * 現在の密度場から一つの3次元テクスチャへ生成する。一つの水平セルを16スレッドで
+ * 面積積分し、そのうち4スレッドが太陽円盤の各方向を担当する。雲中でも頭上の空隙と
+ * 厚い雲芯を分け、キャッシュの信頼度が不足する場所では固定8区間の正確な積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
-/** 品質を保つ太陽方向光学的深さキャッシュの寸法。 */
+/** 周囲光と散乱次数別の太陽透過率を保持するキャッシュの水平・高度寸法。 */
 inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
 inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
 inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
@@ -993,6 +993,26 @@ inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     kVolumetricCloudShadowCacheExtent /
     static_cast<f32>(kVolumetricCloudShadowCacheWidth);
 inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
+
+/** 負の詳細残差を安全に適用できるR16F透過率の最小正規化値。 */
+inline constexpr f32 kVolumetricCloudSunCacheMinimumReliableTransmittance =
+    0.00006103515625f;
+
+/** 非一様な周囲光セルを各軸で分割し、物理面積を均等に標本化する。 */
+inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureAxis = 4u;
+
+/** 一つの周囲光セルで面積積分する鉛直列の本数。 */
+inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureSamples =
+    kVolumetricCloudAmbientCacheQuadratureAxis *
+    kVolumetricCloudAmbientCacheQuadratureAxis;
+static_assert(kVolumetricCloudAmbientCacheQuadratureSamples == 16u);
+
+/** 線形補間がキャッシュ外を参照し始める外周距離。 */
+inline constexpr f32 kVolumetricCloudShadowCacheFilterStartCells = 1.5f;
+
+/** 外周混合が完全なキャッシュ値へ到達する距離。 */
+inline constexpr f32 kVolumetricCloudShadowCacheFilterFullCells = 2.5f;
+static_assert(kVolumetricCloudShadowCacheSafeRadius / kVolumetricCloudShadowCacheCellSize == 16.0f);
 
 /** 安定フレームの自己影を各軸で2画素おきに更新し、4フレームで全体を巡回する。 */
 inline constexpr u32 kVolumetricCloudShadowTemporalDivisor = 2u;
@@ -1161,10 +1181,12 @@ bool VolumetricCloudViewCutDetected(const FMat4& previous_camera_relative_inv_vi
  */
 class CVolumetricClouds {
 public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    /** CPUでコンパイルし、描画所有スレッドへ渡すシェーダー一式。 */
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> cloud;
         TUniquePtr<IRhiShader> noise;
+        /** 完成形状を128角のまま各軸へ中心付き周期箱平均する。 */
+        TUniquePtr<IRhiShader> noise_filter;
         TUniquePtr<IRhiShader> weather;
         TUniquePtr<IRhiShader> detail;
         TUniquePtr<IRhiShader> curl;
@@ -1172,22 +1194,23 @@ public:
         TUniquePtr<IRhiShader> composite_pixel;
         TUniquePtr<IRhiShader> composite_atmosphere_pixel;
         TUniquePtr<IRhiShader> resolve;
+        /** 周囲光の面積積分と太陽円盤の有限光路を一つのセル単位で生成する。 */
         TUniquePtr<IRhiShader> shadow;
         TUniquePtr<IRhiShader> world_shadow;
         /** 旧二段構成とのソース互換用。現在は常に空であり、初期化には使わない。 */
         TUniquePtr<IRhiShader> shadow_finalize;
 
-        /** Aggregate all submitted shader jobs without waiting. */
+        /** 待機せず、投入済みの全シェーダー状態を集約する。 */
         EShaderStatus Status() const noexcept;
     };
 
     /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
     TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
 
-    /** Compile raw-DX12 HLSL without touching an RHI device. */
+    /** RHIデバイスへ触れず、Raw DX12用HLSLをCPUでコンパイルする。 */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
 
-    /** Submit all cloud shaders to a backend-managed compiler pool. */
+    /** 雲シェーダー一式を描画バックエンド管理のコンパイラープールへ投入する。 */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
         IRhiDevice& device) noexcept;
 
@@ -1455,6 +1478,16 @@ public:
     void Shutdown() noexcept;
 
 private:
+    /** 中心付き周期箱平均にだけ必要なGPU資源を一つの寿命へまとめる。 */
+    struct FNoiseFilterResources {
+        /** 128要素の行を累積して箱平均する計算シェーダー。 */
+        TUniquePtr<IRhiShader> shader;
+        /** 箱平均シェーダーを実行する計算パイプライン。 */
+        TUniquePtr<IRhiPipeline> pipeline;
+        /** 軸別平均の読み書きを交互に担う128角RGBA体積。 */
+        TUniquePtr<IRhiTexture> source_texture;
+    };
+
     /** 時間履歴を破棄し、密度場も変わる場合は影キャッシュも破棄する。 */
     void InvalidateCloudHistory_Internal(bool density_field_changed) noexcept;
 
@@ -1482,28 +1515,34 @@ private:
     /** 形状ノイズを生成済みか。 */
     bool                     m_NoiseBaked = false;
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-    /** Perlin-Worley ノイズを生成する計算シェーダー。 */
-    TUniquePtr<IRhiShader>   m_NoiseCs;
-    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
-    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F 低周波/全帯域 Perlin-Worley
+    /** 天候領域を生成済みか。 */
     bool                     m_WeatherBaked = false;
+    /** 詳細形状を生成済みか。 */
+    bool                     m_DetailBaked = false;
+    /** 渦領域を生成済みか。 */
+    bool                     m_CurlBaked = false;
+    /** 完成したPerlin-Worley基本形状を生成する計算シェーダー。 */
+    TUniquePtr<IRhiShader>   m_NoiseCs;
+    TUniquePtr<IRhiPipeline> m_NoisePipe;
+    /** 箱平均専用のシェーダー・パイプライン・作業体積を同じ寿命で所有する。 */
+    TUniquePtr<FNoiseFilterResources> m_NoiseFilterResources;
+    /** 4・16・64幅と点形状をRGB・Aへ保持する128角の実行時基本形状。 */
+    TUniquePtr<IRhiTexture>  m_ShapeTex;
     TUniquePtr<IRhiShader>   m_WeatherCs;
     TUniquePtr<IRhiPipeline> m_WeatherPipe;
     TUniquePtr<IRhiTexture>  m_WeatherTex;               // 512^2 coverage/type/precipitation/warp
-    bool                     m_DetailBaked = false;
     TUniquePtr<IRhiShader>   m_DetailCs;
     TUniquePtr<IRhiPipeline> m_DetailPipe;
     TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F 独立 Worley 房・縁侵食
-    bool                     m_CurlBaked = false;
     TUniquePtr<IRhiShader>   m_CurlCs;
     TUniquePtr<IRhiPipeline> m_CurlPipe;
     TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    /** 雲殻出口までの太陽方向光学的深さを生成するシェーダー。 */
+    /** 周囲光の面積積分と太陽方向光学的深さを生成するシェーダー。 */
     TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    /** 96x64x96の周囲光深さと太陽円盤4光路を高さ方向へ分けたキャッシュ。 */
+    /** 96x128x96の周囲光と、三つの散乱次数別太陽透過率を高さ方向へ分けたキャッシュ。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
     /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
     TUniquePtr<IRhiShader>   m_WorldShadowCs;
