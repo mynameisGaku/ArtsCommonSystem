@@ -672,14 +672,16 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "float erosionThreshold=erosion*erosionAmount;"));
     EXPECT_TRUE(Contains(source, "float opticalDensity=shape*profile;"));
     EXPECT_TRUE(Contains(source, "return saturate(opticalDensity);"));
-    EXPECT_TRUE(Contains(source, "if(upperBand) weatherMask*=cloudUpperTerms.x;"));
+    EXPECT_TRUE(Contains(source, "if(upperBand) macro.weatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(source, "if(upperBand) densityResult*=cloudUpperTerms.y;"));
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
 
-    EXPECT_TRUE(Contains(source, "cached.y"));
+    EXPECT_TRUE(Contains(source, "float4 sampleCloudSunDepths("));
+    EXPECT_TRUE(Contains(source, "result=cached;"));
     EXPECT_FALSE(Contains(source, "cached.y*density*cloudLightingExtinction.y"));
-    EXPECT_TRUE(Contains(source, "float tauL=lightDepth*density*cloudLightingExtinction.y;"));
-    EXPECT_TRUE(Contains(source, "*lightTerminationOcclusion>18.0"));
+    EXPECT_TRUE(Contains(source, "float4 correctedDepths=max("));
+    EXPECT_TRUE(Contains(source, "lightDepths+detailDepthResidual.xxxx"));
+    EXPECT_TRUE(Contains(source, "if(lightDepth*max(terminationScale,0.0)>18.0)"));
     EXPECT_FALSE(Contains(source, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float cloudReducedIntervalScatteringWeight("));
     EXPECT_TRUE(Contains(source, "float cosA=clamp(dot(-dir,sun),-1.0,1.0);"));
@@ -698,8 +700,10 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "1.0,inScatterProbability,cloudLightingExtinction.w"));
     EXPECT_TRUE(Contains(source, "float thirdContribution=multiContribution*multiContribution;"));
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
-    EXPECT_TRUE(Contains(source, "float secondLightTransmittance=exp(-tauL*multiOcclusion);"));
-    EXPECT_TRUE(Contains(source, "float thirdLightTransmittance=exp(-tauL*thirdOcclusion);"));
+    EXPECT_TRUE(Contains(source, "float secondLightTransmittance=cloudAverageSunTransmittance("));
+    EXPECT_TRUE(Contains(source, "lightExtinction*multiOcclusion);"));
+    EXPECT_TRUE(Contains(source, "float thirdLightTransmittance=cloudAverageSunTransmittance("));
+    EXPECT_TRUE(Contains(source, "lightExtinction*thirdOcclusion);"));
     EXPECT_TRUE(Contains(source, "float directionalScatteringScale=cloudLightingExtinction.z"));
     EXPECT_TRUE(Contains(source, "*cloudLightingGround.w;"));
     EXPECT_TRUE(Contains(source, "float3 singleSunL=sunAtCloud*directionalScatteringScale"));
@@ -791,8 +795,8 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
         const f32 fallbackDepth = localDensity * kFallbackBandThickness * kFallbackColumnSpan * kFallbackBoundaryFraction * kVolumetricCloudReferenceExtinctionPerMeter;
         const f32 opticalDepth = cachedDepth >= 0.0f
             ? cachedDepth * ambientDensityScale : fallbackDepth;
-        /** 三次散乱と同じ縮小率を使う拡散光用の消散率。 */
-        const f32 diffuseOcclusion = multiScatterOcclusion * multiScatterOcclusion;
+        /** 二次散乱と同じ縮小率を使う拡散光用の消散率。 */
+        const f32 diffuseOcclusion = multiScatterOcclusion;
         const f32 reducedExtinction = 0.60f * diffuseOcclusion * lightExtinction;
         return std::exp(-reducedExtinction * opticalDepth);
     };

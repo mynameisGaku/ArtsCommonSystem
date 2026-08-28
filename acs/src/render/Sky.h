@@ -822,12 +822,11 @@ enum class EVolumetricCloudFrameSkipReason : u32 {
 };
 
 /**
- * Allocation-free diagnostic for the most recent RenderCompute attempt.
+ * 直近のRenderCompute試行を動的確保なしで記録する診断値。
  *
- * Logical invocations exclude workgroup padding; launched threads include it.
- * maximum_*_samples are conservative shader-loop ceilings rather than measured
- * samples because empty-space skipping and transmittance exits are data
- * dependent. GPU timestamps remain authoritative for elapsed cost.
+ * 論理呼び出し数は作業グループの余分なスレッドを除き、投入スレッド数はそれを含む。
+ * maximum_*_samples は、空領域の省略や透過率による終了を含めない保守的な
+ * シェーダーループ上限である。実際の処理時間はGPU計測値を正とする。
  */
 struct FVolumetricCloudFrameWorkload {
     u64 submission_index = 0u;
@@ -870,10 +869,9 @@ struct FVolumetricCloudFrameWorkload {
 };
 
 /**
- * Deterministically account for a cloud frame without recording GPU work.
+ * GPU処理を記録せず、雲の1フレーム分の処理量を決定論的に数える。
  *
- * All additions and products saturate at u64 max so malformed diagnostic input
- * cannot wrap into a deceptively small workload.
+ * 不正な診断入力で小さい値へ桁あふれしないよう、全ての加算と乗算をu64最大値で止める。
  */
 FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
     const FVolumetricCloudFrameWorkloadPlan& plan) noexcept;
@@ -981,8 +979,8 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
  * 遠方の太陽方向積分と、空・地面方向の積算密度を保持するキャッシュ。
  *
  * 現在の密度場から一つの3次元テクスチャへ生成する。同じXZ列の32高度を
- * 一スレッドで積算し、雲中でも頭上の空隙と厚い雲芯を分ける。近距離3点は正確な採取を残し、
- * 太陽方向キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
+ * 一スレッドで積算し、雲中でも頭上の空隙と厚い雲芯を分ける。高周波差分は固定8区間の
+ * 近距離側3点を使い、太陽方向キャッシュの信頼度が不足する場所では8点全てを正確な積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
@@ -1502,10 +1500,10 @@ private:
     TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    /** 浅い太陽方向光学的深さを生成するシェーダー。 */
+    /** 雲殻出口までの太陽方向光学的深さを生成するシェーダー。 */
     TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    /** 96x32x96の太陽方向深さ・二標本差・空と地面方向の積算密度。 */
+    /** 96x64x96の周囲光深さと太陽円盤4光路を高さ方向へ分けたキャッシュ。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
     /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
     TUniquePtr<IRhiShader>   m_WorldShadowCs;

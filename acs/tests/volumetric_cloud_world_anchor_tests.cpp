@@ -1513,14 +1513,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(steady.trace_launched_threads, 130560u);
     EXPECT_EQ(steady.resolve_logical_invocations, 2073600u);
     EXPECT_EQ(steady.resolve_launched_threads, 2073600u);
-    EXPECT_EQ(steady.shadow_cache_logical_invocations, 73728u);
+    EXPECT_EQ(steady.shadow_cache_logical_invocations, 2304u);
     EXPECT_EQ(steady.shadow_cache_launched_threads, 2304u);
     EXPECT_EQ(steady.world_shadow_logical_invocations, 16384u);
     EXPECT_EQ(steady.world_shadow_launched_threads, 16384u);
-    EXPECT_EQ(steady.total_logical_invocations, 2293312u);
+    EXPECT_EQ(steady.total_logical_invocations, 2221888u);
     EXPECT_EQ(steady.total_launched_threads, 2222848u);
     EXPECT_EQ(steady.maximum_view_samples, 49766400u);
-    EXPECT_EQ(steady.maximum_light_samples, 398131200u);
+    EXPECT_EQ(steady.maximum_light_samples, 1741824000u);
     EXPECT_EQ(steady.maximum_world_shadow_samples, 524288u);
     EXPECT_TRUE(steady.temporal_super_resolution);
     EXPECT_FALSE(steady.attempted);
@@ -1533,8 +1533,8 @@ ACS_TEST(VolumetricClouds,
     const FVolumetricCloudFrameWorkload reference =
         PlanVolumetricCloudFrameWorkload(referencePlan);
     EXPECT_EQ(reference.maximum_view_samples, 66355200u);
-    EXPECT_EQ(reference.maximum_light_samples, 530841600u);
-    EXPECT_EQ(reference.shadow_cache_logical_invocations, 294912u);
+    EXPECT_EQ(reference.maximum_light_samples, 2322432000u);
+    EXPECT_EQ(reference.shadow_cache_logical_invocations, 9216u);
     EXPECT_EQ(reference.shadow_cache_launched_threads, 9216u);
     EXPECT_EQ(reference.world_shadow_logical_invocations, 65536u);
     EXPECT_EQ(reference.maximum_world_shadow_samples, 2097152u);
@@ -1556,11 +1556,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(cold.total_compute_dispatches, 8u);
     EXPECT_EQ(cold.one_time_bake_logical_invocations, 2637824u);
     EXPECT_EQ(cold.one_time_bake_launched_threads, 2637824u);
-    EXPECT_EQ(cold.shadow_cache_logical_invocations, 294912u);
+    EXPECT_EQ(cold.shadow_cache_logical_invocations, 9216u);
     EXPECT_EQ(cold.shadow_cache_launched_threads, 9216u);
     EXPECT_EQ(cold.world_shadow_logical_invocations, 65536u);
     EXPECT_EQ(cold.world_shadow_launched_threads, 65536u);
-    EXPECT_EQ(cold.total_logical_invocations, 5201472u);
+    EXPECT_EQ(cold.total_logical_invocations, 4915776u);
     EXPECT_EQ(cold.total_launched_threads, 4916736u);
     EXPECT_EQ(cold.maximum_view_samples, steady.maximum_view_samples);
     EXPECT_EQ(cold.maximum_light_samples, steady.maximum_light_samples);
@@ -1619,7 +1619,7 @@ ACS_TEST(VolumetricClouds,
     unsupportedShadowPlan.rebuild_shadow_cache = true;
     unsupportedShadowPlan.rebuild_world_shadow = true;
     const FVolumetricCloudFrameWorkload unsupportedShadow = PlanVolumetricCloudFrameWorkload(unsupportedShadowPlan);
-    EXPECT_EQ(unsupportedShadow.shadow_cache_logical_invocations, 294912u);
+    EXPECT_EQ(unsupportedShadow.shadow_cache_logical_invocations, 9216u);
     EXPECT_EQ(unsupportedShadow.world_shadow_logical_invocations, 65536u);
 }
 
@@ -2079,10 +2079,10 @@ ACS_TEST(VolumetricClouds, DetailBandsFollowRaySampleSpacing) {
     EXPECT_TRUE(detailBranch < firstDetailRead);
     EXPECT_TRUE(firstDetailRead < billowBlend);
     EXPECT_TRUE(billowBlend < erosionBlend);
-    EXPECT_TRUE(Contains(shader, "floatlightBillowVisibility=cloudBillowVisibilityFromSampleSpacing(lightStep);"));
-    EXPECT_TRUE(Contains(shader, "floatlightMiddleBillowVisibility=cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);"));
-    EXPECT_TRUE(Contains(shader, "floatlightErosionVisibility=cloudErosionVisibilityFromSampleSpacing(lightStep);"));
-    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(lp,lightMacro,lightMacro.densityWeatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
+    EXPECT_TRUE(Contains(shader, "floatbillowVisibility=cloudBillowVisibilityFromSampleSpacing(sampleSpacing);"));
+    EXPECT_TRUE(Contains(shader, "floatmiddleBillowVisibility=cloudMiddleBillowVisibilityFromSampleSpacing(sampleSpacing);"));
+    EXPECT_TRUE(Contains(shader, "floaterosionVisibility=cloudErosionVisibilityFromSampleSpacing(sampleSpacing);"));
+    EXPECT_TRUE(Contains(shader, "cloudDensityFromMacro(samplePosition,macro,macro.densityWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility);"));
     EXPECT_FALSE(Contains(shader, "lightMacro.weatherMask,0.65,1.0);"));
 }
 
@@ -2773,7 +2773,7 @@ ACS_TEST(VolumetricClouds,
         "float2xz=p.xz-cloudWindWorld();"));
     EXPECT_EQ(
         CountOccurrences(shader, "cloudWeatherData(p);"),
-        static_cast<std::size_t>(3));
+        static_cast<std::size_t>(2));
     EXPECT_FALSE(Contains(shader, "cloudWeatherVerticalBend"));
     EXPECT_FALSE(Contains(
         shader, "float4cloudWeatherData(float3p,floatlayerHeight"));
@@ -4320,7 +4320,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "baseDensity=cloudAnchoredBaseDensity(" "baseDensity,h,weatherMask,macro.toweringStrength);"));
     EXPECT_TRUE(Contains(shader, "envelopeBaseDensity=cloudAnchoredBaseDensity(" "envelopeBaseDensity,h,weatherMask,macro.toweringStrength);"));
     EXPECT_TRUE(Contains(shader, "billowedBaseDensity=cloudAnchoredBaseDensity(" "billowedBaseDensity,h,weatherMask,macro.toweringStrength);"));
-    EXPECT_TRUE(Contains(shader, "baseDensity=cloudAnchoredBaseDensity(" "baseDensity,sampleHeight,weatherMask,toweringStrength);"));
+    EXPECT_FALSE(Contains(shader, "sampleCloudFarLightingDensityAndScale("));
     EXPECT_TRUE(Contains(shader, "floatwaistThreshold=threshold+cloudConvectiveWaistThresholdOffset(" "layerHeight,toweringStrength);" "floatnarrowedBaseMask=cloudWeatherMaskFromTerms(" "weather,waistThreshold,inverseTransitionWidth);"));
     EXPECT_TRUE(Contains(
         shader,
@@ -4345,8 +4345,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader, "floatviewWeatherMask=cloudWeatherMaskFromTerms("));
     EXPECT_TRUE(Contains(
         shader,
-        "CloudMacroSamplelightMacro=sampleCloudMacroLighting("
-        "lp,coverage,lightStep);"));
+        "CloudMacroSamplemacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatglobalCanonicalY=physicalLayerHeight*verticalSpan*verticalVariation;"));
@@ -4428,8 +4428,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "floatcloudColumnBaseLift(" "float4weather,floatcloudInterior,floattoweringStrength){" "floatverticalType=saturate(max(weather.g,weather.b));" "floatbroadPattern=smoothstep(0.18,0.82,weather.a);"));
     EXPECT_TRUE(Contains(shader, "floatamplitude=lerp(0.006,0.014,verticalType);" "amplitude*=lerp(1.0,0.72,saturate(toweringStrength));"));
     EXPECT_TRUE(Contains(shader, "float2cloudColumnHeightAndSpan(" "floath,floattopShift,floatbaseLift,floattoweringStrength," "boolupperBand){" "h=saturate(h);" "floatbandScale=upperBand?0.35:1.0;" "floatlocalBase=saturate(baseLift*bandScale);"));
-    EXPECT_EQ(CountOccurrences(shader, "cloudColumnBaseLift("), static_cast<std::size_t>(4));
-    EXPECT_EQ(CountOccurrences(shader, "cloudColumnHeightAndSpan("), static_cast<std::size_t>(4));
+    EXPECT_EQ(CountOccurrences(shader, "cloudColumnBaseLift("), static_cast<std::size_t>(3));
+    EXPECT_EQ(CountOccurrences(shader, "cloudColumnHeightAndSpan("), static_cast<std::size_t>(3));
     EXPECT_TRUE(Contains(
         shader,
         "floaterosion=lerp(0.10,0.24,"
@@ -5071,171 +5071,102 @@ ACS_TEST(VolumetricClouds,
 
     const std::size_t mainEntry =
         shader.find("[numthreads(8,8,1)]voidCSCloud(");
-    const std::size_t basis =
-        shader.find(
-            "float3lightTangent=cloudLightTangent.xyz;"
-            "float3lightBitangent=cloudLightBitangent.xyz;",
-            mainEntry);
     const std::size_t viewLoop =
         shader.find("[loop]for(inti=0;i<MAX_STEPS", mainEntry);
+    const std::size_t shadowEntry =
+        shader.find("[numthreads(4,1,4)]voidCSCloudShadow(");
+    const std::size_t basis = shader.find(
+        "float3lightTangent=cloudLightTangent.xyz;"
+        "float3lightBitangent=cloudLightBitangent.xyz;",
+        shadowEntry);
+    const std::size_t shadowHeightLoop = shader.find(
+        "[loop]for(uintoutputHeightIndex=0u;",shadowEntry);
     EXPECT_TRUE(mainEntry != std::string::npos);
-    EXPECT_TRUE(basis != std::string::npos);
     EXPECT_TRUE(viewLoop != std::string::npos);
-    EXPECT_TRUE(basis < viewLoop);
-    if (mainEntry != std::string::npos) {
-        EXPECT_EQ(
-            CountOccurrences(
-                shader.substr(mainEntry),
-                "float3lightTangent=cloudLightTangent.xyz;"),
-            static_cast<std::size_t>(1));
-        EXPECT_FALSE(Contains(
-            shader.substr(mainEntry), "normalize(sunDir.xyz)"));
-        EXPECT_FALSE(Contains(
-            shader.substr(mainEntry), "cloudLightBasis("));
-    }
-    EXPECT_FALSE(Contains(
-        shader, "floatbaseLightStep=cloudCoverageReciprocals.w;"));
-    EXPECT_TRUE(Contains(
-        shader, "floatlightStep=cloudLightStepFromBand(sampleUpperBand);"));
+    EXPECT_TRUE(shadowEntry != std::string::npos);
+    EXPECT_TRUE(basis != std::string::npos);
+    EXPECT_TRUE(shadowHeightLoop != std::string::npos);
+    EXPECT_TRUE(basis < shadowHeightLoop);
+    EXPECT_EQ(CountOccurrences(
+        shader,"float3lightTangent=cloudLightTangent.xyz;"),
+        static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(
+        shader,"float3lightBitangent=cloudLightBitangent.xyz;"),
+        static_cast<std::size_t>(1));
+    EXPECT_FALSE(Contains(shader,"normalize(sunDir.xyz)"));
+    EXPECT_FALSE(Contains(shader,"cloudLightBasis("));
+    EXPECT_FALSE(Contains(shader,"cloudLightStepFromBand("));
+    EXPECT_FALSE(Contains(shader,"cloudCoverageReciprocals.w"));
 
-    const std::size_t lightPhase = shader.find("floatlightJitter=frac(jit+float(i)*0.61803398875);", viewLoop);
-    const std::size_t pairedTrig = shader.find("floatconeSin,coneCos;" "sincos(6.2831853*lightJitter,coneSin,coneCos);", lightPhase);
-    const std::size_t nearLightLoop =
-        shader.find("[loop]for(intl=0;l<3;l++)", pairedTrig);
-    const auto billowResidualCall = shader.find(
-        "lightDepth+=cloudBillowLightDepthResidual("
-        "lp,lightStep,coverage,sun,"
-        "lightTangent,lightBitangent,"
-        "coneSin,coneCos);",
-        nearLightLoop);
-    const std::size_t cacheCompileOut = shader.find(
-        "if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){",
-        nearLightLoop);
-    const std::size_t farLightLoop =
-        shader.find("[loop]for(intl=3;l<8;l++)", cacheCompileOut);
-    const std::size_t coneDirection = shader.find(
-        "float3coneDir=cloudConeDirection("
-        "sun,lightTangent,lightBitangent,"
-        "coneSin,coneCos,coneGeometry);",
-        nearLightLoop);
-    const std::size_t lightHalfStep = shader.find("float3lightHalfStep=coneDir*(0.5*lightStep);", coneDirection);
-    const std::size_t lightAdvance =
-        shader.find("lp+=lightHalfStep;", lightHalfStep);
+    const std::size_t fixedIntegrator = shader.find(
+        "floattraceCloudMainLightDepth("
+        "float3rayOrigin,floatcoverage,float3lightDirection,"
+        "floatterminationScale){");
+    const std::size_t bandIntersection = shader.find(
+        "intbandCount=intersectCloudBandsFromPosition("
+        "rayOrigin,lightDirection,intervals);",fixedIntegrator);
+    const std::size_t fixedLoop = shader.find(
+        "[loop]for(intsampleIndex=0;"
+        "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"
+        "++sampleIndex){",bandIntersection);
+    const std::size_t distanceMapping = shader.find(
+        "if(!cloudLightSampleTerms("
+        "bandCount,intervals,sampleIndex,"
+        "rayDistance,sampleSpacing))continue;",fixedLoop);
+    const std::size_t samplePosition = shader.find(
+        "float3samplePosition=rayOrigin+lightDirection*rayDistance;",
+        distanceMapping);
     const std::size_t lightMacro = shader.find(
-        "CloudMacroSamplelightMacro="
-        "sampleCloudMacroLighting("
-        "lp,coverage,lightStep);",
-        lightAdvance);
-    const std::size_t nearBillowVisibility = shader.find(
-        "floatlightBillowVisibility="
-        "cloudBillowVisibilityFromSampleSpacing(lightStep);",
-        lightMacro);
-    const auto nearMiddleBillowVisibility = shader.find(
-        "floatlightMiddleBillowVisibility="
-        "cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);",
-        nearBillowVisibility);
-    const std::size_t nearErosionVisibility = shader.find(
-        "floatlightErosionVisibility="
-        "cloudErosionVisibilityFromSampleSpacing(lightStep);",
-        nearMiddleBillowVisibility);
-    const std::size_t nearDensity = shader.find(
-        "floatlightDensity=cloudDensityFromMacro("
-        "lp,lightMacro,lightMacro.densityWeatherMask,lightBillowVisibility,"
-        "lightMiddleBillowVisibility,lightErosionVisibility);",
-        nearErosionVisibility);
-    const std::size_t lightAccumulate = shader.find(
-        "lightDepth+=lightDensity*lightStep*"
-        "cloudOpticalDepthScaleFromBand("
-        "lightMacro.upperBand>0.5);",
-        nearDensity);
-    const std::size_t lightFinish =
-        shader.find("lp+=lightHalfStep;", lightAccumulate);
-    const std::size_t recurrence = shader.find(
-        "floatpreviousConeCos=coneCos;"
-        "coneCos=previousConeCos*(-0.737368878)"
-        "-coneSin*(-0.675490294);"
-        "coneSin=coneSin*(-0.737368878)"
-        "+previousConeCos*(-0.675490294);",
-        lightAccumulate);
+        "CloudMacroSamplemacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);",samplePosition);
+    const std::size_t cacheRead = shader.find(
+        "lightDepths=sampleCloudSunDepths("
+        "p,cacheBlendWeight);",viewLoop);
+    const std::size_t exactFallback = shader.find(
+        "traceCloudMainLightDepth("
+        "p,coverage,finiteSunDirection,"
+        "terminationScale);",cacheRead);
     EXPECT_TRUE(Contains(shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=true;"));
-    EXPECT_TRUE(nearLightLoop != std::string::npos);
-    EXPECT_TRUE(farLightLoop != std::string::npos);
-    EXPECT_TRUE(lightPhase != std::string::npos);
-    EXPECT_TRUE(pairedTrig != std::string::npos);
-    EXPECT_TRUE(cacheCompileOut != std::string::npos);
-    EXPECT_TRUE(coneDirection != std::string::npos);
-    EXPECT_TRUE(lightHalfStep != std::string::npos);
-    EXPECT_TRUE(lightAdvance != std::string::npos);
+    EXPECT_TRUE(fixedIntegrator != std::string::npos);
+    EXPECT_TRUE(bandIntersection != std::string::npos);
+    EXPECT_TRUE(fixedLoop != std::string::npos);
+    EXPECT_TRUE(distanceMapping != std::string::npos);
+    EXPECT_TRUE(samplePosition != std::string::npos);
     EXPECT_TRUE(lightMacro != std::string::npos);
-    EXPECT_TRUE(nearBillowVisibility != std::string::npos);
-    EXPECT_TRUE(nearErosionVisibility != std::string::npos);
-    EXPECT_TRUE(nearDensity != std::string::npos);
-    EXPECT_TRUE(lightAccumulate != std::string::npos);
-    EXPECT_TRUE(lightFinish != std::string::npos);
-    EXPECT_TRUE(recurrence != std::string::npos);
-    EXPECT_TRUE(viewLoop < lightPhase);
-    EXPECT_TRUE(lightPhase < pairedTrig);
-    EXPECT_TRUE(pairedTrig < nearLightLoop);
-    EXPECT_TRUE(nearLightLoop < coneDirection);
-    EXPECT_TRUE(coneDirection < lightHalfStep);
-    EXPECT_TRUE(lightHalfStep < lightAdvance);
-    EXPECT_TRUE(lightAdvance < lightMacro);
-    EXPECT_TRUE(lightMacro < nearBillowVisibility);
-    EXPECT_TRUE(nearBillowVisibility < nearMiddleBillowVisibility);
-    EXPECT_TRUE(nearMiddleBillowVisibility < nearErosionVisibility);
-    EXPECT_TRUE(nearErosionVisibility < nearDensity);
-    EXPECT_TRUE(nearDensity < lightAccumulate);
-    EXPECT_TRUE(lightAccumulate < lightFinish);
-    EXPECT_TRUE(lightFinish < recurrence);
-    EXPECT_TRUE(recurrence < billowResidualCall);
-    EXPECT_TRUE(billowResidualCall < cacheCompileOut);
-    EXPECT_TRUE(cacheCompileOut < farLightLoop);
-    EXPECT_TRUE(Contains(shader, "floatlightStep=cloudLightStepFromBand(sampleUpperBand);" "lightStep*=lerp(0.72,1.28,lightJitter);"));
-    EXPECT_FALSE(Contains(shader, "lightStep*=lerp(0.72,1.28,jit);"));
-    EXPECT_FALSE(Contains(shader, "sincos(6.2831853*jit,coneSin,coneCos);"));
-    if (nearLightLoop != std::string::npos &&
-        farLightLoop != std::string::npos) {
-        const std::string lightBody = shader.substr(
-            nearLightLoop, farLightLoop - nearLightLoop);
-        EXPECT_EQ(
-            CountOccurrences(
-                lightBody,
-                "sampleCloudMacroLighting("
-                "lp,coverage,lightStep)"),
-            static_cast<std::size_t>(1));
-        EXPECT_FALSE(Contains(
-            lightBody, "sampleCloudMacroLightingFromSlowFields("));
-        EXPECT_FALSE(Contains(lightBody, "?cloudDensity("));
-        EXPECT_FALSE(Contains(lightBody, ":cloudShape("));
-        EXPECT_EQ(CountOccurrences(lightBody, "sincos("),
-                  static_cast<std::size_t>(0));
-        EXPECT_FALSE(Contains(lightBody, "cos(conePhi)"));
-        EXPECT_FALSE(Contains(lightBody, "sin(conePhi)"));
-    }
-    if (viewLoop != std::string::npos &&
-        nearLightLoop != std::string::npos) {
-        EXPECT_EQ(
-            CountOccurrences(
-                shader.substr(viewLoop, nearLightLoop - viewLoop), "sincos("),
-                static_cast<std::size_t>(1));
-    }
-    if (nearLightLoop != std::string::npos) {
-        const std::string completeLightSection = shader.substr(nearLightLoop);
-        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLighting(lp,coverage,lightStep)"), static_cast<std::size_t>(1));
-        EXPECT_EQ(CountOccurrences(completeLightSection, "sampleCloudMacroLightingFromSlowFields("), static_cast<std::size_t>(0));
-        EXPECT_EQ(CountOccurrences(completeLightSection, "float2farLightSample=sampleCloudFarLightingDensityAndScale(" "lp,coverage,lightStep);"), static_cast<usize>(1));
-        EXPECT_FALSE(Contains(completeLightSection, "sampleCloudLightingDensityFromSlowFields("));
-        EXPECT_EQ(CountOccurrences(completeLightSection, "floatlightDensity=" "cloudDensityFromMacro("), static_cast<std::size_t>(1));
-        EXPECT_EQ(CountOccurrences(
-                      completeLightSection,
-                      "floatlightDensity="
-                      "cloudShapeFromPositiveWeatherMacro("),
-                  static_cast<std::size_t>(0));
-        EXPECT_FALSE(Contains(completeLightSection, "[branch]if(l>=3)"));
-    }
+    EXPECT_TRUE(cacheRead != std::string::npos);
+    EXPECT_TRUE(exactFallback != std::string::npos);
+    EXPECT_TRUE(fixedIntegrator < bandIntersection);
+    EXPECT_TRUE(bandIntersection < fixedLoop);
+    EXPECT_TRUE(fixedLoop < distanceMapping);
+    EXPECT_TRUE(distanceMapping < samplePosition);
+    EXPECT_TRUE(samplePosition < lightMacro);
+    EXPECT_TRUE(viewLoop < cacheRead);
+    EXPECT_TRUE(cacheRead < exactFallback);
+    EXPECT_TRUE(Contains(
+        shader,
+        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"
+        "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "if(lightDepth*max(terminationScale,0.0)>18.0)break;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatdetailDepthResidual=cloudNearLightDepthResidual("
+        "p,coverage,lightDirection);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float4correctedDepths=max("
+        "lightDepths+detailDepthResidual.xxxx,0.0.xxxx);"));
+    EXPECT_FALSE(Contains(shader,"floatlightJitter="));
+    EXPECT_FALSE(Contains(shader,"lightStep*=1.8"));
+    EXPECT_FALSE(Contains(shader, "cloudConeDirection("));
+    EXPECT_FALSE(Contains(shader, "coneSin"));
+    EXPECT_FALSE(Contains(shader,"sampleCloudFarLightingDensityAndScale("));
+    EXPECT_FALSE(Contains(shader,"sampleCloudMacroLightingFromSlowFields("));
+    EXPECT_FALSE(Contains(shader,"sampleCloudLightingDensityFromSlowFields("));
 }
 
-ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrigin) {
+ACS_TEST(VolumetricClouds, LightMarchUsesFixedOccupiedIntervalsAndMidpoints) {
     constexpr f32 kStepLength = 8.0f;
     const auto decreasingLinearDensity = [kStepLength](f32 distance) noexcept { return 1.0f - distance / kStepLength; };
     const f32 exactDepth = 0.5f * kStepLength;
@@ -5247,210 +5178,153 @@ ACS_TEST(VolumetricClouds, LightMarchSamplesSegmentMidpointsAndPreservesTailOrig
     EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
     EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
 
-    // 光標本の間隔は層厚を基準幅1.6へ写した採取尺度で決める。消散のm^-1尺度とは
-    // 独立であり、物理的な光学的深さへ採取間隔を流用しない。
-    constexpr f32 kLayerHeight = 2500.0f;
-    constexpr f32 kLayerCanonicalSpan = 1.6f;
-    constexpr f32 kMinimumJitterScale = 0.72f;
-    constexpr f32 kMaximumJitterScale = 1.28f;
-    constexpr f32 kOldBaseStep = 0.012f;
-    constexpr f32 kOldStepGrowth = 1.65f;
-    constexpr f32 kBaseStep = 0.0075f;
-    constexpr f32 kStepGrowth = 1.8f;
-    constexpr f32 kRegionalWeatherFinestSpan = 9127.0f / 29.0f;
-    constexpr f32 kMaximumCurlValueDifference = 2.0f;
-    constexpr f32 kCurlWarpMetres = 22.0f;
-    constexpr f32 kMaximumSharedCurlPositionError =
-        kMaximumCurlValueDifference * kCurlWarpMetres;
-    const f32 layerSamplingScale =
-        kLayerCanonicalSpan / kLayerHeight;
-    EXPECT_NEAR(layerSamplingScale, 0.00064f, 1e-8f);
-
-    // 新しい列は同じ8標本とほぼ同じ到達距離を保ち、遠方の天候再採取範囲を狭めない。
-    const f32 jitterScales[]{
-        kMinimumJitterScale, 1.0f, kMaximumJitterScale};
-    for (const f32 jitterScale : jitterScales) {
-        f32 oldStep =
-            kOldBaseStep / layerSamplingScale * jitterScale;
-        f32 newStep = kBaseStep / layerSamplingScale * jitterScale;
-        f32 oldDistance = 0.0f;
-        f32 newDistance = 0.0f;
-        f32 oldFarthestMidpoint = 0.0f;
-        f32 newFarthestMidpoint = 0.0f;
-        for (u32 lightSample = 0u;
-             lightSample < kVolumetricCloudMaxLightMarchSamples;
-             ++lightSample) {
-            oldFarthestMidpoint = oldDistance + 0.5f * oldStep;
-            newFarthestMidpoint = newDistance + 0.5f * newStep;
-            oldDistance += oldStep;
-            newDistance += newStep;
-            oldStep *= kOldStepGrowth;
-            newStep *= kStepGrowth;
-        }
-        EXPECT_TRUE(
-            std::fabs(newDistance - oldDistance) < oldDistance * 0.03f);
-        EXPECT_TRUE(
-            std::fabs(newFarthestMidpoint - oldFarthestMidpoint) <
-            oldFarthestMidpoint * 0.005f);
-    }
-
-    // 既定層では近距離3点だけが8～49 mの侵食帯域へ入る。4点目は最小位相でも
-    // 48 mを越えて高周波侵食が消える一方、低周波の房は全位相で完全に残る。
-    // 二つをまとめて低詳細度へ落とさない境界を固定する。
-    f32 minimumDetailedStep =
-        kBaseStep / layerSamplingScale * kMinimumJitterScale;
-    f32 maximumDetailedStep =
-        kBaseStep / layerSamplingScale * kMaximumJitterScale;
-    f32 maximumNearEnd = 0.0f;
-    for (u32 lightSample = 0u; lightSample < 3u; ++lightSample) {
-        EXPECT_TRUE(
-            CloudErosionVisibilityFromSampleSpacingForTest(
-                minimumDetailedStep) > 0.0f);
-        maximumNearEnd += maximumDetailedStep;
-        minimumDetailedStep *= kStepGrowth;
-        maximumDetailedStep *= kStepGrowth;
-    }
-    EXPECT_TRUE(minimumDetailedStep > 48.0f);
-    EXPECT_TRUE(maximumDetailedStep > 48.0f);
-    EXPECT_NEAR(
-        CloudErosionVisibilityFromSampleSpacingForTest(
-            maximumDetailedStep / kStepGrowth),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudErosionVisibilityFromSampleSpacingForTest(
-            minimumDetailedStep),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudErosionVisibilityFromSampleSpacingForTest(
-            maximumDetailedStep),
-        0.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudBillowVisibilityFromSampleSpacingForTest(
-            minimumDetailedStep),
-        1.0f, 0.0f);
-    EXPECT_NEAR(
-        CloudBillowVisibilityFromSampleSpacingForTest(
-            maximumDetailedStep),
-        1.0f, 0.0f);
-
-    // キャッシュの低詳細度積分へ符号付き差分を足すと、同じ第4区間の房密度積分へ戻る。
-    // 正差だけを足す方式は平均密度を増やして雲頂全体を暗くするため採用しない。
-    constexpr f32 kLowLodDensity = 0.62f;
-    constexpr f32 kBillowedDensity = 0.27f;
-    constexpr f32 kOpticalScale =
-        kVolumetricCloudReferenceExtinctionPerMeter;
-    const f32 cachedFourthDepth =
-        kLowLodDensity * maximumDetailedStep * kOpticalScale;
-    const f32 billowResidual =
-        (kBillowedDensity - kLowLodDensity) *
-        maximumDetailedStep * kOpticalScale;
-    EXPECT_NEAR(
-        cachedFourthDepth + billowResidual,
-        kBillowedDensity * maximumDetailedStep * kOpticalScale,
-        1.0e-7f);
-    EXPECT_TRUE(billowResidual < 0.0f);
-
-    f32 expandingStep =
-        kBaseStep / layerSamplingScale * kMaximumJitterScale;
-    f32 traveledDistance = 0.0f;
-    f32 farthestMidpoint = 0.0f;
+    // 光路の傾きやフレーム位相で終端を変えず、雲媒質の全距離を必ず8等分する。
+    constexpr f32 kOccupiedLength = 2500.0f;
+    constexpr f32 kSampleSpacing =
+        kOccupiedLength/static_cast<f32>(kVolumetricCloudMaxLightMarchSamples);
+    f32 integratedUniformDepth = 0.0f;
+    f32 previousMidpoint = -1.0f;
     for (u32 lightSample = 0u;
          lightSample < kVolumetricCloudMaxLightMarchSamples;
          ++lightSample) {
-        farthestMidpoint = traveledDistance + 0.5f * expandingStep;
-        traveledDistance += expandingStep;
-        expandingStep *= kStepGrowth;
+        const f32 midpoint =
+            (static_cast<f32>(lightSample)+0.5f)*kSampleSpacing;
+        EXPECT_TRUE(midpoint>previousMidpoint);
+        EXPECT_TRUE(midpoint>0.0f&&midpoint<kOccupiedLength);
+        integratedUniformDepth += 0.42f*kSampleSpacing;
+        previousMidpoint=midpoint;
     }
-    EXPECT_NEAR(maximumNearEnd, 90.600f, 0.001f);
-    EXPECT_NEAR(farthestMidpoint, 1588.328f, 0.002f);
-    EXPECT_NEAR(traveledDistance, 2047.493f, 0.002f);
-    EXPECT_TRUE(
-        farthestMidpoint > kRegionalWeatherFinestSpan * 5.0f);
-    EXPECT_NEAR(kMaximumSharedCurlPositionError, 44.0f, 1e-6f);
-    EXPECT_TRUE(
-        kMaximumSharedCurlPositionError <
-        kRegionalWeatherFinestSpan * 0.15f);
+    EXPECT_NEAR(previousMidpoint,2343.75f,1.0e-4f);
+    EXPECT_NEAR(integratedUniformDepth,0.42f*kOccupiedLength,1.0e-4f);
+
+    // 長い下層と短い上層へ同じ総距離の中央標本を置くと、短い上層を一度も採取できない。
+    // 距離比で7対1へ分け、密度が大きく異なる短い上層も積分へ必ず含める。
+    constexpr f32 kFirstStart=0.0f;
+    constexpr f32 kFirstEnd=7900.0f;
+    constexpr f32 kSecondStart=12000.0f;
+    constexpr f32 kSecondEnd=12100.0f;
+    constexpr f32 kTwoBandLength=
+        (kFirstEnd-kFirstStart)+(kSecondEnd-kSecondStart);
+    constexpr u32 kFirstSampleCount=7u;
+    constexpr u32 kSecondSampleCount=
+        kVolumetricCloudMaxLightMarchSamples-kFirstSampleCount;
+    constexpr f32 kFirstDensity=0.05f;
+    constexpr f32 kSecondDensity=0.95f;
+    f32 twoBandDepth=0.0f;
+    for(u32 sampleIndex=0u;
+        sampleIndex<kVolumetricCloudMaxLightMarchSamples;
+        ++sampleIndex){
+        const bool secondBand=sampleIndex>=kFirstSampleCount;
+        const u32 bandSampleIndex=secondBand
+            ?sampleIndex-kFirstSampleCount:sampleIndex;
+        const u32 bandSampleCount=secondBand
+            ?kSecondSampleCount:kFirstSampleCount;
+        const f32 bandStart=secondBand?kSecondStart:kFirstStart;
+        const f32 bandLength=secondBand
+            ?kSecondEnd-kSecondStart:kFirstEnd-kFirstStart;
+        const f32 bandSpacing=
+            bandLength/static_cast<f32>(bandSampleCount);
+        const f32 rayDistance=bandStart+
+            (static_cast<f32>(bandSampleIndex)+0.5f)*bandSpacing;
+        EXPECT_TRUE(rayDistance>=bandStart&&rayDistance<bandStart+bandLength);
+        twoBandDepth+=(secondBand?kSecondDensity:kFirstDensity)*bandSpacing;
+    }
+    const f32 expectedTwoBandDepth=
+        kFirstDensity*(kFirstEnd-kFirstStart)+
+        kSecondDensity*(kSecondEnd-kSecondStart);
+    const f32 concatenatedDepth=kFirstDensity*kTwoBandLength;
+    EXPECT_NEAR(twoBandDepth,expectedTwoBandDepth,1.0e-4f);
+    EXPECT_TRUE(std::fabs(concatenatedDepth-expectedTwoBandDepth)>80.0f);
+
+    // 近距離の高周波差分は符号を保ち、低LOD深さへ足すと詳細密度へ正確に戻る。
+    constexpr f32 kLowLodDensity=0.62f;
+    constexpr f32 kDetailedDensity=0.27f;
+    constexpr f32 kOpticalScale=kVolumetricCloudReferenceExtinctionPerMeter;
+    const f32 cachedDepth=kLowLodDensity*kSampleSpacing*kOpticalScale;
+    const f32 detailResidual=
+        (kDetailedDensity-kLowLodDensity)*kSampleSpacing*kOpticalScale;
+    EXPECT_NEAR(
+        cachedDepth+detailResidual,
+        kDetailedDensity*kSampleSpacing*kOpticalScale,1.0e-7f);
+    EXPECT_TRUE(detailResidual<0.0f);
+
+    // 負の詳細差分は4光路へ個別に加えてから0へ制限する。平均深さへ先に足すと、
+    // 開いた二光路と厚い二光路を同じ透過率へ潰してしまう。
+    constexpr f32 kDepths[4]={0.2f,0.4f,1.0f,2.0f};
+    constexpr f32 kNegativeResidual=-0.5f;
+    f32 separatePathTransmittance=0.0f;
+    f32 meanDepth=0.0f;
+    for(const f32 pathDepth:kDepths){
+        const f32 correctedDepth=pathDepth+kNegativeResidual>0.0f
+            ?pathDepth+kNegativeResidual:0.0f;
+        separatePathTransmittance+=
+            std::exp(-correctedDepth);
+        meanDepth+=pathDepth;
+    }
+    separatePathTransmittance*=0.25f;
+    meanDepth*=0.25f;
+    const f32 correctedMeanDepth=meanDepth+kNegativeResidual>0.0f
+        ?meanDepth+kNegativeResidual:0.0f;
+    const f32 meanFirstTransmittance=std::exp(-correctedMeanDepth);
+    EXPECT_TRUE(separatePathTransmittance>=0.0f&&
+                separatePathTransmittance<=1.0f);
+    EXPECT_TRUE(std::fabs(
+        separatePathTransmittance-meanFirstTransmittance)>0.03f);
 
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(ExtractRawShader(source, "const char* kCloudCS"));
     const std::string compactSource = CompactShader(source);
     EXPECT_TRUE(Contains(
         shader,
-        "floatcloudBillowLightDepthResidual("
-        "float3tailOrigin,floatlightStep,floatcoverage,"
-        "float3sun,float3lightTangent,float3lightBitangent,"
-        "floatconeSin,floatconeCos){"));
+        "intcloudFirstBandLightSampleCount("
+        "intbandCount,float4intervals){"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatbillowVisibility="
-        "cloudBillowVisibilityFromSampleSpacing(lightStep);"));
+        "returnclamp((int)round(float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT)"
+        "*firstLength/occupiedLength),"
+        "1,CLOUD_LIGHT_MARCH_SAMPLE_COUNT-1);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatmiddleBillowVisibility="
-        "cloudMiddleBillowVisibilityFromSampleSpacing(lightStep);"));
+        "boolcloudLightSampleTerms("
+        "intbandCount,float4intervals,intsampleIndex,"));
     EXPECT_TRUE(Contains(
         shader,
-        "float3samplePosition=tailOrigin+coneDir*(0.5*lightStep);"));
+        "floatcloudNearLightDepthResidual("
+        "float3rayOrigin,floatcoverage,float3lightDirection){"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatbillowedDensity=cloudDensityFromMacro("
-        "samplePosition,macro,macro.densityWeatherMask,billowVisibility,"
-        "middleBillowVisibility,0.0);"));
+        "[loop]for(intsampleIndex=0;"
+        "sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;"
+        "++sampleIndex){"));
     EXPECT_TRUE(Contains(
         shader,
-        "residual=(billowedDensity-lowLodDensity)*lightStep*"
-        "cloudOpticalDepthScaleFromBand("
-        "macro.upperBand>0.5);"));
+        "floattraceCloudMainLightDepth("
+        "float3rayOrigin,floatcoverage,float3lightDirection,"
+        "floatterminationScale){"));
     EXPECT_TRUE(Contains(
         shader,
-        "lightDepth+=cloudBillowLightDepthResidual("
-        "lp,lightStep,coverage,sun,"
-        "lightTangent,lightBitangent,"
-        "coneSin,coneCos);"));
-    EXPECT_FALSE(Contains(shader, "detailedLightDepth"));
-    EXPECT_TRUE(Contains(shader, "if(blendCachedTail&&!lightTerminated){"));
+        "floattraceCloudShadowDepth("
+        "float3rayOrigin,floatcoverage,float3lightDirection){"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatexactTail=max(lightDepth-exactFarStart,0.0);"));
+        "sampleSpacing=bandLength/float(max(bandSampleCount,1));"
+        "rayDistance=bandStart+"
+        "(float(bandSampleIndex)+0.5)*sampleSpacing;"));
     EXPECT_TRUE(Contains(
         shader,
-        "lightDepth=exactFarStart+lerp("
-        "exactTail,cachedTailForBlend,cacheBlendWeight);"));
-    EXPECT_TRUE(Contains(shader, "}lightDepth=max(lightDepth,0.0);"));
+        "float3samplePosition=rayOrigin+lightDirection*rayDistance;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
+        "lightDepths=sampleCloudSunDepths("
+        "p,cacheBlendWeight);"));
     EXPECT_TRUE(Contains(
-        shader, "floatlightStep=cloudCoverageReciprocals.w;"));
-    EXPECT_FALSE(Contains(shader, "0.0075/max(layer.w,1e-4)"));
-    EXPECT_EQ(CountOccurrences(shader, "lightStep*=1.8;"), static_cast<std::size_t>(6));
-    EXPECT_FALSE(Contains(shader, "lightStep*=1.65;"));
-    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerSamplingScale>0.0001f?layerSamplingScale:0.0001f);"));
-    EXPECT_FALSE(Contains(compactSource, "constf32lightStep=0.012f/"));
-    EXPECT_EQ(CountOccurrences(shader, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(3));
-    EXPECT_EQ(CountOccurrences(shader, "lp+=lightHalfStep;"), static_cast<std::size_t>(6));
-    EXPECT_FALSE(Contains(shader, "lp+=coneDir*lightStep;"));
-
-    const std::size_t cacheBegin = shader.find("floattraceCloudShadowPattern(");
-    const std::size_t cacheEnd = shader.find("returnlightDepth;}", cacheBegin);
-    EXPECT_TRUE(cacheBegin != std::string::npos);
-    EXPECT_TRUE(cacheEnd != std::string::npos);
-    if (cacheBegin != std::string::npos && cacheEnd != std::string::npos) {
-        const std::string cacheBody = shader.substr(cacheBegin, cacheEnd - cacheBegin);
-        EXPECT_EQ(CountOccurrences(cacheBody, "float3lightHalfStep=coneDir*(0.5*lightStep);"), static_cast<std::size_t>(1));
-        EXPECT_EQ(CountOccurrences(cacheBody, "lp+=lightHalfStep;"), static_cast<std::size_t>(2));
-        EXPECT_TRUE(Contains(cacheBody, "lp+=lightHalfStep;CloudMacroSamplelightMacro=sampleCloudMacroLighting(lp,coverage,lightStep);"));
-        EXPECT_TRUE(Contains(cacheBody, "lightDepth+=lightDensity*lightStep*cloudOpticalDepthScaleFromBand(lightMacro.upperBand>0.5);lp+=lightHalfStep;lightStep*=1.8;"));
-    }
-    const std::size_t nearLoop = shader.find("[loop]for(intl=0;l<3;l++)");
-    const std::size_t cacheAttempt = shader.find("if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){", nearLoop);
-    const std::size_t nearTailOrigin = shader.rfind("lp+=lightHalfStep;", cacheAttempt);
-    EXPECT_TRUE(nearLoop != std::string::npos);
-    EXPECT_TRUE(cacheAttempt != std::string::npos);
-    EXPECT_TRUE(nearTailOrigin != std::string::npos);
-    EXPECT_TRUE(nearLoop < nearTailOrigin);
-    EXPECT_TRUE(nearTailOrigin < cacheAttempt);
-    EXPECT_TRUE(Contains(shader, "float3cachedTailSample=sampleCloudShadowTail(lp);"));
+        shader,
+        "floatbeer=cloudAverageSunTransmittance("
+        "lightDepths,detailDepthResidual,lightExtinction);"));
+    EXPECT_FALSE(Contains(shader,"floatlightJitter="));
+    EXPECT_FALSE(Contains(shader,"lightStep*=1.8"));
+    EXPECT_FALSE(Contains(shader,"cloudCoverageReciprocals.w"));
+    EXPECT_FALSE(Contains(compactSource,"0.0075f/"));
 }
 
 ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpperLayer)
@@ -5462,9 +5336,18 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
     EXPECT_EQ(CountOccurrences(compactSource, "ResolveVolumetricCloudSamplingTerms_Internal("), static_cast<usize>(3));
     EXPECT_TRUE(Contains(compactSource, "out.coverage=FVec4{0.72f-0.36f*occupancyCoverage,0.72f-0.36f*safeCoverage,kVolumetricCloudBaseNoiseLower,kVolumetricCloudBaseNoiseUpper};"));
     EXPECT_TRUE(Contains(compactSource, "constf32unclampedFineStep=0.035f/(horizontalNoiseScale>0.001f?horizontalNoiseScale:0.001f);"));
-    EXPECT_TRUE(Contains(compactSource, "constf32lightStep=0.0075f/(layerSamplingScale>0.0001f?layerSamplingScale:0.0001f);"));
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerSamplingScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerSamplingScale;"));
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerLightStep=0.0075f/(upperLayerSamplingScale>0.0001f?upperLayerSamplingScale:0.0001f);"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "out.coverageReciprocals=FVec4{"
+        "1.0f/(occupancyWeatherUpper-out.coverage.x),"
+        "1.0f/(densityWeatherUpper-out.coverage.y),fineStep,0.0f};"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "out.upperTerms=FVec4{upperLayer.coverage_scale,"
+        "upperLayer.density_scale,"
+        "kVolumetricCloudReferenceExtinctionPerMeter,0.0f};"));
+    EXPECT_FALSE(Contains(compactSource,"layerSamplingScale"));
+    EXPECT_FALSE(Contains(compactSource,"upperLayerLightStep"));
 
     /** 画面描画本体の開始位置。 */
     const auto renderBegin = compactSource.find("voidCVolumetricClouds::RenderComputeCameraRelative(");
@@ -5517,20 +5400,16 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
     EXPECT_NEAR(kCloudBaseNoiseLowerForTest, 0.18f, 0.0f);
     EXPECT_NEAR(kCloudBaseNoiseUpperForTest, 0.68f, 0.0f);
 
-    /** 厚さ2500mの下層を基準幅1.6へ写す採取尺度。 */
-    constexpr f32 lowerSamplingScale = 1.6f / 2500.0f;
-    /** 下層の太陽方向に進める基準距離。 */
-    constexpr f32 lowerLightStep = 0.0075f / lowerSamplingScale;
-    /** 厚さ1800mの上層を基準幅1.6へ写す採取尺度。 */
-    constexpr f32 upperSamplingScale = 1.6f / 1800.0f;
-    /** 上層の太陽方向に進める基準距離。 */
-    constexpr f32 upperLightStep = 0.0075f / upperSamplingScale;
-    EXPECT_NEAR(lowerSamplingScale, 0.00064f, 1.0e-8f);
-    EXPECT_NEAR(lowerLightStep, 11.71875f, 1.0e-5f);
-    EXPECT_NEAR(upperSamplingScale, 0.0008888889f, 1.0e-8f);
-    EXPECT_NEAR(upperLightStep, 8.4375f, 1.0e-5f);
-    EXPECT_TRUE(lowerLightStep > 0.0f);
-    EXPECT_TRUE(upperLightStep > 0.0f);
+    // 光積分の距離は層厚から作る基準刻みではなく、各光線の雲殻交差で決める。
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "intbandCount=intersectCloudBandsFromPosition("
+        "rayOrigin,lightDirection,intervals);"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "if(!cloudLightSampleTerms("
+        "bandCount,intervals,sampleIndex,"
+        "rayDistance,sampleSpacing))continue;"));
 }
 
 ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossEveryPath) {
@@ -5574,19 +5453,18 @@ ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossE
         shader,
         "if(upperBand)macro.densityWeatherMask*=cloudUpperTerms.x;"));
     EXPECT_TRUE(Contains(shader, "floatdens=cloudDensityFromMacro(p,macro,viewWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility)*density*distanceFade;"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.densityWeatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
+    EXPECT_TRUE(Contains(shader, "floatdetailedDensity=cloudDensityFromMacro(samplePosition,macro,macro.densityWeatherMask,billowVisibility,middleBillowVisibility,erosionVisibility);"));
     EXPECT_TRUE(Contains(shader, "floatlowLodDensity=cloudLowLodDensityFromMacro(macro,viewWeatherMask);"));
     EXPECT_FALSE(Contains(shader, "lowLodDensityAndProfile"));
     EXPECT_FALSE(Contains(shader, "boolinUpperCloudBand(float3p)"));
     EXPECT_TRUE(Contains(shader, "floatupperBand;"));
     EXPECT_TRUE(Contains(shader, "macro.upperBand=upperBand?1.0:0.0;"));
 
-    // 消散は上下層とも固定m^-1尺度、光採取間隔だけは層厚別にCPUで求める。
+    // 消散は上下層とも固定m^-1尺度で、光積分距離は実際の雲殻交差から求める。
     EXPECT_TRUE(Contains(shader, "floatcloudOpticalDepthScaleFromBand(boolupperBand){floatscale=layer.w;if(upperBand)scale=cloudUpperTerms.z;returnscale;}"));
-    EXPECT_TRUE(Contains(shader, "floatcloudLightStepFromBand(boolupperBand){floatlightStep=cloudCoverageReciprocals.w;if(upperBand)lightStep=cloudUpperTerms.w;returnlightStep;}"));
+    EXPECT_FALSE(Contains(shader,"cloudLightStepFromBand("));
     const auto compactSource = CompactShader(source);
-    EXPECT_TRUE(Contains(compactSource, "constf32upperLayerSamplingScale=hasUpperLayer?1.6f/(upperLayer.top_height-upperLayer.base_height):layerSamplingScale;"));
-    EXPECT_TRUE(Contains(compactSource, "out.upperTerms=FVec4{upperLayer.coverage_scale,upperLayer.density_scale,kVolumetricCloudReferenceExtinctionPerMeter,upperLayerLightStep};"));
+    EXPECT_TRUE(Contains(compactSource, "out.upperTerms=FVec4{upperLayer.coverage_scale,upperLayer.density_scale,kVolumetricCloudReferenceExtinctionPerMeter,0.0f};"));
     EXPECT_EQ(
         CountOccurrences(
             compactSource,
@@ -5596,36 +5474,32 @@ ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossE
 
     // 高度と降水の補正は詳細密度、低詳細度密度、空間棄却の上限で共有し、
     // 遠距離や棄却判定だけ式を落とさない。
-    EXPECT_EQ(CountOccurrences(shader, "cloudHeightPrecipitationDensityScale("), static_cast<std::size_t>(5));
+    EXPECT_EQ(CountOccurrences(shader, "cloudHeightPrecipitationDensityScale("), static_cast<std::size_t>(4));
     EXPECT_TRUE(Contains(shader, "floatcloudHeightPrecipitationDensityScale(" "floatheight,floatprecipitation){" "returnlerp(1.10,0.92,height)*" "lerp(1.0,1.28,precipitation);}"));
     EXPECT_FALSE(Contains(shader, "sampleCloudLightingDensityFromSlowFields("));
     EXPECT_FALSE(Contains(shader, "sampleCloudLightingShapeFromSlowFields("));
-    const std::size_t mainCloudEntry =
-        shader.find("[numthreads(8,8,1)]voidCSCloud(");
-    const std::size_t farLightLoop =
-        shader.find("[loop]for(intl=3;l<8;l++){", mainCloudEntry);
-    const std::size_t farLightEnd =
-        shader.find("if(blendCachedTail&&!lightTerminated){", farLightLoop);
-    EXPECT_TRUE(mainCloudEntry != std::string::npos);
-    EXPECT_TRUE(farLightLoop != std::string::npos);
-    EXPECT_TRUE(farLightEnd != std::string::npos);
-    if (farLightLoop != std::string::npos &&
-        farLightEnd != std::string::npos) {
-        const std::string farLight =
-            shader.substr(farLightLoop, farLightEnd - farLightLoop);
+    const std::size_t mainLightBegin =
+        shader.find("floattraceCloudMainLightDepth(");
+    const std::size_t mainLightEnd =
+        shader.find("returnlightDepth;}",mainLightBegin);
+    EXPECT_TRUE(mainLightBegin != std::string::npos);
+    EXPECT_TRUE(mainLightEnd != std::string::npos);
+    if(mainLightBegin != std::string::npos&&
+       mainLightEnd != std::string::npos){
+        const std::string mainLight=shader.substr(
+            mainLightBegin,mainLightEnd-mainLightBegin);
         EXPECT_TRUE(Contains(
-            farLight,
-            "float2farLightSample=sampleCloudFarLightingDensityAndScale("
-            "lp,coverage,lightStep);"));
+            mainLight,
+            "CloudMacroSamplemacro=sampleCloudMacroLighting("
+            "samplePosition,coverage,sampleSpacing);"));
         EXPECT_TRUE(Contains(
-            farLight,
-            "lightDepth+=farLightSample.x*lightStep*farLightSample.y;"));
-        EXPECT_FALSE(Contains(
-            farLight, "sampleCloudMacroLighting(lp,coverage,lightStep)"));
-        EXPECT_FALSE(Contains(farLight, "sharedLightCurl"));
+            mainLight,
+            "lightDepth+=max(lightDensity,0.0)*sampleSpacing*"
+            "cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
+        EXPECT_FALSE(Contains(mainLight,"sharedLightCurl"));
     }
 
-    const std::size_t cacheBegin = shader.find("floattraceCloudShadowPattern(");
+    const std::size_t cacheBegin = shader.find("floattraceCloudShadowDepth(");
     const std::size_t cacheEnd = shader.find("returnlightDepth;}", cacheBegin);
     EXPECT_TRUE(cacheBegin != std::string::npos);
     EXPECT_TRUE(cacheEnd != std::string::npos);
@@ -5682,9 +5556,9 @@ ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossE
     EXPECT_TRUE(
         std::exp(-cumulonimbusDepth) < std::exp(-referenceDepth));
 
-    // 視線、近距離光、遠距離光、影キャッシュ、ワールド影の全積分で標本側の尺度を使う。
-    EXPECT_TRUE(Contains(shader, "floatlightStep=cloudLightStepFromBand(sampleUpperBand);"));
-    EXPECT_TRUE(Contains(shader, "lightDepth+=lightDensity*lightStep*cloudOpticalDepthScaleFromBand(lightMacro.upperBand>0.5);"));
+    // 視線、中心光、太陽面キャッシュ、ワールド影の全積分で標本側の尺度を使う。
+    EXPECT_TRUE(Contains(shader, "lightDepth+=max(lightDensity,0.0)*sampleSpacing*cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
+    EXPECT_TRUE(Contains(shader, "lightDepth+=max(lightDensity,0.0)*sampleSpacing*cloudOpticalDepthScaleFromBand(lightMacro.upperBand>0.5);"));
     EXPECT_TRUE(Contains(shader, "opticalDepth+=sampleDensity*stepLength*cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
     EXPECT_TRUE(Contains(shader, "floatsegmentDepth=max(columnDensity,0.0)*cellWorldStep*cloudOpticalDepthScaleFromBand(false);"));
     EXPECT_TRUE(Contains(
@@ -5827,8 +5701,10 @@ ACS_TEST(VolumetricClouds,
 
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
+    EXPECT_TRUE(Contains(shader, "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"));
+    EXPECT_TRUE(Contains(shader, "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
+    EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"));
+    EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -5842,13 +5718,15 @@ ACS_TEST(VolumetricClouds,
         "float4coverageTerms=cloudCoverage;");
     const std::size_t viewLoop =
         shader.find("[loop]for(inti=0;i<MAX_STEPS", coverageTerms);
-    const std::size_t nearLightLoop =
-        shader.find("[loop]for(intl=0;l<3;l++)", viewLoop);
+    const std::size_t mainLightPattern =
+        shader.find("floattraceCloudMainLightDepth(");
+    const std::size_t shadowLightPattern =
+        shader.find("floattraceCloudShadowDepth(");
     EXPECT_TRUE(coverageTerms != std::string::npos);
     EXPECT_TRUE(viewLoop != std::string::npos);
-    EXPECT_TRUE(nearLightLoop != std::string::npos);
+    EXPECT_TRUE(mainLightPattern != std::string::npos);
+    EXPECT_TRUE(shadowLightPattern != std::string::npos);
     EXPECT_TRUE(coverageTerms < viewLoop);
-    EXPECT_TRUE(viewLoop < nearLightLoop);
     EXPECT_FALSE(Contains(shader, "sharedLightProfileTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightColumnTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightWeatherTerms"));
@@ -5858,21 +5736,11 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(denseRay, "cloudWeatherThreshold("));
         EXPECT_FALSE(Contains(denseRay, "cloudHeightThresholdTarget("));
     }
-    if (nearLightLoop != std::string::npos) {
-        const std::string lightLoops = shader.substr(nearLightLoop);
-        EXPECT_EQ(
-            CountOccurrences(
-                lightLoops, "sampleCloudMacroLighting("
-                            "lp,coverage,lightStep)"),
-            static_cast<std::size_t>(1));
-        EXPECT_EQ(
-            CountOccurrences(
-                lightLoops, "sampleCloudFarLightingDensityAndScale("
-                            "lp,coverage,lightStep)"),
-            static_cast<std::size_t>(1));
-        EXPECT_FALSE(Contains(
-            lightLoops, "sampleCloudLightingDensityFromSlowFields("));
-    }
+    EXPECT_TRUE(Contains(
+        shader,
+        "CloudMacroSamplemacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);"));
+    EXPECT_FALSE(Contains(shader,"sampleCloudFarLightingDensityAndScale("));
 
     EXPECT_FALSE(Contains(
         shader, "sampleCloudMacroLightingFromSlowFields("));
@@ -5880,50 +5748,32 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         shader, "floatsampleCloudLightingDensityFromSlowFields("));
 
-    const std::size_t farDensity = shader.find(
-        "float2sampleCloudFarLightingDensityAndScale(");
-    const std::size_t farDensityEnd =
-        shader.find("returnfloat2(densityResult,cloudOpticalDepthScaleFromBand(upperBand));}", farDensity);
-    EXPECT_TRUE(farDensity != std::string::npos);
-    EXPECT_TRUE(farDensityEnd != std::string::npos);
-    if (farDensity != std::string::npos &&
-        farDensityEnd != std::string::npos) {
-        const std::string helper =
-            shader.substr(farDensity, farDensityEnd - farDensity);
-        EXPECT_TRUE(Contains(
-            helper,
-            "float4weather=cloudWeatherData(p);"));
-        EXPECT_TRUE(Contains(helper, "floattoweringStrength=cloudLocalToweringStrength(" "weather,columnInterior);" "float2columnMetrics=cloudColumnHeightAndSpan(" "layerHeight," "cloudColumnTopShift(weather,columnInterior,toweringStrength)," "cloudColumnBaseLift(weather,columnInterior,toweringStrength)," "toweringStrength,upperBand);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "float2curl=cloudCurlOffset(p);"));
-        EXPECT_TRUE(Contains(
-            helper,
-            "cloudUVW(p,weather,curl,layerHeight,sampleHeight,"
-            "toweringStrength,upperBand)"));
-        const std::size_t upperCoverage = helper.find(
-            "if(upperBand)weatherMask*=cloudUpperTerms.x;");
-        const std::size_t densityRemap = helper.find(
-            "floatbaseDensity=cloudNormalizedBaseDensity("
-            "baseNoise);");
-        const std::size_t dimensionalProfile = helper.find(
-            "cloudDimensionalProfile(sampledProfile,weatherMask));",
-            densityRemap);
-        const std::size_t densityScale = helper.find(
-            "dimensionalDensity*"
-            "cloudHeightPrecipitationDensityScale(");
-        EXPECT_TRUE(upperCoverage != std::string::npos);
-        EXPECT_TRUE(dimensionalProfile != std::string::npos);
-        EXPECT_TRUE(densityRemap != std::string::npos);
-        EXPECT_TRUE(densityScale != std::string::npos);
-        EXPECT_TRUE(upperCoverage < dimensionalProfile);
-        EXPECT_TRUE(densityRemap < dimensionalProfile);
-        EXPECT_TRUE(dimensionalProfile < densityScale);
-        EXPECT_FALSE(Contains(helper, "baseDensity*weatherMask*heightProfile"));
-        EXPECT_EQ(
-            CountOccurrences(helper, "cloudCurlOffset(p)"),
-            static_cast<std::size_t>(1));
-        EXPECT_FALSE(Contains(helper, "CloudMacroSample"));
+    const std::size_t mainLightEnd=
+        shader.find("returnlightDepth;}",mainLightPattern);
+    EXPECT_TRUE(mainLightEnd!=std::string::npos);
+    if(mainLightPattern!=std::string::npos&&
+       mainLightEnd!=std::string::npos){
+        const std::string helper=shader.substr(
+            mainLightPattern,mainLightEnd-mainLightPattern);
+        EXPECT_TRUE(Contains(helper,"intersectCloudBandsFromPosition("));
+        EXPECT_TRUE(Contains(helper,"cloudLightSampleTerms("));
+        EXPECT_TRUE(Contains(helper,"cloudLowLodDensityFromMacro("));
+        EXPECT_FALSE(Contains(helper,"cloudDensityFromMacro("));
+        EXPECT_TRUE(Contains(helper,"cloudOpticalDepthScaleFromBand("));
+        EXPECT_FALSE(Contains(helper,"sharedLightCurl"));
+    }
+    const std::size_t residualBegin=shader.find(
+        "floatcloudNearLightDepthResidual(");
+    const std::size_t residualEnd=shader.find(
+        "returnresidual;}",residualBegin);
+    EXPECT_TRUE(residualBegin!=std::string::npos);
+    EXPECT_TRUE(residualEnd!=std::string::npos);
+    if(residualBegin!=std::string::npos&&
+       residualEnd!=std::string::npos){
+        const std::string residual=shader.substr(
+            residualBegin,residualEnd-residualBegin);
+        EXPECT_TRUE(Contains(residual,"cloudLightSampleTerms("));
+        EXPECT_TRUE(Contains(residual,"cloudDensityFromMacro("));
     }
 
     EXPECT_TRUE(Contains(
@@ -6048,8 +5898,8 @@ ACS_TEST(VolumetricClouds,
         shader,
         "intMAX_STEPS=(int)cloudLightingAmbient.z;"
         "if(MAX_STEPS<32)MAX_STEPS=32;"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
+    EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;"));
+    EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"));
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
     EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
@@ -6117,8 +5967,8 @@ ACS_TEST(VolumetricClouds,
     }
     EXPECT_TRUE(Contains(
         shader,
-        "CloudMacroSamplelightMacro=sampleCloudMacroLighting("
-        "lp,coverage,lightStep);"));
+        "CloudMacroSamplemacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);"));
 
     // 同じ未加工天候でも、積乱雲のくびれとかなとこを跨ぐと被覆は高さごとに変わる。
     constexpr f32 kWeatherCoverage = 0.50f;
@@ -6718,38 +6568,67 @@ ACS_TEST(VolumetricClouds,
         EXPECT_NEAR(
             dot(actual.bitangent, actual.bitangent), 1.0f, 2.0e-6f);
 
-        const auto coneDirection =
+        const auto sunDiskDirection =
             [](const FVolumetricCloudLightBasis& basis,
-               f32 phi, f32 angle) noexcept {
-                const f32 coneSin = Sin(phi);
-                const f32 coneCos = Cos(phi);
-                const FVec3 lateral{
-                    coneCos * basis.tangent.x +
-                        coneSin * basis.bitangent.x,
-                    coneCos * basis.tangent.y +
-                        coneSin * basis.bitangent.y,
-                    coneCos * basis.tangent.z +
-                        coneSin * basis.bitangent.z};
-                const f32 inverseLength =
-                    1.0f / Sqrt(1.0f + angle * angle);
+               u32 sampleIndex) noexcept {
+                constexpr f32 kOffset =
+                    kSkyPhysicalSunAngularRadiusRadians * 0.5f;
+                constexpr f32 kSigns[4][2]{
+                    {1.0f, 1.0f}, {-1.0f, -1.0f},
+                    {-1.0f, 1.0f}, {1.0f, -1.0f}};
+                const f32 tangentOffset =
+                    kSigns[sampleIndex & 3u][0] * kOffset;
+                const f32 bitangentOffset =
+                    kSigns[sampleIndex & 3u][1] * kOffset;
+                const f32 inverseLength = 1.0f / Sqrt(
+                    1.0f + tangentOffset * tangentOffset +
+                    bitangentOffset * bitangentOffset);
                 return FVec3{
-                    (basis.direction.x + lateral.x * angle) *
-                        inverseLength,
-                    (basis.direction.y + lateral.y * angle) *
-                        inverseLength,
-                    (basis.direction.z + lateral.z * angle) *
-                        inverseLength};
+                    (basis.direction.x +
+                     basis.tangent.x * tangentOffset +
+                     basis.bitangent.x * bitangentOffset) * inverseLength,
+                    (basis.direction.y +
+                     basis.tangent.y * tangentOffset +
+                     basis.bitangent.y * bitangentOffset) * inverseLength,
+                    (basis.direction.z +
+                     basis.tangent.z * tangentOffset +
+                     basis.bitangent.z * bitangentOffset) * inverseLength};
             };
-        const f32 conePhases[] = {0.0f, 1.2345f, 5.991f};
-        const f32 coneAngles[] = {0.01f, 0.03f, 0.08f};
-        for (const f32 phase : conePhases) {
-            for (const f32 angle : coneAngles) {
-                ExpectVec3Near(
-                    coneDirection(actual, phase, angle),
-                    coneDirection(expected, phase, angle),
-                    3.0e-6f);
-            }
+        FVec3 meanDirection{};
+        f32 meanTangentMoment = 0.0f;
+        f32 meanBitangentMoment = 0.0f;
+        constexpr u32 kSunDiskDirectionCount = 4u;
+        for (u32 sampleIndex = 0u;
+             sampleIndex < kSunDiskDirectionCount;
+             ++sampleIndex) {
+            const FVec3 actualDirection =
+                sunDiskDirection(actual, sampleIndex);
+            ExpectVec3Near(
+                actualDirection,
+                sunDiskDirection(expected, sampleIndex), 3.0e-6f);
+            EXPECT_NEAR(dot(actualDirection, actualDirection), 1.0f, 3.0e-6f);
+            meanDirection.x += actualDirection.x;
+            meanDirection.y += actualDirection.y;
+            meanDirection.z += actualDirection.z;
+            const f32 tangentProjection =
+                dot(actualDirection, actual.tangent);
+            const f32 bitangentProjection =
+                dot(actualDirection, actual.bitangent);
+            meanTangentMoment += tangentProjection*tangentProjection;
+            meanBitangentMoment += bitangentProjection*bitangentProjection;
         }
+        meanTangentMoment /= static_cast<f32>(kSunDiskDirectionCount);
+        meanBitangentMoment /= static_cast<f32>(kSunDiskDirectionCount);
+        constexpr f32 kAxisOffset =
+            kSkyPhysicalSunAngularRadiusRadians*0.5f;
+        constexpr f32 kExpectedAxisMoment =
+            kAxisOffset*kAxisOffset/(1.0f+2.0f*kAxisOffset*kAxisOffset);
+        EXPECT_NEAR(
+            meanTangentMoment, kExpectedAxisMoment, 1.0e-9f);
+        EXPECT_NEAR(
+            meanBitangentMoment, kExpectedAxisMoment, 1.0e-9f);
+        EXPECT_NEAR(dot(meanDirection, actual.tangent), 0.0f, 3.0e-6f);
+        EXPECT_NEAR(dot(meanDirection, actual.bitangent), 0.0f, 3.0e-6f);
     }
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();
     const auto hostileBasis =
@@ -6763,19 +6642,27 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(std::isfinite(hostileBasis.bitangent.y));
     EXPECT_TRUE(std::isfinite(hostileBasis.bitangent.z));
 
-    // Optimization changes only invariant ALU placement. Work submission and
-    // the CPU-bounded authored sample policy remain explicit in the shader.
+    // 不変量の移動後も、描画投入数とCPU側の標本上限を明示したままにする。
     EXPECT_TRUE(Contains(
         shader,
         "intMAX_STEPS=(int)cloudLightingAmbient.z;"
         "if(MAX_STEPS<32)MAX_STEPS=32;"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=0;l<3;l++){"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
     EXPECT_TRUE(Contains(
         shader,
-        "float3lightHalfStep=coneDir*(0.5*lightStep);"
-        "lp+=lightHalfStep;"
-        "CloudMacroSamplelightMacro="));
+        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"
+        "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
+    EXPECT_EQ(
+        CountOccurrences(
+            shader,
+            "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"),
+        static_cast<std::size_t>(2));
+    EXPECT_TRUE(Contains(
+        shader,
+        "if(!cloudLightSampleTerms("
+        "bandCount,intervals,sampleIndex,"
+        "rayDistance,sampleSpacing))continue;"));
+    EXPECT_FALSE(Contains(shader, "lightHalfStep"));
+    EXPECT_FALSE(Contains(shader, "lightStep*=1.8"));
     EXPECT_TRUE(Contains(
         compactSource,
         "cl.Dispatch((m_W+7u)/8u,(m_H+7u)/8u,1);"));
@@ -7214,8 +7101,9 @@ ACS_TEST(VolumetricClouds,
         ExtractRawShader(source, "const char* kCloudCS"));
     EXPECT_EQ(
         CountOccurrences(
-            shader, "*lightTerminationOcclusion>18.0"),
-        static_cast<std::size_t>(2));
+            shader,
+            "lightDepth*max(terminationScale,0.0)>18.0"),
+        static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(shader, "boolradianceValid="));
     EXPECT_TRUE(Contains(shader, "all(abs(col)<=65504.0)"));
     EXPECT_TRUE(Contains(shader, "col=max(col,0.0);"));
@@ -7880,7 +7768,7 @@ ACS_TEST(VolumetricClouds,
         "floatphaseMulti=hg(cosA,cloudMultiPhase.x);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floattauL=lightDepth*density*cloudLightingExtinction.y;"));
+        "floatlightExtinction=density*cloudLightingExtinction.y;"));
     EXPECT_TRUE(Contains(shader, "phaseMulti=clamp(" "phaseMulti,cloudLightingMulti.y,cloudLightingMulti.z);"));
     EXPECT_TRUE(Contains(shader, "floatinScatterProbability=inScatterDepth;" "floatinScatterFactor=lerp(" "1.0,inScatterProbability,cloudLightingExtinction.w);"));
     EXPECT_FALSE(Contains(shader, "inScatterVertical"));
@@ -7899,12 +7787,20 @@ ACS_TEST(VolumetricClouds,
         "if(thirdContribution>1e-4)"
         "lightTerminationOcclusion=thirdOcclusion;"));
     EXPECT_EQ(
-        CountOccurrences(shader, "*lightTerminationOcclusion>18.0"),
-        static_cast<std::size_t>(2));
+        CountOccurrences(
+            shader,
+            "lightDepth*max(terminationScale,0.0)>18.0"),
+        static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         shader,
-        "floatsecondLightTransmittance=exp(-tauL*multiOcclusion);"
-        "floatthirdLightTransmittance=exp(-tauL*thirdOcclusion);"));
+        "floatbeer=cloudAverageSunTransmittance("
+        "lightDepths,detailDepthResidual,lightExtinction);"
+        "floatsecondLightTransmittance=cloudAverageSunTransmittance("
+        "lightDepths,detailDepthResidual,"
+        "lightExtinction*multiOcclusion);"
+        "floatthirdLightTransmittance=cloudAverageSunTransmittance("
+        "lightDepths,detailDepthResidual,"
+        "lightExtinction*thirdOcclusion);"));
     EXPECT_TRUE(Contains(shader, "floatdirectionalScatteringScale=cloudLightingExtinction.z*cloudLightingGround.w;float3singleSunL=sunAtCloud*directionalScatteringScale*beer*phase;float3secondSunL=sunAtCloud*directionalScatteringScale*secondLightTransmittance*phaseMulti*inScatterFactor;float3thirdSunL=sunAtCloud*directionalScatteringScale*thirdLightTransmittance*phaseMulti*inScatterFactor;"));
     EXPECT_TRUE(Contains(shader, "floatskyAmbientZenithWeight=lerp("));
     EXPECT_TRUE(Contains(shader, "*skyAmbientVisibility*cloudLightingExtinction.z;"));
@@ -7939,6 +7835,19 @@ ACS_TEST(VolumetricClouds,
         "thirdOrderTransmit*=thirdIntervalTransmittance;"));
     EXPECT_TRUE(Contains(shader, "if(transmit<0.012&&remainingDirectionalWeight<0.012)break;"));
     EXPECT_TRUE(Contains(shader, "floatremainingDirectionalWeight=directionalScatteringScale*phaseMulti*(secondOrderTransmit*secondScatteringToExtinction+thirdOrderTransmit*thirdScatteringToExtinction);"));
+
+    // 太陽面の異なる光路はBeer-Lambert変換後に平均する。平均光学的厚さを
+    // 先に指数変換する旧順序は、雲縁の開けた方向から届く光を失う。
+    constexpr f32 kSunPathDepths[]{0.2f, 0.8f, 2.4f, 5.0f};
+    f32 meanTransmittance = 0.0f;
+    f32 meanOpticalDepth = 0.0f;
+    for (const f32 pathDepth : kSunPathDepths) {
+        meanTransmittance += std::exp(-pathDepth);
+        meanOpticalDepth += pathDepth;
+    }
+    meanTransmittance *= 0.25f;
+    meanOpticalDepth *= 0.25f;
+    EXPECT_TRUE(meanTransmittance > std::exp(-meanOpticalDepth));
 
     // 縮小係数を適用した均質層は、刻み数に依存せず解析解へ一致する。
     constexpr f32 kContribution = 0.28f;
@@ -8335,8 +8244,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(kVolumetricCloudShadowCacheDepth, 96u);
     EXPECT_NEAR(kVolumetricCloudShadowCacheExtent, 48000.0f, 1e-6f);
     EXPECT_NEAR(kVolumetricCloudShadowCacheCellSize, 500.0f, 1e-6f);
-    // 太陽方向二値と上下積算密度二値を、一つのRGBA16F 3次元テクスチャへ保持する。
+    // 周囲光深さと太陽円盤4光路を、前後32高度ずつ一つのRGBA16Fへ保持する。
     EXPECT_EQ(kVolumetricCloudShadowCacheWidth * kVolumetricCloudShadowCacheHeight * kVolumetricCloudShadowCacheDepth * 8u, 2359296u);
+    EXPECT_EQ(kVolumetricCloudShadowCacheWidth * kVolumetricCloudShadowCacheHeight * kVolumetricCloudShadowCacheDepth * 8u * 2u, 4718592u);
 
     const FVec3 worldPoint{12345.0f, 2600.0f, -6789.0f};
     constexpr f32 windA = 91.0f;
@@ -8448,7 +8358,7 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     EXPECT_TRUE(Contains(shader, "floatsampleDensity=cloudLowLodDensityFromMacro(macro,macro.densityWeatherMask)*max(params.y,0.0);"));
     EXPECT_TRUE(Contains(shader, "opticalDepth+=sampleDensity*stepLength*cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);"));
     EXPECT_TRUE(Contains(shader, "transmittance=exp(-max(opticalDepth,0.0)*max(cloudLightingExtinction.y,0.0));"));
-    // 遠距離5点だけの内部照明キャッシュではなく、晴天域を除く上下層を合計32点で積分する。
+    // 8点の主光路だけに頼らず、晴天域を除く上下層を合計32点で積分する。
     const std::size_t worldShadowBegin = shader.find("voidCSCloudWorldShadow(");
     const std::size_t worldShadowEnd = shader.find("uintCloudTemporalBlockPhase4(", worldShadowBegin);
     EXPECT_TRUE(worldShadowBegin != std::string::npos);
@@ -8456,7 +8366,7 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     if (worldShadowBegin != std::string::npos && worldShadowEnd != std::string::npos) {
         const std::string worldShadow = shader.substr(worldShadowBegin, worldShadowEnd - worldShadowBegin);
         EXPECT_FALSE(Contains(worldShadow, "sampleCloudShadowTail("));
-        EXPECT_FALSE(Contains(worldShadow, "traceCloudShadowPattern("));
+        EXPECT_FALSE(Contains(worldShadow, "traceCloudShadowDepth("));
     }
 }
 
@@ -8479,7 +8389,7 @@ ACS_TEST(VolumetricClouds, WorldShadowResourceIsOptionalAndRebuiltBeforeCloudTra
 }
 
 ACS_TEST(VolumetricClouds,
-         ShadowCacheKeepsNearLightingExactAndGuardsEveryFarLookup) {
+         ShadowCacheIntegratesFullFiniteSunPathsAndKeepsDetailResidual) {
     const std::string source = ReadSkySource();
     const std::string shader = CompactShader(
         ExtractRawShader(source, "const char* kCloudCS"));
@@ -8494,6 +8404,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "SamplerStatecloudShadowCache_sampler:register(s4);"));
+    EXPECT_FALSE(Contains(shader,"register(u3)"));
+    EXPECT_FALSE(Contains(shader,"register(t5)"));
+    EXPECT_TRUE(Contains(shader,
+        "staticconstuintCLOUD_SHADOW_CACHE_TEXTURE_HEIGHT="
+        "2u*CLOUD_SHADOW_CACHE_HEIGHT;"));
     EXPECT_TRUE(Contains(shader, "float4cloudFrameTerms;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightTangent;"));
     EXPECT_TRUE(Contains(shader, "float4cloudLightBitangent;"));
@@ -8514,22 +8429,33 @@ ACS_TEST(VolumetricClouds,
         CountOccurrences(
             shader,
             "float3lightTangent=cloudLightTangent.xyz;"),
-        static_cast<std::size_t>(2));
+        static_cast<std::size_t>(1));
     EXPECT_EQ(
         CountOccurrences(
             shader,
             "float3lightBitangent=cloudLightBitangent.xyz;"),
-        static_cast<std::size_t>(2));
+        static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(
         shader,
         "[numthreads(4,1,4)]voidCSCloudShadow("));
     EXPECT_TRUE(Contains(shader, "uint2outputColumn=uint2(" "tid.x*updateStride+(uint)cloudShadowUpdate.x," "tid.z*updateStride+(uint)cloudShadowUpdate.y);"));
-    EXPECT_TRUE(Contains(shader, "cloudShadowOut.GetDimensions(width,height,depth);" "if(any(outputColumn>=uint2(width,depth))" "||height!=CLOUD_SHADOW_CACHE_HEIGHT)return;"));
-    EXPECT_TRUE(Contains(shader, "[loop]for(intl=3;l<8;l++){"));
+    EXPECT_TRUE(Contains(shader,
+        "cloudShadowOut.GetDimensions(width,height,depth);"));
+    EXPECT_TRUE(Contains(shader,
+        "if(any(outputColumn>=uint2(width,depth))"
+        "||height!=CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT)"
+        "return;"));
     EXPECT_TRUE(Contains(
         shader,
-        "lightStep*=1.8;lightStep*=1.8;lightStep*=1.8;"));
-    EXPECT_FALSE(Contains(shader, "lightStep*=5.832"));
+        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"
+        "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
+    EXPECT_EQ(
+        CountOccurrences(
+            shader,
+            "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"),
+        static_cast<std::size_t>(2));
+    EXPECT_FALSE(Contains(shader, "lightStep*=1.8"));
+    EXPECT_FALSE(Contains(shader, "lightJitter"));
     EXPECT_TRUE(Contains(
         shader,
         "float2q=lp.xz-cloudWindWorld();"));
@@ -8554,30 +8480,42 @@ ACS_TEST(VolumetricClouds,
         "floatsag=d2/max(radius+root,1.0);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatminimumEdgeCells=min("
-        "min(edgeCells.x,edgeCells.y),edgeCells.z);"
-        "if(minimumEdgeCells>1.5){"));
+        "float4sampleCloudSunDepths(float3lp,outfloatcacheWeight){"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatborderWeight=smoothstep(1.5,2.5,minimumEdgeCells);"));
+        "boolinLowerBand=altitude>=layer.x&&altitude<=layer.y;"
+        "boolinUpperBand=cloudUpperLayer.w>0.5&&"
+        "altitude>=cloudUpperLayer.x&&altitude<=cloudUpperLayer.y;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatlogicalHeight=float(CLOUD_SHADOW_CACHE_HEIGHT);"
+        "floattextureHeight=float(CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT);"
+        "floatverticalIndex=logicalHeight+0.5+h*(logicalHeight-1.0);"
+        "if(cloudUpperLayer.w>0.5){"
+        "floatbandCacheHeight=0.5*logicalHeight;"
+        "verticalIndex=logicalHeight"
+        "+(upperBand?bandCacheHeight+0.5:0.5)"
+        "+h*(bandCacheHeight-1.0);}"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float2edgeCells=min(uvwXz,1.0-uvwXz)/shadowState.z;"
+        "floatminimumEdgeCells=min(edgeCells.x,edgeCells.y);"));
+    EXPECT_TRUE(Contains(shader,
+        "if((inLowerBand||inUpperBand)&&minimumEdgeCells>1.5){"));
     EXPECT_EQ(
         CountOccurrences(shader, "cloudShadowCache.SampleLevel("),
         static_cast<std::size_t>(2));
+    EXPECT_FALSE(Contains(shader,"cloudSunDepthCache"));
+    EXPECT_TRUE(Contains(shader,
+        "floatambientCacheY=(0.5+h*float("
+        "CLOUD_SHADOW_CACHE_HEIGHT-1u))"
+        "/float(CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floattauDisagreement="
-        "cached.y;"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "floattauDisagreement="
-        "cached.y*density*cloudLightingExtinction.y;"));
+        "float4result=0.0.xxxx;cacheWeight=0.0;"));
     EXPECT_TRUE(Contains(
         shader,
-        "if(tauDisagreement<=shadowState.y){"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "if(tauDisagreement>shadowState.y)"
-        "returnfloat3(0.0,0.0,0.0);"));
+        "cacheWeight=borderWeight;result=cached;"));
     EXPECT_TRUE(Contains(shader, "floatcolumnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];"));
     EXPECT_TRUE(Contains(shader, "floatupperColumnDepth=0.0;"));
     EXPECT_TRUE(Contains(shader, "if(cloudUpperLayer.w>0.5){"));
@@ -8600,85 +8538,153 @@ ACS_TEST(VolumetricClouds,
         "[loop]for(uintdensityHeightIndex=0u;"
         "densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;"
         "++densityHeightIndex){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float3uvw=float3("
+        "(float(outputColumn.x)+0.5)/float(width),"
+        "(float(densityHeightIndex)+0.5)"
+        "/float(CLOUD_SHADOW_CACHE_HEIGHT),"
+        "(float(outputColumn.y)+0.5)/float(depth));"));
     EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
     // 4位相更新の1回分を大きく置き換えると、自己影の更新格子が点滅する。
     EXPECT_TRUE(Contains(shader, "staticconstfloatCLOUD_SHADOW_PARTIAL_BLEND=0.28;"));
     EXPECT_TRUE(Contains(shader, "float4shadowValue=float4(meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
+    EXPECT_TRUE(Contains(shader, "float4sunDepthValue=max(sunDepths,0.0.xxxx);"));
     EXPECT_TRUE(Contains(shader, "if(cloudShadowUpdate.w<0.5){"));
     EXPECT_TRUE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
     EXPECT_TRUE(Contains(shader, "shadowValue=lerp(previousValue,shadowValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_TRUE(Contains(shader,
+        "uint3sunOutputVoxel=uint3("
+        "outputColumn.x,outputHeightIndex+CLOUD_SHADOW_CACHE_HEIGHT,"
+        "outputColumn.y);"));
+    EXPECT_TRUE(Contains(shader, "float4previousSunDepth=cloudShadowOut[sunOutputVoxel];"));
+    EXPECT_TRUE(Contains(shader, "sunDepthValue=lerp(previousSunDepth,sunDepthValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
     EXPECT_TRUE(Contains(shader, "cloudShadowOut[outputVoxel]=shadowValue;"));
+    EXPECT_TRUE(Contains(shader, "cloudShadowOut[sunOutputVoxel]=sunDepthValue;"));
     EXPECT_TRUE(Contains(shader, "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
     EXPECT_FALSE(Contains(shader, "CSCloudShadowFinalize"));
     EXPECT_FALSE(Contains(shader, "cloudShadowCache.Load("));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float3result=float3(0.0,0.0,0.0);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "result=float3(1.0,cached.x,cacheWeight);"));
     EXPECT_TRUE(Contains(shader, "returnresult;"));
     EXPECT_FALSE(Contains(shader, "}while(false);returnresult;"));
 
+    // キャッシュ生成では同じ始点から太陽円盤4方向を全て積分する。
+    // 隣接画素の別方向を補間する旧方式では、同一点の円盤積分にならない。
+    const std::size_t shadowEntry =
+        shader.find("[numthreads(4,1,4)]voidCSCloudShadow(");
+    const std::size_t sunPoint = shader.find(
+        "float3sunP=cloudShadowWorldPositionAtAltitude("
+        "columnWorldXz,sunAltitude);",
+        shadowEntry);
+    const std::size_t allDirections = shader.find(
+        "[unroll]for(uintsunDirectionIndex=0u;"
+        "sunDirectionIndex<CLOUD_SUN_DISK_DIRECTION_COUNT;"
+        "++sunDirectionIndex){",
+        sunPoint);
+    const std::size_t finiteSunDirection = shader.find(
+        "float3finiteSunDirection=cloudSunDiskDirection("
+        "sun,lightTangent,lightBitangent,sunDirectionIndex);",
+        allDirections);
+    const std::size_t fullPath = shader.find(
+        "sunDepths[sunDirectionIndex]=traceCloudShadowDepth("
+        "sunP,coverage,finiteSunDirection);",
+        finiteSunDirection);
+    EXPECT_TRUE(shadowEntry != std::string::npos);
+    EXPECT_TRUE(sunPoint != std::string::npos);
+    EXPECT_TRUE(allDirections != std::string::npos);
+    EXPECT_TRUE(finiteSunDirection != std::string::npos);
+    EXPECT_TRUE(fullPath != std::string::npos);
+    EXPECT_TRUE(shadowEntry < sunPoint);
+    EXPECT_TRUE(sunPoint < allDirections);
+    EXPECT_TRUE(allDirections < finiteSunDirection);
+    EXPECT_TRUE(finiteSunDirection < fullPath);
+    EXPECT_FALSE(Contains(shader,"CLOUD_SUN_DISK_PAIR_SAMPLE_COUNT"));
+    EXPECT_FALSE(Contains(shader,"sunDiskPair"));
+    EXPECT_TRUE(Contains(shader,
+        "uintsamplesPerSunBand=splitSunCache?"
+        "CLOUD_SHADOW_CACHE_HEIGHT/2u:CLOUD_SHADOW_CACHE_HEIGHT;"));
+    EXPECT_TRUE(Contains(shader,
+        "floatsunBandHeight=float(bandHeightIndex)"
+        "/max(float(samplesPerSunBand-1u),1.0);"));
+
+    EXPECT_TRUE(Contains(
+        shader,
+        "floattraceCloudShadowDepth("
+        "float3rayOrigin,floatcoverage,float3lightDirection){"
+        "floatlightDepth=0.0;"
+        "float4intervals=float4(0,0,0,0);"
+        "intbandCount=intersectCloudBandsFromPosition("
+        "rayOrigin,lightDirection,intervals);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[loop]for(intsampleIndex=0;"
+        "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"
+        "++sampleIndex){"
+        "floatrayDistance=0.0;"
+        "floatsampleSpacing=0.0;"
+        "if(!cloudLightSampleTerms("
+        "bandCount,intervals,sampleIndex,"
+        "rayDistance,sampleSpacing))continue;"));
+
+    // 高周波3標本はキャッシュ分岐より先に完走する。不完全な場所は同じ始点の
+    // 太陽円盤4方向へ戻し、4深さを補間してから各光路を指数変換する。
     const std::size_t viewLoop =
         shader.find("[loop]for(inti=0;i<MAX_STEPS");
-    const std::size_t lightPhase = shader.find("floatlightJitter=frac(jit+float(i)*0.61803398875);", viewLoop);
-    const std::size_t pairedTrig = shader.find("floatconeSin,coneCos;" "sincos(6.2831853*lightJitter,coneSin,coneCos);", lightPhase);
-    const std::size_t nearLightLoop =
-        shader.find("[loop]for(intl=0;l<3;l++)", pairedTrig);
-    const std::size_t cacheAttempt =
-        shader.find(
-            "if(!lightTerminated&&CLOUD_MAIN_SHADOW_CACHE_ENABLED){",
-            nearLightLoop);
-    const std::size_t farLightLoop =
-        shader.find("[loop]for(intl=3;l<8;l++)", cacheAttempt);
-    const std::size_t coneDirection = shader.find(
-        "float3coneDir=cloudConeDirection("
-        "sun,lightTangent,lightBitangent,"
-        "coneSin,coneCos,coneGeometry);",
-        farLightLoop);
-    EXPECT_TRUE(nearLightLoop != std::string::npos);
-    EXPECT_TRUE(farLightLoop != std::string::npos);
-    EXPECT_TRUE(cacheAttempt != std::string::npos);
-    EXPECT_TRUE(lightPhase != std::string::npos);
-    EXPECT_TRUE(pairedTrig != std::string::npos);
-    EXPECT_TRUE(coneDirection != std::string::npos);
-    EXPECT_TRUE(viewLoop < lightPhase);
-    EXPECT_TRUE(lightPhase < pairedTrig);
-    EXPECT_TRUE(pairedTrig < nearLightLoop);
-    EXPECT_TRUE(nearLightLoop < cacheAttempt);
-    EXPECT_TRUE(cacheAttempt < farLightLoop);
-    EXPECT_TRUE(farLightLoop < coneDirection);
-    EXPECT_FALSE(Contains(shader, "[branch]if(l>=3)"));
+    const std::size_t detailResidual = shader.find(
+        "floatdetailDepthResidual=cloudNearLightDepthResidual("
+        "p,coverage,lightDirection);",
+        viewLoop);
+    const std::size_t cacheRead = shader.find(
+        "lightDepths=sampleCloudSunDepths("
+        "p,cacheBlendWeight);", detailResidual);
+    const std::size_t exactFallback = shader.find(
+        "if(cacheBlendWeight<0.999){",cacheRead);
+    const std::size_t exactPath = shader.find(
+        "traceCloudMainLightDepth("
+        "p,coverage,finiteSunDirection,"
+        "terminationScale);",exactFallback);
+    const std::size_t depthBlend = shader.find(
+        "lightDepths=lerp("
+        "exactLightDepths,lightDepths,cacheBlendWeight);",
+        exactPath);
+    const std::size_t beer = shader.find(
+        "floatbeer=cloudAverageSunTransmittance("
+        "lightDepths,detailDepthResidual,lightExtinction);",
+        depthBlend);
+    EXPECT_TRUE(viewLoop != std::string::npos);
+    EXPECT_TRUE(detailResidual != std::string::npos);
+    EXPECT_TRUE(cacheRead != std::string::npos);
+    EXPECT_TRUE(exactFallback != std::string::npos);
+    EXPECT_TRUE(exactPath != std::string::npos);
+    EXPECT_TRUE(depthBlend != std::string::npos);
+    EXPECT_TRUE(beer != std::string::npos);
+    EXPECT_TRUE(viewLoop < detailResidual);
+    EXPECT_TRUE(detailResidual < cacheRead);
+    EXPECT_TRUE(cacheRead < exactFallback);
+    EXPECT_TRUE(exactFallback < exactPath);
+    EXPECT_TRUE(exactPath < depthBlend);
+    EXPECT_TRUE(depthBlend < beer);
+    EXPECT_TRUE(Contains(shader,
+        "float4correctedDepths=max("
+        "lightDepths+detailDepthResidual.xxxx,0.0.xxxx);"));
+    EXPECT_FALSE(Contains(shader,"correctedMeanDepth"));
+
+    EXPECT_FALSE(Contains(shader, "cloudConeDirection("));
     EXPECT_TRUE(Contains(shader, "staticconstboolCLOUD_MAIN_SHADOW_CACHE_ENABLED=true;"));
+    EXPECT_FALSE(Contains(shader, "sampleCloudShadowTail("));
+    EXPECT_FALSE(Contains(shader, "sampleCloudFarLightingDensityAndScale("));
     EXPECT_TRUE(Contains(
         shader,
-        "float3cachedTailSample=sampleCloudShadowTail(lp);"
-        "if(cachedTailSample.x>0.5){"));
+        "CloudMacroSamplemacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);"));
     EXPECT_TRUE(Contains(
         shader,
-        "if(cacheWeight>=0.999){lightDepth+=cachedTail;"
-        "cachedFarTail=true;}"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "lightDepth=exactFarStart+lerp("
-        "exactTail,cachedTailForBlend,cacheBlendWeight);"));
-    // 棄却した参照は各地点の天候と基本形状を再採取する遠距離5点へ戻り、
-    // 侵食を含む近距離3点は常に別のループで採取する。
-    EXPECT_TRUE(Contains(
-        shader,
-        "float2farLightSample=sampleCloudFarLightingDensityAndScale("
-        "lp,coverage,lightStep);"));
-    EXPECT_TRUE(Contains(shader, "floatlightDensity=cloudDensityFromMacro(lp,lightMacro,lightMacro.densityWeatherMask,lightBillowVisibility,lightMiddleBillowVisibility,lightErosionVisibility);"));
-    // 近距離3点も各地点の天候、局所列、渦を再構成する。
+        "CloudMacroSamplelightMacro=sampleCloudMacroLighting("
+        "samplePosition,coverage,sampleSpacing);"));
+    // 各地点の天候、局所列、渦を再構成し、古い共有近似へ戻さない。
     EXPECT_FALSE(Contains(shader, "sharedLightProfileTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightColumnTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightWeatherTerms"));
     EXPECT_FALSE(Contains(shader, "sharedLightCurl"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "sampleCloudMacroLighting("
-        "lp,coverage,lightStep);"));
     EXPECT_FALSE(Contains(
         shader, "sampleCloudMacroLightingFromSlowFields("));
     EXPECT_FALSE(Contains(
@@ -8722,10 +8728,10 @@ ACS_TEST(VolumetricClouds, ShadowCacheRhiBindingIsOptionalOrderedAndUpdatedEvery
     EXPECT_TRUE(Contains(
         compact,
         "td.width=kVolumetricCloudShadowCacheWidth;"
-        "td.height=kVolumetricCloudShadowCacheHeight;"
+        "td.height=2u*kVolumetricCloudShadowCacheHeight;"
         "td.depth=kVolumetricCloudShadowCacheDepth;"
         "td.format=EFormat::R16G16B16A16_Float;td.is_uav=true;"));
-    EXPECT_EQ(CountOccurrences(compact, "td.width=kVolumetricCloudShadowCacheWidth;" "td.height=kVolumetricCloudShadowCacheHeight;" "td.depth=kVolumetricCloudShadowCacheDepth;" "td.format=EFormat::R16G16B16A16_Float;td.is_uav=true;"), static_cast<std::size_t>(1));
+    EXPECT_EQ(CountOccurrences(compact, "td.width=kVolumetricCloudShadowCacheWidth;" "td.height=2u*kVolumetricCloudShadowCacheHeight;" "td.depth=kVolumetricCloudShadowCacheDepth;" "td.format=EFormat::R16G16B16A16_Float;td.is_uav=true;"), static_cast<std::size_t>(1));
     EXPECT_TRUE(Contains(compact, "constu32updateWidth=CloudCeilDivisor(" "kVolumetricCloudShadowCacheWidth-shadowUpdateOffsetX," "shadowUpdateDivisor);" "constu32updateDepth=CloudCeilDivisor(" "kVolumetricCloudShadowCacheDepth-shadowUpdateOffsetY," "shadowUpdateDivisor);" "cl.Dispatch((updateWidth+3u)/4u," "1u," "(updateDepth+3u)/4u);"));
     EXPECT_TRUE(Contains(compact, "rebuildShadowCacheThisFrame?1.0f:0.0f"));
     EXPECT_TRUE(Contains(

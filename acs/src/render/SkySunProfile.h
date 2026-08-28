@@ -5,6 +5,8 @@
 
 namespace acs {
 
+/** 地球近傍から見た太陽円盤の物理的な角半径(rad)。 */
+inline constexpr f32 kSkyPhysicalSunAngularRadiusRadians = 0.004653f;
 /** 太陽円盤の見かけの角半径を1-cos形式で表した値。 */
 inline constexpr f32 kSkySolarDiscRadiusOneMinusCosine = 1.08e-5f;
 /** 昼空で太陽の周囲に残す光彩の外端。 */
