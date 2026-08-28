@@ -802,7 +802,7 @@ struct FVolumetricCloudFrameWorkloadPlan {
     u32 trace_height = 0u;
     u32 output_width = 0u;
     u32 output_height = 0u;
-    /** 1 本の視線レイで実行できる密度採取回数。 */
+    /** 1 本の視線レイで実行できる区間セル数。各セル内の求積点は負荷計画側で加える。 */
     u32 maximum_view_steps = kVolumetricCloudViewSteps;
     /** 自己影を各軸で何画素おきに更新するか。1 は全更新。 */
     u32 shadow_update_divisor = 1u;
@@ -1489,8 +1489,11 @@ private:
         TUniquePtr<IRhiShader> shader;
         /** 最大値階層シェーダーを実行する計算パイプライン。 */
         TUniquePtr<IRhiPipeline> pipeline;
-        /** 軸別最大値の読み書きを交互に担う128角RGBA体積。 */
+        /** 生成直後の二値支持域と二回目の軸別最大値を保持する128角RGBA体積。 */
         TUniquePtr<IRhiTexture> source_texture;
+
+        /** 一回目と完成した三回目の軸別最大値を保持する128角RGBA体積。 */
+        TUniquePtr<IRhiTexture> filtered_texture;
     };
 
     /** 時間履歴を破棄し、密度場も変わる場合は影キャッシュも破棄する。 */
@@ -1531,7 +1534,7 @@ private:
     TUniquePtr<IRhiPipeline> m_NoisePipe;
     /** 周期最大値階層のシェーダー・パイプライン・作業体積を同じ寿命で所有する。 */
     TUniquePtr<FNoiseFilterResources> m_NoiseFilterResources;
-    /** 4・16・64幅と点形状をRGB・Aへ保持する128角の実行時基本形状。 */
+    /** 周波数2・4・8までの密度形状をRGBへ保持する128角の実行時基本形状。 */
     TUniquePtr<IRhiTexture>  m_ShapeTex;
     TUniquePtr<IRhiShader>   m_WeatherCs;
     TUniquePtr<IRhiPipeline> m_WeatherPipe;

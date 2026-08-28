@@ -55967,6 +55967,14 @@ namespace acs {
 // CPUとGPUで評価する物理大気散乱。Rayleigh散乱とMie散乱を方向ごとに評価し、
 // 環境キューブ地図、拡散環境光、鏡面反射用事前計算へ同じ空の光を供給する。
 
+/** 地球モデルの地表半径 (m)。CPU積分とGPU参照表で共通に使う。 */
+inline constexpr f32 kSkyAtmosphereGroundRadiusMeters = 6360000.0f;
+/** 大気を無視できる上端までの高度 (m)。 */
+inline constexpr f32 kSkyAtmosphereTopAltitudeMeters = 100000.0f;
+/** 地球中心から測った大気上端半径 (m)。 */
+inline constexpr f32 kSkyAtmosphereTopRadiusMeters =
+    kSkyAtmosphereGroundRadiusMeters + kSkyAtmosphereTopAltitudeMeters;
+
 /** 確保処理と検証で共有する空気遠近法の体積表品質。 */
 inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
 inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
@@ -56038,6 +56046,20 @@ FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept;
 class CAtmosphere {
 public:
     /**
+     * 指定高度・指定方向の空の放射輝度を、BakeEquirect と同じ物理積分で返す。
+     *
+     * @details Rayleigh散乱、Mie散乱、オゾン吸収、太陽光の大気透過を同じ区間積分で
+     * 評価する。空だけでなく地面へ当たる方向は、地表反射と視線透過を連続的に返す。
+     * 雲や水面の環境照明が、表示中の空と別の固定色にならないように使う。
+     * @param altitude 地表からの高度 (m)。負値は地表へ丸める。
+     * @param view_dir 観察方向。正規化されていなくてもよい。
+     * @param params 太陽方向・強度、地表アルベド、積分段数。
+     * @return 指定方向の線形HDR放射輝度。入力が退化しても有限値を返す。
+     */
+    static FVec3 EvaluateSkyRadiance(f32 altitude, FVec3 view_dir,
+                                     const FAtmosphereParams& params) noexcept;
+
+    /**
      * CPU で equirect 画像を焼いて RGBA float 配列を返す。
      *
      * @details
@@ -56051,6 +56073,15 @@ public:
      */
     static TArray<f32> BakeEquirect(u32 width, u32 height,
                                     const FAtmosphereParams& params) noexcept;
+
+    /**
+     * 指定高度の観測者位置から CPU で equirect 画像を焼く。
+     *
+     * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
+     */
+    static TArray<f32> BakeEquirectAtAltitude(
+        u32 width, u32 height, f32 altitude,
+        const FAtmosphereParams& params) noexcept;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
@@ -56091,6 +56122,16 @@ public:
     bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                       const FAtmosphereParams& params,
                       u32 width, u32 height, TArray<f32>& out) noexcept;
+
+    /**
+     * 指定高度の観測者位置から GPU で大気 equirect を焼く。
+     *
+     * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
+     */
+    bool BakeEquirectAtAltitude(
+        IRhiDevice& device, IRhiCommandList& cl,
+        const FAtmosphereParams& params, u32 width, u32 height,
+        f32 altitude, TArray<f32>& out) noexcept;
 
     /**
      * Aerial perspective の camera-volume LUT を焼いて返す。
@@ -58863,6 +58904,8 @@ using FPostProcess = CPostProcess;
 
 namespace acs {
 
+/** 地球近傍から見た太陽円盤の物理的な角半径(rad)。 */
+inline constexpr f32 kSkyPhysicalSunAngularRadiusRadians = 0.004653f;
 /** 太陽円盤の見かけの角半径を1-cos形式で表した値。 */
 inline constexpr f32 kSkySolarDiscRadiusOneMinusCosine = 1.08e-5f;
 /** 昼空で太陽の周囲に残す光彩の外端。 */
@@ -59149,6 +59192,21 @@ public:
     void PresetNight()  noexcept;
 
     /**
+     * 環境キューブを使えない経路でも、物理大気の空を直接描く。
+     *
+     * @details レイリー散乱、ミー散乱、オゾン吸収、区間透過を画面方向ごとに
+     * 評価する。入力は描画時だけに渡し、CSky本体の公開レイアウトを変えない。
+     * @param cl 描画コマンドを積むコマンドリスト。
+     * @param camera 視線復元に使うカメラ。
+     * @param sun_intensity 太陽の線形HDR放射輝度。
+     * @param altitude_meters 視点の地表からの高度 (m)。
+     * @param ground_albedo 地表のRGBアルベド。負値は0へ丸める。
+     */
+    void RenderPhysicalAtmosphere(IRhiCommandList& cl, const CCamera& camera,
+                                  FVec3 sun_intensity, f32 altitude_meters,
+                                  FVec3 ground_albedo) noexcept;
+
+    /**
      * 現在の太陽方向を返す (CStandardShader / IBL と整合させたいときに)。
      *
      * @return 正規化済みの太陽方向ベクトル。
@@ -59260,6 +59318,11 @@ private:
 
     /** 雲の基本 RGB 色。 */
     FVec3 m_FallbackCloudColor = FVec3{1.0f, 1.0f, 1.0f};
+
+    /** 共通の空描画実装へ互換空または物理空の入力を渡す。 */
+    void RenderInternal(IRhiCommandList& cl, const CCamera& camera,
+                        bool physical_atmosphere, FVec3 sun_intensity,
+                        f32 altitude_meters, FVec3 ground_albedo) noexcept;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
@@ -59336,7 +59399,7 @@ struct FVolumetricCloudLighting {
      */
     f32 ViewExtinction = 1.0f;
 
-    /** 光の方向の消散。見る方向と揃える。 */
+    /** 光の方向の消散。見る方向と揃え、基準層の光学的深さを過飽和させない。 */
     f32 LightExtinction = 1.0f;
 
     /**
@@ -59712,7 +59775,7 @@ struct FVolumetricCloudFrameWorkloadPlan {
     u32 trace_height = 0u;
     u32 output_width = 0u;
     u32 output_height = 0u;
-    /** 1 本の視線レイで実行できる密度採取回数。 */
+    /** 1 本の視線レイで実行できる区間セル数。各セル内の求積点は負荷計画側で加える。 */
     u32 maximum_view_steps = kVolumetricCloudViewSteps;
     /** 自己影を各軸で何画素おきに更新するか。1 は全更新。 */
     u32 shadow_update_divisor = 1u;
@@ -59732,12 +59795,11 @@ enum class EVolumetricCloudFrameSkipReason : u32 {
 };
 
 /**
- * Allocation-free diagnostic for the most recent RenderCompute attempt.
+ * 直近のRenderCompute試行を動的確保なしで記録する診断値。
  *
- * Logical invocations exclude workgroup padding; launched threads include it.
- * maximum_*_samples are conservative shader-loop ceilings rather than measured
- * samples because empty-space skipping and transmittance exits are data
- * dependent. GPU timestamps remain authoritative for elapsed cost.
+ * 論理呼び出し数は作業グループの余分なスレッドを除き、投入スレッド数はそれを含む。
+ * maximum_*_samples は、空領域の省略や透過率による終了を含めない保守的な
+ * シェーダーループ上限である。実際の処理時間はGPU計測値を正とする。
  */
 struct FVolumetricCloudFrameWorkload {
     u64 submission_index = 0u;
@@ -59780,10 +59842,9 @@ struct FVolumetricCloudFrameWorkload {
 };
 
 /**
- * Deterministically account for a cloud frame without recording GPU work.
+ * GPU処理を記録せず、雲の1フレーム分の処理量を決定論的に数える。
  *
- * All additions and products saturate at u64 max so malformed diagnostic input
- * cannot wrap into a deceptively small workload.
+ * 不正な診断入力で小さい値へ桁あふれしないよう、全ての加算と乗算をu64最大値で止める。
  */
 FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
     const FVolumetricCloudFrameWorkloadPlan& plan) noexcept;
@@ -59873,30 +59934,30 @@ struct FVolumetricCloudEvolutionFrameTerms {
 FVolumetricCloudEvolutionFrameTerms ResolveVolumetricCloudEvolutionFrameTerms(
     f32 time, f32 wind_speed) noexcept;
 
-/**
- * Normalized sun direction and its continuous Duff/Frisvad tangent basis.
- *
- * The basis is frame-invariant and is shared by every cloud view/light probe.
- */
+/** 正規化した太陽方向と、全ての雲採取で共有する連続な直交基底。 */
 struct FVolumetricCloudLightBasis {
+    /** 正規化済みの太陽方向。 */
     FVec3 direction{0.0f, 1.0f, 0.0f};
+    /** 太陽円盤上の一方の軸を表す単位接線。 */
     FVec3 tangent{1.0f, 0.0f, 0.0f};
+    /** 太陽方向と接線に直交する単位接線。 */
     FVec3 bitangent{0.0f, 0.0f, -1.0f};
 };
 
+/** 太陽方向から連続な直交基底を求め、非有限または零方向では天頂方向へ戻す。 */
 FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
     FVec3 sun_direction) noexcept;
 
 /**
- * 遠方の太陽方向積分と、空・地面方向の積算密度を保持するキャッシュ。
+ * 遠方の太陽方向積分と、空・地面方向の半球透過率を保持するキャッシュ。
  *
- * 現在の密度場から一つの3次元テクスチャへ生成する。同じXZ列の32高度を
- * 一スレッドで積算し、雲中でも頭上の空隙と厚い雲芯を分ける。近距離3点は正確な採取を残し、
- * 太陽方向キャッシュの信頼度が不足する場所では遠距離5点も正確な積分へ戻す。
+ * 現在の密度場から一つの3次元テクスチャへ生成する。一つの水平セルを16スレッドで
+ * 面積積分し、そのうち4スレッドが太陽円盤の各方向を担当する。雲中でも頭上の空隙と
+ * 厚い雲芯を分け、キャッシュの信頼度が不足する場所では固定8区間の正確な積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
-/** 品質を保つ太陽方向光学的深さキャッシュの寸法。 */
+/** 周囲光と散乱次数別の太陽透過率を保持するキャッシュの水平・高度寸法。 */
 inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
 inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
 inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
@@ -59905,6 +59966,26 @@ inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     kVolumetricCloudShadowCacheExtent /
     static_cast<f32>(kVolumetricCloudShadowCacheWidth);
 inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
+
+/** 負の詳細残差を安全に適用できるR16F透過率の最小正規化値。 */
+inline constexpr f32 kVolumetricCloudSunCacheMinimumReliableTransmittance =
+    0.00006103515625f;
+
+/** 非一様な周囲光セルを各軸で分割し、物理面積を均等に標本化する。 */
+inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureAxis = 4u;
+
+/** 一つの周囲光セルで面積積分する鉛直列の本数。 */
+inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureSamples =
+    kVolumetricCloudAmbientCacheQuadratureAxis *
+    kVolumetricCloudAmbientCacheQuadratureAxis;
+static_assert(kVolumetricCloudAmbientCacheQuadratureSamples == 16u);
+
+/** 線形補間がキャッシュ外を参照し始める外周距離。 */
+inline constexpr f32 kVolumetricCloudShadowCacheFilterStartCells = 1.5f;
+
+/** 外周混合が完全なキャッシュ値へ到達する距離。 */
+inline constexpr f32 kVolumetricCloudShadowCacheFilterFullCells = 2.5f;
+static_assert(kVolumetricCloudShadowCacheSafeRadius / kVolumetricCloudShadowCacheCellSize == 16.0f);
 
 /** 安定フレームの自己影を各軸で2画素おきに更新し、4フレームで全体を巡回する。 */
 inline constexpr u32 kVolumetricCloudShadowTemporalDivisor = 2u;
@@ -60026,7 +60107,12 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
     FVec3 world_origin = FVec3{}) noexcept;
 
 /**
- * 雲シェーダーと同じ、角度によらず有界な光線積分計画を作る。
+ * 従来の単一雲層CPU契約に従い、角度によらず有界な光線積分計画を作る。
+ *
+ * maximum_samplesの7/8を細密探索、半分を粗い探索の有効予算として扱う。
+ * GPUの二雲帯・局所視程を検証する内部計画器とは分離し、既存利用側の刻み契約を保つ。
+ * 地面側の棄却だけは固定角度ではなく曲面惑星の物理接線を使うため、従来の-0.002境界より
+ * 下向きでも地面へ当たるまでに雲層を通る視線を正しく保持する。
  *
  * @param ray_origin 光線の始点。
  * @param ray_direction 光線の方向。関数内で正規化する。
@@ -60073,10 +60159,12 @@ bool VolumetricCloudViewCutDetected(const FMat4& previous_camera_relative_inv_vi
  */
 class CVolumetricClouds {
 public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    /** CPUでコンパイルし、描画所有スレッドへ渡すシェーダー一式。 */
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> cloud;
         TUniquePtr<IRhiShader> noise;
+        /** 完成形状を128角のまま各軸へ中心付き周期最大値階層へ変換する。 */
+        TUniquePtr<IRhiShader> noise_filter;
         TUniquePtr<IRhiShader> weather;
         TUniquePtr<IRhiShader> detail;
         TUniquePtr<IRhiShader> curl;
@@ -60084,22 +60172,23 @@ public:
         TUniquePtr<IRhiShader> composite_pixel;
         TUniquePtr<IRhiShader> composite_atmosphere_pixel;
         TUniquePtr<IRhiShader> resolve;
+        /** 周囲光の面積積分と太陽円盤の有限光路を一つのセル単位で生成する。 */
         TUniquePtr<IRhiShader> shadow;
         TUniquePtr<IRhiShader> world_shadow;
         /** 旧二段構成とのソース互換用。現在は常に空であり、初期化には使わない。 */
         TUniquePtr<IRhiShader> shadow_finalize;
 
-        /** Aggregate all submitted shader jobs without waiting. */
+        /** 待機せず、投入済みの全シェーダー状態を集約する。 */
         EShaderStatus Status() const noexcept;
     };
 
     /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
     TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
 
-    /** Compile raw-DX12 HLSL without touching an RHI device. */
+    /** RHIデバイスへ触れず、Raw DX12用HLSLをCPUでコンパイルする。 */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
 
-    /** Submit all cloud shaders to a backend-managed compiler pool. */
+    /** 雲シェーダー一式を描画バックエンド管理のコンパイラープールへ投入する。 */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
         IRhiDevice& device) noexcept;
 
@@ -60367,6 +60456,19 @@ public:
     void Shutdown() noexcept;
 
 private:
+    /** 中心付き周期最大値階層に必要なGPU資源を一つの寿命へまとめる。 */
+    struct FNoiseFilterResources {
+        /** 128要素の行から複数幅の周期最大値を作る計算シェーダー。 */
+        TUniquePtr<IRhiShader> shader;
+        /** 最大値階層シェーダーを実行する計算パイプライン。 */
+        TUniquePtr<IRhiPipeline> pipeline;
+        /** 生成直後の二値支持域と二回目の軸別最大値を保持する128角RGBA体積。 */
+        TUniquePtr<IRhiTexture> source_texture;
+
+        /** 一回目と完成した三回目の軸別最大値を保持する128角RGBA体積。 */
+        TUniquePtr<IRhiTexture> filtered_texture;
+    };
+
     /** 時間履歴を破棄し、密度場も変わる場合は影キャッシュも破棄する。 */
     void InvalidateCloudHistory_Internal(bool density_field_changed) noexcept;
 
@@ -60394,28 +60496,34 @@ private:
     /** 形状ノイズを生成済みか。 */
     bool                     m_NoiseBaked = false;
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-    /** Perlin-Worley ノイズを生成する計算シェーダー。 */
-    TUniquePtr<IRhiShader>   m_NoiseCs;
-    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
-    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F 低周波/全帯域 Perlin-Worley
+    /** 天候領域を生成済みか。 */
     bool                     m_WeatherBaked = false;
+    /** 詳細形状を生成済みか。 */
+    bool                     m_DetailBaked = false;
+    /** 渦領域を生成済みか。 */
+    bool                     m_CurlBaked = false;
+    /** 完成したPerlin-Worley基本形状を生成する計算シェーダー。 */
+    TUniquePtr<IRhiShader>   m_NoiseCs;
+    TUniquePtr<IRhiPipeline> m_NoisePipe;
+    /** 周期最大値階層のシェーダー・パイプライン・作業体積を同じ寿命で所有する。 */
+    TUniquePtr<FNoiseFilterResources> m_NoiseFilterResources;
+    /** 周波数2・4・8までの密度形状をRGBへ保持する128角の実行時基本形状。 */
+    TUniquePtr<IRhiTexture>  m_ShapeTex;
     TUniquePtr<IRhiShader>   m_WeatherCs;
     TUniquePtr<IRhiPipeline> m_WeatherPipe;
     TUniquePtr<IRhiTexture>  m_WeatherTex;               // 512^2 coverage/type/precipitation/warp
-    bool                     m_DetailBaked = false;
     TUniquePtr<IRhiShader>   m_DetailCs;
     TUniquePtr<IRhiPipeline> m_DetailPipe;
     TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F 独立 Worley 房・縁侵食
-    bool                     m_CurlBaked = false;
     TUniquePtr<IRhiShader>   m_CurlCs;
     TUniquePtr<IRhiPipeline> m_CurlPipe;
     TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    /** 浅い太陽方向光学的深さを生成するシェーダー。 */
+    /** 周囲光の面積積分と太陽方向光学的深さを生成するシェーダー。 */
     TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    /** 96x32x96の太陽方向深さ・二標本差・空と地面方向の積算密度。 */
+    /** 96x128x96の周囲光と、三つの散乱次数別太陽透過率を高さ方向へ分けたキャッシュ。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
     /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
     TUniquePtr<IRhiShader>   m_WorldShadowCs;
@@ -62771,6 +62879,13 @@ private:
     FVec3 SunColorForAtmosphere() const noexcept;
 
     /**
+     * 雲へ渡す太陽の色を返す。
+     *
+     * @return シーンの光の色 (色×強度)。光が無ければEditorと同じ既定値。
+     */
+    FVec3 SunColorForClouds() const noexcept;
+
+    /**
      * 太陽の色を大気の放射輝度へ直す。
      *
      * @details 一番大きい成分を «設定した強さ» とみなし、残りを色味として扱う。
@@ -62953,7 +63068,10 @@ private:
     /** 既存alignment padding内で保持する、物理大気の空気遠近要求。 */
     bool m_AerialPerspectiveEnabled = false;
 
-    /** 既存alignment padding内で保持する、環境光へ焼いた雲形状・照明の署名。 */
+    /** boolと署名の間の既存alignment paddingで保持する、焼き込み観測者高度の単位。 */
+    u16 m_IblBakedObserverAltitudeBucket = 0u;
+
+    /** 環境光へ焼いた雲形状・照明の署名。 */
     u32 m_IblBakedCloudSignature = ~u32{0};
 
     /** 空を映した環境光 (irradiance / prefilter / BRDF LUT)。 */
@@ -63126,6 +63244,9 @@ private:
 
     /** 既存field位置を保ち、末尾paddingで所有する環境光倍率。 */
     f32 m_EnvironmentLightMultiplier = 1.0f;
+
+    /** 現在のRHIでBRDF LUTが使えないと確認済みか。 */
+    bool m_BrdfLutUnavailable = false;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

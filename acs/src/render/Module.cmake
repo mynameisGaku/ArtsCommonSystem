@@ -109,6 +109,7 @@ set(_acsgen_render_headers
     TrueHdriLightData.h
     VertexScatter.h
     VolumetricCloudAmbientCacheInternal.h
+    VolumetricCloudDensityIntegrationInternal.h
     VolumetricCloudRayMarchInternal.h
     VolumetricCloudTemporalInternal.h
     VolumetricCloudWeather.h
