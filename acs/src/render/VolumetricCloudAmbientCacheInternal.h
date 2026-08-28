@@ -115,21 +115,25 @@ inline f32 ResolveVolumetricCloudHemisphericVisibility_Internal(f32 optical_dept
     return visibility > 1.0f ? 1.0f : visibility;
 }
 
-/** 物理的な箱幅を形状の直交領域へ写し、最も広い一軸の幅を求める。 */
-inline f32 ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(f32 footprint_x, f32 footprint_y, f32 footprint_z, f32 shape_scale, f32 vertical_variation, f32 column_span) noexcept {
+/** 物理的な箱幅と高度せん断を形状の直交領域へ写し、最も広い一軸の幅を求める。 */
+inline f32 ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(f32 footprint_x, f32 footprint_y, f32 footprint_z, f32 shape_scale, f32 inverse_layer_height, bool upper_band) noexcept {
     if (!(shape_scale > 0.0f)) return 0.0f;
     if (!(footprint_x > 0.0f)) footprint_x = 0.0f;
     if (!(footprint_y > 0.0f)) footprint_y = 0.0f;
     if (!(footprint_z > 0.0f)) footprint_z = 0.0f;
-    if (!(vertical_variation > 1.0f)) vertical_variation = 1.0f;
-    if (!(column_span >= 0.08f)) column_span = 0.08f;
-    const f32 canonicalX = footprint_x * shape_scale;
-    const f32 localHeightDerivative = 1.0f / column_span;
-    const f32 mixedHeightDerivative =
-        1.0f + (localHeightDerivative - 1.0f) * 0.32f;
-    const f32 canonicalY = footprint_y * shape_scale *
-        vertical_variation * mixedHeightDerivative;
-    const f32 canonicalZ = footprint_z * shape_scale;
+    if (!(inverse_layer_height > 0.0f)) inverse_layer_height = 0.0f;
+    const f32 altitudeWidth = Sqrt(
+        footprint_x * footprint_x + footprint_y * footprint_y +
+        footprint_z * footprint_z);
+    const f32 bandScale = upper_band ? 0.25f : 1.0f;
+    const f32 shearScale = 850.0f * bandScale * inverse_layer_height;
+    const f32 canonicalX =
+        (footprint_x + 0.9284767f * shearScale * altitudeWidth) *
+        shape_scale;
+    const f32 canonicalY = altitudeWidth * shape_scale;
+    const f32 canonicalZ =
+        (footprint_z + 0.3713907f * shearScale * altitudeWidth) *
+        shape_scale;
     const f32 rotatedX = 0.8f * canonicalY + 0.6f * canonicalZ;
     const f32 rotatedY = 0.7071068f * canonicalX +
         0.4242641f * canonicalY + 0.5656854f * canonicalZ;

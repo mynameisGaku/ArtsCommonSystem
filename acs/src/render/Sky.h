@@ -1134,7 +1134,12 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
     FVec3 world_origin = FVec3{}) noexcept;
 
 /**
- * 雲シェーダーと同じ、角度によらず有界な光線積分計画を作る。
+ * 従来の単一雲層CPU契約に従い、角度によらず有界な光線積分計画を作る。
+ *
+ * maximum_samplesの7/8を細密探索、半分を粗い探索の有効予算として扱う。
+ * GPUの二雲帯・局所視程を検証する内部計画器とは分離し、既存利用側の刻み契約を保つ。
+ * 地面側の棄却だけは固定角度ではなく曲面惑星の物理接線を使うため、従来の-0.002境界より
+ * 下向きでも地面へ当たるまでに雲層を通る視線を正しく保持する。
  *
  * @param ray_origin 光線の始点。
  * @param ray_direction 光線の方向。関数内で正規化する。
@@ -1185,7 +1190,7 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> cloud;
         TUniquePtr<IRhiShader> noise;
-        /** 完成形状を128角のまま各軸へ中心付き周期箱平均する。 */
+        /** 完成形状を128角のまま各軸へ中心付き周期最大値階層へ変換する。 */
         TUniquePtr<IRhiShader> noise_filter;
         TUniquePtr<IRhiShader> weather;
         TUniquePtr<IRhiShader> detail;
@@ -1478,13 +1483,13 @@ public:
     void Shutdown() noexcept;
 
 private:
-    /** 中心付き周期箱平均にだけ必要なGPU資源を一つの寿命へまとめる。 */
+    /** 中心付き周期最大値階層に必要なGPU資源を一つの寿命へまとめる。 */
     struct FNoiseFilterResources {
-        /** 128要素の行を累積して箱平均する計算シェーダー。 */
+        /** 128要素の行から複数幅の周期最大値を作る計算シェーダー。 */
         TUniquePtr<IRhiShader> shader;
-        /** 箱平均シェーダーを実行する計算パイプライン。 */
+        /** 最大値階層シェーダーを実行する計算パイプライン。 */
         TUniquePtr<IRhiPipeline> pipeline;
-        /** 軸別平均の読み書きを交互に担う128角RGBA体積。 */
+        /** 軸別最大値の読み書きを交互に担う128角RGBA体積。 */
         TUniquePtr<IRhiTexture> source_texture;
     };
 
@@ -1524,7 +1529,7 @@ private:
     /** 完成したPerlin-Worley基本形状を生成する計算シェーダー。 */
     TUniquePtr<IRhiShader>   m_NoiseCs;
     TUniquePtr<IRhiPipeline> m_NoisePipe;
-    /** 箱平均専用のシェーダー・パイプライン・作業体積を同じ寿命で所有する。 */
+    /** 周期最大値階層のシェーダー・パイプライン・作業体積を同じ寿命で所有する。 */
     TUniquePtr<FNoiseFilterResources> m_NoiseFilterResources;
     /** 4・16・64幅と点形状をRGB・Aへ保持する128角の実行時基本形状。 */
     TUniquePtr<IRhiTexture>  m_ShapeTex;

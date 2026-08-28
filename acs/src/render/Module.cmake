@@ -108,6 +108,9 @@ set(_acsgen_render_headers
     TransientUploadArena.h
     TrueHdriLightData.h
     VertexScatter.h
+    VolumetricCloudAmbientCacheInternal.h
+    VolumetricCloudRayMarchInternal.h
+    VolumetricCloudTemporalInternal.h
     VolumetricCloudWeather.h
     VolumetricCloudWorldShadow.h
     WaterSurface3D.h
