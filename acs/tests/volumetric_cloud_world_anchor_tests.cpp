@@ -3,6 +3,7 @@
 #include "test/Expect.h"
 #include "render/IRhiDevice.h"
 #include "render/Sky.h"
+#include "render/VolumetricCloudTemporalInternal.h"
 #include "editor_abi/EditorRenderPolicy.h"
 #include "math/Camera.h"
 #include "math/Math.h"
@@ -7028,6 +7029,148 @@ ACS_TEST(VolumetricClouds, TemporalSuperResolutionBlendsScheduledExactSampleWith
     EXPECT_NEAR(correctedHistory, 1.0f, 0.0f);
 }
 
+ACS_TEST(VolumetricClouds, ContinuousCloudTimeUsesReprojectionInsteadOfWholeFrameInvalidation) {
+    constexpr f32 evolutionFullResponseDelta = render_internal::kCloudEvolutionFullResponseDelta;
+    EXPECT_NEAR(render_internal::kCloudEvolutionResponseScale, 220.0f, 0.0f);
+    EXPECT_NEAR(evolutionFullResponseDelta * render_internal::kCloudEvolutionResponseScale, 1.0f, 1e-6f);
+    EXPECT_EQ(render_internal::kCloudShadowTemporalPhaseCount, 4u);
+    const u32 expectedPhases[] = {0u, 1u, 2u, 3u, 0u, 1u, 2u, 3u};
+    const u32 expectedOffsetsX[] = {0u, 1u, 0u, 1u, 0u, 1u, 0u, 1u};
+    const u32 expectedOffsetsY[] = {0u, 0u, 1u, 1u, 0u, 0u, 1u, 1u};
+    const FVolumetricCloudEvolutionFrameTerms zeroEvolution{};
+    for (u32 frameIndex = 0u; frameIndex < 8u; ++frameIndex) {
+        const render_internal::FVolumetricCloudShadowTemporalDecision phaseDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(frameIndex, zeroEvolution, zeroEvolution, 0.0f, 0.0f);
+        EXPECT_EQ(phaseDecision.phase, expectedPhases[frameIndex]);
+        EXPECT_EQ(phaseDecision.partial_update_offset_x, expectedOffsetsX[frameIndex]);
+        EXPECT_EQ(phaseDecision.partial_update_offset_y, expectedOffsetsY[frameIndex]);
+        EXPECT_FALSE(phaseDecision.self_shadow_requires_full_refresh);
+        EXPECT_FALSE(phaseDecision.world_shadow_requires_full_refresh);
+    }
+
+    FVolumetricCloudEvolutionFrameTerms reverseEvolution{};
+    reverseEvolution.shape_phase.x = -0.001f;
+    const render_internal::FVolumetricCloudShadowTemporalDecision reverseDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(7u, reverseEvolution, zeroEvolution, -48.0f, 0.0f);
+    EXPECT_EQ(reverseDecision.phase, 3u);
+    EXPECT_FALSE(reverseDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(reverseDecision.world_shadow_requires_full_refresh);
+
+    FVolumetricCloudEvolutionFrameTerms thresholdEvolution{};
+    thresholdEvolution.shape_phase.x = evolutionFullResponseDelta / 3.0f;
+    const render_internal::FVolumetricCloudShadowTemporalDecision thresholdDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(0u, thresholdEvolution, zeroEvolution, kVolumetricCloudWorldShadowMapTexelSize / 3.0f, 0.0f);
+    EXPECT_TRUE(thresholdDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(thresholdDecision.world_shadow_requires_full_refresh);
+    thresholdEvolution.shape_phase.x *= 0.999f;
+    const render_internal::FVolumetricCloudShadowTemporalDecision belowThresholdDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(0u, thresholdEvolution, zeroEvolution, (kVolumetricCloudWorldShadowMapTexelSize / 3.0f) * 0.999f, 0.0f);
+    EXPECT_FALSE(belowThresholdDecision.self_shadow_requires_full_refresh);
+    EXPECT_FALSE(belowThresholdDecision.world_shadow_requires_full_refresh);
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    FVolumetricCloudEvolutionFrameTerms invalidEvolution{};
+    invalidEvolution.fine_phase.y = nan;
+    const render_internal::FVolumetricCloudShadowTemporalDecision nanDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(0u, invalidEvolution, zeroEvolution, nan, 0.0f);
+    EXPECT_TRUE(nanDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(nanDecision.world_shadow_requires_full_refresh);
+    invalidEvolution.fine_phase.y = infinity;
+    const render_internal::FVolumetricCloudShadowTemporalDecision positiveInfinityDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(0u, invalidEvolution, zeroEvolution, infinity, 0.0f);
+    EXPECT_TRUE(positiveInfinityDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(positiveInfinityDecision.world_shadow_requires_full_refresh);
+    invalidEvolution.fine_phase.y = -infinity;
+    const render_internal::FVolumetricCloudShadowTemporalDecision negativeInfinityDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(0u, invalidEvolution, zeroEvolution, -infinity, 0.0f);
+    EXPECT_TRUE(negativeInfinityDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(negativeInfinityDecision.world_shadow_requires_full_refresh);
+
+    // 可変刻みでも、部分更新を許した各一段差の和は最古位相までの許容差未満になる。
+    const f32 variableEvolutionSteps[] = {evolutionFullResponseDelta * 0.31f, evolutionFullResponseDelta * 0.08f, evolutionFullResponseDelta * 0.32f, evolutionFullResponseDelta * 0.29f, evolutionFullResponseDelta * 0.30f, evolutionFullResponseDelta * 0.10f, evolutionFullResponseDelta * 0.32f, evolutionFullResponseDelta * 0.31f};
+    f32 phaseEvolutionPositions[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    f32 previousEvolutionPosition = 0.0f;
+    for (u32 stepIndex = 0u; stepIndex < 8u; ++stepIndex) {
+        const f32 currentEvolutionPosition = previousEvolutionPosition + variableEvolutionSteps[stepIndex];
+        FVolumetricCloudEvolutionFrameTerms previousVariableEvolution{};
+        FVolumetricCloudEvolutionFrameTerms currentVariableEvolution{};
+        previousVariableEvolution.shape_phase.x = previousEvolutionPosition;
+        currentVariableEvolution.shape_phase.x = currentEvolutionPosition;
+        const render_internal::FVolumetricCloudShadowTemporalDecision variableDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(stepIndex + 1u, currentVariableEvolution, previousVariableEvolution, 0.0f, 0.0f);
+        EXPECT_FALSE(variableDecision.self_shadow_requires_full_refresh);
+        phaseEvolutionPositions[variableDecision.phase] = currentEvolutionPosition;
+        for (const f32 phaseEvolutionPosition : phaseEvolutionPositions) {
+            f32 actualAgeDelta = currentEvolutionPosition - phaseEvolutionPosition;
+            if (actualAgeDelta < 0.0f) actualAgeDelta = -actualAgeDelta;
+            EXPECT_TRUE(actualAgeDelta < evolutionFullResponseDelta);
+        }
+        previousEvolutionPosition = currentEvolutionPosition;
+    }
+
+    constexpr f32 previousTime = 10.0f;
+    constexpr f32 currentTime = 10.30f;
+    constexpr f32 windSpeed = 1.0f;
+    const f32 previousWind = ResolveVolumetricCloudAdvectionDistance(previousTime, windSpeed);
+    const f32 currentWind = ResolveVolumetricCloudAdvectionDistance(currentTime, windSpeed);
+    const FVec2 previousOffset = VolumetricCloudWindOffsetXZ(previousWind);
+    const FVec2 currentOffset = VolumetricCloudWindOffsetXZ(currentWind);
+    const FVec3 previousPoint{4100.0f, 3200.0f, 9800.0f};
+    const FVec3 advectedPoint{previousPoint.x + currentOffset.x - previousOffset.x, previousPoint.y, previousPoint.z + currentOffset.y - previousOffset.y};
+    const FVec2 previousMaterial = VolumetricCloudMaterialXZ(previousPoint, previousWind);
+    const FVec2 currentMaterial = VolumetricCloudMaterialXZ(advectedPoint, currentWind);
+
+    // 遅いフレームでも風移流は前フレームの同じ物質位置へ厳密に戻せる。
+    EXPECT_NEAR(previousMaterial.x, currentMaterial.x, 1e-3f);
+    EXPECT_NEAR(previousMaterial.y, currentMaterial.y, 1e-3f);
+
+    const FVolumetricCloudEvolutionFrameTerms previousEvolution = ResolveVolumetricCloudEvolutionFrameTerms(previousTime, windSpeed);
+    const FVolumetricCloudEvolutionFrameTerms currentEvolution = ResolveVolumetricCloudEvolutionFrameTerms(currentTime, windSpeed);
+    const f32 evolutionMismatch = CloudTemporalEvolutionMismatchForTest(FVec4{currentEvolution.shape_phase.x, currentEvolution.shape_phase.y, currentEvolution.fine_phase.x, currentEvolution.fine_phase.y}, FVec4{previousEvolution.shape_phase.x, previousEvolution.shape_phase.y, previousEvolution.fine_phase.x, previousEvolution.fine_phase.y});
+    EXPECT_TRUE(evolutionMismatch > 0.0f);
+    EXPECT_TRUE(evolutionMismatch < 1.0f);
+    const f32 shortAdvectionDistance = currentWind - previousWind;
+    EXPECT_TRUE(shortAdvectionDistance < kVolumetricCloudWorldShadowMapTexelSize);
+
+    // 直前フレームとの差は小さくても、4位相の最古状態との差は完全追従境界を越える。
+    constexpr f32 oldestPhaseTime = 0.0f;
+    constexpr f32 previousPhaseTime = 0.60f;
+    constexpr f32 currentPhaseTime = 0.90f;
+    const FVolumetricCloudEvolutionFrameTerms oldestPhaseEvolution = ResolveVolumetricCloudEvolutionFrameTerms(oldestPhaseTime, windSpeed);
+    const FVolumetricCloudEvolutionFrameTerms previousPhaseEvolution = ResolveVolumetricCloudEvolutionFrameTerms(previousPhaseTime, windSpeed);
+    const FVolumetricCloudEvolutionFrameTerms currentPhaseEvolution = ResolveVolumetricCloudEvolutionFrameTerms(currentPhaseTime, windSpeed);
+    const f32 previousPhaseMismatch = CloudTemporalEvolutionMismatchForTest(FVec4{currentPhaseEvolution.shape_phase.x, currentPhaseEvolution.shape_phase.y, currentPhaseEvolution.fine_phase.x, currentPhaseEvolution.fine_phase.y}, FVec4{previousPhaseEvolution.shape_phase.x, previousPhaseEvolution.shape_phase.y, previousPhaseEvolution.fine_phase.x, previousPhaseEvolution.fine_phase.y});
+    const f32 oldestPhaseMismatch = CloudTemporalEvolutionMismatchForTest(FVec4{currentPhaseEvolution.shape_phase.x, currentPhaseEvolution.shape_phase.y, currentPhaseEvolution.fine_phase.x, currentPhaseEvolution.fine_phase.y}, FVec4{oldestPhaseEvolution.shape_phase.x, oldestPhaseEvolution.shape_phase.y, oldestPhaseEvolution.fine_phase.x, oldestPhaseEvolution.fine_phase.y});
+    EXPECT_TRUE(previousPhaseMismatch < 1.0f);
+    EXPECT_TRUE(previousPhaseMismatch * static_cast<f32>(render_internal::kCloudShadowTemporalPhaseCount - 1u) >= 1.0f);
+    EXPECT_NEAR(oldestPhaseMismatch, 1.0f, 0.0f);
+    const render_internal::FVolumetricCloudShadowTemporalDecision evolutionJumpDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(3u, currentPhaseEvolution, previousPhaseEvolution, 0.0f, 0.0f);
+    EXPECT_TRUE(evolutionJumpDecision.self_shadow_requires_full_refresh);
+
+    // 固定ワールド影では、各フレームが1画素未満でも最古位相との差は累積する。
+    constexpr f32 fastWindSpeed = 20.0f;
+    constexpr f32 fastFrameSeconds = 0.20f;
+    const f32 fastFrameAdvection = ResolveVolumetricCloudAdvectionDistance(fastFrameSeconds, fastWindSpeed);
+    const f32 oldestWorldShadowAdvection = ResolveVolumetricCloudAdvectionDistance(fastFrameSeconds * 3.0f, fastWindSpeed);
+    EXPECT_TRUE(fastFrameAdvection < kVolumetricCloudWorldShadowMapTexelSize);
+    EXPECT_TRUE(fastFrameAdvection * static_cast<f32>(render_internal::kCloudShadowTemporalPhaseCount - 1u) >= kVolumetricCloudWorldShadowMapTexelSize);
+    EXPECT_NEAR(oldestWorldShadowAdvection, fastFrameAdvection * 3.0f, 1e-5f);
+    const render_internal::FVolumetricCloudShadowTemporalDecision fastWindDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(1u, zeroEvolution, zeroEvolution, fastFrameAdvection, 0.0f);
+    EXPECT_FALSE(fastWindDecision.self_shadow_requires_full_refresh);
+    EXPECT_TRUE(fastWindDecision.world_shadow_requires_full_refresh);
+    const f32 longRunningPreviousWind = ResolveVolumetricCloudAdvectionDistance(10000.0f, 1.0f);
+    const f32 longRunningEditedWind = ResolveVolumetricCloudAdvectionDistance(10000.0f, 1.0005f);
+    const render_internal::FVolumetricCloudShadowTemporalDecision speedEditDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(2u, zeroEvolution, zeroEvolution, longRunningEditedWind, longRunningPreviousWind);
+    EXPECT_TRUE(speedEditDecision.world_shadow_requires_full_refresh);
+
+    const std::string source = CompactShader(ReadSkySource());
+    EXPECT_TRUE(!source.empty());
+    EXPECT_FALSE(Contains(source, "timeDelta>0.25f"));
+    EXPECT_FALSE(Contains(source, "windDelta>2.0f"));
+    EXPECT_TRUE(Contains(source, "if(coverageDelta>0.001f||densityDelta>0.001f||" "windSpeedDelta>0.001f)historyValid=false;"));
+    EXPECT_TRUE(Contains(source, "constrender_internal::FVolumetricCloudShadowTemporalDecision" "shadowTemporalDecision=render_internal::ResolveVolumetricCloudShadowTemporalDecision(" "m_FrameIndex,evolutionFrameTerms,previousEvolutionFrameTerms," "windOffset,m_PrevWindOffset);"));
+    EXPECT_TRUE(Contains(source, "constboolselfShadowTemporalDiscontinuity=" "rebuildShadowCacheThisFrame&&m_ShadowCacheValid&&" "shadowTemporalDecision.self_shadow_requires_full_refresh;"));
+    EXPECT_TRUE(Contains(source, "constboolworldShadowTemporalDiscontinuity=" "rebuildWorldShadowThisFrame&&m_WorldShadowValid&&" "shadowTemporalDecision.world_shadow_requires_full_refresh;"));
+    EXPECT_TRUE(Contains(source, "constu32shadowUpdateOffsetX=shadowUpdateDivisor==1u" "?0u:shadowTemporalDecision.partial_update_offset_x;"));
+    EXPECT_TRUE(Contains(source, "constu32shadowUpdateOffsetY=shadowUpdateDivisor==1u" "?0u:shadowTemporalDecision.partial_update_offset_y;"));
+    EXPECT_TRUE(Contains(source, "constboolrefreshAllShadows=m_ReferenceMode||!historyValid||" "selfShadowTemporalDiscontinuity||" "worldShadowTemporalDiscontinuity||" "shadowCacheNeedsFullRefresh||" "worldShadowNeedsFullRefresh;"));
+    const std::string resolveShader = CompactShader(ExtractRawShader(ReadSkySource(), "const char* kCloudResolveCS"));
+    EXPECT_TRUE(Contains(resolveShader, "returnsaturate(delta*220.0);"));
+}
+
 ACS_TEST(VolumetricClouds, StableUnscheduledHistoryClipsOnlyCurrentNeighborhoodOutliers) {
     EXPECT_NEAR(CloudTemporalClipChannelForTest(0.70f, 0.50f, 0.50f, 0.025f), 0.50875f, 1e-6f);
     EXPECT_NEAR(CloudTemporalClipChannelForTest(0.30f, 0.50f, 0.50f, 0.025f), 0.49125f, 1e-6f);
@@ -8349,7 +8492,9 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     EXPECT_TRUE(Contains(shader, "uint2outputPixel=tid.xy*updateStride+(uint2)cloudShadowUpdate.xy;"));
     EXPECT_TRUE(Contains(shader, "if(any(outputPixel>=uint2(width,height)))return;"));
     EXPECT_TRUE(Contains(shader, "float4worldShadowValue=float4(saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);"));
-    EXPECT_TRUE(Contains(shader, "worldShadowValue=lerp(previousValue,worldShadowValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_FALSE(Contains(shader, "CLOUD_SHADOW_PARTIAL_BLEND"));
+    EXPECT_FALSE(Contains(shader, "float4previousValue=cloudOut[outputPixel];"));
+    EXPECT_FALSE(Contains(shader, "worldShadowValue=lerp("));
     EXPECT_TRUE(Contains(shader, "cloudOut[outputPixel]=worldShadowValue;"));
     EXPECT_TRUE(Contains(shader, "constintSAMPLE_COUNT=32;"));
     EXPECT_TRUE(Contains(shader, "floatoccupiedLength=max(firstLength+secondLength,1e-5);"));
@@ -8365,6 +8510,7 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
     EXPECT_TRUE(worldShadowEnd != std::string::npos);
     if (worldShadowBegin != std::string::npos && worldShadowEnd != std::string::npos) {
         const std::string worldShadow = shader.substr(worldShadowBegin, worldShadowEnd - worldShadowBegin);
+        EXPECT_EQ(CountOccurrences(worldShadow, "cloudOut["), static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(worldShadow, "sampleCloudShadowTail("));
         EXPECT_FALSE(Contains(worldShadow, "traceCloudShadowDepth("));
     }
@@ -8546,19 +8692,19 @@ ACS_TEST(VolumetricClouds,
         "/float(CLOUD_SHADOW_CACHE_HEIGHT),"
         "(float(outputColumn.y)+0.5)/float(depth));"));
     EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
-    // 4位相更新の1回分を大きく置き換えると、自己影の更新格子が点滅する。
-    EXPECT_TRUE(Contains(shader, "staticconstfloatCLOUD_SHADOW_PARTIAL_BLEND=0.28;"));
+    // 更新画素へ旧値を残すと、4位相を一巡しても過去形状が指数的に残り続ける。
+    // CPU側が各位相の実世代を制限するため、更新対象は現在値で置き換える。
+    EXPECT_FALSE(Contains(shader, "CLOUD_SHADOW_PARTIAL_BLEND"));
     EXPECT_TRUE(Contains(shader, "float4shadowValue=float4(meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
     EXPECT_TRUE(Contains(shader, "float4sunDepthValue=max(sunDepths,0.0.xxxx);"));
-    EXPECT_TRUE(Contains(shader, "if(cloudShadowUpdate.w<0.5){"));
-    EXPECT_TRUE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
-    EXPECT_TRUE(Contains(shader, "shadowValue=lerp(previousValue,shadowValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_FALSE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
+    EXPECT_FALSE(Contains(shader, "shadowValue=lerp("));
     EXPECT_TRUE(Contains(shader,
         "uint3sunOutputVoxel=uint3("
         "outputColumn.x,outputHeightIndex+CLOUD_SHADOW_CACHE_HEIGHT,"
         "outputColumn.y);"));
-    EXPECT_TRUE(Contains(shader, "float4previousSunDepth=cloudShadowOut[sunOutputVoxel];"));
-    EXPECT_TRUE(Contains(shader, "sunDepthValue=lerp(previousSunDepth,sunDepthValue,CLOUD_SHADOW_PARTIAL_BLEND);"));
+    EXPECT_FALSE(Contains(shader, "float4previousSunDepth=cloudShadowOut[sunOutputVoxel];"));
+    EXPECT_FALSE(Contains(shader, "sunDepthValue=lerp("));
     EXPECT_TRUE(Contains(shader, "cloudShadowOut[outputVoxel]=shadowValue;"));
     EXPECT_TRUE(Contains(shader, "cloudShadowOut[sunOutputVoxel]=sunDepthValue;"));
     EXPECT_TRUE(Contains(shader, "float3cachedAmbientDepth=sampleCloudAmbientDepth(p);"));
@@ -8571,6 +8717,12 @@ ACS_TEST(VolumetricClouds,
     // 隣接画素の別方向を補間する旧方式では、同一点の円盤積分にならない。
     const std::size_t shadowEntry =
         shader.find("[numthreads(4,1,4)]voidCSCloudShadow(");
+    const std::size_t shadowKernelEnd = shader.find("[numthreads(8,8,1)]voidCSCloudWorldShadow(", shadowEntry);
+    EXPECT_TRUE(shadowKernelEnd != std::string::npos);
+    if (shadowEntry != std::string::npos && shadowKernelEnd != std::string::npos) {
+        const std::string shadowKernel = shader.substr(shadowEntry, shadowKernelEnd - shadowEntry);
+        EXPECT_EQ(CountOccurrences(shadowKernel, "cloudShadowOut["), static_cast<std::size_t>(2));
+    }
     const std::size_t sunPoint = shader.find(
         "float3sunP=cloudShadowWorldPositionAtAltitude("
         "columnWorldXz,sunAltitude);",
@@ -8788,7 +8940,7 @@ ACS_TEST(VolumetricClouds, ShadowCacheRhiBindingIsOptionalOrderedAndUpdatedEvery
     EXPECT_TRUE(Contains(compact, "if(!rebuildWorldShadowThisFrame)m_WorldShadowValid=false;"));
     EXPECT_TRUE(Contains(compact, "constboolshadowCacheNeedsFullRefresh=rebuildShadowCacheThisFrame&&(!m_ShadowCacheValid||shadowGridChanged);"));
     EXPECT_TRUE(Contains(compact, "constboolworldShadowNeedsFullRefresh=rebuildWorldShadowThisFrame&&(!m_WorldShadowValid||worldShadowMappingChanged);"));
-    EXPECT_TRUE(Contains(compact, "constboolrefreshAllShadows=m_ReferenceMode||!historyValid||shadowCacheNeedsFullRefresh||worldShadowNeedsFullRefresh;"));
+    EXPECT_TRUE(Contains(compact, "constboolrefreshAllShadows=m_ReferenceMode||!historyValid||selfShadowTemporalDiscontinuity||worldShadowTemporalDiscontinuity||shadowCacheNeedsFullRefresh||worldShadowNeedsFullRefresh;"));
     EXPECT_TRUE(Contains(compact, "constu32shadowUpdateDivisor=refreshAllShadows?1u:kVolumetricCloudShadowTemporalDivisor;"));
     EXPECT_FALSE(Contains(compact, "shadowDirty"));
     EXPECT_FALSE(Contains(compact, "shadowWillBuildThisFrame"));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // 手続き生成スカイ実装
 #include "render/Sky.h"
+#include "render/VolumetricCloudTemporalInternal.h"
 #include "render/Atmosphere.h"
 #if !WITH_RENDER_DILIGENT
 #include "render/Dx12/Dx12Shader.h"
@@ -1270,9 +1271,6 @@ static const int CLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;
 static const int CLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;
 // 雲殻出口までの低周波光路をキャッシュし、信頼度が不足する場所は同じ固定積分へ戻す。
 static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
-// 部分更新で古い光路と現在の光路を連続化し、更新格子だけが点滅するのを防ぐ。
-// 4フレームに1回更新するため、1回の置換量を約4分の1へ抑えて格子差を分散する。
-static const float CLOUD_SHADOW_PARTIAL_BLEND=0.28;
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
 // origin, so xz^2/(R+y)^2 stays below 0.0016.  The fourth-order expansion of
 // sqrt((R+y)^2+xz^2)-R removes a per-density-sample square root while retaining
@@ -2796,31 +2794,11 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
             totalColumnDepth-groundDepth-halfSegmentDepth
                 +upperColumnDepth,0.0);
         float sampleGroundDepth=groundDepth+halfSegmentDepth;
-        // 現在フレームの自己影情報。部分更新時は直前の有限値と補間する。
+        // 現在フレームの自己影情報。CPU側が各更新位相の生成状態を追跡するため、
+        // 更新対象へ古い値を混ぜず、有限の世代差だけを持つ現在値で置き換える。
         float4 shadowValue=float4(
             meanDepth,disagreement,skyDepth,sampleGroundDepth);
         float4 sunDepthValue=max(sunDepths,0.0.xxxx);
-        if(cloudShadowUpdate.w<0.5){
-            // 未更新の縦列は最大3フレーム前の値を持つ。4方向は順序を固定したまま
-            // 個別に混ぜ、異なる太陽面方向の深さを平均値へ潰さない。
-            float4 previousValue=cloudShadowOut[outputVoxel];
-            bool previousFinite=all(previousValue==previousValue)
-                              &&all(previousValue>=0.0)
-                              &&all(previousValue<65504.0);
-            if(previousFinite){
-                shadowValue=lerp(
-                    previousValue,shadowValue,CLOUD_SHADOW_PARTIAL_BLEND);
-            }
-            float4 previousSunDepth=cloudShadowOut[sunOutputVoxel];
-            bool previousSunFinite=all(previousSunDepth==previousSunDepth)
-                                 &&all(previousSunDepth>=0.0)
-                                 &&all(previousSunDepth<65504.0);
-            if(previousSunFinite){
-                sunDepthValue=lerp(
-                    previousSunDepth,sunDepthValue,
-                    CLOUD_SHADOW_PARTIAL_BLEND);
-            }
-        }
         cloudShadowOut[outputVoxel]=shadowValue;
         cloudShadowOut[sunOutputVoxel]=sunDepthValue;
         groundDepth+=columnSegmentDepth[outputHeightIndex];
@@ -2882,21 +2860,10 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
         }
         transmittance=exp(-max(opticalDepth,0.0)*max(cloudLightingExtinction.y,0.0));
     }
-    // 現在フレームの立体物用雲影情報。部分更新時は直前の有限値と補間する。
+    // 現在フレームの立体物用雲影情報。固定地図の各位相が最後に採取した
+    // 移流距離をCPU側で追跡するため、更新画素には現在値をそのまま保存する。
     float4 worldShadowValue=float4(
         saturate(transmittance),max(opticalDepth,0.0),0.0,1.0);
-    if(cloudShadowUpdate.w<0.5){
-        // 立体物用地図も部分更新の境界だけを急に切り替えず、雲影の移動を
-        // 数フレームへ分散する。全更新時は古い影を残さない。
-        float4 previousValue=cloudOut[outputPixel];
-        bool previousFinite=all(previousValue==previousValue)
-                          &&all(previousValue>=0.0)
-                          &&all(previousValue<65504.0);
-        if(previousFinite){
-            worldShadowValue=lerp(
-                previousValue,worldShadowValue,CLOUD_SHADOW_PARTIAL_BLEND);
-        }
-    }
     cloudOut[outputPixel]=worldShadowValue;
 }
 
@@ -6485,12 +6452,10 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         m_WorldShadowAvailable && m_WorldShadowCs &&
         m_WorldShadowPipe && m_WorldShadowTex;
 
-    // history invalidation: resize は EnsureSize で扱う。ここでは camera cut、time jump、
-    // 見える品質設定の不連続を拒否する。Reprojection に使える履歴と、
-    // expensive march を 2x2 interleave してよい静止状態は別に判定する。
-    // These strict deltas only gate the same-screen stationary fast path below.
-    // Camera-cut invalidation uses projection-ray angles and a true teleport
-    // threshold, so ordinary translated view matrices keep valid history.
+    // 履歴の無効化: サイズ変更は EnsureSize で扱う。ここでは視点の不連続と、
+    // 見える品質設定の不連続だけを拒否する。連続する時刻と風移流は前フレームの
+    // 位置へ戻せるため、全画面を破棄せず画素ごとの深度・被覆判定へ渡す。
+    // 同一画面の静止高速経路に使う厳しい移動量は、この後で独立して判定する。
     const f32 cameraDx = cam_pos.x - m_PrevCamPos.x;
     const f32 cameraDy = cam_pos.y - m_PrevCamPos.y;
     const f32 cameraDz = cam_pos.z - m_PrevCamPos.z;
@@ -6515,30 +6480,25 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         // reprojection depth/alpha tests reject individual stale pixels.
         // Invalidating the whole frame for every sub-unit origin change turns
         // those bands into visibly noisy strips during editor pans.
-        if (VolumetricCloudLightingChanged(
-                m_PrevSunDir, m_PrevSunColor, m_PrevSkyColor,
-                safeSun, safeSunColor, safeSkyColor)) {
+        if (VolumetricCloudLightingChanged(m_PrevSunDir, m_PrevSunColor, m_PrevSkyColor, safeSun, safeSunColor, safeSkyColor)) {
             historyValid = false;
         }
         f32 coverageDelta = safeCoverage - m_PrevCoverage; if (coverageDelta < 0.0f) coverageDelta = -coverageDelta;
         f32 densityDelta = safeDensity - m_PrevDensity; if (densityDelta < 0.0f) densityDelta = -densityDelta;
         f32 windSpeedDelta = safeWind - m_PrevWindSpeed; if (windSpeedDelta < 0.0f) windSpeedDelta = -windSpeedDelta;
-        f32 timeDelta = safeTime - m_PrevTime; if (timeDelta < 0.0f) timeDelta = -timeDelta;
-        f32 windDelta = windOffset - m_PrevWindOffset; if (windDelta < 0.0f) windDelta = -windDelta;
-        if (coverageDelta > 0.001f || densityDelta > 0.001f ||
-            windSpeedDelta > 0.001f || timeDelta > 0.25f || windDelta > 2.0f) historyValid = false;
+        if (coverageDelta > 0.001f || densityDelta > 0.001f || windSpeedDelta > 0.001f) historyValid = false;
     }
-    // A cut/settings invalidation starts a deterministic spatially distributed
-    // phase sequence. Ping-pong ownership stays on m_FrameIndex, so resetting
-    // reconstruction never changes resource selection or dispatch work.
+    // 視点の不連続または設定変更では、空間分散した決定論的な位相列を先頭へ戻す。
+    // 交互書き込みの所有権は m_FrameIndex のままなので、再構成のリセットが
+    // 資源選択や dispatch の仕事量を変えることはない。
     if (!historyValid) m_TemporalPhase = 0u;
     // 対流位相の前フレーム値を別に保持し、風の平行移動だけでは表せない形状差を
     // 時間再投影側で検出できるようにする。履歴が無いフレームは現在値で初期化する。
     const FVolumetricCloudEvolutionFrameTerms previousEvolutionFrameTerms =
         historyValid && std::isfinite(m_PrevTime)
-            ? ResolveVolumetricCloudEvolutionFrameTerms(
-                m_PrevTime, m_PrevWindSpeed)
+            ? ResolveVolumetricCloudEvolutionFrameTerms(m_PrevTime, m_PrevWindSpeed)
             : evolutionFrameTerms;
+    const render_internal::FVolumetricCloudShadowTemporalDecision shadowTemporalDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(m_FrameIndex, evolutionFrameTerms, previousEvolutionFrameTerms, windOffset, m_PrevWindOffset);
 
     const bool bakeShapeNoiseThisFrame =
         !m_NoiseBaked && m_NoisePipe && m_ShapeTex;
@@ -6572,16 +6532,27 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     const bool worldShadowNeedsFullRefresh =
         rebuildWorldShadowThisFrame &&
         (!m_WorldShadowValid || worldShadowMappingChanged);
+    // 自己影は物質座標で風移流が相殺されるため、対流形状の一段差だけで
+    // 最大3世代までの部分更新が成立するかを判定する。
+    const bool selfShadowTemporalDiscontinuity =
+        rebuildShadowCacheThisFrame && m_ShadowCacheValid &&
+        shadowTemporalDecision.self_shadow_requires_full_refresh;
+    // 立体物用雲影は固定ワールド地図なので、対流形状に加えて一段の
+    // 移流距離も比較し、最大3世代で一画素以上の差を残さない。
+    const bool worldShadowTemporalDiscontinuity =
+        rebuildWorldShadowThisFrame && m_WorldShadowValid &&
+        shadowTemporalDecision.world_shadow_requires_full_refresh;
     const bool refreshAllShadows =
         m_ReferenceMode || !historyValid ||
+        selfShadowTemporalDiscontinuity ||
+        worldShadowTemporalDiscontinuity ||
         shadowCacheNeedsFullRefresh || worldShadowNeedsFullRefresh;
     const u32 shadowUpdateDivisor = refreshAllShadows
         ? 1u : kVolumetricCloudShadowTemporalDivisor;
-    const u32 shadowUpdatePhase = m_FrameIndex & 3u;
     const u32 shadowUpdateOffsetX = shadowUpdateDivisor == 1u
-        ? 0u : (shadowUpdatePhase & 1u);
+        ? 0u : shadowTemporalDecision.partial_update_offset_x;
     const u32 shadowUpdateOffsetY = shadowUpdateDivisor == 1u
-        ? 0u : ((shadowUpdatePhase >> 1u) & 1u);
+        ? 0u : shadowTemporalDecision.partial_update_offset_y;
     FVolumetricCloudFrameWorkloadPlan workloadPlan{};
     workloadPlan.trace_width = m_W;
     workloadPlan.trace_height = m_H;
