@@ -1203,7 +1203,7 @@ cbuffer CloudCB : register(b0) {
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
-// 前半32高度はxy=太陽方向深さの要約、zw=空・地面方向の積算密度。
+// 前半32高度はxy=上層の空・地面方向、zw=下層の空・地面方向の積算密度。
 // 後半32高度は、同じ始点で評価した太陽円盤4方向の光学的深さ。
 RWTexture3D<float4> cloudShadowOut : register(u2);
 Texture3D<float2> shapeNoise     : register(t0);   // (低周波雲塊, 中周波侵食)
@@ -1267,6 +1267,11 @@ static const uint CLOUD_SHADOW_CACHE_HEIGHT=32u;
 // ABIを変えず一つの所有テクスチャへ二領域を置くため、物理高さは論理高さの2倍にする。
 static const uint CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT=
     2u*CLOUD_SHADOW_CACHE_HEIGHT;
+// 4x1x4スレッドが各自の32区間を共有メモリへ保持する。4 KiBへ固定し、
+// 動的添字のローカル配列がscratchへ退避する実装依存を避ける。
+static const uint CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT=16u;
+groupshared float2 cloudShadowColumnSegmentDepths[
+    CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT*CLOUD_SHADOW_CACHE_HEIGHT];
 static const int CLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;
 static const int CLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;
 // 雲殻出口までの低周波光路をキャッシュし、信頼度が不足する場所は同じ固定積分へ戻す。
@@ -2653,19 +2658,26 @@ float4 sampleCloudSunDepths(float3 lp,out float cacheWeight){
 }
 
 // 現在地点から空と地面までの積算密度と、キャッシュ境界の混合率を返す。
-// 上下方向はキャッシュの全高度を用いるため、局所密度だけの代替式と異なり頭上の空隙を反映できる。
+// 下層と上層は同じ正規化高度のRGBAへ別々に保持し、層間を越える光路も含める。
 float3 sampleCloudAmbientDepth(float3 p){
     float3 result=float3(0.0,0.0,0.0);
     if(shadowState.x>0.5){
         float2 q=p.xz-cloudWindWorld();
         float altitude=cloudAltitude(p);
-        float h=(altitude-layer.x)/max(layer.y-layer.x,1e-4);
+        bool inLowerBand=altitude>=layer.x&&altitude<=layer.y;
+        bool inUpperBand=cloudUpperLayer.w>0.5&&
+            altitude>=cloudUpperLayer.x&&altitude<=cloudUpperLayer.y;
+        bool upperBand=inUpperBand;
+        float h=upperBand
+            ?(altitude-cloudUpperLayer.x)
+                /max(cloudUpperLayer.y-cloudUpperLayer.x,1e-4)
+            :(altitude-layer.x)/max(layer.y-layer.x,1e-4);
         float2 uvwXz=float2(
             (q.x-shadowGrid.x)*shadowGrid.z,
             (q.y-shadowGrid.y)*shadowGrid.w);
         float2 edgeCells=min(uvwXz,1.0-uvwXz)/shadowState.z;
         float minimumEdgeCells=min(edgeCells.x,edgeCells.y);
-        if(h>=0.0&&h<=1.0&&minimumEdgeCells>1.5){
+        if((inLowerBand||inUpperBand)&&minimumEdgeCells>1.5){
             float borderWeight=smoothstep(1.5,2.5,minimumEdgeCells);
             float ambientCacheY=(0.5+h*float(
                 CLOUD_SHADOW_CACHE_HEIGHT-1u))
@@ -2674,18 +2686,31 @@ float3 sampleCloudAmbientDepth(float3 p){
                 cloudShadowCache_sampler,
                 float3(uvwXz.x,ambientCacheY,uvwXz.y),0);
             bool finiteValue=all(cached==cached)
-                          && all(cached>=0.0)
-                          && all(cached<65504.0);
+                           && all(cached>=0.0)
+                           && all(cached<65504.0);
             if(finiteValue){
-                result=float3(borderWeight,cached.z,cached.w);
+                float2 bandDepth=upperBand?cached.xy:cached.zw;
+                result=float3(borderWeight,bandDepth.x,bandDepth.y);
             }
         }
     }
     return result;
 }
 
+// 一つの端点高度で、上層と下層それぞれから空・地面へ届く光路をRGBAへ詰める。
+// どちらの層でも空側と地面側の和は上下層を合わせた全光学的深さに一致する。
+float4 cloudLayeredAmbientDepth(float lowerColumnDepth,float lowerGroundDepth,float lowerSegmentDepth,float upperColumnDepth,float upperGroundDepth,float upperSegmentDepth,float segmentFraction){
+    segmentFraction=saturate(segmentFraction);
+    float lowerSampleGroundDepth=max(lowerGroundDepth+lowerSegmentDepth*segmentFraction,0.0);
+    float upperLocalGroundDepth=max(upperGroundDepth+upperSegmentDepth*segmentFraction,0.0);
+    float lowerSkyDepth=max(lowerColumnDepth-lowerSampleGroundDepth+upperColumnDepth,0.0);
+    float upperSkyDepth=max(upperColumnDepth-upperLocalGroundDepth,0.0);
+    float upperSampleGroundDepth=upperLocalGroundDepth+lowerColumnDepth;
+    return float4(upperSkyDepth,upperSampleGroundDepth,lowerSkyDepth,lowerSampleGroundDepth);
+}
+
 [numthreads(4,1,4)]
-void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
+void CSCloudShadow(uint3 tid : SV_DispatchThreadID,uint groupIndex : SV_GroupIndex){
     uint updateStride=max((uint)cloudShadowUpdate.z,1u);
     uint2 outputColumn=uint2(
         tid.x*updateStride+(uint)cloudShadowUpdate.x,
@@ -2704,14 +2729,26 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
             (float(outputColumn.x)+0.5)/max(shadowGrid.z,1e-8),
             (float(outputColumn.y)+0.5)/max(shadowGrid.w,1e-8))
         +cloudWindWorld();
-    float columnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];
+    uint segmentBaseIndex=groupIndex*CLOUD_SHADOW_CACHE_HEIGHT;
     float totalColumnDepth=0.0;
     float cellWorldStep=(layer.y-layer.x)/float(CLOUD_SHADOW_CACHE_HEIGHT);
+    // Nubis 2023と同じく、空方向の密度を事前積算する。同じXZ列は高度ごとに一度だけ評価し、
+    // 各高度から別々レイマーチする重複を避ける。
+    [loop] for(uint densityHeightIndex=0u;densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++densityHeightIndex){
+        float3 uvw=float3((float(outputColumn.x)+0.5)/float(width),(float(densityHeightIndex)+0.5)/float(CLOUD_SHADOW_CACHE_HEIGHT),(float(outputColumn.y)+0.5)/float(depth));
+        float3 p=cloudShadowWorldPosition(uvw);
+        CloudMacroSample macro=sampleCloudMacroLighting(p,coverage,cellWorldStep);
+        float columnDensity=cloudLowLodDensityFromMacro(macro,macro.densityWeatherMask);
+        float segmentDepth=max(columnDensity,0.0)
+            *cellWorldStep*cloudOpticalDepthScaleFromBand(false);
+        cloudShadowColumnSegmentDepths[segmentBaseIndex+densityHeightIndex]=
+            float2(segmentDepth,0.0);
+        totalColumnDepth+=segmentDepth;
+    }
     float upperColumnDepth=0.0;
     if(cloudUpperLayer.w>0.5){
-        // 下層の空側へ届く光は、層間の晴天域を通った後に上層も通過する。
-        // 下層キャッシュの32区間とは別に上層の列全体だけを一度積算し、
-        // 上層を有効にしたときも環境光の遮蔽を欠落させない。
+        // 上層も32区間を一度だけ評価する。各区間を保持し、下層から空へ抜ける
+        // 全光路だけでなく、上層内と下層側へ届く環境光にも同じ積分を使う。
         float upperCellWorldStep=(cloudUpperLayer.y-cloudUpperLayer.x)
             /float(CLOUD_SHADOW_CACHE_HEIGHT);
         [loop] for(uint upperDensityHeightIndex=0u;
@@ -2726,29 +2763,18 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
                 upperP,coverage,upperCellWorldStep);
             float upperDensity=cloudLowLodDensityFromMacro(
                 upperMacro,upperMacro.densityWeatherMask);
-            upperColumnDepth+=max(upperDensity,0.0)
+            float upperSegmentDepth=max(upperDensity,0.0)
                 *upperCellWorldStep*cloudOpticalDepthScaleFromBand(true);
+            float2 segmentDepths=cloudShadowColumnSegmentDepths[
+                segmentBaseIndex+upperDensityHeightIndex];
+            segmentDepths.y=upperSegmentDepth;
+            cloudShadowColumnSegmentDepths[
+                segmentBaseIndex+upperDensityHeightIndex]=segmentDepths;
+            upperColumnDepth+=upperSegmentDepth;
         }
     }
-    // Nubis 2023と同じく、空方向の密度を事前積算する。同じXZ列は高度ごとに一度だけ評価し、
-    // 各高度から別々レイマーチする重複を避ける。
-    [loop] for(uint densityHeightIndex=0u;densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++densityHeightIndex){
-        float3 uvw=float3(
-            (float(outputColumn.x)+0.5)/float(width),
-            (float(densityHeightIndex)+0.5)
-                /float(CLOUD_SHADOW_CACHE_HEIGHT),
-            (float(outputColumn.y)+0.5)/float(depth));
-        float3 p=cloudShadowWorldPosition(uvw);
-        CloudMacroSample macro=sampleCloudMacroLighting(
-            p,coverage,cellWorldStep);
-        float columnDensity=cloudLowLodDensityFromMacro(
-            macro,macro.densityWeatherMask);
-        float segmentDepth=max(columnDensity,0.0)
-            *cellWorldStep*cloudOpticalDepthScaleFromBand(false);
-        columnSegmentDepth[densityHeightIndex]=segmentDepth;
-        totalColumnDepth+=segmentDepth;
-    }
     float groundDepth=0.0;
+    float upperGroundDepth=0.0;
     [loop] for(uint outputHeightIndex=0u;outputHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;++outputHeightIndex){
         uint3 outputVoxel=uint3(outputColumn.x,outputHeightIndex,outputColumn.y);
         uint3 sunOutputVoxel=uint3(
@@ -2783,25 +2809,19 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
             sunDepths.x+=detailNoise.SampleLevel(
                 detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
         }
-        float meanDepth=0.25*dot(sunDepths,1.0.xxxx);
-        float minimumDepth=min(min(sunDepths.x,sunDepths.y),
-                               min(sunDepths.z,sunDepths.w));
-        float maximumDepth=max(max(sunDepths.x,sunDepths.y),
-                               max(sunDepths.z,sunDepths.w));
-        float disagreement=maximumDepth-minimumDepth;
-        float halfSegmentDepth=0.5*columnSegmentDepth[outputHeightIndex];
-        float skyDepth=max(
-            totalColumnDepth-groundDepth-halfSegmentDepth
-                +upperColumnDepth,0.0);
-        float sampleGroundDepth=groundDepth+halfSegmentDepth;
+        // 32行は層底0から層頂1までの端点を表す。密度区間は32個なので、
+        // 行jは区間jのj/31だけを含み、最終行だけ最後の区間全体を含む。
+        float segmentFraction=float(outputHeightIndex)/max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);
+        float2 segmentDepths=cloudShadowColumnSegmentDepths[
+            segmentBaseIndex+outputHeightIndex];
         // 現在フレームの自己影情報。CPU側が各更新位相の生成状態を追跡するため、
         // 更新対象へ古い値を混ぜず、有限の世代差だけを持つ現在値で置き換える。
-        float4 shadowValue=float4(
-            meanDepth,disagreement,skyDepth,sampleGroundDepth);
+        float4 shadowValue=cloudLayeredAmbientDepth(totalColumnDepth,groundDepth,segmentDepths.x,upperColumnDepth,upperGroundDepth,segmentDepths.y,segmentFraction);
         float4 sunDepthValue=max(sunDepths,0.0.xxxx);
         cloudShadowOut[outputVoxel]=shadowValue;
         cloudShadowOut[sunOutputVoxel]=sunDepthValue;
-        groundDepth+=columnSegmentDepth[outputHeightIndex];
+        groundDepth+=segmentDepths.x;
+        upperGroundDepth+=segmentDepths.y;
     }
 }
 
@@ -3236,7 +3256,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                               *thirdLightTransmittance*phaseMulti
                               *inScatterFactor;
             // 環境光は現在点の密度だけではなく、影キャッシュで積算した空・地面方向の密度を使う。
-            // キャッシュ外や上層雲では局所密度と境界距離の代替式へ滑らかに戻す。
+            // 上下層とも同じ積算キャッシュを使い、キャッシュ外だけ局所密度と
+            // 境界距離の代替式へ滑らかに戻す。
             float ambientDensityScale=max(density*distanceFade,0.0);
             float ambientLocalDensity=max(
                 lowLodDensity*ambientDensityScale,0.0);

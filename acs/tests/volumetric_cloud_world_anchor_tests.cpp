@@ -8534,6 +8534,100 @@ ACS_TEST(VolumetricClouds, WorldShadowResourceIsOptionalAndRebuiltBeforeCloudTra
     EXPECT_TRUE(Contains(compact, "m_WorldShadowValid?m_WorldShadowTex.Get():nullptr;"));
 }
 
+ACS_TEST(VolumetricClouds, LayeredAmbientDepthPreservesBothBandOpticalDepth) {
+    const auto resolveDepths = [](f32 lowerColumnDepth, f32 lowerGroundDepth, f32 lowerSegmentDepth, f32 upperColumnDepth, f32 upperGroundDepth, f32 upperSegmentDepth, f32 segmentFraction) noexcept {
+        const f32 lowerSampleGroundDepth = lowerGroundDepth + lowerSegmentDepth * segmentFraction;
+        const f32 upperLocalGroundDepth = upperGroundDepth + upperSegmentDepth * segmentFraction;
+        return FVec4{upperColumnDepth - upperLocalGroundDepth, upperLocalGroundDepth + lowerColumnDepth, lowerColumnDepth - lowerSampleGroundDepth + upperColumnDepth, lowerSampleGroundDepth};
+    };
+
+    constexpr f32 lowerColumnDepth = 2.4f;
+    constexpr f32 upperColumnDepth = 0.8f;
+    const FVec4 layeredDepth = resolveDepths(lowerColumnDepth, 0.9f, 0.2f, upperColumnDepth, 0.3f, 0.1f, 0.5f);
+    const f32 totalColumnDepth = lowerColumnDepth + upperColumnDepth;
+    EXPECT_NEAR(layeredDepth.x, 0.45f, 1e-6f);
+    EXPECT_NEAR(layeredDepth.y, 2.75f, 1e-6f);
+    EXPECT_NEAR(layeredDepth.z, 2.20f, 1e-6f);
+    EXPECT_NEAR(layeredDepth.w, 1.00f, 1e-6f);
+    EXPECT_NEAR(layeredDepth.x + layeredDepth.y, totalColumnDepth, 1e-6f);
+    EXPECT_NEAR(layeredDepth.z + layeredDepth.w, totalColumnDepth, 1e-6f);
+    // 上層の地面側は下層全体を、下層の空側は上層全体を必ず含む。
+    EXPECT_TRUE(layeredDepth.y > lowerColumnDepth);
+    EXPECT_TRUE(layeredDepth.z > upperColumnDepth);
+
+    const FVec4 lowerOnlyDepth = resolveDepths(lowerColumnDepth, 0.9f, 0.2f, 0.0f, 0.0f, 0.0f, 0.5f);
+    EXPECT_NEAR(lowerOnlyDepth.x, 0.0f, 0.0f);
+    EXPECT_NEAR(lowerOnlyDepth.y, lowerColumnDepth, 1e-6f);
+    EXPECT_NEAR(lowerOnlyDepth.z + lowerOnlyDepth.w, lowerColumnDepth, 1e-6f);
+
+    // 接触する上下層では、下層頂と上層底が同じ方向別深さへ連続する。
+    const FVec4 lowerTopDepth = resolveDepths(lowerColumnDepth, 2.2f, 0.2f, upperColumnDepth, 0.7f, 0.1f, 1.0f);
+    const FVec4 upperBottomDepth = resolveDepths(lowerColumnDepth, 0.0f, 0.2f, upperColumnDepth, 0.0f, 0.1f, 0.0f);
+    EXPECT_NEAR(lowerTopDepth.z, upperBottomDepth.x, 1e-6f);
+    EXPECT_NEAR(lowerTopDepth.w, upperBottomDepth.y, 1e-6f);
+    EXPECT_NEAR(lowerTopDepth.z, upperColumnDepth, 1e-6f);
+    EXPECT_NEAR(lowerTopDepth.w, lowerColumnDepth, 1e-6f);
+
+    // 非一様な32区間を使い、各行の端点位置を区分一定積分から独立に再計算する。
+    // これによりj/31、出力前の接頭和、上下層の方向別合計を全行で固定する。
+    constexpr u32 segmentCount = 32u;
+    f32 lowerSegments[segmentCount]{};
+    f32 upperSegments[segmentCount]{};
+    f32 lowerTotalDepth = 0.0f;
+    f32 upperTotalDepth = 0.0f;
+    for (u32 segmentIndex = 0u; segmentIndex < segmentCount; ++segmentIndex) {
+        lowerSegments[segmentIndex] = 0.01f * static_cast<f32>(segmentIndex + 1u) + 0.003f * static_cast<f32>(segmentIndex % 5u);
+        upperSegments[segmentIndex] = 0.007f * static_cast<f32>(segmentCount - segmentIndex) + 0.002f * static_cast<f32>(segmentIndex % 3u);
+        lowerTotalDepth += lowerSegments[segmentIndex];
+        upperTotalDepth += upperSegments[segmentIndex];
+    }
+
+    f32 lowerPrefixDepth = 0.0f;
+    f32 upperPrefixDepth = 0.0f;
+    for (u32 outputIndex = 0u; outputIndex < segmentCount; ++outputIndex) {
+        const f32 rowHeight = static_cast<f32>(outputIndex) / static_cast<f32>(segmentCount - 1u);
+        const f32 cellPosition = rowHeight * static_cast<f32>(segmentCount);
+        u32 expectedCellIndex = static_cast<u32>(cellPosition);
+        f32 expectedCellFraction = cellPosition - static_cast<f32>(expectedCellIndex);
+        if (expectedCellIndex >= segmentCount) {
+            expectedCellIndex = segmentCount - 1u;
+            expectedCellFraction = 1.0f;
+        }
+        f32 expectedLowerGroundDepth = 0.0f;
+        f32 expectedUpperGroundDepth = 0.0f;
+        for (u32 segmentIndex = 0u; segmentIndex < expectedCellIndex; ++segmentIndex) {
+            expectedLowerGroundDepth += lowerSegments[segmentIndex];
+            expectedUpperGroundDepth += upperSegments[segmentIndex];
+        }
+        expectedLowerGroundDepth += lowerSegments[expectedCellIndex] * expectedCellFraction;
+        expectedUpperGroundDepth += upperSegments[expectedCellIndex] * expectedCellFraction;
+
+        const FVec4 rowDepth = resolveDepths(lowerTotalDepth, lowerPrefixDepth, lowerSegments[outputIndex], upperTotalDepth, upperPrefixDepth, upperSegments[outputIndex], rowHeight);
+        EXPECT_NEAR(rowDepth.w, expectedLowerGroundDepth, 2e-6f);
+        EXPECT_NEAR(rowDepth.y, expectedUpperGroundDepth + lowerTotalDepth, 2e-6f);
+        EXPECT_NEAR(rowDepth.z, lowerTotalDepth - expectedLowerGroundDepth + upperTotalDepth, 2e-6f);
+        EXPECT_NEAR(rowDepth.x, upperTotalDepth - expectedUpperGroundDepth, 2e-6f);
+        EXPECT_NEAR(rowDepth.x + rowDepth.y, lowerTotalDepth + upperTotalDepth, 2e-6f);
+        EXPECT_NEAR(rowDepth.z + rowDepth.w, lowerTotalDepth + upperTotalDepth, 2e-6f);
+        lowerPrefixDepth += lowerSegments[outputIndex];
+        upperPrefixDepth += upperSegments[outputIndex];
+    }
+
+    // 4x1x4の16スレッドが、共有配列512要素を重複も欠落もなく所有する。
+    constexpr u32 groupThreadCount = 16u;
+    constexpr u32 sharedElementCount = groupThreadCount * segmentCount;
+    bool visitedSharedElement[sharedElementCount]{};
+    for (u32 groupIndex = 0u; groupIndex < groupThreadCount; ++groupIndex) {
+        for (u32 segmentIndex = 0u; segmentIndex < segmentCount; ++segmentIndex) {
+            const u32 sharedIndex = groupIndex * segmentCount + segmentIndex;
+            EXPECT_TRUE(sharedIndex < sharedElementCount);
+            EXPECT_FALSE(visitedSharedElement[sharedIndex]);
+            visitedSharedElement[sharedIndex] = true;
+        }
+    }
+    for (u32 sharedIndex = 0u; sharedIndex < sharedElementCount; ++sharedIndex) EXPECT_TRUE(visitedSharedElement[sharedIndex]);
+}
+
 ACS_TEST(VolumetricClouds,
          ShadowCacheIntegratesFullFiniteSunPathsAndKeepsDetailResidual) {
     const std::string source = ReadSkySource();
@@ -8584,6 +8678,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "[numthreads(4,1,4)]voidCSCloudShadow("));
+    EXPECT_TRUE(Contains(shader, "voidCSCloudShadow(uint3tid:SV_DispatchThreadID," "uintgroupIndex:SV_GroupIndex){"));
     EXPECT_TRUE(Contains(shader, "uint2outputColumn=uint2(" "tid.x*updateStride+(uint)cloudShadowUpdate.x," "tid.z*updateStride+(uint)cloudShadowUpdate.y);"));
     EXPECT_TRUE(Contains(shader,
         "cloudShadowOut.GetDimensions(width,height,depth);"));
@@ -8656,13 +8751,20 @@ ACS_TEST(VolumetricClouds,
         "floatambientCacheY=(0.5+h*float("
         "CLOUD_SHADOW_CACHE_HEIGHT-1u))"
         "/float(CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT);"));
+    EXPECT_TRUE(Contains(shader, "boolupperBand=inUpperBand;" "floath=upperBand?" "(altitude-cloudUpperLayer.x)" "/max(cloudUpperLayer.y-cloudUpperLayer.x,1e-4):" "(altitude-layer.x)/max(layer.y-layer.x,1e-4);"));
+    EXPECT_TRUE(Contains(shader, "float2bandDepth=upperBand?cached.xy:cached.zw;" "result=float3(borderWeight,bandDepth.x,bandDepth.y);"));
     EXPECT_TRUE(Contains(
         shader,
         "float4result=0.0.xxxx;cacheWeight=0.0;"));
     EXPECT_TRUE(Contains(
         shader,
         "cacheWeight=borderWeight;result=cached;"));
-    EXPECT_TRUE(Contains(shader, "floatcolumnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];"));
+    EXPECT_TRUE(Contains(shader, "staticconstuintCLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT=16u;"));
+    EXPECT_TRUE(Contains(shader, "groupsharedfloat2cloudShadowColumnSegmentDepths[" "CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT*CLOUD_SHADOW_CACHE_HEIGHT];"));
+    EXPECT_TRUE(Contains(shader, "uintsegmentBaseIndex=groupIndex*CLOUD_SHADOW_CACHE_HEIGHT;"));
+    EXPECT_TRUE(Contains(shader, "cloudShadowColumnSegmentDepths[" "segmentBaseIndex+densityHeightIndex]=" "float2(segmentDepth,0.0);"));
+    EXPECT_FALSE(Contains(shader, "floatcolumnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];"));
+    EXPECT_FALSE(Contains(shader, "floatupperColumnSegmentDepth[CLOUD_SHADOW_CACHE_HEIGHT];"));
     EXPECT_TRUE(Contains(shader, "floatupperColumnDepth=0.0;"));
     EXPECT_TRUE(Contains(shader, "if(cloudUpperLayer.w>0.5){"));
     EXPECT_TRUE(Contains(shader, "float2columnWorldXz=shadowGrid.xy+float2("));
@@ -8675,10 +8777,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "cloudShadowWorldPositionAtAltitude(columnWorldXz,"
         "lerp(cloudUpperLayer.x,cloudUpperLayer.y,upperHeight));"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "upperColumnDepth+=max(upperDensity,0.0)"
-        "*upperCellWorldStep*cloudOpticalDepthScaleFromBand(true);"));
+    EXPECT_TRUE(Contains(shader, "floatupperSegmentDepth=max(upperDensity,0.0)" "*upperCellWorldStep*cloudOpticalDepthScaleFromBand(true);" "float2segmentDepths=cloudShadowColumnSegmentDepths[" "segmentBaseIndex+upperDensityHeightIndex];" "segmentDepths.y=upperSegmentDepth;"));
     EXPECT_TRUE(Contains(
         shader,
         "[loop]for(uintdensityHeightIndex=0u;"
@@ -8691,11 +8790,21 @@ ACS_TEST(VolumetricClouds,
         "(float(densityHeightIndex)+0.5)"
         "/float(CLOUD_SHADOW_CACHE_HEIGHT),"
         "(float(outputColumn.y)+0.5)/float(depth));"));
-    EXPECT_TRUE(Contains(shader, "floatskyDepth=max(" "totalColumnDepth-groundDepth-halfSegmentDepth+upperColumnDepth,0.0);"));
+    EXPECT_TRUE(Contains(shader, "float4cloudLayeredAmbientDepth(" "floatlowerColumnDepth,floatlowerGroundDepth,floatlowerSegmentDepth," "floatupperColumnDepth,floatupperGroundDepth,floatupperSegmentDepth," "floatsegmentFraction){"));
+    EXPECT_TRUE(Contains(shader, "floatlowerSampleGroundDepth=max(" "lowerGroundDepth+lowerSegmentDepth*segmentFraction,0.0);"));
+    EXPECT_TRUE(Contains(shader, "floatupperSampleGroundDepth=upperLocalGroundDepth+lowerColumnDepth;"));
     // 更新画素へ旧値を残すと、4位相を一巡しても過去形状が指数的に残り続ける。
     // CPU側が各位相の実世代を制限するため、更新対象は現在値で置き換える。
     EXPECT_FALSE(Contains(shader, "CLOUD_SHADOW_PARTIAL_BLEND"));
-    EXPECT_TRUE(Contains(shader, "float4shadowValue=float4(meanDepth,disagreement,skyDepth,sampleGroundDepth);"));
+    EXPECT_TRUE(Contains(shader, "floatsegmentFraction=float(outputHeightIndex)" "/max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);"));
+    EXPECT_TRUE(Contains(shader, "float2segmentDepths=cloudShadowColumnSegmentDepths[" "segmentBaseIndex+outputHeightIndex];"));
+    EXPECT_TRUE(Contains(shader, "float4shadowValue=cloudLayeredAmbientDepth(" "totalColumnDepth,groundDepth,segmentDepths.x," "upperColumnDepth,upperGroundDepth,segmentDepths.y," "segmentFraction);"));
+    EXPECT_TRUE(Contains(shader, "groundDepth+=segmentDepths.x;" "upperGroundDepth+=segmentDepths.y;"));
+    const std::size_t layeredAmbientWrite = shader.find("float4shadowValue=cloudLayeredAmbientDepth(");
+    const std::size_t layeredAmbientAdvance = shader.find("groundDepth+=segmentDepths.x;", layeredAmbientWrite);
+    EXPECT_TRUE(layeredAmbientWrite != std::string::npos);
+    EXPECT_TRUE(layeredAmbientAdvance != std::string::npos);
+    EXPECT_TRUE(layeredAmbientWrite < layeredAmbientAdvance);
     EXPECT_TRUE(Contains(shader, "float4sunDepthValue=max(sunDepths,0.0.xxxx);"));
     EXPECT_FALSE(Contains(shader, "float4previousValue=cloudShadowOut[outputVoxel];"));
     EXPECT_FALSE(Contains(shader, "shadowValue=lerp("));
@@ -8722,6 +8831,8 @@ ACS_TEST(VolumetricClouds,
     if (shadowEntry != std::string::npos && shadowKernelEnd != std::string::npos) {
         const std::string shadowKernel = shader.substr(shadowEntry, shadowKernelEnd - shadowEntry);
         EXPECT_EQ(CountOccurrences(shadowKernel, "cloudShadowOut["), static_cast<std::size_t>(2));
+        EXPECT_FALSE(Contains(shadowKernel, "floatmeanDepth="));
+        EXPECT_FALSE(Contains(shadowKernel, "floatdisagreement="));
     }
     const std::size_t sunPoint = shader.find(
         "float3sunP=cloudShadowWorldPositionAtAltitude("
