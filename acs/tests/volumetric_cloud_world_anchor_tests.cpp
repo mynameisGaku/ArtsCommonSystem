@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "memory/MemorySystem.h"
+#include "render/IRhiCommandList.h"
 #include "render/IRhiDevice.h"
+#include "render/IRhiPipeline.h"
+#include "render/IRhiShader.h"
+#include "render/IRhiTexture.h"
 #include "render/Sky.h"
 #include "render/VolumetricCloudAmbientCacheInternal.h"
 #include "render/VolumetricCloudDensityIntegrationInternal.h"
@@ -26,6 +31,28 @@
 using namespace acs;
 
 namespace {
+
+/** GPU検証に必要なmemory systemを、このtestが起動した場合だけ所有する。 */
+class CCloudGpuTestMemoryScope {
+public:
+    /** Resource segmentを利用可能にし、初期化できなければfalseを返す。 */
+    bool Init() noexcept {
+        if (CMemorySystem::Get(ESegment::Resource) != nullptr) return true;
+        const TResult<void> result =
+            CMemorySystem::Init(CMemorySystem::DefaultConfig());
+        m_Owned = result.IsOk();
+        return result.IsOk();
+    }
+
+    /** このscopeが起動したmemory systemだけを終了する。 */
+    ~CCloudGpuTestMemoryScope() noexcept {
+        if (m_Owned) CMemorySystem::Shutdown();
+    }
+
+private:
+    /** 終了責任をこのscopeが持つ場合はtrue。 */
+    bool m_Owned = false;
+};
 
 FVec3 NormalizeForTest(FVec3 v) noexcept {
     const f32 invLen = 1.0f / Sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
@@ -4815,6 +4842,510 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(
         transportShader,"CLOUD_CORRELATION_PHASE_BEFORE_BOUNDARY"));
     EXPECT_FALSE(Contains(transportShader,"distanceTolerances"));
+}
+
+ACS_TEST(VolumetricClouds,
+         FourStateTransportGpuMatchesCpuReferenceWhenAvailable) {
+    using namespace render_internal;
+    // 実際の製品シェーダー末尾へ検証入口だけを追加し、輸送関数本体の複製を避ける。
+    std::string shaderSource =
+        ExtractRawShader(ReadSkySource(), "const char* kCloudCS");
+    EXPECT_FALSE(shaderSource.empty());
+    if (shaderSource.empty()) return;
+    const std::string compactShader = CompactShader(shaderSource);
+    EXPECT_TRUE(Contains(
+        compactShader,
+        "step(opticalDepth,0.125.xxxx)"));
+    EXPECT_TRUE(Contains(
+        compactShader,
+        "step(opticalDepth,1.0.xxxx)"));
+    EXPECT_TRUE(Contains(
+        compactShader,
+        "step(absorption,0.125.xxxx)"));
+    shaderSource += R"(
+[numthreads(1,1,1)]
+void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
+    if(any(threadId!=uint3(0,0,0))) return;
+
+    float4 densityState0=0.0.xxxx;
+    float4 densityState1=0.0.xxxx;
+    float4 densityState2=1.0.xxxx;
+    float4 densityState3=1.0.xxxx;
+    float representableTail=0.0000002384185791015625;
+    float representablePrefix=3.0-representableTail;
+
+    // xは境界ちょうど、yは直前の隣接floatで分割し、次の入力で相関長を変える。
+    CloudFourStateTransportLanes boundaryState=
+        cloudInitialFourStateTransportLanes();
+    boundaryState.boundaryDistances=3.0.xxxx;
+    boundaryState.cellLengths=3.0.xxxx;
+    boundaryState.active=1.0.xxxx;
+    float4 firstLengths=float4(3.0,representablePrefix,0.0,0.0);
+    CloudFourStateTransportResultLanes firstTransport=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            1.0,1.5.xxxx,firstLengths,boundaryState);
+    // 二回目を進める前の離散境界状態を保存し、隣接floatの誤分岐を隠さない。
+    cloudOut[uint2(25,0)]=boundaryState.boundaryDistances;
+    cloudOut[uint2(26,0)]=boundaryState.cellLengths;
+    cloudOut[uint2(27,0)]=boundaryState.boundaryPending;
+    cloudOut[uint2(28,0)]=boundaryState.active;
+    float4 secondLengths=float4(
+        2.0,2.0+representableTail,0.0,0.0);
+    CloudFourStateTransportResultLanes secondTransport=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            1.0,5.0.xxxx,secondLengths,boundaryState);
+    float4 combinedTransmittances=
+        firstTransport.transmittances*secondTransport.transmittances;
+    float4 combinedAbsorptions=
+        firstTransport.absorptions
+        +firstTransport.transmittances*secondTransport.absorptions;
+    float4 combinedMoments=
+        firstTransport.absorptions*firstTransport.centroidDistances
+        +firstTransport.transmittances*secondTransport.absorptions
+            *(firstLengths+secondTransport.centroidDistances);
+    float4 combinedCentroids=combinedMoments/
+        max(combinedAbsorptions,1e-30.xxxx);
+    cloudOut[uint2(0,0)]=combinedTransmittances;
+    cloudOut[uint2(1,0)]=combinedAbsorptions;
+    cloudOut[uint2(2,0)]=combinedCentroids;
+    cloudOut[uint2(3,0)]=boundaryState.boundaryDistances;
+    cloudOut[uint2(4,0)]=boundaryState.cellLengths;
+    cloudOut[uint2(5,0)]=boundaryState.boundaryPending;
+    cloudOut[uint2(6,0)]=boundaryState.active;
+    cloudOut[uint2(7,0)]=boundaryState.state0;
+    cloudOut[uint2(8,0)]=boundaryState.state1;
+    cloudOut[uint2(9,0)]=boundaryState.state2;
+    cloudOut[uint2(10,0)]=boundaryState.state3;
+
+    // 壊れた境界距離を修復しても、観測済みの条件付き確率を保持する。
+    CloudFourStateTransportLanes invalidState=
+        cloudInitialFourStateTransportLanes();
+    invalidState.state0=1.0.xxxx;
+    invalidState.state1=0.0.xxxx;
+    invalidState.state2=0.0.xxxx;
+    invalidState.state3=0.0.xxxx;
+    invalidState.boundaryDistances=(-1.0).xxxx;
+    invalidState.cellLengths=2.0.xxxx;
+    invalidState.active=1.0.xxxx;
+    CloudFourStateTransportResultLanes invalidTransport=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            1.0,1.0.xxxx,0.25.xxxx,invalidState);
+    cloudOut[uint2(11,0)]=float4(
+        invalidTransport.transmittances.x,
+        invalidTransport.absorptions.x,
+        invalidTransport.centroidDistances.x,
+        invalidState.boundaryDistances.x);
+    cloudOut[uint2(12,0)]=float4(
+        invalidState.cellLengths.x,invalidState.boundaryPending.x,
+        invalidState.active.x,0.0);
+    cloudOut[uint2(13,0)]=float4(
+        invalidState.state0.x,invalidState.state1.x,
+        invalidState.state2.x,invalidState.state3.x);
+
+    // 級数と通常式の境界値を、コンパイラ後の実比較結果として保存する。
+    float4 thresholdDepths=float4(
+        0.125,0.1250000149011612,1.0,1.0000001192092896);
+    cloudOut[uint2(14,0)]=
+        cloudStrictGreaterMask4(thresholdDepths,0.125);
+    cloudOut[uint2(15,0)]=
+        cloudStrictGreaterMask4(thresholdDepths,1.0);
+    // 製品の級数選択に使うstep(edge,value)も、等値を含む実GPU結果で固定する。
+    cloudOut[uint2(29,0)]=step(thresholdDepths,0.125.xxxx);
+    cloudOut[uint2(30,0)]=step(thresholdDepths,1.0.xxxx);
+    CloudFourStateTransportLanes thresholdState=
+        cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportResultLanes thresholdTransport=
+        cloudFourStateTransportLanes(
+            thresholdDepths,thresholdDepths,
+            thresholdDepths,thresholdDepths,
+            1.0,0.0.xxxx,1.0.xxxx,thresholdState);
+    cloudOut[uint2(16,0)]=thresholdTransport.transmittances;
+    cloudOut[uint2(17,0)]=thresholdTransport.absorptions;
+    cloudOut[uint2(18,0)]=thresholdTransport.centroidDistances;
+
+    // 一括区間と二分区間を別状態で進め、輸送量と最終相関状態を保存する。
+    CloudFourStateTransportLanes wholeState=
+        cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportResultLanes wholeTransport=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            0.7,1.5.xxxx,7.25.xxxx,wholeState);
+    CloudFourStateTransportLanes splitState=
+        cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportResultLanes splitFirst=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            0.7,1.5.xxxx,2.25.xxxx,splitState);
+    CloudFourStateTransportResultLanes splitSecond=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            0.7,1.5.xxxx,5.0.xxxx,splitState);
+    float splitTransmittance=
+        splitFirst.transmittances.x*splitSecond.transmittances.x;
+    float splitAbsorption=splitFirst.absorptions.x
+        +splitFirst.transmittances.x*splitSecond.absorptions.x;
+    float splitMoment=
+        splitFirst.absorptions.x*splitFirst.centroidDistances.x
+        +splitFirst.transmittances.x*splitSecond.absorptions.x
+            *(2.25+splitSecond.centroidDistances.x);
+    cloudOut[uint2(19,0)]=float4(
+        wholeTransport.transmittances.x,
+        wholeTransport.absorptions.x,
+        wholeTransport.centroidDistances.x,0.0);
+    cloudOut[uint2(20,0)]=float4(
+        splitTransmittance,splitAbsorption,
+        splitMoment/max(splitAbsorption,1e-30),0.0);
+    cloudOut[uint2(21,0)]=float4(
+        wholeState.boundaryDistances.x,wholeState.cellLengths.x,
+        wholeState.boundaryPending.x,wholeState.active.x);
+    cloudOut[uint2(22,0)]=float4(
+        splitState.boundaryDistances.x,splitState.cellLengths.x,
+        splitState.boundaryPending.x,splitState.active.x);
+    cloudOut[uint2(23,0)]=float4(
+        wholeState.state0.x,wholeState.state1.x,
+        wholeState.state2.x,wholeState.state3.x);
+    cloudOut[uint2(24,0)]=float4(
+        splitState.state0.x,splitState.state1.x,
+        splitState.state2.x,splitState.state3.x);
+}
+)";
+
+    CCloudGpuTestMemoryScope memory;
+    const bool memoryReady = memory.Init();
+    EXPECT_TRUE(memoryReady);
+    if (!memoryReady) return;
+
+    FDeviceConfig deviceConfiguration{};
+    auto deviceResult = CreateRhiDevice(deviceConfiguration);
+    if (deviceResult.IsErr()) return;
+    auto device = Move(deviceResult.Value());
+
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = shaderSource.c_str();
+    shaderDescription.entry_point = "CSCloudTransportProbe";
+    shaderDescription.target = "cs_5_1";
+    shaderDescription.debug_name = "CloudTransportProbe.CS";
+    auto shaderResult = CreateRhiShader(*device, shaderDescription);
+    EXPECT_TRUE(shaderResult.IsOk());
+    if (shaderResult.IsErr()) return;
+
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shaderResult.Value().Get();
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "cloudOut";
+    auto pipelineResult =
+        CreateRhiComputePipeline(*device, pipelineDescription);
+    EXPECT_TRUE(pipelineResult.IsOk());
+    if (pipelineResult.IsErr()) return;
+
+    constexpr u32 kProbeTexelCount = 31u;
+    FTextureDesc textureDescription{};
+    textureDescription.width = kProbeTexelCount;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto textureResult = CreateRhiTexture(*device, textureDescription);
+    EXPECT_TRUE(textureResult.IsOk());
+    if (textureResult.IsErr()) return;
+
+    auto commandResult = CreateRhiCommandList(*device);
+    EXPECT_TRUE(commandResult.IsOk());
+    if (commandResult.IsErr()) return;
+    auto command = Move(commandResult.Value());
+    command->Begin();
+    command->SetComputePipeline(*pipelineResult.Value());
+    command->BindUav(0u, *textureResult.Value());
+    command->Dispatch(1u, 1u, 1u);
+    command->End();
+    const bool submitted = command->Submit();
+    EXPECT_TRUE(submitted);
+    if (!submitted) return;
+    device->WaitIdle();
+
+    f32 gpuValues[kProbeTexelCount * 4u]{};
+    EXPECT_TRUE(device->ReadTexture(
+        *textureResult.Value(), gpuValues,
+        static_cast<u32>(sizeof(gpuValues))));
+    const auto gpuValue = [&gpuValues](u32 texel, u32 component) noexcept {
+        return gpuValues[texel * 4u + component];
+    };
+
+    struct FCombinedTransportForTest {
+        // 二区間を合わせた透過率。
+        f32 transmittance = 1.0f;
+        // 二区間を合わせた吸収率。
+        f32 absorption = 0.0f;
+        // 全区間始点から測った平均吸収距離。
+        f32 centroid = 0.0f;
+    };
+    const auto combineTransport = [](
+        const FVolumetricCloudFourStateTransportIntervalInternal& first,
+        f32 firstLength,
+        const FVolumetricCloudFourStateTransportIntervalInternal& second)
+        noexcept {
+        FCombinedTransportForTest combined{};
+        combined.transmittance =
+            first.transmittance * second.transmittance;
+        combined.absorption = first.absorption +
+            first.transmittance * second.absorption;
+        const f32 moment =
+            first.absorption * first.absorption_centroid_distance +
+            first.transmittance * second.absorption *
+                (firstLength + second.absorption_centroid_distance);
+        combined.centroid = combined.absorption > 0.0f
+            ? moment / combined.absorption : 0.0f;
+        return combined;
+    };
+
+    FVolumetricCloudDensityDistributionInternal distribution{};
+    distribution.state_densities[0] = 0.0f;
+    distribution.state_densities[1] = 0.0f;
+    distribution.state_densities[2] = 1.0f;
+    distribution.state_densities[3] = 1.0f;
+    constexpr f32 kOldCorrelationLength = 1.5f;
+    constexpr f32 kOldCellLength = 3.0f;
+    constexpr f32 kNewCorrelationLength = 5.0f;
+    constexpr f32 kNewSegmentLength = 2.0f;
+    constexpr f32 kRepresentableTail =
+        0.0000002384185791015625f;
+    constexpr f32 kRepresentablePrefix =
+        kOldCellLength - kRepresentableTail;
+    constexpr f32 kGpuAgreementEpsilon = 3.0e-5f;
+
+    FVolumetricCloudFourStateTransportStateInternal exactState{};
+    ResetVolumetricCloudFourStateTransport_Internal(exactState);
+    exactState.remaining_boundary_distance = kOldCellLength;
+    exactState.correlation_cell_length = kOldCellLength;
+    const auto exactFirst =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, kOldCorrelationLength,
+            kOldCellLength, exactState);
+    const auto exactStateAfterFirst = exactState;
+    const auto exactSecond =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, kNewCorrelationLength,
+            kNewSegmentLength, exactState);
+    const auto exactCombined =
+        combineTransport(exactFirst, kOldCellLength, exactSecond);
+
+    FVolumetricCloudFourStateTransportStateInternal nearState{};
+    ResetVolumetricCloudFourStateTransport_Internal(nearState);
+    nearState.remaining_boundary_distance = kOldCellLength;
+    nearState.correlation_cell_length = kOldCellLength;
+    const auto nearFirst =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, kOldCorrelationLength,
+            kRepresentablePrefix, nearState);
+    const auto nearStateAfterFirst = nearState;
+    const auto nearSecond =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, kNewCorrelationLength,
+            kNewSegmentLength + kRepresentableTail, nearState);
+    const auto nearCombined =
+        combineTransport(nearFirst, kRepresentablePrefix, nearSecond);
+
+    EXPECT_NEAR(gpuValue(0u, 0u), exactCombined.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(1u, 0u), exactCombined.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(2u, 0u), exactCombined.centroid,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(0u, 1u), nearCombined.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(1u, 1u), nearCombined.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(2u, 1u), nearCombined.centroid,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(3u, 0u),
+                exactState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(3u, 1u),
+                nearState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(4u, 0u),
+                exactState.correlation_cell_length, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(4u, 1u),
+                nearState.correlation_cell_length, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(5u, 0u),
+                exactState.awaiting_next_cell_length ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(5u, 1u),
+                nearState.awaiting_next_cell_length ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(6u, 0u), 1.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(6u, 1u), 1.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(25u, 0u),
+                exactStateAfterFirst.remaining_boundary_distance, 0.0f);
+    EXPECT_NEAR(gpuValue(25u, 1u),
+                nearStateAfterFirst.remaining_boundary_distance, 0.0f);
+    EXPECT_NEAR(gpuValue(26u, 0u),
+                exactStateAfterFirst.correlation_cell_length, 0.0f);
+    EXPECT_NEAR(gpuValue(26u, 1u),
+                nearStateAfterFirst.correlation_cell_length, 0.0f);
+    EXPECT_NEAR(gpuValue(27u, 0u),
+                exactStateAfterFirst.awaiting_next_cell_length ? 1.0f : 0.0f,
+                0.0f);
+    EXPECT_NEAR(gpuValue(27u, 1u),
+                nearStateAfterFirst.awaiting_next_cell_length ? 1.0f : 0.0f,
+                0.0f);
+    EXPECT_NEAR(gpuValue(28u, 0u),
+                exactStateAfterFirst.initialized ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(28u, 1u),
+                nearStateAfterFirst.initialized ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(25u, 0u), 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(25u, 1u), kRepresentableTail, 0.0f);
+    EXPECT_NEAR(gpuValue(27u, 0u), 1.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(27u, 1u), 0.0f, 0.0f);
+    for (u32 stateIndex = 0u; stateIndex < 4u; ++stateIndex) {
+        EXPECT_NEAR(gpuValue(7u + stateIndex, 0u),
+                    exactState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+        EXPECT_NEAR(gpuValue(7u + stateIndex, 1u),
+                    nearState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+    }
+
+    FVolumetricCloudFourStateTransportStateInternal invalidState{};
+    ResetVolumetricCloudFourStateTransport_Internal(invalidState);
+    invalidState.conditional_survival[0] = 1.0f;
+    invalidState.conditional_survival[1] = 0.0f;
+    invalidState.conditional_survival[2] = 0.0f;
+    invalidState.conditional_survival[3] = 0.0f;
+    invalidState.remaining_boundary_distance = -1.0f;
+    invalidState.correlation_cell_length = 2.0f;
+    const auto invalidTransport =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, 1.0f, 0.25f, invalidState);
+    EXPECT_NEAR(gpuValue(11u, 0u), invalidTransport.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(11u, 1u), invalidTransport.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(11u, 2u),
+                invalidTransport.absorption_centroid_distance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(11u, 3u),
+                invalidState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(12u, 0u),
+                invalidState.correlation_cell_length, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(12u, 1u),
+                invalidState.awaiting_next_cell_length ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(12u, 2u), 1.0f, 0.0f);
+    for (u32 stateIndex = 0u; stateIndex < 4u; ++stateIndex) {
+        EXPECT_NEAR(gpuValue(13u, stateIndex),
+                    invalidState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+    }
+
+    const f32 thresholdDepths[4]{
+        0.125f, 0.1250000149011612f,
+        1.0f, 1.0000001192092896f};
+    const f32 expectedThreshold125[4]{0.0f, 1.0f, 1.0f, 1.0f};
+    const f32 expectedThreshold1[4]{0.0f, 0.0f, 0.0f, 1.0f};
+    const f32 expectedSeriesThreshold125[4]{1.0f, 0.0f, 0.0f, 0.0f};
+    const f32 expectedSeriesThreshold1[4]{1.0f, 1.0f, 1.0f, 0.0f};
+    for (u32 lane = 0u; lane < 4u; ++lane) {
+        EXPECT_NEAR(gpuValue(14u, lane), expectedThreshold125[lane], 0.0f);
+        EXPECT_NEAR(gpuValue(15u, lane), expectedThreshold1[lane], 0.0f);
+        EXPECT_NEAR(gpuValue(29u, lane),
+                    expectedSeriesThreshold125[lane], 0.0f);
+        EXPECT_NEAR(gpuValue(30u, lane),
+                    expectedSeriesThreshold1[lane], 0.0f);
+        FVolumetricCloudDensityDistributionInternal thresholdDistribution{};
+        for (u32 stateIndex = 0u; stateIndex < 4u; ++stateIndex)
+            thresholdDistribution.state_densities[stateIndex] =
+                thresholdDepths[lane];
+        FVolumetricCloudFourStateTransportStateInternal thresholdState{};
+        const auto thresholdTransport =
+            ResolveVolumetricCloudFourStateTransportInterval_Internal(
+                thresholdDistribution, 1.0f, 0.0f, 1.0f,
+                thresholdState);
+        EXPECT_NEAR(gpuValue(16u, lane),
+                    thresholdTransport.transmittance,
+                    kGpuAgreementEpsilon);
+        EXPECT_NEAR(gpuValue(17u, lane),
+                    thresholdTransport.absorption,
+                    kGpuAgreementEpsilon);
+        EXPECT_NEAR(gpuValue(18u, lane),
+                    thresholdTransport.absorption_centroid_distance,
+                    kGpuAgreementEpsilon);
+    }
+
+    FVolumetricCloudFourStateTransportStateInternal wholeState{};
+    const auto wholeTransport =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 0.7f, 1.5f, 7.25f, wholeState);
+    FVolumetricCloudFourStateTransportStateInternal splitState{};
+    const auto splitFirst =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 0.7f, 1.5f, 2.25f, splitState);
+    const auto splitSecond =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 0.7f, 1.5f, 5.0f, splitState);
+    const auto splitCombined =
+        combineTransport(splitFirst, 2.25f, splitSecond);
+    EXPECT_NEAR(gpuValue(19u, 0u), wholeTransport.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(19u, 1u), wholeTransport.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(19u, 2u),
+                wholeTransport.absorption_centroid_distance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(20u, 0u), splitCombined.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(20u, 1u), splitCombined.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(20u, 2u), splitCombined.centroid,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(19u, 0u), gpuValue(20u, 0u),
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(19u, 1u), gpuValue(20u, 1u),
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(19u, 2u), gpuValue(20u, 2u),
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(wholeTransport.transmittance,
+                splitCombined.transmittance, kGpuAgreementEpsilon);
+    EXPECT_NEAR(wholeTransport.absorption,
+                splitCombined.absorption, kGpuAgreementEpsilon);
+    EXPECT_NEAR(wholeTransport.absorption_centroid_distance,
+                splitCombined.centroid, kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(21u, 0u),
+                wholeState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(21u, 1u),
+                wholeState.correlation_cell_length, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(21u, 2u),
+                wholeState.awaiting_next_cell_length ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(21u, 3u), 1.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(22u, 0u),
+                splitState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(22u, 1u),
+                splitState.correlation_cell_length, 1.0e-6f);
+    EXPECT_NEAR(gpuValue(22u, 2u),
+                splitState.awaiting_next_cell_length ? 1.0f : 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(22u, 3u), 1.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(21u, 0u), gpuValue(22u, 0u), 1.0e-6f);
+    EXPECT_NEAR(gpuValue(21u, 1u), gpuValue(22u, 1u), 1.0e-6f);
+    EXPECT_NEAR(gpuValue(21u, 2u), gpuValue(22u, 2u), 0.0f);
+    EXPECT_NEAR(gpuValue(21u, 3u), gpuValue(22u, 3u), 0.0f);
+    EXPECT_NEAR(wholeState.remaining_boundary_distance,
+                splitState.remaining_boundary_distance, 1.0e-6f);
+    EXPECT_NEAR(wholeState.correlation_cell_length,
+                splitState.correlation_cell_length, 1.0e-6f);
+    EXPECT_EQ(wholeState.awaiting_next_cell_length,
+              splitState.awaiting_next_cell_length);
+    EXPECT_EQ(wholeState.initialized, splitState.initialized);
+    for (u32 stateIndex = 0u; stateIndex < 4u; ++stateIndex) {
+        EXPECT_NEAR(gpuValue(23u, stateIndex),
+                    wholeState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+        EXPECT_NEAR(gpuValue(24u, stateIndex),
+                    splitState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+        EXPECT_NEAR(gpuValue(23u, stateIndex),
+                    gpuValue(24u, stateIndex), kGpuAgreementEpsilon);
+        EXPECT_NEAR(wholeState.conditional_survival[stateIndex],
+                    splitState.conditional_survival[stateIndex],
+                    kGpuAgreementEpsilon);
+    }
 }
 
 ACS_TEST(VolumetricClouds,
