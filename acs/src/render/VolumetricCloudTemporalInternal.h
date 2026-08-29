@@ -16,6 +16,27 @@ inline constexpr f32 kCloudEvolutionFullResponseDelta = 1.0f / kCloudEvolutionRe
 inline constexpr u32 kCloudShadowTemporalPhaseCount = kVolumetricCloudShadowTemporalDivisor * kVolumetricCloudShadowTemporalDivisor;
 static_assert(kCloudShadowTemporalPhaseCount == 4u);
 
+/** 四つの偶奇位置をすべて生成済みであることを表すbit列。 */
+inline constexpr u8 kCloudShadowTemporalCompleteMask =
+    static_cast<u8>((1u << kCloudShadowTemporalPhaseCount) - 1u);
+
+/**
+ * 一回の影更新で完成した偶奇位置を記録する。
+ *
+ * @param current_mask すでに生成済みの偶奇位置。
+ * @param phase 今回生成する偶奇位置。
+ * @param full_refresh 今回だけで全位置を生成する場合はtrue。
+ * @return 今回の更新を反映した生成済みbit列。
+ */
+inline u8 ResolveVolumetricCloudShadowWarmupMask_Internal(
+    u8 current_mask, u32 phase, bool full_refresh) noexcept
+{
+    if (full_refresh) return kCloudShadowTemporalCompleteMask;
+    const u32 safePhase = phase % kCloudShadowTemporalPhaseCount;
+    return static_cast<u8>(
+        current_mask | static_cast<u8>(1u << safePhase));
+}
+
 /** 4位相の影更新で、現在フレームが担当する位置と全更新の要否。 */
 struct FVolumetricCloudShadowTemporalDecision {
     /** 00、10、01、11の順で巡回する現在の更新位相。 */
@@ -44,6 +65,49 @@ inline bool ResolveCloudTemporalStepMagnitude_Internal(f32 value, f32& magnitude
     }
     magnitude = value < 0.0f ? -value : value;
     return true;
+}
+
+/**
+ * 太陽方向の一段変化が雲層の水平投影を動かす最大距離を返す。
+ *
+ * @details 影の投影は方向差そのものではなく sun.xz / sun.y で決まる。
+ * 地平線付近でY成分だけが僅かに変わる場合も、この比を直接比較して過小評価しない。
+ * @param current 現在の正規化済み太陽方向。
+ * @param previous 直前の正規化済み太陽方向。
+ * @param vertical_span 影光路が跨ぐ最大高度差。
+ * @param displacement 成功時に水平投影の最大移動距離を受け取る。
+ * @return 有限で上向きの二方向から計算できた場合はtrue。
+ */
+inline bool ResolveVolumetricCloudSunProjectionDelta_Internal(
+    FVec3 current, FVec3 previous, f32 vertical_span,
+    f32& displacement) noexcept {
+    displacement = 0.0f;
+    if (!CloudTemporalValueIsFinite_Internal(vertical_span) ||
+        vertical_span < 0.0f ||
+        !CloudTemporalValueIsFinite_Internal(current.x) ||
+        !CloudTemporalValueIsFinite_Internal(current.y) ||
+        !CloudTemporalValueIsFinite_Internal(current.z) ||
+        !CloudTemporalValueIsFinite_Internal(previous.x) ||
+        !CloudTemporalValueIsFinite_Internal(previous.y) ||
+        !CloudTemporalValueIsFinite_Internal(previous.z) ||
+        current.y <= kVolumetricCloudWorldShadowMinimumSunY ||
+        previous.y <= kVolumetricCloudWorldShadowMinimumSunY) {
+        return false;
+    }
+
+    const f32 projectionDeltaX =
+        current.x / current.y - previous.x / previous.y;
+    const f32 projectionDeltaZ =
+        current.z / current.y - previous.z / previous.y;
+    const f32 projectionDeltaSquared =
+        projectionDeltaX * projectionDeltaX +
+        projectionDeltaZ * projectionDeltaZ;
+    if (!CloudTemporalValueIsFinite_Internal(projectionDeltaSquared) ||
+        projectionDeltaSquared < 0.0f) {
+        return false;
+    }
+    displacement = vertical_span * Sqrt(projectionDeltaSquared);
+    return CloudTemporalValueIsFinite_Internal(displacement);
 }
 
 /** 二つの対流状態に含まれる最大位相差を返し、非有限値ではfalseを返す。 */

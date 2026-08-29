@@ -456,7 +456,7 @@ ACS_TEST(Atmosphere, LocalFogVolumeExcludesRayleighAndMie) {
         "cloud_depth != nullptr ? 1.0f : 0.0f"));
     EXPECT_TRUE(Contains(
         editorSource,
-        "cloudsActive ? h.vclouds3d.ResolvedDepth() : nullptr"));
+        "cloudsActive ? h.vclouds3d.ResolvedDepth(*cl) : nullptr"));
 }
 
 ACS_TEST(Atmosphere, EnvironmentBakeExcludesAnalyticSunDisc) {
@@ -1679,7 +1679,8 @@ ACS_TEST(Atmosphere, EditorCloudEnvironmentLightingUsesBoundedMotionGenerationWi
     const auto beginScene = draw.find("cl->BeginRenderToTexture(*hdrRt", sourceReset);
     const auto configureState = draw.find("ConfigureVolumetricCloudState_Internal(h);", beginScene);
     const auto renderClouds = draw.find("h.vclouds3d.RenderComputeCameraRelative(", configureState);
-    const auto sourcePublish = draw.find("h.vclouds3d.LastFrameWorkload().submitted;", renderClouds);
+    const auto sourcePublish = draw.find(
+        "h.vclouds3d.RecordedCloudFramePending();", renderClouds);
     EXPECT_TRUE(baseUpdate != draw.npos);
     EXPECT_TRUE(configureState != draw.npos);
     EXPECT_TRUE(cloudIbl != draw.npos);

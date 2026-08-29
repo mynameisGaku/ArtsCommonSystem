@@ -10942,9 +10942,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 h.profiler_work.cloud_cpu_ms);
             FScopedRhiGpuTiming cloudGpuScope(
                 cl, ERhiGpuTimingPass::Cloud);
-            h.vclouds3d.RenderComputeCameraRelative(*cl, camera_relative_inv_vp, eye, h.sun_dir, sunC, h.sky_horizon, h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time);
+            h.vclouds3d.RenderComputeCameraRelative(*cl, camera_relative_inv_vp, eye, h.sun_dir, sunC, h.sky_horizon, h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time, h.renderer.CurrentFrameSubmissionId());
             h.cloud_environment_source_ready =
-                h.vclouds3d.LastFrameWorkload().submitted;
+                h.vclouds3d.RecordedCloudFramePending();
         }
         cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
         { FViewport rvp2{}; rvp2.width = static_cast<f32>(scW); rvp2.height = static_cast<f32>(scH); cl->SetViewport(rvp2);
@@ -11054,7 +11054,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         }
         else          h.pbr3d.SetShadowMap(nullptr, sh.lightVp);
         // 現在の雲密度から作った透過率を太陽の直接光だけへ掛ける。無効時は透過率1へ戻る。
-        h.pbr3d.SetCloudShadowMap(cloudsActive ? h.vclouds3d.WorldShadowMap() : FVolumetricCloudWorldShadowMap{});
+        h.pbr3d.SetCloudShadowMap(
+            cloudsActive ? h.vclouds3d.WorldShadowMap(*cl)
+                         : FVolumetricCloudWorldShadowMap{});
         // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
@@ -11411,7 +11413,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             FScopedRhiGpuTiming fogGpuScope(
                 cl, ERhiGpuTimingPass::Fog);
             cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
-            h.sky_atmo.CompositeLocalFogCameraRelative(*cl, *localFogSceneDepth, *localFogVol, cloudsActive ? h.vclouds3d.ResolvedDepth() : nullptr, camera_relative_inv_vp_with_jitter, h.sky_atmo.LocalFogMaxDistance(), scW, scH);
+            h.sky_atmo.CompositeLocalFogCameraRelative(*cl, *localFogSceneDepth, *localFogVol, cloudsActive ? h.vclouds3d.ResolvedDepth(*cl) : nullptr, camera_relative_inv_vp_with_jitter, h.sky_atmo.LocalFogMaxDistance(), scW, scH);
             cl->EndRenderToTexture(*hdrRt);
         }
 
@@ -11620,7 +11622,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             if (h.mv_computed) pp.taa_motion_texture = h.mv3d.OutputTexture();
             // 雲の RG32F resolved depth は G=coverage。雲自身の temporal resolve を
             // global history へ再投入せず、周囲のジオメトリだけ TAA する。
-            if (cloudsActive) pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();
+            if (cloudsActive) {
+                pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth(*cl);
+            }
         }
         {
             editor_profiler::FCpuScope postScope(
@@ -11812,10 +11816,14 @@ constexpr FClearColor kEditorNeutralClear{
 
 int SubmitAndPresentEditorFrame(
     FEditorHost& host, bool avoid_gpu_wait) noexcept {
-    const bool presented = avoid_gpu_wait
-        ? host.renderer.EndFrameWithoutGpuWait()
-        : host.renderer.EndFrame();
-    if (!presented)
+    const FRendererFrameEndResult frame_end = avoid_gpu_wait
+        ? host.renderer.EndFrameWithoutGpuWaitDetailed()
+        : host.renderer.EndFrameDetailed();
+    // 雲の密度場・影・履歴は画面提示ではなくGPU提出の成否で確定する。
+    // Presentだけ失敗した場合も、GPU上で更新済みの資源とCPU側状態を一致させる。
+    (void)host.vclouds3d.ResolveRecordedFrameSubmission(
+        frame_end.submission_id, frame_end.submitted);
+    if (!frame_end.presented)
         return editor_frame::ToAbi(editor_frame::EResult::Fatal);
     host.resource_mutation_idle = false;
     return editor_frame::ToAbi(editor_frame::EResult::Presented);

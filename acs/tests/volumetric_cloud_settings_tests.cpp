@@ -662,11 +662,20 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setLayer, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setUpper, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setReference, "InvalidateCloudHistory_Internal(false);"));
-    EXPECT_TRUE(Contains(setLighting, "InvalidateCloudHistory_Internal(true);"));
+    EXPECT_TRUE(Contains(
+        setLighting,
+        "InvalidateCloudHistory_Internal(shadowTransportChanged);"));
     EXPECT_TRUE(Contains(setWeather, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
-    EXPECT_TRUE(Contains(source, "if (density_field_changed) m_ShadowCacheValid = false;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "if (density_field_changed) {\n"
+        "        m_ShadowCacheValid = false;\n"
+        "        m_WorldShadowValid = false;\n"
+        "        SetShadowCacheWarmupMask_Internal(0u);\n"
+        "        SetWorldShadowWarmupMask_Internal(0u);\n"
+        "    }"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudCondensationCommonPotential("));
     EXPECT_TRUE(Contains(lowLodDensity, "macro.heightProfile,weatherMask"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudBandLimitedCondensationDistribution("));
@@ -748,12 +757,14 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(source, "cacheBlendWeight*=cacheReliability;"));
     EXPECT_FALSE(Contains(
         source, "if(!cloudSunDepthResidualUsesReliableCache("));
-    EXPECT_TRUE(Contains(source, "float3 exactVisibilitySum=0.0.xxx;"));
-    EXPECT_TRUE(Contains(source, "exactVisibilitySum+=exp(-max(exactDepths,0.0.xxx));"));
-    EXPECT_TRUE(Contains(source, "exactAverageVisibility=exactVisibilitySum"));
+    EXPECT_TRUE(Contains(source, "float3 exactScatteringSum=0.0.xxx;"));
+    EXPECT_TRUE(Contains(source, "exactScatteringSum+=exactVisibility*float3("));
+    EXPECT_TRUE(Contains(source, "float directionalPhase=sunDirectionIndex==0u"));
+    EXPECT_TRUE(Contains(source, "directionalPhase,directionalPhaseMulti,directionalPhaseMulti"));
+    EXPECT_TRUE(Contains(source, "exactAverageScattering=exactScatteringSum"));
     EXPECT_TRUE(Contains(source, "float4 correctedCachedFirst=cloudApplySunOpticalDepthResidual("));
-    EXPECT_TRUE(Contains(source, "float3 correctedCachedAverageVisibility=float3("));
-    EXPECT_TRUE(Contains(source, "float3 lightTransmittanceByOrder=lerp("));
+    EXPECT_TRUE(Contains(source, "float3 correctedCachedAverageScattering=float3("));
+    EXPECT_TRUE(Contains(source, "float3 lightScatteringByOrder=lerp("));
     EXPECT_FALSE(Contains(source, "float4 correctedDepths=max("));
     EXPECT_FALSE(Contains(source, "lightDepths=lerp("));
     EXPECT_TRUE(Contains(source, "if(lightDepths.z>18.0) break;"));
@@ -779,12 +790,12 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(
         source,
         "step(1.0.xxxx,fullCellsDepths)"));
-    EXPECT_TRUE(Contains(source, "float cosA=clamp(dot(rayDirection,context.sun),-1.0,1.0);"));
+    EXPECT_TRUE(Contains(source, "float cosA=clamp(dot(viewDirection,sunDirection),-1.0,1.0);"));
     EXPECT_FALSE(Contains(source, "float cosA=clamp(dot(dir,sun),-1.0,1.0);"));
     EXPECT_TRUE(Contains(source, "float forwardPhase=hg(cosA,cloudLightingPhase.x);"));
     EXPECT_TRUE(Contains(source, "float backwardPhase=hg(cosA,cloudLightingPhase.y);"));
     EXPECT_FALSE(Contains(source, "4.0*hg("));
-    EXPECT_TRUE(Contains(source, "context.phase=clamp("));
+    EXPECT_TRUE(Contains(source, "phase=clamp("));
     EXPECT_TRUE(Contains(
         source,
         "lerp(backwardPhase,forwardPhase,saturate(cloudLightingPhase.z))"));
@@ -802,8 +813,10 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(lightingSource, "1.0,inScatterDepth,"));
     EXPECT_TRUE(Contains(source, "float thirdContribution=multiContribution*multiContribution;"));
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
-    EXPECT_TRUE(Contains(lightingSource, "cloudAverageSunTransmittance(correctedCachedSecond)"));
-    EXPECT_TRUE(Contains(lightingSource, "cloudAverageSunTransmittance(correctedCachedThird)"));
+    EXPECT_TRUE(Contains(lightingSource, "dot(correctedCachedSecond,higherDiskPhase)"));
+    EXPECT_TRUE(Contains(lightingSource, "dot(correctedCachedThird,higherDiskPhase)"));
+    EXPECT_TRUE(Contains(lightingSource, "float3 correctedCachedAverageScattering=float3("));
+    EXPECT_TRUE(Contains(lightingSource, "float3 lightScatteringByOrder=lerp("));
     EXPECT_TRUE(Contains(source, "lightingContext.directionalScatteringScale="));
     EXPECT_TRUE(Contains(source, "cloudLightingExtinction.z*cloudLightingGround.w;"));
     EXPECT_TRUE(Contains(lightingSource, "source.firstOrder=context.sunAtCloud"));

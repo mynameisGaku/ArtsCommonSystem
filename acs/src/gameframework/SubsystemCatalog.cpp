@@ -2,6 +2,7 @@
 #include "gameframework/SubsystemCatalog.h"
 
 #include "gameframework/EventBus.h"
+#include "gameframework/RenderFrameSubmissionSubsystem.h"
 #include "gameframework/Spawn2DSubsystem.h"
 #include "gameframework/WorldClockSubsystem.h"
 #include "subsystem/SubsystemFactory.h"
@@ -29,6 +30,12 @@ TUniquePtr<ASubsystem> CreateWorldClockSubsystem() noexcept
     return MakeUnique<game::AWorldClockSubsystem>();
 }
 
+/** Worldで記録した命令へGPU提出結果を返す通知境界を生成する。 */
+TUniquePtr<ASubsystem> CreateRenderFrameSubmissionSubsystem() noexcept
+{
+    return MakeUnique<game::CRenderFrameSubmissionSubsystem>();
+}
+
 } // namespace
 
 bool AcsRegisterGameFrameworkSubsystems() noexcept
@@ -44,7 +51,12 @@ bool AcsRegisterGameFrameworkSubsystems() noexcept
     const bool ClockRegistered = Registry.TryRegisterActive(FSubsystemFactory{
         SubsystemKindOf<game::AWorldClockSubsystem>(), ESubsystemScope::World, "FWorldClockSubsystem",
         &CreateWorldClockSubsystem, ESubsystemTickPhase::PreUpdate, 20});
-    return EventRegistered && SpawnRegistered && ClockRegistered;
+    const bool FrameSubmissionRegistered = Registry.TryRegisterActive(FSubsystemFactory{
+        SubsystemKindOf<game::CRenderFrameSubmissionSubsystem>(), ESubsystemScope::World,
+        "CRenderFrameSubmissionSubsystem", &CreateRenderFrameSubmissionSubsystem,
+        ESubsystemTickPhase::None, 30});
+    return EventRegistered && SpawnRegistered && ClockRegistered &&
+        FrameSubmissionRegistered;
 }
 
 } // namespace acs

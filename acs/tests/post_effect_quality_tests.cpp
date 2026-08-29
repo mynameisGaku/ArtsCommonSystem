@@ -1648,7 +1648,7 @@ ACS_TEST(PostEffects, AnimatedCloudsUseReactiveMaskWhileGeometryKeepsGlobalTaa)
     EXPECT_TRUE(draw.find("h.q_taa_on && !renderOrtho") != std::string::npos);
     EXPECT_TRUE(draw.find("BuildAerialPerspectiveCameraRelative(*adev, *cl, camera_relative_inv_vp, eye") != std::string::npos);
     EXPECT_TRUE(draw.find(
-        "pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();") !=
+        "pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth(*cl);") !=
         std::string::npos);
     EXPECT_TRUE(draw.find("pp.taa_camera_position          = eye;") !=
                 std::string::npos);
@@ -1687,22 +1687,31 @@ ACS_TEST(PostEffects, AnimatedCloudsUseReactiveMaskWhileGeometryKeepsGlobalTaa)
     EXPECT_TRUE(post.find("cmd.SetTexture(4, *reactive_depth);") !=
                 std::string::npos);
 
-    // ResolvedDepth is a full-resolution, same-frame RG32F pair where
-    // R=ray distance and G=resolved alpha. Keep this producer contract tied to
-    // the TAA visibility gate so a format/lifetime change cannot silently turn
-    // foreground terrain current-only again.
+    // ResolvedDepth は全解像度の同一フレーム RG32F で、
+    // R が視線距離、G が解決済み alpha である。GPU へ提出する前は候補履歴だけを
+    // 同じ命令一覧へ公開し、提出成功後に確定履歴へ反映する契約まで固定する。
     EXPECT_TRUE(cloud.find(
         "make_texture(fw, fh, EFormat::R32G32_Float, true, false, historyDepth[0])") !=
         std::string::npos);
     EXPECT_TRUE(cloud.find("resolvedDepth.y=outA;") != std::string::npos);
-    const std::size_t publish_index = cloud.find("m_ResolvedIndex = cur;");
-    const std::size_t publish_valid = cloud.find(
-        "m_HistoryValid = true;", publish_index);
-    EXPECT_TRUE(publish_index != std::string::npos);
-    EXPECT_TRUE(publish_valid != std::string::npos);
-    EXPECT_TRUE(publish_index < publish_valid);
-    EXPECT_TRUE(cloud_header.find(
-        "return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;") !=
+    const std::size_t record_index = cloud.find("recorded.resolved_index = cur;");
+    const std::size_t record_valid = cloud.find(
+        "recorded.history_valid = true;", record_index);
+    const std::size_t commit_index = cloud.find(
+        "m_ResolvedIndex = recorded.resolved_index;");
+    const std::size_t commit_valid = cloud.find(
+        "m_HistoryValid = recorded.history_valid;", commit_index);
+    EXPECT_TRUE(record_index != std::string::npos);
+    EXPECT_TRUE(record_valid != std::string::npos);
+    EXPECT_TRUE(record_index < record_valid);
+    EXPECT_TRUE(commit_index != std::string::npos);
+    EXPECT_TRUE(commit_valid != std::string::npos);
+    EXPECT_TRUE(commit_index < commit_valid);
+    EXPECT_TRUE(cloud.find(
+        "return recorded.history_valid\n            ? m_HistoryDepth[recorded.resolved_index].Get() : nullptr;") !=
+        std::string::npos);
+    EXPECT_TRUE(cloud.find(
+        "return m_HistoryValid\n        ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;") !=
         std::string::npos);
 
     const std::size_t taa_gate =
@@ -2838,23 +2847,18 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         auto base_environment_result = CreateRhiTexture(
             device, base_environment_desc);
         auto cloud_command_result = CreateRhiCommandList(device);
+        auto other_cloud_command_result = CreateRhiCommandList(device);
         EXPECT_TRUE(base_environment_result.IsOk());
         EXPECT_TRUE(cloud_command_result.IsOk());
+        EXPECT_TRUE(other_cloud_command_result.IsOk());
         EXPECT_TRUE(clouds.EnsureSize(
             device, 16u, 16u, 4.0f, true));
         if (base_environment_result.IsOk()
-            && cloud_command_result.IsOk()) {
+            && cloud_command_result.IsOk()
+            && other_cloud_command_result.IsOk()) {
             auto base_environment = Move(base_environment_result.Value());
             auto cloud_command = Move(cloud_command_result.Value());
-            cloud_command->Begin();
-            const FClearColor clear_sky{
-                0.12f, 0.24f, 0.48f, 1.0f};
-            for (u32 face = 0u; face < 6u; ++face) {
-                cloud_command->BeginRenderToTextureSlice(
-                    *base_environment, face, 0u, clear_sky);
-            }
-            cloud_command->EndRenderToTexture(*base_environment);
-
+            auto other_cloud_command = Move(other_cloud_command_result.Value());
             CCamera cloud_camera;
             cloud_camera.SetPerspective(
                 kPi / 3.0f, 1.0f, 0.5f, 60000.0f);
@@ -2875,14 +2879,223 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             environment_upper_layer.coverage_scale = 0.48f;
             environment_upper_layer.density_scale = 0.24f;
             clouds.SetUpperLayer(environment_upper_layer);
-            clouds.RenderCompute(
-                *cloud_command,
-                Inverse(cloud_camera.ViewProjection()),
-                cloud_camera.Eye(),
-                FVec3{0.3f, 0.9f, 0.2f},
-                FVec3{5.0f, 4.5f, 4.0f},
-                FVec3{0.2f, 0.3f, 0.5f},
-                0.55f, 1.6f, 1.0f, 12.0f);
+
+            u64 next_cloud_submission_id = 1u;
+            const auto record_cloud = [&](u64 submission_id) {
+                clouds.RenderCompute(
+                    *cloud_command,
+                    Inverse(cloud_camera.ViewProjection()),
+                    cloud_camera.Eye(),
+                    FVec3{0.3f, 0.9f, 0.2f},
+                    FVec3{5.0f, 4.5f, 4.0f},
+                    FVec3{0.2f, 0.3f, 0.5f},
+                    0.55f, 1.6f, 1.0f, 12.0f,
+                    submission_id);
+            };
+
+            // 命令を記録しただけでは段階を進めない。同じ一覧での二重呼び出しも
+            // 一段分に留まり、失敗通知後は同じ段階を再記録できる。
+            const u64 first_attempt_submission_id =
+                next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(first_attempt_submission_id);
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(),
+                first_attempt_submission_id);
+            const u32 first_attempt_dispatches =
+                clouds.LastFrameWorkload().total_compute_dispatches;
+            record_cloud(first_attempt_submission_id);
+            EXPECT_EQ(
+                clouds.LastFrameWorkload().total_compute_dispatches,
+                first_attempt_dispatches);
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                first_attempt_submission_id, false));
+            EXPECT_FALSE(clouds.RecordedFramePending());
+            EXPECT_EQ(
+                clouds.LastFrameWorkload().skip_reason,
+                EVolumetricCloudFrameSkipReason::SubmissionFailed);
+            device.WaitIdle();
+
+            // Aの遅延通知が、同じ命令一覧へ後から記録したBを確定してはならない。
+            // GPU資源を実際に提出し、boolだけでは区別できない再利用順序を再現する。
+            const u64 retry_submission_id = next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(retry_submission_id);
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(), retry_submission_id);
+            EXPECT_NE(retry_submission_id, first_attempt_submission_id);
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            EXPECT_FALSE(clouds.ResolveRecordedFrameSubmission(
+                first_attempt_submission_id, true));
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(), retry_submission_id);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                retry_submission_id, false));
+            EXPECT_FALSE(clouds.RecordedFramePending());
+            device.WaitIdle();
+
+            // ID付き候補は旧bool通知から保護する。遅延通知が現在候補を
+            // 誤って確定しないことを、実GPU記録と提出で確認する。
+            const u64 bool_guard_submission_id = next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(bool_guard_submission_id);
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            clouds.ResolveRecordedFrameSubmission(false);
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                bool_guard_submission_id, false));
+            EXPECT_FALSE(clouds.RecordedFramePending());
+            device.WaitIdle();
+
+            // 外部IDを渡さない互換経路は0のまま別領域として扱う。過去の外部IDが
+            // 一致したように見えても解決せず、IDなし候補だけbool通知で破棄する。
+            cloud_command->Begin();
+            record_cloud(0u);
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            EXPECT_EQ(clouds.RecordedFrameSubmissionId(), 0u);
+            cloud_command->End();
+            EXPECT_TRUE(cloud_command->Submit());
+            EXPECT_FALSE(clouds.ResolveRecordedFrameSubmission(
+                first_attempt_submission_id, true));
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            clouds.ResolveRecordedFrameSubmission(false);
+            EXPECT_FALSE(clouds.RecordedFramePending());
+            device.WaitIdle();
+
+            // 形状4段階、天候、詳細、渦を別々のGPU提出へ分ける。
+            // 各段階の完了を待ってから次を記録し、同じ命令列へ再び集中させない。
+            for (u32 preparation_frame = 0u;
+                 preparation_frame < 7u;
+                 ++preparation_frame) {
+                const u64 preparation_submission_id =
+                    next_cloud_submission_id++;
+                cloud_command->Begin();
+                record_cloud(preparation_submission_id);
+                const FVolumetricCloudFrameWorkload& workload =
+                    clouds.LastFrameWorkload();
+                EXPECT_TRUE(workload.attempted);
+                EXPECT_FALSE(workload.submitted);
+                EXPECT_EQ(
+                    workload.skip_reason,
+                    EVolumetricCloudFrameSkipReason::PreparingDensityFields);
+                EXPECT_EQ(workload.one_time_bake_dispatches, 1u);
+                EXPECT_EQ(workload.total_compute_dispatches, 1u);
+                EXPECT_EQ(
+                    clouds.RecordedFrameSubmissionId(),
+                    preparation_submission_id);
+                cloud_command->End();
+                const bool submitted = cloud_command->Submit();
+                EXPECT_TRUE(submitted);
+                EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                    preparation_submission_id, submitted));
+                EXPECT_FALSE(clouds.RecordedFramePending());
+                EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
+                device.WaitIdle();
+            }
+
+            // 記録後に天候が変わった場合、GPUへ提出済みの旧世代を履歴や影として
+            // 公開しない。変更前は同じ命令列だけが候補を参照でき、変更後はその命令列
+            // からも旧世代を隠すことを実GPU資源で確認する。
+            const u64 old_settings_submission_id =
+                next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(old_settings_submission_id);
+            EXPECT_TRUE(clouds.RecordedCloudFramePending());
+            EXPECT_TRUE(clouds.ResolvedDepth(*cloud_command) != nullptr);
+            EXPECT_TRUE(clouds.ResolvedDepth() == nullptr);
+            EXPECT_TRUE(clouds.ResolvedDepth(*other_cloud_command) == nullptr);
+            EXPECT_TRUE(
+                clouds.WorldShadowMap(*cloud_command).transmittance != nullptr);
+            EXPECT_TRUE(clouds.WorldShadowMap().transmittance == nullptr);
+            EXPECT_TRUE(
+                clouds.WorldShadowMap(*other_cloud_command).transmittance == nullptr);
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(),
+                old_settings_submission_id);
+            environment_weather.Precipitation = 0.27f;
+            clouds.SetWeather(environment_weather);
+            EXPECT_TRUE(clouds.RecordedFramePending());
+            EXPECT_FALSE(clouds.RecordedCloudFramePending());
+            EXPECT_TRUE(clouds.ResolvedDepth(*cloud_command) == nullptr);
+            EXPECT_TRUE(
+                clouds.WorldShadowMap(*cloud_command).transmittance == nullptr);
+            cloud_command->End();
+            const bool old_settings_submitted = cloud_command->Submit();
+            EXPECT_TRUE(old_settings_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                old_settings_submission_id, old_settings_submitted));
+            EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
+            EXPECT_TRUE(clouds.LastFrameWorkload().history_invalidated);
+            EXPECT_EQ(clouds.LastFrameWorkload().submission_index, 0u);
+            EXPECT_TRUE(clouds.ResolvedDepth() == nullptr);
+            EXPECT_FALSE(clouds.ShadowCacheValid());
+            EXPECT_FALSE(clouds.WorldShadowValid());
+            device.WaitIdle();
+
+            // 影キャッシュ未完成の三提出でも雲本体は正確な直接積分で描き続ける。
+            for (u32 shadow_phase = 0u; shadow_phase < 3u; ++shadow_phase) {
+                const u64 shadow_submission_id =
+                    next_cloud_submission_id++;
+                cloud_command->Begin();
+                record_cloud(shadow_submission_id);
+                const FVolumetricCloudFrameWorkload& workload =
+                    clouds.LastFrameWorkload();
+                EXPECT_FALSE(workload.submitted);
+                EXPECT_TRUE(clouds.RecordedCloudFramePending());
+                EXPECT_EQ(workload.steady_dispatches, 2u);
+                EXPECT_EQ(workload.shadow_cache_dispatches, 1u);
+                EXPECT_FALSE(clouds.ShadowCacheValid());
+                EXPECT_EQ(
+                    clouds.RecordedFrameSubmissionId(),
+                    shadow_submission_id);
+                cloud_command->End();
+                const bool submitted = cloud_command->Submit();
+                EXPECT_TRUE(submitted);
+                EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                    shadow_submission_id, submitted));
+                EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
+                device.WaitIdle();
+            }
+
+            // 最後の影位相も提出成功までは公開せず、確定後に初めて利用可能にする。
+            const u64 final_shadow_submission_id =
+                next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(final_shadow_submission_id);
+            EXPECT_FALSE(clouds.LastFrameWorkload().submitted);
+            EXPECT_FALSE(clouds.ShadowCacheValid());
+            EXPECT_TRUE(
+                clouds.WorldShadowMap(*cloud_command).transmittance != nullptr);
+            EXPECT_TRUE(clouds.WorldShadowMap().transmittance != nullptr);
+            EXPECT_TRUE(
+                clouds.WorldShadowMap(*other_cloud_command).transmittance != nullptr);
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(),
+                final_shadow_submission_id);
+            cloud_command->End();
+            const bool final_shadow_submitted = cloud_command->Submit();
+            EXPECT_TRUE(final_shadow_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                final_shadow_submission_id, final_shadow_submitted));
+            EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
+            EXPECT_TRUE(clouds.WorldShadowMap().transmittance != nullptr);
+            device.WaitIdle();
+
+            cloud_command->Begin();
+            const FClearColor clear_sky{
+                0.12f, 0.24f, 0.48f, 1.0f};
+            for (u32 face = 0u; face < 6u; ++face) {
+                cloud_command->BeginRenderToTextureSlice(
+                    *base_environment, face, 0u, clear_sky);
+            }
+            cloud_command->EndRenderToTexture(*base_environment);
             auto cloud_environment_result =
                 clouds.BuildEnvironmentCubemap(
                     device, *cloud_command, *base_environment);
@@ -4760,8 +4973,9 @@ ACS_TEST(RenderLifecycle,
     const std::string editor =
         ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
 
-    const std::string end_frame =
-        ExtractFunction(renderer, "bool CRenderer::EndFrameInternal(");
+    const std::string end_frame = ExtractFunction(
+        renderer,
+        "FRendererFrameEndResult CRenderer::EndFrameInternal(");
     const std::string raw_present =
         ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Present()");
     const std::string diligent_present =
@@ -4774,6 +4988,17 @@ ACS_TEST(RenderLifecycle,
     EXPECT_TRUE(end_frame.find("if (!submitted)") != std::string::npos);
     EXPECT_TRUE(end_frame.find("if (!m_Swapchain->Present())") !=
                 std::string::npos);
+    const std::size_t submitted_result =
+        end_frame.find("result.submitted = true;");
+    const std::size_t present_call =
+        end_frame.find("m_Swapchain->Present()", submitted_result);
+    const std::size_t presented_result =
+        end_frame.find("result.presented = true;", present_call);
+    EXPECT_TRUE(submitted_result != std::string::npos);
+    EXPECT_TRUE(present_call != std::string::npos);
+    EXPECT_TRUE(presented_result != std::string::npos);
+    EXPECT_TRUE(submitted_result < present_call);
+    EXPECT_TRUE(present_call < presented_result);
     EXPECT_TRUE(raw_present.find("const HRESULT present_hr") !=
                 std::string::npos);
     EXPECT_TRUE(raw_present.find("GetDeviceRemovedReason()") !=
@@ -4783,6 +5008,11 @@ ACS_TEST(RenderLifecycle,
     EXPECT_TRUE(diligent_present.find("IsDeviceHealthy()") !=
                 std::string::npos);
     EXPECT_TRUE(editor.find("int SubmitAndPresentEditorFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "frame_end.submission_id, frame_end.submitted)") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find("if (!frame_end.presented)") !=
                 std::string::npos);
     EXPECT_TRUE(editor.find(
         "editor_frame::ShouldPublishProfiler(present_result)") !=
@@ -4813,10 +5043,21 @@ ACS_TEST(RenderLifecycle,
 
     const std::string resize =
         ExtractFunction(renderer, "bool CRenderer::OnResize(");
+    const std::string wait_for_idle =
+        ExtractFunction(renderer, "bool CRenderer::TryWaitForGpuIdle(");
     const std::string backend_resize =
         ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Resize(");
 
-    EXPECT_EQ(CountOccurrences(resize, "WaitIdle()"), 1u);
+    const std::size_t open_frame_guard = resize.find("if (m_bFrameOpen)");
+    const std::size_t idle_wait = resize.find("TryWaitForGpuIdle()");
+    const std::size_t swapchain_resize = resize.find("m_Swapchain->Resize(");
+    EXPECT_TRUE(open_frame_guard != std::string::npos);
+    EXPECT_TRUE(idle_wait != std::string::npos);
+    EXPECT_TRUE(swapchain_resize != std::string::npos);
+    EXPECT_TRUE(open_frame_guard < idle_wait);
+    EXPECT_TRUE(idle_wait < swapchain_resize);
+    EXPECT_EQ(CountOccurrences(resize, "WaitIdle()"), 0u);
+    EXPECT_EQ(CountOccurrences(wait_for_idle, "WaitIdle()"), 1u);
     EXPECT_EQ(CountOccurrences(backend_resize, "WaitIdle()"), 0u);
     EXPECT_TRUE(editor.find(
         "if (!host->resource_mutation_idle)") != std::string::npos);

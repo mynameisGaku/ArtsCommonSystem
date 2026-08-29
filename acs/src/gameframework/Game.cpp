@@ -5,6 +5,7 @@
 #include "gameframework/InputFrameSource.h"
 #include "gameframework/InputStateSnapshot.h"
 #include "gameframework/PlatformInputStateAdapter.h"
+#include "gameframework/RenderFrameSubmissionSubsystem.h"
 #include "gameframework/Scene.h"
 #include "gameframework/SubsystemCatalog.h"
 
@@ -176,6 +177,14 @@ void CGame::ResetFixedStepInputSource() noexcept
 
 /** 起動時に InitialScene() を push して即時適用する。 */
 void CGame::OnStart() noexcept {
+    if (!GetRenderer().TryBindFrameLifecycleListener(
+            this,
+            &HandleRendererFrameBegin_Internal,
+            &HandleRendererFrameEnd_Internal)) {
+        ACS_LOG_ERROR("CGame: 描画フレーム境界の通知先を登録できません");
+        Quit();
+        return;
+    }
     m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
     if (!m_BuiltinCatalogReady) {
         ACS_LOG_ERROR("CGame: builtin subsystem registration failed");
@@ -304,6 +313,48 @@ void CGame::OnRender() noexcept {
     wiring.EndFrame();
 }
 
+/** 標準描画を提出する。提出結果はCRendererの終了通知から自動で返す。 */
+bool CGame::OnCustomFrame() noexcept
+{
+    CRenderer& renderer = GetRenderer();
+    renderer.BeginFrame(GetClearColor());
+    OnRender();
+    const FRendererFrameEndResult result = renderer.EndFrameDetailed();
+    if (!result.presented) {
+        ACS_LOG_ERROR(
+            "CGame: rendererのGPU提出または画面表示に失敗したため終了します");
+        Quit();
+    }
+    return true;
+}
+
+void CGame::HandleRendererFrameBegin_Internal(void* listener) noexcept
+{
+    if (listener == nullptr) return;
+    CGame* const game = static_cast<CGame*>(listener);
+    game->m_FrameSubmissionScene = game->m_Scenes.Top();
+}
+
+void CGame::HandleRendererFrameEnd_Internal(
+    void* listener,
+    const FRendererFrameEndResult& result) noexcept
+{
+    if (listener == nullptr) return;
+    static_cast<CGame*>(listener)->PublishFrameEndResult_Internal(result);
+}
+
+void CGame::PublishFrameEndResult_Internal(
+    const FRendererFrameEndResult& result) noexcept
+{
+    AScene* const scene = m_FrameSubmissionScene;
+    m_FrameSubmissionScene = nullptr;
+    // フレーム中にシーンが切り替わった場合、新しいWorldへ旧命令の結果を誤配送しない。
+    if (scene == nullptr || m_Scenes.Top() != scene) return;
+    CRenderFrameSubmissionSubsystem* const submission =
+        scene->GetSubsystem<CRenderFrameSubmissionSubsystem>();
+    if (submission != nullptr) submission->Publish(result);
+}
+
 /** 初回呼び出しでフェード overlay 用 SpriteBatch を 1 回だけ遅延 init する。 */
 void CGame::EnsureOverlay() noexcept {
     if (m_OverlayTried) return;
@@ -351,6 +402,12 @@ void CGame::TransitionTo(TUniquePtr<AScene> next,
 /** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
 void CGame::OnShutdown() noexcept
 {
+    CRenderer& renderer = GetRenderer();
+    // CApplicationはこの終了処理より先に提出済みGPU処理を待つ。Rendererは終了時に
+    // 所有者不明の通知先を呼ばないため、未提出候補はシーン終了処理で破棄してからWorldを解体する。
+    if (renderer.IsFrameOpen()) renderer.Shutdown();
+    renderer.UnbindFrameLifecycleListener(this);
+    m_FrameSubmissionScene = nullptr;
     m_Scenes.ExecutionAccess().ShutdownAll(); // 各シーンが OnExit で World サブシステムを解体
     // Engine は CApplication がこの hook の復帰後に解体する。
     m_GameInstanceSubsystems.Deinitialize();

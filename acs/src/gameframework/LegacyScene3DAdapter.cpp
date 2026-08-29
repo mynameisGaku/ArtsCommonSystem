@@ -10,6 +10,7 @@
 #include "gameframework/Game.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/RenderContext.h"
+#include "gameframework/RenderFrameSubmissionSubsystem.h"
 #include "gameframework/Sprite3DComponent.h"
 #include "gameframework/WaterSurface3DComponent.h"
 #include "math/Mat.h"
@@ -571,7 +572,46 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
 } // namespace
 
 ALegacyScene3DAdapter::~ALegacyScene3DAdapter() noexcept {
+    CRenderFrameSubmissionSubsystem* const submission =
+        GetSubsystem<CRenderFrameSubmissionSubsystem>();
+    if (submission != nullptr) submission->Unbind(this);
     JoinCpuCompileWorkers();
+}
+
+bool ALegacyScene3DAdapter::TryBindFrameSubmission_Internal() noexcept
+{
+    CRenderFrameSubmissionSubsystem* const submission =
+        GetSubsystem<CRenderFrameSubmissionSubsystem>();
+    return submission != nullptr &&
+           submission->TryBind(this, &ResolveFrameSubmissionCallback);
+}
+
+void ALegacyScene3DAdapter::OnWorldSubsystemsReady_Internal() noexcept
+{
+    AScene::OnWorldSubsystemsReady_Internal();
+    if (!TryBindFrameSubmission_Internal()) {
+        ACS_LOG_WARN(
+            "Scene3D: GPU提出結果の通知先を登録できないため、登録成功まで雲描画を待機します");
+    }
+}
+
+void ALegacyScene3DAdapter::ResolveFrameSubmissionCallback(
+    void* listener, const FRendererFrameEndResult& result) noexcept
+{
+    if (listener == nullptr) return;
+    static_cast<ALegacyScene3DAdapter*>(listener)->ResolveFrameSubmission(
+        result.submission_id, result.submitted);
+}
+
+void ALegacyScene3DAdapter::ResolveFrameSubmission(bool submitted) noexcept
+{
+    m_Clouds.ResolveRecordedFrameSubmission(submitted);
+}
+
+bool ALegacyScene3DAdapter::ResolveFrameSubmission(u64 submission_id, bool submitted) noexcept
+{
+    return m_Clouds.ResolveRecordedFrameSubmission(
+        submission_id, submitted);
 }
 
 /** 有限かつ 0 以上の値だけを受理し、場面の環境光倍率を更新する。 */
@@ -1004,6 +1044,9 @@ void ALegacyScene3DAdapter::OnEnter() noexcept {
 }
 
 void ALegacyScene3DAdapter::OnExit() noexcept {
+    CRenderFrameSubmissionSubsystem* const submission =
+        GetSubsystem<CRenderFrameSubmissionSubsystem>();
+    if (submission != nullptr) submission->Unbind(this);
     DrainAndReleaseGpu();
 }
 
@@ -1076,12 +1119,14 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     const bool normal_depth_ready =
         RenderAmbientOcclusionPass(*device, context);
 
-    // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
-    RenderClouds(*device, context.Cmd(), context.Width(), context.Height());
-
-    // 雲を環境光へ入れる場合は、現在の密度場と照明が完成してからGPU cubemapを作る。
-    // 表示用の空は雲なしのままなので、この後の画面合成で雲を二重に描かない。
+    // 前回のGPU提出で確定した雲だけを環境光へ入れる。現在フレームの未提出密度場を
+    // 先に参照すると、提出失敗時に表示とIBLの世代が分かれるためである。
     (void)EnsureEnvironmentLighting(*device, context.Cmd());
+
+    // 雲を計算する。描画パスの外で回す (結果は雲自身のテクスチャへ書かれる)。
+    RenderClouds(
+        *device, context.Cmd(), context.Width(), context.Height(),
+        context.GetRenderer().CurrentFrameSubmissionId());
 
     EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
     const bool hdr_ready = EnsureHdrFrameResources(
@@ -1452,17 +1497,75 @@ FVec3 ALegacyScene3DAdapter::PhysicalSunIntensity(FVec3 sun_color) noexcept {
 }
 
 void ALegacyScene3DAdapter::RenderClouds(
-    IRhiDevice& device, IRhiCommandList& command_list, u32 width, u32 height) noexcept {
+    IRhiDevice& device, IRhiCommandList& command_list, u32 width, u32 height,
+    u64 submission_id) noexcept {
     m_CloudsDrawn = false;
+
+    // 提出結果を受け取れない状態では候補を作らず、初期密度場の段階を巻き戻さない。
+    if (!TryBindFrameSubmission_Internal()) return;
+
+    // 独自描画が前フレームの終了通知を省いても、古い命令列の候補を次の記録へ
+    // 持ち越さない。成功とは推測せず破棄し、雲の時間更新だけが永久停止するのを防ぐ。
+    if (m_Clouds.RecordedFramePending()) {
+        const u64 staleSubmissionId =
+            m_Clouds.RecordedFrameSubmissionId();
+        if (!m_Clouds.ResolveRecordedFrameSubmission(
+                staleSubmissionId, false)) {
+            m_Clouds.ResolveRecordedFrameSubmission(false);
+        }
+    }
+
     if (m_CloudParams.Coverage <= 0.001f) return;   // 出さない設定。
     if (width == 0u || height == 0u) return;
 
+    if (m_CloudsReady && !m_Clouds.IsInitializedForDevice(device)) {
+        ACS_LOG_WARN(
+            "Scene3D: 雲GPU資源の所有デバイスが変わったため、"
+            "明示的な再初期化まで雲を無効にします");
+        m_CloudParams.Coverage = 0.0f;
+        return;
+    }
+
     if (!m_CloudsReady) {
-        if (m_Clouds.Init(device, EFormat::R16G16B16A16_Float).IsErr()) {
-            ACS_LOG_WARN("Scene3D: volumetric cloud init failed; clouds stay off");
-            // 二度と試さない。毎フレーム失敗し続けても意味がない。
-            m_CloudParams.Coverage = 0.0f;
-            return;
+        // 既に開始済みなら、開始を繰り返さず一段だけ進める。開始と進行を同じ
+        // フレームで二重に判断すると、非同期コンパイル中なのに再開始エラーになる。
+        const bool initialization_pending = m_Clouds.InitializationPending();
+        if (initialization_pending || device.SupportsAsyncShaderCompilation()) {
+            if (!initialization_pending) {
+                const auto begin = m_Clouds.BeginInitializationAsync(
+                    device, EFormat::R16G16B16A16_Float);
+                if (begin.IsErr()) {
+                    ACS_LOG_WARN(
+                        "Scene3D: 雲の段階初期化を開始できないため、"
+                        "雲を無効にします: %s",
+                        begin.Error().message);
+                    m_Clouds.Shutdown();
+                    m_CloudParams.Coverage = 0.0f;
+                    return;
+                }
+            }
+
+            const auto advance = m_Clouds.AdvanceInitialization(device);
+            if (advance.IsErr()) {
+                ACS_LOG_WARN(
+                    "Scene3D: 雲の段階初期化に失敗したため、雲を無効にします: %s",
+                    advance.Error().message);
+                m_Clouds.Shutdown();
+                m_CloudParams.Coverage = 0.0f;
+                return;
+            }
+            if (!advance.Value()) return;
+        } else {
+            const auto initialized = m_Clouds.Init(
+                device, EFormat::R16G16B16A16_Float);
+            if (initialized.IsErr()) {
+                ACS_LOG_WARN(
+                    "Scene3D: 雲の同期初期化に失敗したため、雲を無効にします: %s",
+                    initialized.Error().message);
+                // 同じ失敗を毎フレーム繰り返さない。
+                m_CloudParams.Coverage = 0.0f;
+                return;
+            }
         }
         m_CloudsReady = true;
     }
@@ -1523,11 +1626,11 @@ void ALegacyScene3DAdapter::RenderClouds(
 
     const FVec3 physicalHorizon = CAtmosphere::EvaluateSkyRadiance(
         midAltitude, FVec3{0.0f, 0.002f, 1.0f}, atmosphere);
-    m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_radiance, physicalHorizon, m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time);
+    m_Clouds.RenderComputeCameraRelative(command_list, cloud_camera_relative_inverse_view_projection, m_Camera.Eye(), SunDirection(), sun_radiance, physicalHorizon, m_CloudParams.Coverage, m_CloudParams.Density, m_CloudParams.Wind, m_Time, submission_id);
 
     // 入力やGPU資源が不正で計算命令を積めなかった場合は、古い履歴を現在の雲として
     // 合成せず、環境光にも反映しない。
-    m_CloudsDrawn = m_Clouds.LastFrameWorkload().submitted;
+    m_CloudsDrawn = m_Clouds.RecordedCloudFramePending();
 }
 
 void ALegacyScene3DAdapter::CompositeClouds(
@@ -2465,7 +2568,9 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
     }
     // 同じフレームで積分した雲透過率を、太陽である第0有向光源の直接光だけへ掛ける。
     // 雲を描けなかったフレームは無効値を渡し、古い影を残さない。
-    shader.SetCloudShadowMap(m_CloudsDrawn ? m_Clouds.WorldShadowMap() : FVolumetricCloudWorldShadowMap{});
+    shader.SetCloudShadowMap(
+        m_CloudsDrawn ? m_Clouds.WorldShadowMap(context.Cmd())
+                      : FVolumetricCloudWorldShadowMap{});
 
     // 遮蔽。物と床が接するところを締める。影の地図は解像度の都合でそこまで届かず、
     // これが無いと «置いてあるのか浮いているのか» が読めない。

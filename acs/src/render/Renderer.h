@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-#pragma once
+#ifndef ACS_RENDER_RENDERER_H
+#define ACS_RENDER_RENDERER_H
+
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiSwapchain.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiTexture.h"
+#include "render/RendererFrameEndResult.h"
 
 namespace acs {
 
@@ -22,6 +25,14 @@ class FWindow;
  */
 class CRenderer {
 public:
+    /** フレーム開始を受け取る非所有通知関数。 */
+    using FFrameBeginListener = void (*)(void* listener) noexcept;
+
+    /** フレーム終了結果を受け取る非所有通知関数。 */
+    using FFrameEndListener = void (*)(
+        void* listener,
+        const FRendererFrameEndResult& result) noexcept;
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     CRenderer() noexcept = default;
 
@@ -33,6 +44,18 @@ public:
 
     /** コピー代入も禁止。 */
     CRenderer& operator=(const CRenderer&) = delete;
+
+    /**
+     * BeginFrame成功とEndFrame結果を同じ非所有通知先へ結び付ける。
+     * null、または別の通知先が登録済みならfalseを返す。
+     */
+    bool TryBindFrameLifecycleListener(
+        void* listener,
+        FFrameBeginListener begin_listener,
+        FFrameEndListener end_listener) noexcept;
+
+    /** 指定した通知先が登録中の場合だけフレーム通知を解除する。 */
+    void UnbindFrameLifecycleListener(void* listener) noexcept;
 
     /**
      * ウィンドウに紐付けて初期化する (Device + Swapchain + CommandList を作成)。
@@ -71,18 +94,30 @@ public:
      */
     void BeginFrame(const FClearColor& clear) noexcept;
 
-    /**
-     * Return false instead of waiting when the backend's current frame slot is
-     * still owned by the GPU. Recording and RHI ownership stay on the caller's
-     * existing render thread.
-     */
+    /** GPUが現在の枠を使用中なら待機せずfalseを返し、呼び出し元の描画スレッドを保つ。 */
     bool TryBeginFrameWithoutGpuWait(const FClearColor& clear) noexcept;
 
-    /** Query the same frame-slot gate without mutating renderer state. */
+    /** 状態を変えず、待機なしで次のフレームを開始できるか返す。 */
     bool CanBeginFrameWithoutGpuWait() const noexcept;
 
-    /** Return false once the backend reports device removal/loss. */
+    /** 描画装置の切断または消失が報告された後はfalseを返す。 */
     bool IsOperational() const noexcept;
+
+    /** BeginFrame後かつEndFrame前ならtrueを返す。状態は変更しない。 */
+    bool IsFrameOpen() const noexcept { return m_bFrameOpen; }
+
+    /** 開いているフレームの提出IDを返す。フレーム外では0。 */
+    u64 CurrentFrameSubmissionId() const noexcept
+    {
+        return m_CurrentFrameSubmissionId;
+    }
+
+    /**
+     * 開いているフレームがなければ、提出済みGPU処理の完了を待つ。
+     *
+     * @return 待機できた場合はtrue。未提出フレームが開いている場合はfalse。
+     */
+    bool TryWaitForGpuIdle() noexcept;
 
     /**
      * フレームを終了する (コマンドを GPU に投入し Present)。
@@ -92,10 +127,21 @@ public:
     bool EndFrame() noexcept;
 
     /**
-     * Submit and present without waiting for the following frame slot. The
-     * next TryBeginFrameWithoutGpuWait call reports backpressure instead.
+     * GPU提出と画面提示の成否を分けてフレームを終了する。
+     *
+     * @return SubmitとPresentを個別に保持した結果。
      */
+    FRendererFrameEndResult EndFrameDetailed() noexcept;
+
+    /** 次の枠を待たずに提出・表示し、混雑は次回の待機なし開始で返す。 */
     bool EndFrameWithoutGpuWait() noexcept;
+
+    /**
+     * 次のフレーム枠を待たず、GPU提出と画面提示の成否を分けて終了する。
+     *
+     * @return SubmitとPresentを個別に保持した結果。
+     */
+    FRendererFrameEndResult EndFrameWithoutGpuWaitDetailed() noexcept;
 
     /**
      * ウィンドウサイズ変更時に呼ぶ (スワップチェーン・深度を再作成)。
@@ -156,9 +202,16 @@ public:
     EFormat          DepthFormat() const noexcept { return m_DepthFormat; }
 
 private:
+    /** 登録中の通知先へフレーム開始を一度通知する。 */
+    void NotifyFrameBegin_Internal() noexcept;
+
+    /** 登録中の通知先へフレーム終了結果を一度通知する。 */
+    void NotifyFrameEnd_Internal(
+        const FRendererFrameEndResult& result) noexcept;
+
     bool BeginFrameInternal(
         const FClearColor& clear, bool avoid_gpu_wait) noexcept;
-    bool EndFrameInternal(bool avoid_gpu_wait) noexcept;
+    FRendererFrameEndResult EndFrameInternal(bool avoid_gpu_wait) noexcept;
     /**
      * 深度バッファを指定サイズで作り直す。
      *
@@ -194,6 +247,21 @@ private:
 
     /** フレームが BeginFrame 済み (EndFrame 未呼出) か。 */
     bool                        m_bFrameOpen     = false;
+
+    /** 現在記録中のフレームに割り当てた提出ID。フレーム外では0。 */
+    u64                         m_CurrentFrameSubmissionId = 0u;
+
+    /** 次に開始できたフレームへ割り当てる提出ID。0は使い切りを表す。 */
+    u64                         m_NextFrameSubmissionId = 1u;
+
+    /** フレーム境界を受け取る非所有通知先。 */
+    void*                       m_FrameListener = nullptr;
+
+    /** フレーム開始を通知先へ渡す関数。 */
+    FFrameBeginListener         m_FrameBeginListener = nullptr;
+
+    /** フレーム終了結果を通知先へ渡す関数。 */
+    FFrameEndListener           m_FrameEndListener = nullptr;
 };
 
 /** 旧名を使う既存コード向けの互換別名。 */
@@ -201,3 +269,5 @@ using FRenderer = CRenderer;
 
 
 } // namespace acs
+
+#endif // ACS_RENDER_RENDERER_H

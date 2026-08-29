@@ -11,6 +11,51 @@ CRenderer::~CRenderer() noexcept {
     Shutdown();
 }
 
+bool CRenderer::TryBindFrameLifecycleListener(
+    void* listener,
+    FFrameBeginListener begin_listener,
+    FFrameEndListener end_listener) noexcept
+{
+    if (m_bFrameOpen) return false;
+    if (listener == nullptr || begin_listener == nullptr ||
+        end_listener == nullptr) {
+        return false;
+    }
+    if (m_FrameListener != nullptr && m_FrameListener != listener) {
+        return false;
+    }
+    m_FrameListener = listener;
+    m_FrameBeginListener = begin_listener;
+    m_FrameEndListener = end_listener;
+    return true;
+}
+
+void CRenderer::UnbindFrameLifecycleListener(void* listener) noexcept
+{
+    // 開始時と終了時で通知先が変わると、記録元とは別のWorldへ提出結果が届く。
+    if (m_bFrameOpen) return;
+    if (m_FrameListener != listener) return;
+    m_FrameListener = nullptr;
+    m_FrameBeginListener = nullptr;
+    m_FrameEndListener = nullptr;
+}
+
+void CRenderer::NotifyFrameBegin_Internal() noexcept
+{
+    void* const listener = m_FrameListener;
+    const FFrameBeginListener callback = m_FrameBeginListener;
+    if (listener != nullptr && callback != nullptr) callback(listener);
+}
+
+void CRenderer::NotifyFrameEnd_Internal(
+    const FRendererFrameEndResult& result) noexcept
+{
+    // 通知中に解除されても、今回の通知先と関数は同じ組として保持する。
+    void* const listener = m_FrameListener;
+    const FFrameEndListener callback = m_FrameEndListener;
+    if (listener != nullptr && callback != nullptr) callback(listener, result);
+}
+
 TResult<void> CRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) noexcept {
     // 再初期化でも、前回の所有物や途中まで作られた状態を持ち越さない。
     Shutdown();
@@ -123,12 +168,22 @@ TResult<void> CRenderer::RebuildDepth(u32 w, u32 h) noexcept {
 }
 
 void CRenderer::Shutdown() noexcept {
-    // A removed device cannot make forward progress. Waiting in that state can
-    // turn an already-reported render failure into an application hang.
+    // Shutdownは所有者不明のraw listenerを呼ばない。破棄済みの購読者へ
+    // 未提出結果を返そうとすると、通常経路外でuse-after-freeになるためである。
+    if (m_bFrameOpen) {
+        m_bFrameOpen = false;
+        m_CurrentFrameSubmissionId = 0u;
+    }
+    // 描画装置を破棄した後に、解放済みの購読者へ通知を再送しない。
+    m_FrameListener = nullptr;
+    m_FrameBeginListener = nullptr;
+    m_FrameEndListener = nullptr;
+    // 消失した描画装置は進行できないため、その状態では完了待ちを行わない。
     if (m_Device && m_Device->IsOperational())
         m_Device->WaitIdle();  // GPU 完了を待ってから解放
     // Shutdown 中や直後に EndFrame が呼ばれても、解放済みコマンドリストへ触れない。
     m_bFrameOpen = false;
+    m_CurrentFrameSubmissionId = 0u;
     m_CurrentBuffer = 0;
     m_Depth.Reset();
     m_Cmd.Reset();
@@ -143,11 +198,19 @@ void CRenderer::Shutdown() noexcept {
 bool CRenderer::BeginFrameInternal(
     const FClearColor& clear, bool avoid_gpu_wait) noexcept {
     if (!m_Swapchain || !m_Cmd || m_bFrameOpen) return false;
+    if (m_NextFrameSubmissionId == 0u) {
+        ACS_LOG_ERROR(
+            "CRenderer::BeginFrame: 提出IDを使い切ったため新しいフレームを開始できません");
+        return false;
+    }
     if (avoid_gpu_wait) {
         if (!m_Cmd->TryBeginWithoutGpuWait()) return false;
     } else {
         m_Cmd->Begin();
     }
+    const u64 submissionId = m_NextFrameSubmissionId;
+    m_NextFrameSubmissionId = submissionId == ~u64{0}
+        ? 0u : submissionId + 1u;
     m_CurrentBuffer = m_Swapchain->AcquireNextImage();
     m_Cmd->BeginRenderToSwapchain(*m_Swapchain, m_CurrentBuffer, clear,
                                  m_EnableDepth ? m_Depth.Get() : nullptr,
@@ -163,7 +226,9 @@ bool CRenderer::BeginFrameInternal(
     sr.bottom = static_cast<i32>(m_Swapchain->Height());
     m_Cmd->SetScissor(sr);
 
+    m_CurrentFrameSubmissionId = submissionId;
     m_bFrameOpen = true;
+    NotifyFrameBegin_Internal();
     return true;
 }
 
@@ -172,7 +237,8 @@ void CRenderer::BeginFrame(const FClearColor& clear) noexcept {
 }
 
 bool CRenderer::CanBeginFrameWithoutGpuWait() const noexcept {
-    return !m_bFrameOpen && m_Swapchain && m_Cmd &&
+    return !m_bFrameOpen && m_NextFrameSubmissionId != 0u &&
+           m_Swapchain && m_Cmd &&
            m_Cmd->CanBeginWithoutGpuWait();
 }
 
@@ -181,18 +247,29 @@ bool CRenderer::IsOperational() const noexcept {
            m_Device->IsOperational();
 }
 
+bool CRenderer::TryWaitForGpuIdle() noexcept {
+    if (m_bFrameOpen) return false;
+    if (m_Device && m_Device->IsOperational()) m_Device->WaitIdle();
+    return true;
+}
+
 bool CRenderer::TryBeginFrameWithoutGpuWait(
     const FClearColor& clear) noexcept {
     return BeginFrameInternal(clear, true);
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
-bool CRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
-    if (!m_bFrameOpen) return false;
+FRendererFrameEndResult CRenderer::EndFrameInternal(
+    bool avoid_gpu_wait) noexcept {
+    FRendererFrameEndResult result{};
+    if (!m_bFrameOpen) return result;
+    result.submission_id = m_CurrentFrameSubmissionId;
     if (!m_Cmd || !m_Swapchain) {
         m_bFrameOpen = false;
+        m_CurrentFrameSubmissionId = 0u;
         ACS_LOG_ERROR("CRenderer::EndFrame: frame resources are unavailable");
-        return false;
+        NotifyFrameEnd_Internal(result);
+        return result;
     }
     m_Cmd->EndRenderToSwapchain(*m_Swapchain, m_CurrentBuffer);
     m_Cmd->End();
@@ -200,28 +277,48 @@ bool CRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
         ? m_Cmd->SubmitWithoutGpuWait()
         : m_Cmd->Submit();
     m_bFrameOpen = false;
+    m_CurrentFrameSubmissionId = 0u;
     if (!submitted) {
         ACS_LOG_ERROR("CRenderer::EndFrame: command submission failed");
-        return false;
+        NotifyFrameEnd_Internal(result);
+        return result;
     }
+    result.submitted = true;
     if (!m_Swapchain->Present()) {
         ACS_LOG_ERROR("CRenderer::EndFrame: swapchain present failed");
-        return false;
+        NotifyFrameEnd_Internal(result);
+        return result;
     }
-    return true;
+    result.presented = true;
+    NotifyFrameEnd_Internal(result);
+    return result;
 }
 
 bool CRenderer::EndFrame() noexcept {
+    return EndFrameDetailed().presented;
+}
+
+FRendererFrameEndResult CRenderer::EndFrameDetailed() noexcept {
     return EndFrameInternal(false);
 }
 
 bool CRenderer::EndFrameWithoutGpuWait() noexcept {
+    return EndFrameWithoutGpuWaitDetailed().presented;
+}
+
+FRendererFrameEndResult
+CRenderer::EndFrameWithoutGpuWaitDetailed() noexcept {
     return EndFrameInternal(true);
 }
 
 bool CRenderer::OnResize(u32 width, u32 height) noexcept {
+    if (m_bFrameOpen) {
+        ACS_LOG_WARN(
+            "CRenderer::OnResize: 未提出フレームが開いているためリサイズを延期します");
+        return false;
+    }
     if (!m_Swapchain) return false;
-    if (m_Device) m_Device->WaitIdle();
+    if (!TryWaitForGpuIdle()) return false;
     if (!m_Swapchain->Resize(width, height)) {
         // リサイズ失敗 (バックバッファ未取得状態)。深度再構築や本フレームの描画を行わず、
         // 次フレームの再 Resize に委ねる。BeginRenderToSwapchain 側も null バックバッファを

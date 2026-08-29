@@ -154,6 +154,207 @@ ACS_TEST(LegacyScene3DCameraContract,
 #endif
 }
 
+ACS_TEST(LegacyScene3DCloudSubmission,
+         UsesExactSameFrameSubmitResultInNormalCppGames) {
+    const std::string header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.h");
+    const std::string source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string game_header = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/Game.h");
+    const std::string game_source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/Game.cpp");
+    const std::string renderer_header = ReadLegacyCameraWorkspaceSource(
+        "src/render/Renderer.h");
+    const std::string renderer_source = ReadLegacyCameraWorkspaceSource(
+        "src/render/Renderer.cpp");
+    const std::string application_source = ReadLegacyCameraWorkspaceSource(
+        "src/app/Application.cpp");
+    const std::string scene_manager_source = ReadLegacyCameraWorkspaceSource(
+        "src/gameframework/SceneManager.cpp");
+    const std::string sky_source = ReadLegacyCameraWorkspaceSource(
+        "src/render/Sky.cpp");
+    EXPECT_FALSE(header.empty());
+    EXPECT_FALSE(source.empty());
+    EXPECT_FALSE(game_header.empty());
+    EXPECT_FALSE(game_source.empty());
+    EXPECT_FALSE(renderer_header.empty());
+    EXPECT_FALSE(renderer_source.empty());
+    EXPECT_FALSE(application_source.empty());
+    EXPECT_FALSE(scene_manager_source.empty());
+    EXPECT_FALSE(sky_source.empty());
+
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header, "void ResolveFrameSubmission(bool submitted) noexcept;"));
+    EXPECT_TRUE(IsNonVirtualDeclarationLine(
+        header,
+        "bool ResolveFrameSubmission(u64 submission_id, bool submitted) noexcept;"));
+    EXPECT_TRUE(header.find(
+        "void OnWorldSubsystemsReady_Internal() noexcept override;")
+        != std::string::npos);
+    EXPECT_TRUE(header.find(
+        "bool TryBindFrameSubmission_Internal() noexcept;")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "submission->TryBind(this, &ResolveFrameSubmissionCallback)")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "result.submission_id, result.submitted);")
+        != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "submission_id, submitted);") != std::string::npos);
+    const std::size_t bool_resolve = sky_source.find(
+        "void CVolumetricClouds::ResolveRecordedFrameSubmission(\n"
+        "    bool submitted) noexcept {");
+    EXPECT_TRUE(bool_resolve != std::string::npos);
+    if (bool_resolve != std::string::npos) {
+        const std::size_t bool_resolve_end = sky_source.find(
+            "bool CVolumetricClouds::ResolveRecordedFrameSubmission(\n"
+            "    u64 submission_id, bool submitted) noexcept", bool_resolve);
+        EXPECT_TRUE(bool_resolve_end != std::string::npos);
+        if (bool_resolve_end != std::string::npos) {
+            const std::string bool_resolve_body = sky_source.substr(
+                bool_resolve, bool_resolve_end - bool_resolve);
+            EXPECT_TRUE(bool_resolve_body.find(
+                "recorded_frame.submission_id != 0u") != std::string::npos);
+        }
+    }
+    const std::size_t retry_bind = source.find(
+        "if (!TryBindFrameSubmission_Internal()) return;");
+    const std::size_t stale_candidate = source.find(
+        "if (m_Clouds.RecordedFramePending())", retry_bind);
+    const std::size_t stale_id = source.find(
+        "m_Clouds.RecordedFrameSubmissionId();", stale_candidate);
+    const std::size_t discard_stale = source.find(
+        "m_Clouds.ResolveRecordedFrameSubmission(", stale_id);
+    const std::size_t discard_untagged_stale = source.find(
+        "m_Clouds.ResolveRecordedFrameSubmission(false);", discard_stale);
+    const std::size_t record_current = source.find(
+        "m_Clouds.RenderComputeCameraRelative(", discard_untagged_stale);
+    EXPECT_TRUE(retry_bind != std::string::npos);
+    EXPECT_TRUE(stale_candidate != std::string::npos);
+    EXPECT_TRUE(stale_id != std::string::npos);
+    EXPECT_TRUE(discard_stale != std::string::npos);
+    EXPECT_TRUE(discard_untagged_stale != std::string::npos);
+    EXPECT_TRUE(record_current != std::string::npos);
+    EXPECT_TRUE(retry_bind < stale_candidate);
+    EXPECT_TRUE(stale_candidate < stale_id);
+    EXPECT_TRUE(stale_id < discard_stale);
+    EXPECT_TRUE(discard_stale < discard_untagged_stale);
+    EXPECT_TRUE(discard_untagged_stale < record_current);
+
+    EXPECT_TRUE(game_header.find(
+        "bool OnCustomFrame() noexcept override;")
+        != std::string::npos);
+    EXPECT_TRUE(game_header.find(
+        "void PublishFrameEndResult_Internal(")
+        != std::string::npos);
+    EXPECT_TRUE(game_source.find(
+        "TryBindFrameLifecycleListener(") != std::string::npos);
+    EXPECT_TRUE(game_source.find(
+        "game->m_FrameSubmissionScene = game->m_Scenes.Top();")
+        != std::string::npos);
+    EXPECT_TRUE(game_source.find(
+        "if (scene == nullptr || m_Scenes.Top() != scene) return;")
+        != std::string::npos);
+    const std::size_t detailed_end = game_source.find(
+        "renderer.EndFrameDetailed();");
+    const std::size_t present_check = game_source.find(
+        "if (!result.presented)", detailed_end);
+    EXPECT_TRUE(detailed_end != std::string::npos);
+    EXPECT_TRUE(present_check != std::string::npos);
+    EXPECT_TRUE(detailed_end < present_check);
+    EXPECT_TRUE(renderer_header.find(
+        "bool TryBindFrameLifecycleListener(") != std::string::npos);
+    EXPECT_TRUE(renderer_header.find(
+        "bool IsFrameOpen() const noexcept") != std::string::npos);
+    EXPECT_TRUE(renderer_header.find(
+        "u64 CurrentFrameSubmissionId() const noexcept")
+        != std::string::npos);
+    EXPECT_TRUE(renderer_header.find(
+        "bool TryWaitForGpuIdle() noexcept;") != std::string::npos);
+    const std::size_t bind_listener = renderer_source.find(
+        "bool CRenderer::TryBindFrameLifecycleListener(");
+    const std::size_t bind_open_guard = renderer_source.find(
+        "if (m_bFrameOpen) return false;", bind_listener);
+    const std::size_t bind_commit = renderer_source.find(
+        "m_FrameListener = listener;", bind_open_guard);
+    const std::size_t unbind_listener = renderer_source.find(
+        "void CRenderer::UnbindFrameLifecycleListener(");
+    const std::size_t unbind_open_guard = renderer_source.find(
+        "if (m_bFrameOpen) return;", unbind_listener);
+    const std::size_t unbind_commit = renderer_source.find(
+        "m_FrameListener = nullptr;", unbind_open_guard);
+    EXPECT_TRUE(bind_listener != std::string::npos);
+    EXPECT_TRUE(bind_open_guard != std::string::npos);
+    EXPECT_TRUE(bind_commit != std::string::npos);
+    EXPECT_TRUE(bind_open_guard < bind_commit);
+    EXPECT_TRUE(unbind_listener != std::string::npos);
+    EXPECT_TRUE(unbind_open_guard != std::string::npos);
+    EXPECT_TRUE(unbind_commit != std::string::npos);
+    EXPECT_TRUE(unbind_open_guard < unbind_commit);
+    const std::size_t apply_pending = scene_manager_source.find(
+        "void CSceneManager::ApplyPending_Internal(");
+    const std::size_t open_frame_gate = scene_manager_source.find(
+        "if (m_PendingOp != EOp::None && renderer.IsFrameOpen())",
+        apply_pending);
+    const std::size_t retirement_wait = scene_manager_source.find(
+        "renderer.TryWaitForGpuIdle()", open_frame_gate);
+    const std::size_t consume_pending = scene_manager_source.find(
+        "EOp op = m_PendingOp;", retirement_wait);
+    EXPECT_TRUE(apply_pending != std::string::npos);
+    EXPECT_TRUE(open_frame_gate != std::string::npos);
+    EXPECT_TRUE(retirement_wait != std::string::npos);
+    EXPECT_TRUE(consume_pending != std::string::npos);
+    EXPECT_TRUE(apply_pending < open_frame_gate);
+    EXPECT_TRUE(open_frame_gate < retirement_wait);
+    EXPECT_TRUE(retirement_wait < consume_pending);
+    const std::size_t game_shutdown = game_source.find(
+        "void CGame::OnShutdown() noexcept");
+    const std::size_t shutdown_open_frame = game_source.find(
+        "if (renderer.IsFrameOpen()) renderer.Shutdown();", game_shutdown);
+    const std::size_t shutdown_unbind = game_source.find(
+        "renderer.UnbindFrameLifecycleListener(this);", shutdown_open_frame);
+    const std::size_t shutdown_scenes = game_source.find(
+        "m_Scenes.ExecutionAccess().ShutdownAll();", shutdown_unbind);
+    EXPECT_TRUE(game_shutdown != std::string::npos);
+    EXPECT_TRUE(shutdown_open_frame != std::string::npos);
+    EXPECT_TRUE(shutdown_unbind != std::string::npos);
+    EXPECT_TRUE(shutdown_scenes != std::string::npos);
+    EXPECT_TRUE(shutdown_open_frame < shutdown_unbind);
+    EXPECT_TRUE(shutdown_unbind < shutdown_scenes);
+    const std::size_t application_idle = application_source.find(
+        "m_Renderer.Device()->WaitIdle();");
+    const std::size_t application_shutdown = application_source.find(
+        "OnShutdown();", application_idle);
+    EXPECT_TRUE(application_idle != std::string::npos);
+    EXPECT_TRUE(application_shutdown != std::string::npos);
+    EXPECT_TRUE(application_idle < application_shutdown);
+    const std::size_t end_frame = renderer_source.find(
+        "FRendererFrameEndResult CRenderer::EndFrameInternal(");
+    const std::size_t submission_id_result = renderer_source.find(
+        "result.submission_id = m_CurrentFrameSubmissionId;", end_frame);
+    const std::size_t submit_result = renderer_source.find(
+        "result.submitted = true;", submission_id_result);
+    const std::size_t present_call = renderer_source.find(
+        "m_Swapchain->Present()", submit_result);
+    const std::size_t present_result = renderer_source.find(
+        "result.presented = true;", present_call);
+    const std::size_t automatic_notify = renderer_source.find(
+        "NotifyFrameEnd_Internal(result);", present_result);
+    EXPECT_TRUE(end_frame != std::string::npos);
+    EXPECT_TRUE(submission_id_result != std::string::npos);
+    EXPECT_TRUE(submit_result != std::string::npos);
+    EXPECT_TRUE(present_call != std::string::npos);
+    EXPECT_TRUE(present_result != std::string::npos);
+    EXPECT_TRUE(automatic_notify != std::string::npos);
+    EXPECT_TRUE(end_frame < submission_id_result);
+    EXPECT_TRUE(submission_id_result < submit_result);
+    EXPECT_TRUE(submit_result < present_call);
+    EXPECT_TRUE(present_call < present_result);
+    EXPECT_TRUE(present_result < automatic_notify);
+}
+
 ACS_TEST(LegacyScene3DUpdate,
          ForwardsEachVariableUpdateToDerivedTickHook) {
     CCameraSelectionTestScene runtime;
@@ -388,7 +589,7 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
 }
 
 ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
-         BuildsAfterCloudsAndFallsBackToVisibleSkyEnvironment) {
+         BuildsFromLastSubmittedCloudsBeforeRecordingTheNextCandidate) {
     const std::string header = ReadLegacyCameraWorkspaceSource(
         "src/gameframework/LegacyScene3DAdapter.h");
     const std::string source = ReadLegacyCameraWorkspaceSource(
@@ -401,18 +602,18 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
 
     const std::size_t render = source.find(
         "void ALegacyScene3DAdapter::OnRender(");
-    const std::size_t clouds = source.find(
-        "RenderClouds(*device, context.Cmd()", render);
     const std::size_t environment = source.find(
-        "EnsureEnvironmentLighting(*device, context.Cmd())", clouds);
+        "EnsureEnvironmentLighting(*device, context.Cmd())", render);
+    const std::size_t clouds = source.find(
+        "RenderClouds(", environment);
     const std::size_t hdr = source.find(
-        "EnsureHdrFrameResources(", environment);
+        "EnsureHdrFrameResources(", clouds);
     EXPECT_TRUE(render != std::string::npos);
     EXPECT_TRUE(clouds != std::string::npos);
     EXPECT_TRUE(environment != std::string::npos);
     EXPECT_TRUE(hdr != std::string::npos);
-    EXPECT_TRUE(clouds < environment);
-    EXPECT_TRUE(environment < hdr);
+    EXPECT_TRUE(environment < clouds);
+    EXPECT_TRUE(clouds < hdr);
 
     const auto render_clouds_begin = source.find("void ALegacyScene3DAdapter::RenderClouds(");
     const auto render_clouds_end = source.find("void ALegacyScene3DAdapter::CompositeClouds(", render_clouds_begin);
@@ -420,8 +621,33 @@ ACS_TEST(LegacyScene3DCloudEnvironmentLighting,
     EXPECT_TRUE(render_clouds_end != source.npos);
     if (render_clouds_begin != source.npos && render_clouds_end != source.npos) {
         const auto render_clouds = source.substr(render_clouds_begin, render_clouds_end - render_clouds_begin);
-        EXPECT_TRUE(render_clouds.find("m_CloudsDrawn = m_Clouds.LastFrameWorkload().submitted;") != render_clouds.npos);
+        EXPECT_TRUE(render_clouds.find(
+            "m_CloudsDrawn = m_Clouds.RecordedCloudFramePending();")
+            != render_clouds.npos);
         EXPECT_TRUE(render_clouds.find("m_CloudsDrawn = true;") == render_clouds.npos);
+        // 対応バックエンドでは描画フレームを止めず、段階初期化の完了まで雲を公開しない。
+        EXPECT_TRUE(render_clouds.find(
+            "device.SupportsAsyncShaderCompilation()") != render_clouds.npos);
+        EXPECT_TRUE(render_clouds.find(
+            "m_Clouds.BeginInitializationAsync(") != render_clouds.npos);
+        EXPECT_TRUE(render_clouds.find(
+            "m_Clouds.AdvanceInitialization(device)") != render_clouds.npos);
+        // 初期化済みの段階を再開始せず、開始または進行のどちらか一方だけを選ぶ。
+        const std::size_t pending_gate = render_clouds.find(
+            "const bool initialization_pending = m_Clouds.InitializationPending();");
+        const std::size_t begin_call = render_clouds.find(
+            "m_Clouds.BeginInitializationAsync(", pending_gate);
+        const std::size_t advance_call = render_clouds.find(
+            "m_Clouds.AdvanceInitialization(device)", pending_gate);
+        EXPECT_TRUE(pending_gate != std::string::npos);
+        EXPECT_TRUE(begin_call != std::string::npos);
+        EXPECT_TRUE(advance_call != std::string::npos);
+        EXPECT_TRUE(pending_gate < begin_call);
+        EXPECT_TRUE(begin_call < advance_call);
+        EXPECT_TRUE(render_clouds.find(
+            "} else {\n"
+            "            const auto initialized = m_Clouds.Init(")
+            != render_clouds.npos);
     }
 
     const std::size_t ensure_begin = source.find(

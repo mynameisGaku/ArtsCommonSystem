@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-#pragma once
+#ifndef ACS_GAMEFRAMEWORK_GAME_H
+#define ACS_GAMEFRAMEWORK_GAME_H
+
 
 #include "app/Application.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Move.h"
 #include "render/Font.h"
+#include "render/RendererFrameEndResult.h"
 #include "render/SpriteBatch.h"
 #include "gameframework/Forward.h"
 #include "gameframework/SceneManager.h"
@@ -266,6 +269,12 @@ protected:
     void OnRender()   noexcept override;
 
     /**
+     * 標準C++ゲームの描画を所有する。
+     * GPU提出結果はCRendererのフレーム境界通知から記録元Worldへ自動で返す。
+     */
+    bool OnCustomFrame() noexcept override;
+
+    /**
      * 終了フック。全シーンとフォント・overlay リソースを解放する。
      *
      * @details 派生がさらに override する場合は基底を呼ぶこと。
@@ -281,6 +290,18 @@ protected:
     void OnEvent(const FEvent& e) noexcept override;
 
 private:
+    /** CRendererがフレームを開始した時点のシーンを記録する。 */
+    static void HandleRendererFrameBegin_Internal(void* listener) noexcept;
+
+    /** CRendererが返した終了結果を開始時と同じシーンへ通知する。 */
+    static void HandleRendererFrameEnd_Internal(
+        void* listener,
+        const FRendererFrameEndResult& result) noexcept;
+
+    /** 開始時に記録したシーンが現在も有効な場合だけ終了結果を渡す。 */
+    void PublishFrameEndResult_Internal(
+        const FRendererFrameEndResult& result) noexcept;
+
     /** 入力source結線の世代を進め、使い切った場合はsnapshot取得不能な0へ移す。 */
     void AdvanceFixedInputSourceEpoch_Internal() noexcept;
 
@@ -298,6 +319,9 @@ private:
 
     /** シーンマネージャ (AScene の push/pop/切替を管理)。 */
     CSceneManager  m_Scenes;
+
+    /** 現在記録中のフレームを開始した非所有シーン。 */
+    AScene* m_FrameSubmissionScene = nullptr;
 
     /** AScene 描画に渡すレンダーコンテキスト。 */
     FRenderContext m_RenderCtx;
@@ -361,3 +385,5 @@ private:
 };
 
 } // namespace acs::game
+
+#endif // ACS_GAMEFRAMEWORK_GAME_H

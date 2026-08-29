@@ -6,6 +6,8 @@
 #include "gameframework/FixedStepInputBufferSnapshot.h"
 #include "gameframework/RenderContext.h"
 
+#include "render/Renderer.h"
+
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
@@ -177,6 +179,22 @@ bool CSceneManager::TryRestoreActiveFixedInputSnapshot(const FFixedStepInputBuff
 
 /** ring buffer を前進させて古い退場 Scene を破棄し、保留中の遷移を適用する。 */
 void CSceneManager::ApplyPending_Internal(CGame& game) noexcept {
+    CRenderer& renderer = game.GetRenderer();
+    // 描画中はtopを固定し、開始時に記録したWorldへ同じフレームの提出結果を返す。
+    if (m_PendingOp != EOp::None && renderer.IsFrameOpen()) {
+        ACS_LOG_WARN(
+            "CSceneManager: 描画フレーム中のシーン遷移を次のフレーム境界まで延期します");
+        return;
+    }
+    const bool retires_active_scene =
+        (m_PendingOp == EOp::Change && !m_Stack.IsEmpty()) ||
+        (m_PendingOp == EOp::Pop && m_Stack.Num() > 1u);
+    // OnExitはGPU資源を解放できるため、最後の提出が完了してから退場させる。
+    if (retires_active_scene && !renderer.TryWaitForGpuIdle()) {
+        ACS_LOG_WARN(
+            "CSceneManager: GPU完了待機を開始できないためシーン遷移を延期します");
+        return;
+    }
     // GPU N+1 frame 遅延削除: ring を 1 つ前進し、新ヘッド位置のスロットを
     // 解放する (= 3 フレーム前に退場した Scene を今ここで破棄)。フレーム
     // インフライト 2 + 1 で「直前 2 フレームを GPU が参照中でも安全」を保つ。

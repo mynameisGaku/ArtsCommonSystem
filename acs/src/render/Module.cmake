@@ -86,6 +86,7 @@ set(_acsgen_render_headers
     RenderGraphResourceLifetime.h
     RenderGraphTransientAlias.h
     Renderer.h
+    RendererFrameEndResult.h
     RhiPipelineBindDomain.h
     RhiPipelineBindPolicy.h
     RhiTypes.h

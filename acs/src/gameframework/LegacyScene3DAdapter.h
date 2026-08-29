@@ -28,6 +28,7 @@
 #include "render/Blit.h"
 #include "render/PbrShader.h"
 #include "render/PostProcess.h"
+#include "render/RendererFrameEndResult.h"
 #include "render/RenderAssets.h"
 #include "render/Sky.h"
 #include "render/Sprite3DRenderer.h"
@@ -789,6 +790,19 @@ public:
             static_cast<u64>(surface.m_Packed));
     }
 
+    /**
+     * このシーンが直前に記録した雲命令へ、実際のGPU提出結果を返す公開アダプター。
+     * CGameの標準経路はID付きで自動通知する。独自描画ホストが結果を遅延または
+     * 再送する場合は、別候補への誤適用を防ぐためID付き入口を使う。
+     */
+    void ResolveFrameSubmission(bool submitted) noexcept;
+
+    /**
+     * 指定した提出IDの雲候補だけへGPU提出結果を返す公開アダプター。
+     * 遅延・重複通知はfalseを返して現在候補を変更しない。
+     */
+    bool ResolveFrameSubmission(u64 submission_id, bool submitted) noexcept;
+
     /** 固定tick自由カメラへ使うscene入力サービスを要求する。 */
     ESvc WantedServices() const noexcept override
     {
@@ -804,6 +818,9 @@ public:
     void OnRender(FRenderContext& context) noexcept override;
 
 protected:
+    /** World提出通知へこの3Dシーンを登録する。 */
+    void OnWorldSubsystemsReady_Internal() noexcept override;
+
     /**
      * 透明 3D 追加描画へ渡す、そのフレームだけの値コンテキスト。
      *
@@ -852,6 +869,14 @@ protected:
     }
 
 private:
+    /** Worldの提出通知へ未登録なら再試行し、登録済みならtrueを返す。 */
+    bool TryBindFrameSubmission_Internal() noexcept;
+
+    /** World提出通知を公開アダプターへ転送するlistener関数。 */
+    static void ResolveFrameSubmissionCallback(
+        void* listener,
+        const FRendererFrameEndResult& result) noexcept;
+
     struct FCustomGpuMesh {
         AMeshComponent3D* Component = nullptr;
         FGpuMesh Mesh;
@@ -1205,7 +1230,7 @@ private:
      * @param height 画面の高さ。
      */
     void RenderClouds(IRhiDevice& device, IRhiCommandList& command_list,
-                      u32 width, u32 height) noexcept;
+                      u32 width, u32 height, u64 submission_id) noexcept;
 
     /**
      * 計算した雲を画面へ乗せる。

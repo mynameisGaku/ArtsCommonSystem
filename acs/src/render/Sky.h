@@ -819,6 +819,8 @@ enum class EVolumetricCloudFrameSkipReason : u32 {
     ResourcesNotReady = 1u,
     InvalidCamera = 2u,
     InvalidProjection = 3u,
+    PreparingDensityFields = 4u,
+    SubmissionFailed = 5u,
 };
 
 /**
@@ -1152,15 +1154,38 @@ FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
 FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(FVec3 ray_origin, FVec3 ray_direction, const FVolumetricCloudLayer& layer, f32 max_distance = kVolumetricCloudMaxDistance, FVec3 world_origin = FVec3{}, u32 maximum_samples = kVolumetricCloudMaxViewMarchSamples) noexcept;
 
 /**
- * Return true when lighting changes make accumulated cloud color stale.
+ * 照明入力が変わったかを成分単位で返す。
  *
- * Direction is expected to be normalized, matching RenderCompute's stored
- * frame signature.
+ * これは値の同一性を判定する互換ヘルパーであり、時間履歴を毎回破棄する
+ * 判定には使わない。連続する照明変化は次の時間再構成関数で扱う。
  */
 bool VolumetricCloudLightingChanged(
     FVec3 previous_sun_direction, FVec3 previous_sun_color,
     FVec3 previous_sky_color, FVec3 sun_direction,
     FVec3 sun_color, FVec3 sky_color) noexcept;
+
+/**
+ * 前後フレームの照明差を、時間履歴へ反映する割合へ変換する。
+ *
+ * 形状や密度の不連続ではない照明変化を画面履歴へ連続反映するための値で、
+ * 0 は同一、1 は現在フレームをそのまま採用するべき変化を表す。非有限値は
+ * 誤った放射輝度を履歴へ残さないため1を返す。
+ *
+ * @param previous_lighting 前フレームに提出済みの雲照明設定。
+ * @param previous_sun_direction 前フレームの太陽方向。
+ * @param previous_sun_color 前フレームの太陽放射輝度。
+ * @param previous_sky_color 前フレームの視線方向の空放射輝度。
+ * @param lighting 現在フレームの雲照明設定。
+ * @param sun_direction 現在フレームの太陽方向。
+ * @param sun_color 現在フレームの太陽放射輝度。
+ * @param sky_color 現在フレームの視線方向の空放射輝度。
+ * @return 現在値へ寄せる割合。0以上1以下。
+ */
+f32 VolumetricCloudLightingTemporalMismatch(
+    const FVolumetricCloudLighting& previous_lighting,
+    FVec3 previous_sun_direction, FVec3 previous_sun_color,
+    FVec3 previous_sky_color, const FVolumetricCloudLighting& lighting,
+    FVec3 sun_direction, FVec3 sun_color, FVec3 sky_color) noexcept;
 
 /**
  * 通常移動と、履歴を破棄すべき不連続なカメラ切替を見分ける。
@@ -1215,9 +1240,38 @@ public:
     /** RHIデバイスへ触れず、Raw DX12用HLSLをCPUでコンパイルする。 */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
 
-    /** 雲シェーダー一式を描画バックエンド管理のコンパイラープールへ投入する。 */
+    /**
+     * 雲シェーダー一式を描画バックエンド管理のコンパイラープールへ投入する。
+     *
+     * @details 既存利用側との互換経路。巨大な雲入口を同時に処理するため、通常は
+     * BeginInitializationAsync と AdvanceInitialization の段階初期化を使う。
+     */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
         IRhiDevice& device) noexcept;
+
+    /**
+     * 巨大な雲シェーダーを同時に複製せず、段階的な非同期初期化を開始する。
+     *
+     * @details 雲本体、光キャッシュ、立体物用雲影の順に一つずつ進める。
+     * 完成前の資源は描画へ公開しないため、途中状態の明るさ変化や履歴混入は起こさない。
+     * @param device 非同期シェーダーコンパイルに対応するRHIデバイス。
+     * @param hdr_format 雲を合成するHDR描画先の形式。
+     * @return 開始できた場合は成功。非対応デバイスや再入時はエラー。
+     */
+    TResult<void> BeginInitializationAsync(
+        IRhiDevice& device,
+        EFormat hdr_format = EFormat::R16G16B16A16_Float) noexcept;
+
+    /**
+     * 段階的な非同期初期化を待機せず一段だけ進める。
+     *
+     * @param device 開始時と同じRHIデバイス。
+     * @return 完全な雲描画資源を公開済みならtrue、処理中ならfalse。
+     */
+    TResult<bool> AdvanceInitialization(IRhiDevice& device) noexcept;
+
+    /** 段階的な非同期初期化が進行中ならtrueを返す。 */
+    bool InitializationPending() const noexcept;
 
     /**
      * Create owner-thread resources from CPU-compiled bytecode and publish the
@@ -1350,11 +1404,20 @@ public:
         return m_ShadowCacheAvailable;
     }
 
-    /** 現在または直近3フレーム以内の密度場から生成した影キャッシュを利用できるか。 */
+    /** GPU提出成功済みの影キャッシュを利用できるか。 */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
-    /** 現在フレームの立体物用雲影透過率地図と座標情報を返す。 */
+    /** GPU提出成功済みの立体物用雲影透過率地図と座標情報を返す。 */
     FVolumetricCloudWorldShadowMap WorldShadowMap() const noexcept;
+
+    /**
+     * 指定した命令一覧へ記録中の立体物用雲影を返す。
+     *
+     * @param command_list 雲影を生成した命令一覧。
+     * @return 同じ一覧かつ設定世代も同じなら記録中の候補、それ以外は提出成功済みの雲影。
+     */
+    FVolumetricCloudWorldShadowMap WorldShadowMap(
+        const IRhiCommandList& command_list) const noexcept;
 
     /** 立体物用雲影透過率地図を生成したフレーム数。 */
     u64 WorldShadowDispatchCount() const noexcept {
@@ -1371,15 +1434,54 @@ public:
         return m_WorldShadowValid;
     }
 
-    /** Exact submitted-work accounting for the latest compute/composite frame. */
+    /** 直近の雲計算と合成について、記録量と提出結果を返す。 */
     const FVolumetricCloudFrameWorkload& LastFrameWorkload() const noexcept {
         return m_LastFrameWorkload;
     }
 
-    /** Full-resolution resolved cloud distance/confidence for later fog passes. */
-    IRhiTexture* ResolvedDepth() const noexcept {
-        return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
-    }
+    /** GPU提出成功済みの全解像度雲距離を返す。 */
+    IRhiTexture* ResolvedDepth() const noexcept;
+
+    /**
+     * 指定した命令一覧へ記録中の全解像度雲距離を返す。
+     *
+     * @param command_list 雲距離を生成した命令一覧。
+     * @return 同じ一覧かつ設定世代も同じなら記録中の候補、それ以外は提出成功済みの雲距離。
+     */
+    IRhiTexture* ResolvedDepth(
+        const IRhiCommandList& command_list) const noexcept;
+
+    /** GPU提出結果を待つ雲命令がある場合にtrueを返す。 */
+    bool RecordedFramePending() const noexcept;
+
+    /** 提出結果を待つ雲命令の外部提出IDを返す。未指定または候補がなければ0。 */
+    u64 RecordedFrameSubmissionId() const noexcept;
+
+    /** 提出結果待ちの命令に、現在設定と互換な画面用雲追跡が含まれる場合にtrueを返す。 */
+    bool RecordedCloudFramePending() const noexcept;
+
+    /**
+     * 直前に記録した雲命令を、GPU提出結果に応じて確定または破棄する。
+     *
+     * @details Submit直後に同期して呼ぶ既存コード向け。結果を遅延または再送する
+     * 呼び出し元は、別候補への誤適用を防ぐため提出ID付き入口を使う。
+     * @param submitted 命令一覧のSubmitが成功した場合はtrue。
+     * 失敗時は密度場、影、履歴、更新番号を一切進めず再試行可能にする。
+     */
+    void ResolveRecordedFrameSubmission(bool submitted) noexcept;
+
+    /**
+     * 指定した提出IDの雲命令だけを、GPU提出結果に応じて確定または破棄する。
+     *
+     * @param submission_id BeginFrameまたは雲内部で発行した提出ID。
+     * @param submitted 命令一覧をGPUキューへ投入できた場合はtrue。
+     * @return 現在の候補とIDが一致し、結果を適用した場合はtrue。
+     */
+    bool ResolveRecordedFrameSubmission(
+        u64 submission_id, bool submitted) noexcept;
+
+    /** 初期化済みGPU資源が指定デバイスに属する場合にtrueを返す。 */
+    bool IsInitializedForDevice(const IRhiDevice& device) const noexcept;
 
     /**
      * 環境光へ焼く雲設定の決定論的な署名を返す。
@@ -1453,7 +1555,8 @@ public:
      */
     void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                        FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
-                       f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+                       f32 coverage, f32 density, f32 wind, f32 time,
+                       u64 submission_id = 0u) noexcept;
 
     /**
      * カメラ相対逆行列で視線精度を保ちながら雲を描く。
@@ -1461,7 +1564,7 @@ public:
      * @param camera_relative_inv_view_proj 平行移動を含めず BuildCameraRelativeInverseViewProjection() で作った逆行列。
      * 行列またはカメラ位置が非数なら雲を描かず、時間履歴を破棄する。
      */
-    void RenderComputeCameraRelative(IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+    void RenderComputeCameraRelative(IRhiCommandList& cl, const FMat4& camera_relative_inv_view_proj, FVec3 cam_pos, FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color, f32 coverage, f32 density, f32 wind, f32 time, u64 submission_id = 0u) noexcept;
 
     /**
      * 雲 (straight 散乱色+alpha) を現在の RT へ alpha blend する。
@@ -1483,8 +1586,86 @@ public:
     void Shutdown() noexcept;
 
 private:
+    /** 巨大な三つの入口を同時コンパイルしないための段階。 */
+    enum class EAsyncInitializationState : u8 {
+        Idle = 0,
+        MandatoryShaders,
+        ShadowShader,
+        WorldShadowShader,
+    };
+
     /** 中心付き周期最大値階層に必要なGPU資源を一つの寿命へまとめる。 */
     struct FNoiseFilterResources {
+        /** GPU提出成功後にだけ本体へ公開する一回分の雲状態。 */
+        struct FRecordedFrameState {
+            /** 命令を記録した一覧。同じ一覧内の後続合成だけが未提出値を利用できる。 */
+            IRhiCommandList* command_list = nullptr;
+
+            /** 次回履歴へ公開するカメラ相対行列。 */
+            FMat4 previous_camera_relative_view_projection = FMat4::Identity();
+            FMat4 previous_camera_relative_inverse_view_projection = FMat4::Identity();
+
+            /** 次回履歴へ公開する視点・照明・再基準化位置。 */
+            FVec3 previous_camera_position{};
+            FVec3 world_origin{};
+            FVec3 previous_sun_direction{};
+            FVec3 previous_sun_color{};
+            FVec3 previous_sky_color{};
+            /** 次回履歴へ公開する現在フレームの放射輝度設定。 */
+            FVolumetricCloudLighting current_lighting{};
+
+            /** 自己影と立体物影の次回公開座標。 */
+            FVec2 shadow_grid_minimum_material_xz{};
+            FVec2 shadow_grid_center_material_xz{};
+            FVec2 world_shadow_map_minimum_reference_xz{};
+            FVec3 world_shadow_sun_direction{0.0f, 1.0f, 0.0f};
+            FVec3 world_shadow_world_origin{};
+
+            /** 次回履歴へ公開する連続値。 */
+            f32 previous_wind_offset = 0.0f;
+            f32 previous_wind_speed = 0.0f;
+            f32 previous_coverage = -1.0f;
+            f32 previous_density = -1.0f;
+            f32 previous_time = -1.0f;
+            f32 world_shadow_reference_height = 0.0f;
+            f32 world_shadow_cloud_base_altitude = 0.0f;
+
+            /** 提出成功後に公開する累積回数。 */
+            u64 shadow_cache_dispatch_count = 0u;
+            u64 world_shadow_dispatch_count = 0u;
+            u64 workload_submission_index = 0u;
+            /** この候補を記録したフレームと終了通知を対応付ける提出ID。 */
+            u64 submission_id = 0u;
+            /** 記録時に対応していた雲設定の世代。 */
+            u64 settings_revision = 0u;
+
+            /** 提出成功後に公開する時間再構成の位置。 */
+            u32 frame_index = 0u;
+            u32 temporal_phase = 0u;
+            u32 resolved_index = 0u;
+
+            /** 提出成功後に公開する段階生成状態。 */
+            u8 shadow_cache_warmup_mask = 0u;
+            u8 world_shadow_warmup_mask = 0u;
+            u8 density_bake_stage = 0u;
+
+            /** この状態に対応するGPU命令が未確定ならtrue。 */
+            bool active = false;
+            /** 画面用雲追跡と時間解決も記録済みならtrue。 */
+            bool cloud_frame_recorded = false;
+            /** 各密度場をGPU提出成功済みとして公開する候補値。 */
+            bool noise_baked = false;
+            bool weather_baked = false;
+            bool detail_baked = false;
+            bool curl_baked = false;
+            /** 影座標と履歴の次回公開状態。 */
+            bool world_shadow_mapping_initialized = false;
+            bool shadow_grid_initialized = false;
+            bool shadow_cache_valid = false;
+            bool world_shadow_valid = false;
+            bool history_valid = false;
+        };
+
         /** 128要素の行から複数幅の周期最大値を作る計算シェーダー。 */
         TUniquePtr<IRhiShader> shader;
         /** 最大値階層シェーダーを実行する計算パイプライン。 */
@@ -1494,15 +1675,64 @@ private:
 
         /** 一回目と完成した三回目の軸別最大値を保持する128角RGBA体積。 */
         TUniquePtr<IRhiTexture> filtered_texture;
+
+        /** 段階初期化と完成GPU資源を所有するRHIデバイス。 */
+        IRhiDevice* resource_device = nullptr;
+
+        /** 履歴または影の互換性を変えた雲設定の世代。 */
+        u64 settings_revision = 0u;
+
+        /** 最後に提出できたフレームの雲照明設定。公開クラス外の状態として保持する。 */
+        FVolumetricCloudLighting previous_lighting{};
+
+        /** 段階初期化の現在位置。通常描画中はIdle。 */
+        EAsyncInitializationState initialization_state =
+            EAsyncInitializationState::Idle;
+
+        /** 自己影キャッシュで生成済みの四つの偶奇位置。 */
+        u8 shadow_cache_warmup_mask = 0u;
+
+        /** 立体物用雲影で生成済みの四つの偶奇位置。 */
+        u8 world_shadow_warmup_mask = 0u;
+
+        /** 初回密度場生成で次に実行する段階。0から3が形状、4が形状完成。 */
+        u8 density_bake_stage = 0u;
+
+        /** 立体物影の固定地図座標を一度以上決定済みならtrue。 */
+        bool world_shadow_mapping_initialized = false;
+
+        /** GPU提出結果を待つ一回分の雲状態。 */
+        FRecordedFrameState recorded_frame{};
     };
 
     /** 時間履歴を破棄し、密度場も変わる場合は影キャッシュも破棄する。 */
     void InvalidateCloudHistory_Internal(bool density_field_changed) noexcept;
 
+    /** 現在の雲候補へ提出結果を適用し、適用できた場合はtrueを返す。 */
+    bool ResolveRecordedFrameSubmission_Internal(bool submitted) noexcept;
+
     TResult<void> InitCandidateWithCompiledShaders(
         IRhiDevice& device,
         FCompiledShaders&& shaders,
         EFormat hdr_format) noexcept;
+
+    /** 公開前の必須シェーダー状態をまとめ、待機せず返す。 */
+    EShaderStatus PendingMandatoryShaderStatus_Internal() const noexcept;
+
+    /** 既存の所有欄に保持した公開前シェーダーを一式へ戻す。 */
+    FCompiledShaders TakePendingShaders_Internal() noexcept;
+
+    /** 自己影キャッシュで生成済みの偶奇位置を返す。 */
+    u8 ShadowCacheWarmupMask_Internal() const noexcept;
+
+    /** 自己影キャッシュで生成済みの偶奇位置を置き換える。 */
+    void SetShadowCacheWarmupMask_Internal(u8 mask) noexcept;
+
+    /** 立体物用雲影で生成済みの偶奇位置を返す。 */
+    u8 WorldShadowWarmupMask_Internal() const noexcept;
+
+    /** 立体物用雲影で生成済みの偶奇位置を置き換える。 */
+    void SetWorldShadowWarmupMask_Internal(u8 mask) noexcept;
 
     /** 参照描画 (等倍・再構成なし) か。 */
     bool m_ReferenceMode = false;

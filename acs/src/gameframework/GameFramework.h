@@ -5,6 +5,7 @@
 #include "gameframework/Scene.h"
 #include "gameframework/Draw.h"
 #include "gameframework/LegacyScene3DAdapter.h"
+#include "gameframework/RenderFrameSubmissionSubsystem.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"

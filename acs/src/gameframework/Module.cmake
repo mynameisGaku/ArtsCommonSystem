@@ -102,6 +102,7 @@ set(_acsgen_gameframework_sources
     Reflect.cpp
     ReflectCatalog.cpp
     ReflectSerialize.cpp
+    RenderFrameSubmissionSubsystem.cpp
     ReplayDirector.cpp
     RigidBody2D.cpp
     RigidWorld2D.cpp
@@ -301,6 +302,7 @@ set(_acsgen_gameframework_headers
     ReflectMethod.h
     ReflectSerialize.h
     RenderContext.h
+    RenderFrameSubmissionSubsystem.h
     ReplayDirector.h
     RigidBody2D.h
     RigidWorld2D.h
