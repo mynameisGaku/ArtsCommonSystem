@@ -947,7 +947,9 @@ if(TARGET ACS::Scripting)
 endif()
 
 add_test(NAME ACS.UnitTests COMMAND acs_unit_tests)
-set_tests_properties(ACS.UnitTests PROPERTIES TIMEOUT 120)
+# Debug layer を使う実 GPU パイプライン検証を含むため、低速な検証機でも完走できる
+# 上限を与える。個別停止は各テストの失敗で判定し、全体時間だけで途中終了させない。
+set_tests_properties(ACS.UnitTests PROPERTIES TIMEOUT 900)
 
 # 4byte のシーンハンドルと 8byte の event ハンドルを別契約として独立検証する。
 add_executable(acs_scene_timer_handle_tests

@@ -1,4 +1,50 @@
 # Centralized compiler option helper for ACS targets.
+
+# Ninja は MSVC の /showIncludes 出力からヘッダー依存を記録する。CMake 4.3.1 の
+# 既定検出は UTF-8 の日本語出力をコンソールの文字コードで読み直して接頭辞を壊すため、
+# コンパイラーの生出力を UTF-8 として再検出し、C/C++ の両規則へ同じ値を渡す。
+if(MSVC AND CMAKE_GENERATOR MATCHES "^Ninja")
+    set(_acs_msvc_dependency_probe_dir
+        "${CMAKE_BINARY_DIR}/CMakeFiles/ACSShowIncludes")
+    set(_acs_msvc_dependency_probe_source
+        "${_acs_msvc_dependency_probe_dir}/main.cpp")
+    set(_acs_msvc_dependency_probe_header
+        "${_acs_msvc_dependency_probe_dir}/probe.h")
+    set(_acs_msvc_dependency_probe_object
+        "${_acs_msvc_dependency_probe_dir}/main.obj")
+    file(MAKE_DIRECTORY "${_acs_msvc_dependency_probe_dir}")
+    file(WRITE "${_acs_msvc_dependency_probe_header}" "\n")
+    file(WRITE "${_acs_msvc_dependency_probe_source}"
+        "#include \"probe.h\"\nint main() { return 0; }\n")
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}"
+                ${CMAKE_CXX_COMPILER_ID_ARG1}
+                /nologo /showIncludes /c
+                "${_acs_msvc_dependency_probe_source}"
+                "/Fo${_acs_msvc_dependency_probe_object}"
+        WORKING_DIRECTORY "${_acs_msvc_dependency_probe_dir}"
+        OUTPUT_VARIABLE _acs_msvc_dependency_probe_output
+        ERROR_VARIABLE _acs_msvc_dependency_probe_error
+        RESULT_VARIABLE _acs_msvc_dependency_probe_result
+        ENCODING UTF-8)
+    if(_acs_msvc_dependency_probe_result EQUAL 0 AND
+       "${_acs_msvc_dependency_probe_output}" MATCHES
+       "(^|\n)([^:\n][^:\n]+:[^:\n]*[^: \n][^: \n]:?[ \t]+)([A-Za-z]:\\\\|\\./|\\.\\\\|/)")
+        set(_acs_msvc_dependency_prefix "${CMAKE_MATCH_2}")
+        set(CMAKE_C_CL_SHOWINCLUDES_PREFIX
+            "${_acs_msvc_dependency_prefix}")
+        set(CMAKE_CXX_CL_SHOWINCLUDES_PREFIX
+            "${_acs_msvc_dependency_prefix}")
+        set(CMAKE_CL_SHOWINCLUDES_PREFIX
+            "${_acs_msvc_dependency_prefix}")
+    else()
+        message(FATAL_ERROR
+            "ACS: MSVC のヘッダー依存接頭辞を検出できませんでした。\n"
+            "標準出力: ${_acs_msvc_dependency_probe_output}\n"
+            "標準エラー: ${_acs_msvc_dependency_probe_error}")
+    endif()
+endif()
+
 function(_acs_classify_source_path target_root tree_root source_path result)
     cmake_path(SET _acs_class_target_root NORMALIZE "${target_root}")
     cmake_path(SET _acs_class_tree_root NORMALIZE "${tree_root}")
