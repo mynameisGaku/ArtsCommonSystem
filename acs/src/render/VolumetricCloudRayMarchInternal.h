@@ -6,7 +6,7 @@
 
 namespace acs::render_internal {
 
-/** GPU中心レイと同じ二雲帯・整数セル割当てをCPUで検証する計画。 */
+/** 二雲帯の中心視線について、最大四区間と整数セル割当てをCPUで検証する計画。 */
 struct FVolumetricCloudRayMarchPlanInternal {
     /** 一つの物理雲帯に割り当てた連続区間と細密セル。 */
     struct FInterval {
@@ -27,7 +27,7 @@ struct FVolumetricCloudRayMarchPlanInternal {
     };
 
     /** 視点から近い順に並べた有効区間。 */
-    FInterval intervals[2]{};
+    FInterval intervals[4]{};
 
     /** 局所視程を反映した実際の打ち切り距離。 */
     f32 maximum_distance = 0.0f;
@@ -51,9 +51,18 @@ struct FVolumetricCloudRayMarchPlanInternal {
     bool hit = false;
 };
 
+/** 一つの球殻が正方向に作る、地表遮蔽後の最大二つの連続区間。 */
+struct FVolumetricCloudShellIntervalSetInternal {
+    /** 視点から近い順に並べた連続区間。 */
+    FVolumetricCloudRayInterval intervals[2]{};
+
+    /** 有効区間数。 */
+    u32 interval_count = 0u;
+};
+
 /**
- * GPU中心レイと同じ外殻接線許容差・物理雲帯別予算で、局所視程と距離刻み拡大を含む計画を作る。
- * 画素幅で滑らかにする地面の地平線被覆はGPUだけで評価し、この計画は中心方向の幾何判定を返す。
+ * GPU各サブレイと同じ外殻接線許容差・物理雲帯別予算で、局所視程と距離刻み拡大を含む計画を作る。
+ * GPUの4サブレイ包絡と地面の画素被覆は含めず、この計画は指定した一本の方向の幾何判定を返す。
  *
  * @param ray_origin 光線の始点。
  * @param ray_direction 光線の方向。関数内で正規化する。
@@ -92,6 +101,54 @@ bool ResolveVolumetricCloudSphereRoots_Internal(
 FVolumetricCloudRayInterval ResolveVolumetricCloudShellInterval_Internal(
     FVec3 shell_local_origin, FVec3 normalized_direction,
     const FVolumetricCloudLayer& layer) noexcept;
+
+/**
+ * 一つの物理雲帯を通る全ての正方向区間を求め、最初の惑星表面交点と描画距離で切る。
+ * 内殻を横切る上空・雲中レイは近側と遠側の二区間を保持する。
+ * @param shell_local_origin 曲面雲層の基準原点から見た始点。
+ * @param normalized_direction 正規化済みの方向。
+ * @param layer 対象の物理雲帯。
+ * @param maximum_distance 描画対象とする正の最大距離。
+ * @return 視点から近い順の最大二区間。
+ */
+FVolumetricCloudShellIntervalSetInternal
+ResolveVolumetricCloudShellIntervals_Internal(
+    FVec3 shell_local_origin, FVec3 normalized_direction,
+    const FVolumetricCloudLayer& layer,
+    f32 maximum_distance) noexcept;
+
+/**
+ * 画素内の最大八候補を入力順に依存しない最大二区間へ縮約する。
+ * 全候補を始点順へ並べ、埋める晴天距離が最小となる最大の空隙だけを残す。
+ * @param candidates 雲殻との交差候補。無効値とhit=falseは除外する。
+ * @param candidate_count 候補数。GPU固定配列と同じ8以下だけを受理する。
+ * @return 視点から近い順の包絡区間。入力不正または有効候補なしでは空集合。
+ */
+FVolumetricCloudShellIntervalSetInternal
+ResolveVolumetricCloudIntervalEnvelopePair_Internal(
+    const FVolumetricCloudRayInterval* candidates,
+    u32 candidate_count) noexcept;
+
+/**
+ * 指定した近側または遠側の一連結成分だけを輸送区間で切り出す。
+ * @param intervals 近側・遠側を分離した球殻区間。
+ * @param component_index 0は近側、1は遠側。
+ * @param segment_start 輸送区間の始点。
+ * @param segment_end 輸送区間の終点。
+ * @return 実際に重なる一連結区間。重ならない場合はhit=false。
+ */
+FVolumetricCloudRayInterval
+ResolveVolumetricCloudShellOverlapComponent_Internal(
+    const FVolumetricCloudShellIntervalSetInternal& intervals,
+    u32 component_index, f32 segment_start, f32 segment_end) noexcept;
+
+/**
+ * 輸送区間と球殻区間の重なり長を求める。
+ * 境界が標本点を跨いでも二値化せず、実際に増減した距離だけを返す。
+ */
+f32 ResolveVolumetricCloudShellOverlapLength_Internal(
+    const FVolumetricCloudShellIntervalSetInternal& intervals,
+    f32 segment_start, f32 segment_end) noexcept;
 
 /**
  * 有効な上下雲帯へ、最低探索量を含む物理帯域別の標本予算を予約する。
