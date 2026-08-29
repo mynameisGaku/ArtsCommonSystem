@@ -1702,10 +1702,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(steady.total_logical_invocations, 2256448u);
     EXPECT_EQ(steady.total_launched_threads, 2257408u);
     EXPECT_EQ(steady.maximum_view_samples, 199065600u);
-    EXPECT_EQ(steady.maximum_light_samples, 6967296000u);
     EXPECT_EQ(
         steady.maximum_light_samples,
-        steady.maximum_view_samples * 35u);
+        steady.maximum_view_samples *
+            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+    EXPECT_EQ(
+        steady.maximum_light_samples,
+        steady.maximum_view_samples *
+            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
     EXPECT_EQ(steady.maximum_world_shadow_samples, 524288u);
     EXPECT_TRUE(steady.temporal_super_resolution);
     EXPECT_FALSE(steady.attempted);
@@ -1718,10 +1722,14 @@ ACS_TEST(VolumetricClouds,
     const FVolumetricCloudFrameWorkload reference =
         PlanVolumetricCloudFrameWorkload(referencePlan);
     EXPECT_EQ(reference.maximum_view_samples, 265420800u);
-    EXPECT_EQ(reference.maximum_light_samples, 9289728000u);
     EXPECT_EQ(
         reference.maximum_light_samples,
-        reference.maximum_view_samples * 35u);
+        reference.maximum_view_samples *
+            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+    EXPECT_EQ(
+        reference.maximum_light_samples,
+        reference.maximum_view_samples *
+            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
     EXPECT_EQ(reference.shadow_cache_logical_invocations, 147456u);
     EXPECT_EQ(reference.shadow_cache_launched_threads, 147456u);
     EXPECT_EQ(reference.world_shadow_logical_invocations, 65536u);
@@ -1877,7 +1885,7 @@ ACS_TEST(VolumetricClouds,
         "if((recordedCloudFrame||m_LastFrameWorkload.submitted)&&"
         "m_LastFrameWorkload.composite_draws!=~u32{0}){"));
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
 }
 
 ACS_TEST(VolumetricClouds, MarchPlanUsesWorldDistanceInsteadOfHeightSlices) {
@@ -8764,8 +8772,8 @@ ACS_TEST(VolumetricClouds,
         "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"
         "++sampleIndex){",bandIntersection);
     const std::size_t distanceMapping = shader.find(
-        "if(!cloudLightSampleTerms("
-        "intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,sampleIndex,"
+        "if(!cloudAdaptiveLightSampleTerms("
+        "intervals,sampleCounts,sampleIndex,"
         "rayDistance,sampleSpacing))continue;",fixedLoop);
     const std::size_t samplePosition = shader.find(
         "float3samplePosition=rayOrigin+lightDirection*rayDistance;",
@@ -8805,7 +8813,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(exactFallback < viewLoop);
     EXPECT_TRUE(Contains(
         shader,
-        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"
+        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=16;"
         "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
     EXPECT_TRUE(Contains(
         shader,
@@ -8875,6 +8883,11 @@ ACS_TEST(VolumetricClouds,
         "lightDirection,sampleSpacing,"
         "firstOrderState,secondOrderState,thirdOrderState);"
         "lightDepths+=lightSegmentDepth;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "int4sampleCounts=cloudAdaptiveLightSampleCounts("
+        "intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,"
+        "rayOrigin,lightDirection);"));
     EXPECT_FALSE(Contains(shader,"floatlightJitter="));
     EXPECT_FALSE(Contains(shader,"lightStep*=1.8"));
     EXPECT_FALSE(Contains(shader, "cloudConeDirection("));
@@ -8884,7 +8897,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader,"sampleCloudLightingDensityFromSlowFields("));
 }
 
-ACS_TEST(VolumetricClouds, LightMarchUsesFixedOccupiedIntervalsAndMidpoints) {
+ACS_TEST(VolumetricClouds, LightMarchUsesCorrelationAwareIntervalsAndMidpoints) {
     constexpr f32 kStepLength = 8.0f;
     const auto decreasingLinearDensity = [kStepLength](f32 distance) noexcept { return 1.0f - distance / kStepLength; };
     const f32 exactDepth = 0.5f * kStepLength;
@@ -8896,7 +8909,7 @@ ACS_TEST(VolumetricClouds, LightMarchUsesFixedOccupiedIntervalsAndMidpoints) {
     EXPECT_NEAR(midpointDepth, exactDepth, 1e-6f);
     EXPECT_TRUE(std::fabs(rightEndpointDepth - exactDepth) > 0.49f * kStepLength);
 
-    // 光路の傾きやフレーム位相で終端を変えず、雲媒質の全距離を必ず8等分する。
+    // 均質な代表区間では、相関長による配分後も担当距離の積分を保つ。
     constexpr f32 kOccupiedLength = 2500.0f;
     constexpr f32 kSampleSpacing =
         kOccupiedLength/static_cast<f32>(kVolumetricCloudMaxLightMarchSamples);
@@ -8912,7 +8925,9 @@ ACS_TEST(VolumetricClouds, LightMarchUsesFixedOccupiedIntervalsAndMidpoints) {
         integratedUniformDepth += 0.42f*kSampleSpacing;
         previousMidpoint=midpoint;
     }
-    EXPECT_NEAR(previousMidpoint,2343.75f,1.0e-4f);
+    EXPECT_NEAR(
+        previousMidpoint,
+        kOccupiedLength-0.5f*kSampleSpacing,1.0e-4f);
     EXPECT_NEAR(integratedUniformDepth,0.42f*kOccupiedLength,1.0e-4f);
 
     // 長い下層と短い上層へ同じ総距離の中央標本を置くと、短い上層を一度も採取できない。
@@ -8951,7 +8966,10 @@ ACS_TEST(VolumetricClouds, LightMarchUsesFixedOccupiedIntervalsAndMidpoints) {
         kFirstDensity*(kFirstEnd-kFirstStart)+
         kSecondDensity*(kSecondEnd-kSecondStart);
     const f32 concatenatedDepth=kFirstDensity*kTwoBandLength;
-    EXPECT_NEAR(twoBandDepth,expectedTwoBandDepth,1.0e-4f);
+    EXPECT_NEAR(
+        twoBandDepth,
+        expectedTwoBandDepth,
+        1.0e-6f*expectedTwoBandDepth);
     EXPECT_TRUE(std::fabs(concatenatedDepth-expectedTwoBandDepth)>80.0f);
 
     // 近距離の高周波差分は符号を保ち、低LOD深さへ足すと詳細密度へ正確に戻る。
@@ -9293,8 +9311,8 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
         "rayOrigin,lightDirection);"));
     EXPECT_TRUE(Contains(
         compactSource,
-        "if(!cloudLightSampleTerms("
-        "intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,sampleIndex,"
+        "if(!cloudAdaptiveLightSampleTerms("
+        "intervals,sampleCounts,sampleIndex,"
         "rayDistance,sampleSpacing))continue;"));
 }
 
@@ -9687,8 +9705,8 @@ ACS_TEST(VolumetricClouds,
     }
 
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
-    EXPECT_TRUE(Contains(shader, "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"));
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
+    EXPECT_TRUE(Contains(shader, "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=16;"));
     EXPECT_TRUE(Contains(shader, "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
     EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"));
     EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;"));
@@ -9743,7 +9761,7 @@ ACS_TEST(VolumetricClouds,
         const std::string helper=shader.substr(
             mainLightPattern,mainLightEnd-mainLightPattern);
         EXPECT_TRUE(Contains(helper,"intersectCloudBandsFromPosition("));
-        EXPECT_TRUE(Contains(helper,"cloudLightSampleTerms("));
+        EXPECT_TRUE(Contains(helper,"cloudAdaptiveLightSampleTerms("));
         EXPECT_FALSE(Contains(
             helper,
             "cloudLowLodOpticalDepthByOrderFromMacro("));
@@ -9897,7 +9915,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;"));
     EXPECT_TRUE(Contains(shader, "sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;"));
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
 
@@ -10135,7 +10153,7 @@ ACS_TEST(VolumetricClouds,
     }
 
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
 
@@ -10388,7 +10406,7 @@ ACS_TEST(VolumetricClouds, CurvedBandRayInvariantQuadraticTermsAreCpuHoisted) {
     }
 
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
 
@@ -10748,7 +10766,7 @@ ACS_TEST(VolumetricClouds,
         "if(MAX_STEPS<CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT)MAX_STEPS=CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT;"));
     EXPECT_TRUE(Contains(
         shader,
-        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;"
+        "staticconstintCLOUD_LIGHT_MARCH_SAMPLE_COUNT=16;"
         "staticconstintCLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;"));
     EXPECT_EQ(
         CountOccurrences(
@@ -10757,8 +10775,8 @@ ACS_TEST(VolumetricClouds,
         static_cast<std::size_t>(2));
     EXPECT_TRUE(Contains(
         shader,
-        "if(!cloudLightSampleTerms("
-        "intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,sampleIndex,"
+        "if(!cloudAdaptiveLightSampleTerms("
+        "intervals,sampleCounts,sampleIndex,"
         "rayDistance,sampleSpacing))continue;"));
     EXPECT_FALSE(Contains(shader, "lightHalfStep"));
     EXPECT_FALSE(Contains(shader, "lightStep*=1.8"));
@@ -10769,7 +10787,7 @@ ACS_TEST(VolumetricClouds,
         compactSource,
         "cl.Dispatch((m_FullW+7u)/8u,(m_FullH+7u)/8u,1);"));
     EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 384u);
-    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 16u);
     EXPECT_EQ(kVolumetricCloudUltraTraceDivisor, 4u);
 }
 

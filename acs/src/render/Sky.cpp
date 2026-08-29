@@ -1845,7 +1845,8 @@ static const float CLOUD_SHADOW_CACHE_FILTER_START_CELLS=1.5;
 static const float CLOUD_SHADOW_CACHE_FILTER_FULL_CELLS=2.5;
 // 中心から片側16画素は500 m間隔を保ち、CPUの中心追従半径8 kmと一致させる。
 static const float CLOUD_AMBIENT_CACHE_UNIFORM_RADIUS_CELLS=16.0;
-static const int CLOUD_LIGHT_MARCH_SAMPLE_COUNT=8;
+// 光路の最大標本数。実際の区間数は形状の相関長から毎回求める。
+static const int CLOUD_LIGHT_MARCH_SAMPLE_COUNT=16;
 static const int CLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;
 // CPU公開値 kVolumetricCloudMinViewSteps と一致させ、各有効帯の最低探索量に使う。
 static const int CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT=32;
@@ -3045,6 +3046,109 @@ float cloudUnresolvedDensityCorrelationLengthAtDirection(
         max(cloudShapeScale(),0.0)*inverseDomainDistance;
     return inversePhysicalDistance>1e-8
         ?1.0/inversePhysicalDistance:0.0;
+}
+
+// 光路区間が相関場を何回横切るかを、区間中央の実空間相関長から求める。
+// 相関長が短い区間へ標本を寄せ、長さだけで予算を配ることで生じる柱状化を避ける。
+float cloudLightIntervalSampleDemand(
+    CloudPackedBandIntervals intervals,float3 rayOrigin,
+    float3 rayDirection,int intervalIndex){
+    float intervalStart=intervalIndex==0?intervals.starts.x:
+        (intervalIndex==1?intervals.starts.y:
+        (intervalIndex==2?intervals.starts.z:intervals.starts.w));
+    float intervalEnd=intervalIndex==0?intervals.ends.x:
+        (intervalIndex==1?intervals.ends.y:
+        (intervalIndex==2?intervals.ends.z:intervals.ends.w));
+    float intervalLength=max(intervalEnd-intervalStart,0.0);
+    if(intervalLength<=0.0) return 0.0;
+    float midpoint=intervalStart+0.5*intervalLength;
+    float3 midpointPosition=rayOrigin+rayDirection*midpoint;
+    int bandId=intervalIndex==0?intervals.bandIds.x:
+        (intervalIndex==1?intervals.bandIds.y:
+        (intervalIndex==2?intervals.bandIds.z:intervals.bandIds.w));
+    float correlationLength=cloudUnresolvedDensityCorrelationLengthAtDirection(
+        midpointPosition,rayDirection,bandId>0);
+    if(!cloudValueIsFinite(correlationLength)||correlationLength<=0.0)
+        return 1.0;
+    // 相関長の半分を標本間隔の目安にする。これは密度場の一次相関を
+    // ナイキスト条件で解像するための物理量であり、画面用の係数ではない。
+    return max(1.0,intervalLength/(2.0*correlationLength));
+}
+
+// 相関長に基づく要求量を、最大標本数を越えない整数予算へ変換する。
+// 有効区間ごとに一標本を先に予約し、残りを相関場の横断回数へ比例配分する。
+int4 cloudAdaptiveLightSampleCounts(
+    CloudPackedBandIntervals intervals,int requestedSampleCount,
+    float3 rayOrigin,float3 rayDirection){
+    int4 sampleCounts=int4(0,0,0,0);
+    int intervalCount=clamp(intervals.count,0,4);
+    int safeSampleCount=clamp(
+        requestedSampleCount,0,CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
+    if(intervalCount<=0||safeSampleCount<=0) return sampleCounts;
+    float4 demands=float4(
+        cloudLightIntervalSampleDemand(
+            intervals,rayOrigin,rayDirection,0),
+        cloudLightIntervalSampleDemand(
+            intervals,rayOrigin,rayDirection,1),
+        cloudLightIntervalSampleDemand(
+            intervals,rayOrigin,rayDirection,2),
+        cloudLightIntervalSampleDemand(
+            intervals,rayOrigin,rayDirection,3));
+    if(intervalCount<4) demands.w=0.0;
+    if(intervalCount<3) demands.z=0.0;
+    if(intervalCount<2) demands.y=0.0;
+    float demandSum=max(dot(demands,1.0.xxxx),1e-5);
+    int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
+    int remainingSampleCount=
+        safeSampleCount-reservedPerInterval*intervalCount;
+    int previousTarget=0;
+    float cumulativeDemand=0.0;
+    [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
+        if(intervalIndex<intervalCount){
+            cumulativeDemand+=demands[intervalIndex];
+            int target=intervalIndex==intervalCount-1
+                ?remainingSampleCount
+                :clamp(
+                    (int)round(float(remainingSampleCount)
+                        *cumulativeDemand/demandSum),
+                    previousTarget,remainingSampleCount);
+            sampleCounts[intervalIndex]=reservedPerInterval
+                +max(target-previousTarget,0);
+            previousTarget=target;
+        }
+    }
+    return sampleCounts;
+}
+
+// 相関長から決めた区間予算の番号を、区間中央の標本位置へ写す。
+bool cloudAdaptiveLightSampleTerms(
+    CloudPackedBandIntervals intervals,int4 sampleCounts,int sampleIndex,
+    out float rayDistance,out float sampleSpacing){
+    rayDistance=0.0;
+    sampleSpacing=0.0;
+    bool validSample=false;
+    int sampleStart=0;
+    [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
+        int intervalSampleCount=sampleCounts[intervalIndex];
+        int sampleEnd=sampleStart+intervalSampleCount;
+        if(!validSample&&sampleIndex>=sampleStart&&sampleIndex<sampleEnd){
+            int intervalSampleIndex=sampleIndex-sampleStart;
+            float intervalStart=intervalIndex==0?intervals.starts.x:
+                (intervalIndex==1?intervals.starts.y:
+                (intervalIndex==2?intervals.starts.z:intervals.starts.w));
+            float intervalEnd=intervalIndex==0?intervals.ends.x:
+                (intervalIndex==1?intervals.ends.y:
+                (intervalIndex==2?intervals.ends.z:intervals.ends.w));
+            float intervalLength=max(intervalEnd-intervalStart,0.0);
+            sampleSpacing=intervalLength
+                /float(max(intervalSampleCount,1));
+            rayDistance=intervalStart
+                +(float(intervalSampleIndex)+0.5)*sampleSpacing;
+            validSample=sampleSpacing>1e-4;
+        }
+        sampleStart=sampleEnd;
+    }
+    return validSample;
 }
 float3 cloudBeerAbsorptionFraction3(float3 opticalDepth){
     return float3(
@@ -4364,7 +4468,7 @@ float3 cloudNearLightOpticalDepthResiduals(
     return residuals;
 }
 
-// キャッシュを使えない場所では、太陽円盤の各方向を固定8標本で積分する。
+// キャッシュを使えない場所では、太陽円盤の各方向を相関長で適応積分する。
 // xyzは一次・二次・三次の消散率で求めた光学的深さ。
 // 光路方向の未解像密度は相関長ごとの透過率期待値へ閉じ、区間ごとの深さを加算する。
 float3 traceCloudMainLightDepths(
@@ -4379,14 +4483,17 @@ float3 traceCloudMainLightDepths(
         cloudInitialFourStateTransportLanes();
     CloudFourStateTransportLanes thirdOrderState=
         cloudInitialFourStateTransportLanes();
+    int4 sampleCounts=cloudAdaptiveLightSampleCounts(
+        intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
+        rayOrigin,lightDirection);
     float previousSegmentEnd=-1.0;
     [loop] for(int sampleIndex=0;
                sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
                ++sampleIndex){
         float rayDistance=0.0;
         float sampleSpacing=0.0;
-        if(!cloudLightSampleTerms(
-               intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,sampleIndex,
+        if(!cloudAdaptiveLightSampleTerms(
+               intervals,sampleCounts,sampleIndex,
                rayDistance,sampleSpacing)) continue;
         float segmentStart=rayDistance-0.5*sampleSpacing;
         if(previousSegmentEnd>=0.0&&segmentStart>previousSegmentEnd+1e-3){
@@ -4513,8 +4620,8 @@ float cloudAmbientQuadratureDensity(
         macro,macro.densityWeatherMask);
 }
 
-// 影キャッシュは始点から雲殻出口までを固定8区間で覆う。光路方向へ
-// 平均した密度の光学的深さを加算し、区間数で透過率を変えない。
+// 影キャッシュは始点から雲殻出口までを相関長に応じた区間で覆う。
+// 光路方向へ平均した密度の光学的深さを加算し、区間数で透過率を変えない。
 float3 traceCloudShadowDepths(
     float3 rayOrigin,float coverage,float3 lightDirection,
     float3 extinctionByOrder){
@@ -4527,14 +4634,17 @@ float3 traceCloudShadowDepths(
         cloudInitialFourStateTransportLanes();
     CloudFourStateTransportLanes thirdOrderState=
         cloudInitialFourStateTransportLanes();
+    int4 sampleCounts=cloudAdaptiveLightSampleCounts(
+        intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
+        rayOrigin,lightDirection);
     float previousSegmentEnd=-1.0;
     [loop] for(int sampleIndex=0;
                sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
                ++sampleIndex){
         float rayDistance=0.0;
         float sampleSpacing=0.0;
-        if(!cloudLightSampleTerms(
-               intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,sampleIndex,
+        if(!cloudAdaptiveLightSampleTerms(
+               intervals,sampleCounts,sampleIndex,
                rayDistance,sampleSpacing)) continue;
         float segmentStart=rayDistance-0.5*sampleSpacing;
         if(previousSegmentEnd>=0.0&&segmentStart>previousSegmentEnd+1e-3){
@@ -7730,7 +7840,7 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
 namespace {
 
 constexpr u64 kCloudWorkloadMaximum = ~u64{0};
-// キャッシュ境界の最悪経路は、太陽円盤4方向の低周波8標本と、共有する高周波3標本を使う。
+// キャッシュ境界の最悪経路は、太陽円盤4方向の適応最大16標本と、共有する高周波3標本を使う。
 constexpr u64 kCloudMaximumMainLightDensitySamples =
     4u * static_cast<u64>(kVolumetricCloudMaxLightMarchSamples) + 3u;
 u64 SaturatingCloudWorkloadAdd(u64 left, u64 right) noexcept {

@@ -79,7 +79,7 @@ internal static class EditorCloudWorkloadContract
     internal const uint SkipInvalidProjection = 3;
     private const ulong StandardMaximumViewMarchSamples = 384;
     private const ulong ReferenceMaximumViewMarchSamples = 512;
-    private const ulong MaximumLightMarchSamples = 8;
+    private const ulong MaximumLightMarchSamples = 16;
     private const ulong MaximumWorldShadowMarchSamples = 32;
     private const ulong ShadowCacheOutputsPerThread = 32;
 

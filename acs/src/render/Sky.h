@@ -697,7 +697,7 @@ inline constexpr u32 kVolumetricCloudViewSteps = 384u;
  */
 inline constexpr u32 kVolumetricCloudReferenceViewSteps = 512u;
 inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 384u;
-inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
+inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 16u;
 
 /** 下層設定を有限で順序付けされた GPU 安全値へ直す。 */
 FVolumetricCloudLayer SanitizeVolumetricCloudLayer(const FVolumetricCloudLayer& requested) noexcept;
@@ -982,7 +982,7 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
  *
  * 現在の密度場から一つの3次元テクスチャへ生成する。一つの水平セルを16スレッドで
  * 面積積分し、そのうち4スレッドが太陽円盤の各方向を担当する。雲中でも頭上の空隙と
- * 厚い雲芯を分け、キャッシュの信頼度が不足する場所では固定8区間の正確な積分へ戻す。
+ * 厚い雲芯を分け、キャッシュの信頼度が不足する場所では相関長に応じた最大16区間の積分へ戻す。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
