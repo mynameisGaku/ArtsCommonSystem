@@ -291,7 +291,7 @@ Lambert面の`1/PI`へ合わせる倍率は体積散乱には掛けません。�
 継続します。雲頂だけへ任意の色を足す補正は使わず、上空から見える厚みも同じ体積積分で作ります。
 
 密な上向き視点では、同じ world wind、shape frequency、layer-height reciprocal を
-view sample と相関長で配分する最大16個の light probe で共有します。これらは
+view sample と、太陽円盤4方向の相関長配分（各方向は最大16標本＋高周波3標本）で共有します。これらは
 `CloudCB` c21 へ frame ごとに一度だけ格納し、density/weather/curl/detail の
 world-space 座標は変更せずに再利用します。正規化済み sun と連続な正規直交基底も
 c22-c23 へ CPU で構築し、各 trace invocation の重複 normalize / basis 構築を除きます。
@@ -310,5 +310,5 @@ GPU 経路を使えない perspective frame だけ明示的に有効化し、同
 したがって compute path と fallback は同じ frame で二重実行されず、fallback の移動量も
 FPS や描画回数には依存しません。full-resolution resolve の
 empty-sky short path は履歴の 5x5 footprint で silhouette と horizon を保護します。
-384 view steps、相関長で配分する最大16 light probes、Ultra 4x4 phase、trace / output dispatch、履歴規則を
+384 view steps、太陽円盤4方向へ相関長で配分する最大16標本＋高周波3標本、Ultra 4x4 phase、trace / output dispatch、履歴規則を
 固定したまま workload を計測します。

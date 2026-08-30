@@ -120,7 +120,7 @@ internal static class EditorProfilerSelfTest
             TotalLogicalInvocations = 3_014_592,
             TotalLaunchedThreads = 3_014_592,
             MaximumViewSamples = 368_640,
-            MaximumLightSamples = 2_949_120,
+            MaximumLightSamples = 28_016_640,
             MaximumWorldShadowSamples = 2_097_152,
         };
         workload.TotalLaunchedThreads =
@@ -160,10 +160,10 @@ internal static class EditorProfilerSelfTest
         referenceWorkload.TotalLogicalInvocations = 3_028_992;
         referenceWorkload.TotalLaunchedThreads = 2_743_296;
         referenceWorkload.MaximumViewSamples = 7_864_320;
-        referenceWorkload.MaximumLightSamples = 62_914_560;
+        referenceWorkload.MaximumLightSamples = 597_688_320;
         var unrecognizedViewCeiling = referenceWorkload;
         unrecognizedViewCeiling.MaximumViewSamples = 3_932_160;
-        unrecognizedViewCeiling.MaximumLightSamples = 31_457_280;
+        unrecognizedViewCeiling.MaximumLightSamples = 298_844_160;
         Check(
             EditorCloudWorkloadContract.ClassifyNativeResult(
                 1,

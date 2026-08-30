@@ -79,7 +79,8 @@ internal static class EditorCloudWorkloadContract
     internal const uint SkipInvalidProjection = 3;
     private const ulong StandardMaximumViewMarchSamples = 384;
     private const ulong ReferenceMaximumViewMarchSamples = 512;
-    private const ulong MaximumLightMarchSamples = 16;
+    // 太陽円盤4方向それぞれが適応16標本と高周波3標本を使う最悪値。
+    private const ulong MaximumLightEvaluationSamples = 4 * (16 + 3);
     private const ulong MaximumWorldShadowMarchSamples = 32;
     private const ulong ShadowCacheOutputsPerThread = 32;
 
@@ -268,7 +269,7 @@ internal static class EditorCloudWorkloadContract
                recognizedViewSampleCeiling &&
                snapshot.MaximumLightSamples == SaturatingMultiply(
                    snapshot.MaximumViewSamples,
-                   MaximumLightMarchSamples) &&
+                   MaximumLightEvaluationSamples) &&
                snapshot.MaximumWorldShadowSamples == SaturatingMultiply(
                    snapshot.WorldShadowLogicalInvocations,
                    MaximumWorldShadowMarchSamples);

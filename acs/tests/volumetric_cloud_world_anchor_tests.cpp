@@ -1705,11 +1705,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(
         steady.maximum_light_samples,
         steady.maximum_view_samples *
-            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+            (4u * (kVolumetricCloudMaxLightMarchSamples + 3u)));
     EXPECT_EQ(
         steady.maximum_light_samples,
         steady.maximum_view_samples *
-            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+            (4u * (kVolumetricCloudMaxLightMarchSamples + 3u)));
     EXPECT_EQ(steady.maximum_world_shadow_samples, 524288u);
     EXPECT_TRUE(steady.temporal_super_resolution);
     EXPECT_FALSE(steady.attempted);
@@ -1725,11 +1725,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(
         reference.maximum_light_samples,
         reference.maximum_view_samples *
-            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+            (4u * (kVolumetricCloudMaxLightMarchSamples + 3u)));
     EXPECT_EQ(
         reference.maximum_light_samples,
         reference.maximum_view_samples *
-            (4u * kVolumetricCloudMaxLightMarchSamples + 3u));
+            (4u * (kVolumetricCloudMaxLightMarchSamples + 3u)));
     EXPECT_EQ(reference.shadow_cache_logical_invocations, 147456u);
     EXPECT_EQ(reference.shadow_cache_launched_threads, 147456u);
     EXPECT_EQ(reference.world_shadow_logical_invocations, 65536u);
@@ -8628,8 +8628,10 @@ ACS_TEST(VolumetricClouds,
             "cloudSignedPotentialFromStored(densityBands.b),-1.0);"));
         EXPECT_TRUE(Contains(
             occupancyShape,
-            "returncloudSignedPotentialFromStored("
-            "occupancyStoredPotential);"));
+            "result=cloudSignedPotentialFromStored("
+            "occupancyStoredPotential);"
+            "}"
+            "returnresult;"));
     }
     EXPECT_FALSE(Contains(shader, "sampleCloudMacro(p-camPos"));
 }
@@ -8670,8 +8672,10 @@ ACS_TEST(VolumetricClouds, SignedPrimaryShapePreservesSupportAndExplicitBranchOu
             "cloudSignedPotentialFromStored(densityBands.b),-1.0);"));
         EXPECT_TRUE(Contains(
             occupancyShape,
-            "returncloudSignedPotentialFromStored("
-            "occupancyStoredPotential);"));
+            "result=cloudSignedPotentialFromStored("
+            "occupancyStoredPotential);"
+            "}"
+            "returnresult;"));
         EXPECT_FALSE(Contains(pointShape, "outfloat"));
         EXPECT_FALSE(Contains(occupancyShape, "outfloat"));
     }
@@ -8774,7 +8778,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t distanceMapping = shader.find(
         "if(!cloudAdaptiveLightSampleTerms("
         "intervals,sampleCounts,sampleIndex,"
-        "rayDistance,sampleSpacing))continue;",fixedLoop);
+        "rayDistance,sampleSpacing,sampleBandId))continue;",fixedLoop);
     const std::size_t samplePosition = shader.find(
         "float3samplePosition=rayOrigin+lightDirection*rayDistance;",
         distanceMapping);
@@ -8895,6 +8899,105 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(shader,"sampleCloudFarLightingDensityAndScale("));
     EXPECT_FALSE(Contains(shader,"sampleCloudMacroLightingFromSlowFields("));
     EXPECT_FALSE(Contains(shader,"sampleCloudLightingDensityFromSlowFields("));
+}
+
+ACS_TEST(VolumetricClouds,
+         LightMarchAdaptiveAllocationReservesEveryBand) {
+    // 要求量が一つの区間へ偏っても、短い別区間を0標本へ落とさない。
+    // 予約を実配列へ反映しない実装では、ここで後三帯が消える。
+    constexpr u32 kDemand[4]={16u,1u,1u,1u};
+    u32 allocated[4]={1u,1u,1u,1u};
+    constexpr u32 kRemainingAllocations=12u;
+    for(u32 allocationIndex=0u;
+        allocationIndex<kRemainingAllocations;++allocationIndex){
+        u32 selectedIndex=0u;
+        u32 selectedResidual=kDemand[0u]>allocated[0u]
+            ?kDemand[0u]-allocated[0u]:0u;
+        for(u32 intervalIndex=1u;intervalIndex<4u;++intervalIndex){
+            const u32 residual=kDemand[intervalIndex]>
+                    allocated[intervalIndex]
+                ?kDemand[intervalIndex]-allocated[intervalIndex]:0u;
+            if(residual>selectedResidual){
+                selectedIndex=intervalIndex;
+                selectedResidual=residual;
+            }
+        }
+        if(selectedResidual==0u) selectedIndex=allocationIndex%4u;
+        ++allocated[selectedIndex];
+    }
+    EXPECT_EQ(allocated[0u],13u);
+    EXPECT_EQ(allocated[1u],1u);
+    EXPECT_EQ(allocated[2u],1u);
+    EXPECT_EQ(allocated[3u],1u);
+
+    const std::string shader=CompactShader(
+        ExtractRawShader(ReadSkySource(),"const char* kCloudCS"));
+    const std::size_t reservation=shader.find(
+        "sampleCounts.x=intervalCount>0?1:0;"
+        "sampleCounts.y=intervalCount>1?1:0;"
+        "sampleCounts.z=intervalCount>2?1:0;"
+        "sampleCounts.w=intervalCount>3?1:0;");
+    const std::size_t remaining=shader.find(
+        "safeSampleCount-reservedPerInterval*intervalCount;",
+        reservation);
+    const std::size_t allocationLoop=shader.find(
+        "[loop]for(intallocation=0;"
+        "allocation<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;",
+        remaining);
+    EXPECT_TRUE(reservation!=std::string::npos);
+    EXPECT_TRUE(remaining!=std::string::npos);
+    EXPECT_TRUE(allocationLoop!=std::string::npos);
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudValueIsFinite(requestedOpticalDepth.x)?"
+        "max(requestedOpticalDepth.x,0.0):0.0"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudValueIsFinite(requestedAbsorption.x)?"
+        "saturate(requestedAbsorption.x):0.0"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudValueIsFinite(requestedAbsorption)?"
+        "saturate(requestedAbsorption):0.0"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudValueIsFinite(requestedTransmittance.x)?"
+        "saturate(requestedTransmittance.x):"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float4seriesOpticalDepth=min(opticalDepth,0.125.xxxx);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "exp(-min(opticalDepth,80.0.xxxx))"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcloudFiniteIntervalLength(floatstart,floatend){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudFiniteIntervalLength(intervals.starts.x,intervals.ends.x)"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatintervalLength=cloudFiniteIntervalLength("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "float3endPosition=rayOrigin+rayDirection*evaluationEnd;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudValueIsFinite(sampleSpacing)&&cloudValueIsFinite(rayDistance)"));
+    EXPECT_TRUE(Contains(
+        shader,"sampleBandId=intervals.bandIds[intervalIndex];"));
+    EXPECT_TRUE(Contains(
+        shader,"sampleBandId!=previousBandId"));
+
+    // 位置が有限と確認できる前に、相関長の3点評価を呼ばない。
+    const std::size_t finiteGuard=shader.find(
+        "if(finitePositions){");
+    const std::size_t correlationCall=shader.find(
+        "cloudUnresolvedDensityCorrelationLengthAtDirection(",
+        finiteGuard);
+    EXPECT_TRUE(finiteGuard!=std::string::npos);
+    EXPECT_TRUE(correlationCall!=std::string::npos);
+    EXPECT_TRUE(finiteGuard<correlationCall);
 }
 
 ACS_TEST(VolumetricClouds, LightMarchUsesCorrelationAwareIntervalsAndMidpoints) {
@@ -9313,7 +9416,7 @@ ACS_TEST(VolumetricClouds, EnvironmentCubemapSharesViewSamplingTermsIncludingUpp
         compactSource,
         "if(!cloudAdaptiveLightSampleTerms("
         "intervals,sampleCounts,sampleIndex,"
-        "rayDistance,sampleSpacing))continue;"));
+        "rayDistance,sampleSpacing,sampleBandId))continue;"));
 }
 
 ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossEveryPath) {
@@ -10777,7 +10880,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "if(!cloudAdaptiveLightSampleTerms("
         "intervals,sampleCounts,sampleIndex,"
-        "rayDistance,sampleSpacing))continue;"));
+        "rayDistance,sampleSpacing,sampleBandId))continue;"));
     EXPECT_FALSE(Contains(shader, "lightHalfStep"));
     EXPECT_FALSE(Contains(shader, "lightStep*=1.8"));
     EXPECT_TRUE(Contains(
@@ -13397,7 +13500,9 @@ ACS_TEST(VolumetricClouds, WorldShadowIntegratesFullCurvedCloudPathInPhysicalOrd
         shader,
         "if(!cloudLightSampleTerms("
         "bandIntervals,SAMPLE_COUNT,sampleIndex,"
-        "sampleDistance,stepLength))continue;"));
+        "sampleDistance,stepLength,sampleBandId))continue;"));
+    EXPECT_TRUE(Contains(
+        shader,"sampleBandId=intervals.bandIds[intervalIndex];"));
     EXPECT_TRUE(Contains(
         shader,
         "floatextinction=max("
@@ -14049,7 +14154,9 @@ ACS_TEST(VolumetricClouds,
         "cloudSignedPotentialFromStored(densityBands.b)",
         completedRead);
     const std::size_t storedOccupancy = filteredOccupancy.find(
-        "returncloudSignedPotentialFromStored(occupancyStoredPotential);",
+        "result=cloudSignedPotentialFromStored(occupancyStoredPotential);"
+        "}"
+        "returnresult;",
         footprint);
     EXPECT_TRUE(completedRead != std::string::npos);
     EXPECT_TRUE(occupancyRead != std::string::npos);

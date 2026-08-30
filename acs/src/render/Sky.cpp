@@ -1418,8 +1418,11 @@ float cloudBeerAbsorptionCentroidFraction(float opticalDepth,float intervalTrans
             float transmittance=finiteTransmittance
                 ?saturate(intervalTransmittance)
                 :1.0-cloudBeerAbsorptionFraction(safeOpticalDepth);
+            // この分岐は光学的深さが1より大きいため、正しいBeer透過率なら
+            // 1-Tは0.632以上になる。入力透過率が壊れていても、物理量を
+            // 無限大へ膨らませず有限な重心として扱う。
             absorptionFraction=1.0/safeOpticalDepth
-                -transmittance/max(1.0-transmittance,1e-20);
+                -transmittance/max(1.0-transmittance,0.5);
         }
     }
     return clamp(absorptionFraction,0.0,0.5);
@@ -1449,16 +1452,28 @@ float4 cloudBeerAbsorptionCentroidFraction4(
 // 雲内部で有限・非負と確定済みの4レーンを一つの式で解く。
 // 成分ごとの同じ制御フローを旧FXCへ展開させず、スカラー版と同じ級数を使う。
 float4 cloudFiniteBeerAbsorptionFraction4(float4 requestedOpticalDepth){
-    float4 opticalDepth=max(requestedOpticalDepth,0.0.xxxx);
-    float4 opticalDepthSquared=opticalDepth*opticalDepth;
+    float4 opticalDepth=float4(
+        cloudValueIsFinite(requestedOpticalDepth.x)
+            ?max(requestedOpticalDepth.x,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.y)
+            ?max(requestedOpticalDepth.y,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.z)
+            ?max(requestedOpticalDepth.z,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.w)
+            ?max(requestedOpticalDepth.w,0.0):0.0);
+    // 級数は0.125以下でだけ有効なため、その範囲へ先に閉じる。
+    // lerpは未選択側も評価するので、未使用の4乗・5乗中間値も有限に保つ。
+    float4 seriesOpticalDepth=min(opticalDepth,0.125.xxxx);
+    float4 opticalDepthSquared=seriesOpticalDepth*seriesOpticalDepth;
     float4 opticalDepthFourth=opticalDepthSquared*opticalDepthSquared;
-    float4 seriesAbsorption=opticalDepth*(
-        1.0.xxxx-opticalDepth*0.5
+    float4 seriesAbsorption=seriesOpticalDepth*(
+        1.0.xxxx-seriesOpticalDepth*0.5
         +opticalDepthSquared/6.0
-        -opticalDepthSquared*opticalDepth/24.0
+        -opticalDepthSquared*seriesOpticalDepth/24.0
         +opticalDepthFourth/120.0
-        -opticalDepthFourth*opticalDepth/720.0);
-    float4 exponentialAbsorption=1.0.xxxx-exp(-opticalDepth);
+        -opticalDepthFourth*seriesOpticalDepth/720.0);
+    // 光学的深さ80を超える透過率は単精度で区別できないため、指数の引数も閉じる。
+    float4 exponentialAbsorption=1.0.xxxx-exp(-min(opticalDepth,80.0.xxxx));
     float4 absorption=lerp(
         exponentialAbsorption,seriesAbsorption,
         step(opticalDepth,0.125.xxxx));
@@ -1467,21 +1482,46 @@ float4 cloudFiniteBeerAbsorptionFraction4(float4 requestedOpticalDepth){
 // 有限Beer区間の吸収重心を4レーン同時に解き、薄い区間の桁落ちを避ける。
 float4 cloudFiniteBeerAbsorptionCentroidFraction4(
     float4 requestedOpticalDepth,float4 requestedTransmittance){
-    float4 opticalDepth=max(requestedOpticalDepth,0.0.xxxx);
-    float4 transmittance=saturate(requestedTransmittance);
-    float4 opticalDepthSquared=opticalDepth*opticalDepth;
-    float4 opticalDepthCubed=opticalDepthSquared*opticalDepth;
+    float4 opticalDepth=float4(
+        cloudValueIsFinite(requestedOpticalDepth.x)
+            ?max(requestedOpticalDepth.x,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.y)
+            ?max(requestedOpticalDepth.y,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.z)
+            ?max(requestedOpticalDepth.z,0.0):0.0,
+        cloudValueIsFinite(requestedOpticalDepth.w)
+            ?max(requestedOpticalDepth.w,0.0):0.0);
+    float4 transmittance=float4(
+        cloudValueIsFinite(requestedTransmittance.x)
+            ?saturate(requestedTransmittance.x)
+            :1.0-cloudBeerAbsorptionFraction(opticalDepth.x),
+        cloudValueIsFinite(requestedTransmittance.y)
+            ?saturate(requestedTransmittance.y)
+            :1.0-cloudBeerAbsorptionFraction(opticalDepth.y),
+        cloudValueIsFinite(requestedTransmittance.z)
+            ?saturate(requestedTransmittance.z)
+            :1.0-cloudBeerAbsorptionFraction(opticalDepth.z),
+        cloudValueIsFinite(requestedTransmittance.w)
+            ?saturate(requestedTransmittance.w)
+            :1.0-cloudBeerAbsorptionFraction(opticalDepth.w));
+    // 級数は光学的深さ1以下でだけ使うため、その範囲へ先に閉じて積を有限にする。
+    float4 seriesOpticalDepth=min(opticalDepth,1.0.xxxx);
+    float4 opticalDepthSquared=seriesOpticalDepth*seriesOpticalDepth;
+    float4 opticalDepthCubed=opticalDepthSquared*seriesOpticalDepth;
     float4 opticalDepthFifth=opticalDepthCubed*opticalDepthSquared;
     float4 opticalDepthSeventh=opticalDepthFifth*opticalDepthSquared;
     float4 opticalDepthNinth=opticalDepthSeventh*opticalDepthSquared;
-    float4 seriesCentroid=0.5.xxxx-opticalDepth/12.0
+    float4 seriesCentroid=0.5.xxxx-seriesOpticalDepth/12.0
         +opticalDepthCubed/720.0
         -opticalDepthFifth/30240.0
         +opticalDepthSeventh/1209600.0
         -opticalDepthNinth/47900160.0;
-    float4 inverseOpticalDepth=1.0.xxxx/max(opticalDepth,1e-30.xxxx);
+    // 1以下では級数を使うため、逆数側の未使用値も巨大数へ膨らませない。
+    float4 inverseOpticalDepth=1.0.xxxx/max(opticalDepth,1.0.xxxx);
+    // 光学的深さが1より大きい分岐でだけ使うため、物理的な1-Tの下限を
+    // 使う。極小番兵値の逆数を作ると、旧FXCが巨大な一時値を生成する。
     float4 regularCentroid=inverseOpticalDepth
-        -transmittance/max(1.0.xxxx-transmittance,1e-20.xxxx);
+        -transmittance/max(1.0.xxxx-transmittance,0.5.xxxx);
     float4 resolvedCentroid=lerp(
         regularCentroid,seriesCentroid,step(opticalDepth,1.0.xxxx));
     resolvedCentroid=lerp(
@@ -1491,7 +1531,16 @@ float4 cloudFiniteBeerAbsorptionCentroidFraction4(
 }
 // 有限吸収率を薄い媒質用級数から光学的深さへ4レーン同時に戻す。
 float4 cloudFiniteOpticalDepthFromAbsorption4(float4 requestedAbsorption){
-    float4 absorption=saturate(requestedAbsorption);
+    // 無効な吸収率は上流の異常を次の対数・級数へ渡さず、無吸収として扱う。
+    float4 absorption=float4(
+        cloudValueIsFinite(requestedAbsorption.x)
+            ?saturate(requestedAbsorption.x):0.0,
+        cloudValueIsFinite(requestedAbsorption.y)
+            ?saturate(requestedAbsorption.y):0.0,
+        cloudValueIsFinite(requestedAbsorption.z)
+            ?saturate(requestedAbsorption.z):0.0,
+        cloudValueIsFinite(requestedAbsorption.w)
+            ?saturate(requestedAbsorption.w):0.0);
     float4 squared=absorption*absorption;
     float4 cubed=squared*absorption;
     float4 fourth=squared*squared;
@@ -1819,6 +1868,7 @@ float3 cloudSunDiskDirection(
 }
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
+static const float CLOUD_RAY_END_LIMIT=2.0*CLOUD_PLANET_RADIUS;
 // b*b-c は接線でほぼ同値の二項を引く。二進32bitの八機械イプシロンを
 // 外殻の接線候補だけに使い、丸め誤差で薄い雲を失うことを防ぐ。
 // 内殻の負判別式を接線へ丸めると、雲層内の連続区間を途中で切るため適用しない。
@@ -2049,14 +2099,21 @@ void appendCloudShellInterval(
 
 // 始点から最初の惑星表面までを、全サブレイと全雲帯に共通する物理終端とする。
 float cloudPlanetRayEnd(float b,float groundC){
-    if(groundC<0.0) return 0.0;
+    // 惑星半径の二倍は、惑星近傍から外へ向かう光線が取り得る最大弦長。
+    // 無限大の番兵値は後段の加算で丸め警告と未定義な最適化経路を生むため使わない。
+    float rayEnd=CLOUD_RAY_END_LIMIT;
     float groundNear=0.0,groundFar=0.0;
-    bool hitsGround=sphereRootsFromTerms(
-        b,groundC,false,groundNear,groundFar);
-    if(!hitsGround) return 1e30;
-    if(groundNear>0.0) return groundNear;
-    if(groundC<=0.0&&b<0.0) return 0.0;
-    return 1e30;
+    if(groundC<0.0){
+        rayEnd=0.0;
+    }else{
+        bool hitsGround=sphereRootsFromTerms(
+            b,groundC,false,groundNear,groundFar);
+        if(hitsGround&&groundNear>0.0)
+            rayEnd=groundNear;
+        else if(hitsGround&&groundC<=0.0&&b<0.0)
+            rayEnd=0.0;
+    }
+    return rayEnd;
 }
 
 // 一つの球殻が正方向に作る近側・遠側の両区間を保持する。
@@ -2160,8 +2217,8 @@ CloudBandIntervalSet intersectCloudBandsUnpacked(
 // 無効区間を末尾へ送り、有効区間は始点と終点の順で決定論的に並べる。
 void sortCloudBandIntervalCandidates(
     inout float2 left,inout float2 right){
-    float leftKey=left.y>left.x?left.x:1e30;
-    float rightKey=right.y>right.x?right.x:1e30;
+    float leftKey=left.y>left.x?left.x:CLOUD_RAY_END_LIMIT;
+    float rightKey=right.y>right.x?right.x:CLOUD_RAY_END_LIMIT;
     bool exchange=rightKey<leftKey
         ||(rightKey==leftKey&&right.y<left.y);
     if(exchange){
@@ -2189,6 +2246,7 @@ void includeCloudSortedBandInterval(
 // 最大二区間へ縮約する。同じ最大間隔では近い側を残して結果を一意にする。
 float4 cloudBandIntervalPairFromCandidates(
     float4 lane0,float4 lane1,float4 lane2,float4 lane3){
+    float4 result=0.0.xxxx;
     float2 interval0=lane0.xy,interval1=lane0.zw;
     float2 interval2=lane1.xy,interval3=lane1.zw;
     float2 interval4=lane2.xy,interval5=lane2.zw;
@@ -2212,34 +2270,36 @@ float4 cloudBandIntervalPairFromCandidates(
     sortCloudBandIntervalCandidates(interval2,interval4);
     sortCloudBandIntervalCandidates(interval3,interval5);
     sortCloudBandIntervalCandidates(interval3,interval4);
-    if(interval0.y<=interval0.x) return 0.0.xxxx;
-    float currentEnd=interval0.y;
-    float largestGap=0.0;
-    float splitEnd=0.0,splitStart=0.0;
-    includeCloudSortedBandInterval(
-        interval1,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval2,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval3,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval4,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval5,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval6,currentEnd,largestGap,splitEnd,splitStart);
-    includeCloudSortedBandInterval(
-        interval7,currentEnd,largestGap,splitEnd,splitStart);
-    if(largestGap>0.0)
-        return float4(interval0.x,splitEnd,splitStart,currentEnd);
-    return float4(interval0.x,currentEnd,0.0,0.0);
+    if(interval0.y>interval0.x){
+        float currentEnd=interval0.y;
+        float largestGap=0.0;
+        float splitEnd=0.0,splitStart=0.0;
+        includeCloudSortedBandInterval(
+            interval1,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval2,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval3,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval4,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval5,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval6,currentEnd,largestGap,splitEnd,splitStart);
+        includeCloudSortedBandInterval(
+            interval7,currentEnd,largestGap,splitEnd,splitStart);
+        result=largestGap>0.0
+            ?float4(interval0.x,splitEnd,splitStart,currentEnd)
+            :float4(interval0.x,currentEnd,0.0,0.0);
+    }
+    return result;
 }
 
 void sortCloudBandIntervalPair(
     inout float2 left,inout int leftBandId,
     inout float2 right,inout int rightBandId){
-    float leftKey=left.y>left.x?left.x:1e30;
-    float rightKey=right.y>right.x?right.x:1e30;
+    float leftKey=left.y>left.x?left.x:CLOUD_RAY_END_LIMIT;
+    float rightKey=right.y>right.x?right.x:CLOUD_RAY_END_LIMIT;
     if(rightKey<leftKey){
         float2 temporaryInterval=left;
         left=right;
@@ -2412,6 +2472,19 @@ CloudPackedBandIntervals intersectCloudBandsFromPosition(
     return packCloudBandIntervalPairs(lowerIntervals,upperIntervals);
 }
 
+// 物理的な惑星直径を越えない有限区間長へ変換し、壊れた入力を空区間にする。
+float cloudFiniteIntervalLength(float start,float end){
+    float result=0.0;
+    bool finiteEndpoints=cloudValueIsFinite(start)
+        &&cloudValueIsFinite(end);
+    if(finiteEndpoints&&end>start){
+        float length=end-start;
+        if(cloudValueIsFinite(length))
+            result=min(length,CLOUD_RAY_END_LIMIT);
+    }
+    return result;
+}
+
 // 固定標本を最大四区間の占有距離比で分ける。標本数が区間数以上なら、
 // 薄い区間にも必ず一標本を予約し、残りだけを累積距離の丸めで配分する。
 int4 cloudPackedIntervalSampleCounts(
@@ -2419,42 +2492,51 @@ int4 cloudPackedIntervalSampleCounts(
     int4 sampleCounts=int4(0,0,0,0);
     int intervalCount=clamp(intervals.count,0,4);
     int safeSampleCount=max(requestedSampleCount,0);
-    if(intervalCount<=0||safeSampleCount<=0) return sampleCounts;
-    float4 intervalLengths=max(
-        intervals.ends-intervals.starts,0.0.xxxx);
-    if(intervalCount<4) intervalLengths.w=0.0;
-    if(intervalCount<3) intervalLengths.z=0.0;
-    if(intervalCount<2) intervalLengths.y=0.0;
-    float occupiedLength=max(dot(intervalLengths,1.0.xxxx),1e-5);
-    int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
-    int remainingSampleCount=
-        safeSampleCount-reservedPerInterval*intervalCount;
-    int previousTarget=0;
-    float cumulativeLength=0.0;
-    [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
-        if(intervalIndex<intervalCount){
-            cumulativeLength+=intervalLengths[intervalIndex];
-            int target=intervalIndex==intervalCount-1
-                ?remainingSampleCount
-                :clamp(
-                    (int)round(float(remainingSampleCount)
-                        *cumulativeLength/occupiedLength),
-                    previousTarget,remainingSampleCount);
-            sampleCounts[intervalIndex]=reservedPerInterval
-                +max(target-previousTarget,0);
-            previousTarget=target;
+    if(intervalCount>0&&safeSampleCount>0){
+        float4 intervalLengths=float4(
+            cloudFiniteIntervalLength(
+                intervals.starts.x,intervals.ends.x),
+            cloudFiniteIntervalLength(
+                intervals.starts.y,intervals.ends.y),
+            cloudFiniteIntervalLength(
+                intervals.starts.z,intervals.ends.z),
+            cloudFiniteIntervalLength(
+                intervals.starts.w,intervals.ends.w));
+        if(intervalCount<4) intervalLengths.w=0.0;
+        if(intervalCount<3) intervalLengths.z=0.0;
+        if(intervalCount<2) intervalLengths.y=0.0;
+        float occupiedLength=max(dot(intervalLengths,1.0.xxxx),1e-5);
+        int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
+        int remainingSampleCount=
+            safeSampleCount-reservedPerInterval*intervalCount;
+        int previousTarget=0;
+        float cumulativeLength=0.0;
+        [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
+            if(intervalIndex<intervalCount){
+                cumulativeLength+=intervalLengths[intervalIndex];
+                int target=intervalIndex==intervalCount-1
+                    ?remainingSampleCount
+                    :clamp(
+                        (int)round(float(remainingSampleCount)
+                            *cumulativeLength/occupiedLength),
+                        previousTarget,remainingSampleCount);
+                sampleCounts[intervalIndex]=reservedPerInterval
+                    +max(target-previousTarget,0);
+                previousTarget=target;
+            }
         }
     }
     return sampleCounts;
 }
 
-// 固定標本の番号を担当区間の中央標本へ写し、その区間だけの積分幅を返す。
+// 固定標本の番号を担当区間の中央標本と物理帯IDへ写し、その区間だけの積分幅を返す。
 // 晴天の層間は積分幅へ含めず、実光線上の開始距離としてだけ反映する。
 bool cloudLightSampleTerms(
     CloudPackedBandIntervals intervals,int requestedSampleCount,int sampleIndex,
-    out float rayDistance,out float sampleSpacing){
+    out float rayDistance,out float sampleSpacing,out int sampleBandId){
     rayDistance=0.0;
     sampleSpacing=0.0;
+    sampleBandId=-1;
     int4 sampleCounts=cloudPackedIntervalSampleCounts(
         intervals,requestedSampleCount);
     bool validSample=false;
@@ -2464,14 +2546,18 @@ bool cloudLightSampleTerms(
         int sampleEnd=sampleStart+intervalSampleCount;
         if(!validSample&&sampleIndex>=sampleStart&&sampleIndex<sampleEnd){
             int intervalSampleIndex=sampleIndex-sampleStart;
-            float intervalLength=max(
-                intervals.ends[intervalIndex]
-                    -intervals.starts[intervalIndex],0.0);
+            float intervalLength=cloudFiniteIntervalLength(
+                intervals.starts[intervalIndex],
+                intervals.ends[intervalIndex]);
             sampleSpacing=intervalLength
                 /float(max(intervalSampleCount,1));
             rayDistance=intervals.starts[intervalIndex]
                 +(float(intervalSampleIndex)+0.5)*sampleSpacing;
-            validSample=sampleSpacing>1e-4;
+            sampleBandId=intervals.bandIds[intervalIndex];
+            validSample=cloudValueIsFinite(intervalLength)
+                &&cloudValueIsFinite(sampleSpacing)
+                &&cloudValueIsFinite(rayDistance)
+                &&sampleSpacing>1e-4;
         }
         sampleStart=sampleEnd;
     }
@@ -2906,10 +2992,12 @@ float cloudDensityDistributionMean(float4 requestedDistribution){
 }
 float4 cloudScaleDensityDistribution(
     float4 densityDistribution,float densityScale){
+    float4 result=0.0.xxxx;
     float safeScale=cloudValueIsFinite(densityScale)&&densityScale>0.0
         ?densityScale:0.0;
-    if(safeScale<=0.0) return 0.0.xxxx;
-    return densityDistribution*safeScale;
+    if(safeScale>0.0)
+        result=densityDistribution*safeScale;
+    return result;
 }
 // 互換表示や局所媒質量だけが使う平均密度。Beer-Lambert輸送は分布を直接閉じる。
 float cloudUnresolvedCoarseMeanDensity(float sharedOffset){
@@ -3048,8 +3136,34 @@ float cloudUnresolvedDensityCorrelationLengthAtDirection(
         ?1.0/inversePhysicalDistance:0.0;
 }
 
-// 光路区間が相関場を何回横切るかを、区間中央の実空間相関長から求める。
-// 相関長が短い区間へ標本を寄せ、長さだけで予算を配ることで生じる柱状化を避ける。
+// 位置と方向が有限値かを確認し、異常な定数バッファを光路計算へ通さない。
+bool cloudFiniteFloat3(float3 value){
+    return cloudValueIsFinite(value.x)&&cloudValueIsFinite(value.y)
+        &&cloudValueIsFinite(value.z);
+}
+
+// 有効区間だけを確認し、未使用の区間スロットにある値は読まない。
+bool cloudPackedBandIntervalsAreFinite(CloudPackedBandIntervals intervals){
+    int intervalCount=intervals.count;
+    bool valid=intervalCount>=0&&intervalCount<=4;
+    if(intervalCount>0)
+        valid=valid&&cloudFiniteIntervalLength(
+            intervals.starts.x,intervals.ends.x)>0.0;
+    if(intervalCount>1)
+        valid=valid&&cloudFiniteIntervalLength(
+            intervals.starts.y,intervals.ends.y)>0.0;
+    if(intervalCount>2)
+        valid=valid&&cloudFiniteIntervalLength(
+            intervals.starts.z,intervals.ends.z)>0.0;
+    if(intervalCount>3)
+        valid=valid&&cloudFiniteIntervalLength(
+            intervals.starts.w,intervals.ends.w)>0.0;
+    return valid;
+}
+
+// 光路区間の両端と中央で最短相関長を求め、曲率や高させん断で区間端だけが
+// 細かくなる場合も見落とさない。相関長の半分以下へ標本間隔を制限するため、
+// 長さだけで予算を配るより高周波の自己影を安定して積分できる。
 float cloudLightIntervalSampleDemand(
     CloudPackedBandIntervals intervals,float3 rayOrigin,
     float3 rayDirection,int intervalIndex){
@@ -3059,24 +3173,82 @@ float cloudLightIntervalSampleDemand(
     float intervalEnd=intervalIndex==0?intervals.ends.x:
         (intervalIndex==1?intervals.ends.y:
         (intervalIndex==2?intervals.ends.z:intervals.ends.w));
-    float intervalLength=max(intervalEnd-intervalStart,0.0);
-    if(intervalLength<=0.0) return 0.0;
-    float midpoint=intervalStart+0.5*intervalLength;
-    float3 midpointPosition=rayOrigin+rayDirection*midpoint;
-    int bandId=intervalIndex==0?intervals.bandIds.x:
-        (intervalIndex==1?intervals.bandIds.y:
-        (intervalIndex==2?intervals.bandIds.z:intervals.bandIds.w));
-    float correlationLength=cloudUnresolvedDensityCorrelationLengthAtDirection(
-        midpointPosition,rayDirection,bandId>0);
-    if(!cloudValueIsFinite(correlationLength)||correlationLength<=0.0)
-        return 1.0;
-    // 相関長の半分を標本間隔の目安にする。これは密度場の一次相関を
-    // ナイキスト条件で解像するための物理量であり、画面用の係数ではない。
-    return max(1.0,intervalLength/(2.0*correlationLength));
+    bool validInput=cloudFiniteFloat3(rayOrigin)
+        &&cloudFiniteFloat3(rayDirection)
+        &&cloudValueIsFinite(intervalStart)
+        &&cloudValueIsFinite(intervalEnd)
+        &&intervalEnd>intervalStart;
+    float intervalLength=cloudFiniteIntervalLength(
+        intervalStart,intervalEnd);
+    float evaluationEnd=intervalStart+intervalLength;
+    validInput=validInput&&intervalLength>0.0;
+    validInput=validInput&&cloudValueIsFinite(evaluationEnd);
+    float result=0.0;
+    if(intervalLength>0.0){
+        float midpoint=intervalStart+0.5*intervalLength;
+        float3 startPosition=rayOrigin+rayDirection*intervalStart;
+        float3 midpointPosition=rayOrigin+rayDirection*midpoint;
+        float3 endPosition=rayOrigin+rayDirection*evaluationEnd;
+        bool finitePositions=cloudFiniteFloat3(startPosition)
+            &&cloudFiniteFloat3(midpointPosition)
+            &&cloudFiniteFloat3(endPosition);
+        int bandId=intervalIndex==0?intervals.bandIds.x:
+            (intervalIndex==1?intervals.bandIds.y:
+            (intervalIndex==2?intervals.bandIds.z:intervals.bandIds.w));
+        float startCorrelationLength=0.0;
+        float midpointCorrelationLength=0.0;
+        float endCorrelationLength=0.0;
+        if(finitePositions){
+            startCorrelationLength=
+                cloudUnresolvedDensityCorrelationLengthAtDirection(
+                    startPosition,rayDirection,bandId>0);
+            midpointCorrelationLength=
+                cloudUnresolvedDensityCorrelationLengthAtDirection(
+                    midpointPosition,rayDirection,bandId>0);
+            endCorrelationLength=
+                cloudUnresolvedDensityCorrelationLengthAtDirection(
+                    endPosition,rayDirection,bandId>0);
+        }
+        bool finiteCorrelation=finitePositions
+            &&cloudValueIsFinite(startCorrelationLength)
+            &&cloudValueIsFinite(midpointCorrelationLength)
+            &&cloudValueIsFinite(endCorrelationLength);
+        float shortestCorrelationLength=3.402823466e+38;
+        bool hasPositiveCorrelation=false;
+        if(startCorrelationLength>0.0){
+            shortestCorrelationLength=min(
+                shortestCorrelationLength,startCorrelationLength);
+            hasPositiveCorrelation=true;
+        }
+        if(midpointCorrelationLength>0.0){
+            shortestCorrelationLength=min(
+                shortestCorrelationLength,midpointCorrelationLength);
+            hasPositiveCorrelation=true;
+        }
+        if(endCorrelationLength>0.0){
+            shortestCorrelationLength=min(
+                shortestCorrelationLength,endCorrelationLength);
+            hasPositiveCorrelation=true;
+        }
+        if(finiteCorrelation){
+            result=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
+            if(hasPositiveCorrelation){
+                float requestedDemand=
+                    2.0*intervalLength/shortestCorrelationLength;
+                if(cloudValueIsFinite(requestedDemand))
+                    result=min(
+                        float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT),
+                        max(1.0,requestedDemand));
+            }else{
+                result=1.0;
+            }
+        }
+    }
+    return result;
 }
 
 // 相関長に基づく要求量を、最大標本数を越えない整数予算へ変換する。
-// 有効区間ごとに一標本を先に予約し、残りを相関場の横断回数へ比例配分する。
+// 有効区間ごとに一標本を先に予約し、残りは要求量の不足が大きい区間へ優先する。
 int4 cloudAdaptiveLightSampleCounts(
     CloudPackedBandIntervals intervals,int requestedSampleCount,
     float3 rayOrigin,float3 rayDirection){
@@ -3084,48 +3256,76 @@ int4 cloudAdaptiveLightSampleCounts(
     int intervalCount=clamp(intervals.count,0,4);
     int safeSampleCount=clamp(
         requestedSampleCount,0,CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
-    if(intervalCount<=0||safeSampleCount<=0) return sampleCounts;
-    float4 demands=float4(
-        cloudLightIntervalSampleDemand(
-            intervals,rayOrigin,rayDirection,0),
-        cloudLightIntervalSampleDemand(
-            intervals,rayOrigin,rayDirection,1),
-        cloudLightIntervalSampleDemand(
-            intervals,rayOrigin,rayDirection,2),
-        cloudLightIntervalSampleDemand(
-            intervals,rayOrigin,rayDirection,3));
-    if(intervalCount<4) demands.w=0.0;
-    if(intervalCount<3) demands.z=0.0;
-    if(intervalCount<2) demands.y=0.0;
-    float demandSum=max(dot(demands,1.0.xxxx),1e-5);
-    int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
-    int remainingSampleCount=
-        safeSampleCount-reservedPerInterval*intervalCount;
-    int previousTarget=0;
-    float cumulativeDemand=0.0;
-    [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
-        if(intervalIndex<intervalCount){
-            cumulativeDemand+=demands[intervalIndex];
-            int target=intervalIndex==intervalCount-1
-                ?remainingSampleCount
-                :clamp(
-                    (int)round(float(remainingSampleCount)
-                        *cumulativeDemand/demandSum),
-                    previousTarget,remainingSampleCount);
-            sampleCounts[intervalIndex]=reservedPerInterval
-                +max(target-previousTarget,0);
-            previousTarget=target;
+    bool validInput=cloudPackedBandIntervalsAreFinite(intervals)
+        &&cloudFiniteFloat3(rayOrigin)&&cloudFiniteFloat3(rayDirection);
+    if(intervalCount>0&&safeSampleCount>0&&validInput){
+        float4 demands=float4(
+            cloudLightIntervalSampleDemand(
+                intervals,rayOrigin,rayDirection,0),
+            cloudLightIntervalSampleDemand(
+                intervals,rayOrigin,rayDirection,1),
+            cloudLightIntervalSampleDemand(
+                intervals,rayOrigin,rayDirection,2),
+            cloudLightIntervalSampleDemand(
+                intervals,rayOrigin,rayDirection,3));
+        if(intervalCount<4) demands.w=0.0;
+        if(intervalCount<3) demands.z=0.0;
+        if(intervalCount<2) demands.y=0.0;
+        int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
+        if(reservedPerInterval>0){
+            sampleCounts.x=intervalCount>0?1:0;
+            sampleCounts.y=intervalCount>1?1:0;
+            sampleCounts.z=intervalCount>2?1:0;
+            sampleCounts.w=intervalCount>3?1:0;
+        }
+        int remainingSampleCount=
+            safeSampleCount-reservedPerInterval*intervalCount;
+        // 予算配分の反復を展開すると、区間ごとの相関評価と同時に
+        // 一時値が生存して本番CSのレジスタを圧迫する。反復上限は固定でも、
+        // 実際の残数は入力で変わるため、動的ループとして実行する。
+        [loop] for(int allocation=0;
+                     allocation<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
+                     ++allocation){
+            if(allocation<remainingSampleCount){
+                float4 residual=max(
+                    demands-float4(sampleCounts),0.0.xxxx);
+                float4 intervalLengths=float4(
+                    cloudFiniteIntervalLength(
+                        intervals.starts.x,intervals.ends.x),
+                    cloudFiniteIntervalLength(
+                        intervals.starts.y,intervals.ends.y),
+                    cloudFiniteIntervalLength(
+                        intervals.starts.z,intervals.ends.z),
+                    cloudFiniteIntervalLength(
+                        intervals.starts.w,intervals.ends.w));
+                if(intervalCount<4) intervalLengths.w=0.0;
+                if(intervalCount<3) intervalLengths.z=0.0;
+                if(intervalCount<2) intervalLengths.y=0.0;
+                bool hasResidual=dot(residual,1.0.xxxx)>0.0;
+                float4 priority=hasResidual
+                    ?residual
+                    :intervalLengths/float4(sampleCounts+1);
+                int selectedIndex=0;
+                if(priority.y>priority.x) selectedIndex=1;
+                if(priority.z>priority[selectedIndex]) selectedIndex=2;
+                if(priority.w>priority[selectedIndex]) selectedIndex=3;
+                if(selectedIndex==0) sampleCounts.x++;
+                if(selectedIndex==1) sampleCounts.y++;
+                if(selectedIndex==2) sampleCounts.z++;
+                if(selectedIndex==3) sampleCounts.w++;
+            }
         }
     }
     return sampleCounts;
 }
 
-// 相関長から決めた区間予算の番号を、区間中央の標本位置へ写す。
+// 相関長から決めた区間予算を、区間中央の標本位置と物理帯IDへ写す。
 bool cloudAdaptiveLightSampleTerms(
     CloudPackedBandIntervals intervals,int4 sampleCounts,int sampleIndex,
-    out float rayDistance,out float sampleSpacing){
+    out float rayDistance,out float sampleSpacing,out int sampleBandId){
     rayDistance=0.0;
     sampleSpacing=0.0;
+    sampleBandId=-1;
     bool validSample=false;
     int sampleStart=0;
     [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
@@ -3139,12 +3339,18 @@ bool cloudAdaptiveLightSampleTerms(
             float intervalEnd=intervalIndex==0?intervals.ends.x:
                 (intervalIndex==1?intervals.ends.y:
                 (intervalIndex==2?intervals.ends.z:intervals.ends.w));
-            float intervalLength=max(intervalEnd-intervalStart,0.0);
+            float intervalLength=cloudFiniteIntervalLength(
+                intervalStart,intervalEnd);
             sampleSpacing=intervalLength
                 /float(max(intervalSampleCount,1));
             rayDistance=intervalStart
                 +(float(intervalSampleIndex)+0.5)*sampleSpacing;
-            validSample=sampleSpacing>1e-4;
+            sampleBandId=intervals.bandIds[intervalIndex];
+            validSample=cloudValueIsFinite(intervalStart)
+                &&cloudValueIsFinite(intervalLength)
+                &&cloudValueIsFinite(sampleSpacing)
+                &&cloudValueIsFinite(rayDistance)
+                &&sampleSpacing>1e-4;
         }
         sampleStart=sampleEnd;
     }
@@ -3159,19 +3365,24 @@ float3 cloudBeerAbsorptionFraction3(float3 opticalDepth){
 // 1からの減少量を、薄い媒質でも桁落ちさせず光学的深さへ戻す。
 float cloudOpticalDepthFromAbsorption(float requestedAbsorption){
     float absorption=cloudValueIsFinite(requestedAbsorption)
-        ?saturate(requestedAbsorption):1.0;
-    if(absorption<=0.0) return 0.0;
-    if(absorption>=1.0) return 80.0;
-    if(absorption<=0.125){
-        float squared=absorption*absorption;
-        float cubed=squared*absorption;
-        float fourth=squared*squared;
-        float fifth=fourth*absorption;
-        float sixth=cubed*cubed;
-        return absorption+squared*0.5+cubed/3.0
-            +fourth*0.25+fifth*0.2+sixth/6.0;
+        ?saturate(requestedAbsorption):0.0;
+    float result=0.0;
+    if(absorption>=1.0){
+        result=80.0;
+    }else if(absorption>0.0){
+        if(absorption<=0.125){
+            float squared=absorption*absorption;
+            float cubed=squared*absorption;
+            float fourth=squared*squared;
+            float fifth=fourth*absorption;
+            float sixth=cubed*cubed;
+            result=absorption+squared*0.5+cubed/3.0
+                +fourth*0.25+fifth*0.2+sixth/6.0;
+        }else{
+            result=min(-log(max(1.0-absorption,1e-35)),80.0);
+        }
     }
-    return min(-log(max(1.0-absorption,1e-35)),80.0);
+    return result;
 }
 float3 cloudOpticalDepthFromAbsorption3(float3 absorption){
     return float3(
@@ -3611,30 +3822,33 @@ CloudFourStateTransportResultLanes cloudFourStateTransportLanes(
 // 一つの横断面を通る全光路の終端でだけ、各レーンを指数変換して面積平均する。
 float cloudDensityLaneTransmittance(
     float4 requestedDensityLanes,float opticalScale){
-    if(opticalScale!=opticalScale||opticalScale<=0.0) return 1.0;
-    bool infiniteScale=opticalScale>3.402823466e+38;
-    float4 safeDensity=float4(
-        cloudValueIsFinite(requestedDensityLanes.x)
-            &&requestedDensityLanes.x>0.0?requestedDensityLanes.x:0.0,
-        cloudValueIsFinite(requestedDensityLanes.y)
-            &&requestedDensityLanes.y>0.0?requestedDensityLanes.y:0.0,
-        cloudValueIsFinite(requestedDensityLanes.z)
-            &&requestedDensityLanes.z>0.0?requestedDensityLanes.z:0.0,
-        cloudValueIsFinite(requestedDensityLanes.w)
-            &&requestedDensityLanes.w>0.0?requestedDensityLanes.w:0.0);
-    float4 laneTransmittance=1.0.xxxx;
-    if(infiniteScale){
-        laneTransmittance=float4(
-            safeDensity.x>0.0?0.0:1.0,
-            safeDensity.y>0.0?0.0:1.0,
-            safeDensity.z>0.0?0.0:1.0,
-            safeDensity.w>0.0?0.0:1.0);
-    }else{
-        laneTransmittance=exp(-min(
-            safeDensity*opticalScale,80.0.xxxx));
+    float result=1.0;
+    if(opticalScale==opticalScale&&opticalScale>0.0){
+        bool infiniteScale=opticalScale>3.402823466e+38;
+        float4 safeDensity=float4(
+            cloudValueIsFinite(requestedDensityLanes.x)
+                &&requestedDensityLanes.x>0.0?requestedDensityLanes.x:0.0,
+            cloudValueIsFinite(requestedDensityLanes.y)
+                &&requestedDensityLanes.y>0.0?requestedDensityLanes.y:0.0,
+            cloudValueIsFinite(requestedDensityLanes.z)
+                &&requestedDensityLanes.z>0.0?requestedDensityLanes.z:0.0,
+            cloudValueIsFinite(requestedDensityLanes.w)
+                &&requestedDensityLanes.w>0.0?requestedDensityLanes.w:0.0);
+        float4 laneTransmittance=1.0.xxxx;
+        if(infiniteScale){
+            laneTransmittance=float4(
+                safeDensity.x>0.0?0.0:1.0,
+                safeDensity.y>0.0?0.0:1.0,
+                safeDensity.z>0.0?0.0:1.0,
+                safeDensity.w>0.0?0.0:1.0);
+        }else{
+            laneTransmittance=exp(-min(
+                safeDensity*opticalScale,80.0.xxxx));
+        }
+        result=saturate(dot(
+            laneTransmittance,CLOUD_SUBRAY_AREA_WEIGHTS));
     }
-    return saturate(dot(
-        laneTransmittance,CLOUD_SUBRAY_AREA_WEIGHTS));
+    return result;
 }
 float cloudDensityLaneOpticalDepth(
     float4 densityLanes,float opticalScale){
@@ -3729,20 +3943,22 @@ float cloudShapeMaximumDomainFootprint(
 // 完成形状の最高周波数から中間、最粗形状、解析的な未解像分布へ順に移る。
 // 最粗周期より広い担当幅で点標本を残さず、遠景の折り返しと移動時のちらつきを防ぐ。
 float4 cloudShapeFrequencyWeights(float maximumDomainFootprint){
-    if(!cloudCondensationValueIsFinite(maximumDomainFootprint))
-        return float4(0.0,0.0,0.0,1.0);
-    float safeFootprint=max(maximumDomainFootprint,0.0);
-    float fineVisibility=1.0-smoothstep(
-        0.25,0.50,safeFootprint*8.0);
-    float middleVisibility=1.0-smoothstep(
-        0.25,0.50,safeFootprint*4.0);
-    float coarseVisibility=1.0-smoothstep(
-        0.25,0.50,safeFootprint*2.0);
-    float coarseOwner=(1.0-fineVisibility)*(1.0-middleVisibility);
-    return float4(
-        coarseOwner*coarseVisibility,
-        (1.0-fineVisibility)*middleVisibility,
-        fineVisibility,coarseOwner*(1.0-coarseVisibility));
+    float4 result=float4(0.0,0.0,0.0,1.0);
+    if(cloudCondensationValueIsFinite(maximumDomainFootprint)){
+        float safeFootprint=max(maximumDomainFootprint,0.0);
+        float fineVisibility=1.0-smoothstep(
+            0.25,0.50,safeFootprint*8.0);
+        float middleVisibility=1.0-smoothstep(
+            0.25,0.50,safeFootprint*4.0);
+        float coarseVisibility=1.0-smoothstep(
+            0.25,0.50,safeFootprint*2.0);
+        float coarseOwner=(1.0-fineVisibility)*(1.0-middleVisibility);
+        result=float4(
+            coarseOwner*coarseVisibility,
+            (1.0-fineVisibility)*middleVisibility,
+            fineVisibility,coarseOwner*(1.0-coarseVisibility));
+    }
+    return result;
 }
 // xyzへ最粗・中間・完成形状の符号付きポテンシャルを返す。
 // 正値化前には混ぜず、各帯域の密度へ変換した後で担当幅の重みを適用する。
@@ -3759,15 +3975,18 @@ float cloudShapeOccupancyMaximum(
     float3 uvw,float maximumDomainFootprint){
     float4 occupancyBands=shapeOccupancy.SampleLevel(
         shapeOccupancy_sampler,uvw,0);
-    if(!cloudCondensationValueIsFinite(maximumDomainFootprint)) return 1.0;
-    float footprintVoxels=max(maximumDomainFootprint,0.0)*128.0;
-    float occupancyStoredPotential=occupancyBands.a;
-    if(footprintVoxels>0.0) occupancyStoredPotential=occupancyBands.r;
-    if(footprintVoxels>4.0) occupancyStoredPotential=occupancyBands.g;
-    if(footprintVoxels>16.0) occupancyStoredPotential=occupancyBands.b;
-    // 最大包絡より広い区間は誤って捨てず、密度側の低周波形状で細密探索する。
-    if(footprintVoxels>64.0) occupancyStoredPotential=1.0;
-    return cloudSignedPotentialFromStored(occupancyStoredPotential);
+    float result=1.0;
+    if(cloudCondensationValueIsFinite(maximumDomainFootprint)){
+        float footprintVoxels=max(maximumDomainFootprint,0.0)*128.0;
+        float occupancyStoredPotential=occupancyBands.a;
+        if(footprintVoxels>0.0) occupancyStoredPotential=occupancyBands.r;
+        if(footprintVoxels>4.0) occupancyStoredPotential=occupancyBands.g;
+        if(footprintVoxels>16.0) occupancyStoredPotential=occupancyBands.b;
+        // 最大包絡より広い区間は誤って捨てず、密度側の低周波形状で細密探索する。
+        if(footprintVoxels>64.0) occupancyStoredPotential=1.0;
+        result=cloudSignedPotentialFromStored(occupancyStoredPotential);
+    }
+    return result;
 }
 // 二領域を混ぜた被覆値の実測百分位へ合わせ、入力0.1/0.5/0.9が
 // およそ10%/52%/90%の正の被覆領域になるようにする。
@@ -4111,22 +4330,28 @@ int cloudPackedIntervalSampleBudgetAt(
         +(same2?1:0)+(same3?1:0);
     int bandBudget=max(
         targetBandId>0?physicalBandBudgets.y:physicalBandBudgets.x,1);
-    if(!targetValid) return 0;
-    if(sameCount<=1) return bandBudget;
-    bandBudget=max(bandBudget,2);
-    int firstIndex=same0?0:(same1?1:(same2?2:3));
-    float firstSpan=firstIndex==0?spans.x:
-        (firstIndex==1?spans.y:(firstIndex==2?spans.z:spans.w));
-    float bandSpan=(same0?spans.x:0.0)+(same1?spans.y:0.0)
-        +(same2?spans.z:0.0)+(same3?spans.w:0.0);
-    int distributableBudget=max(bandBudget-2,0);
-    int firstExtra=clamp(
-        (int)floor(
-            float(distributableBudget)*firstSpan/max(bandSpan,1e-4)+0.5),
-        0,distributableBudget);
-    int firstBudget=1+firstExtra;
-    return targetIndex==firstIndex
-        ?firstBudget:bandBudget-firstBudget;
+    int result=0;
+    if(targetValid){
+        if(sameCount<=1){
+            result=bandBudget;
+        }else{
+            bandBudget=max(bandBudget,2);
+            int firstIndex=same0?0:(same1?1:(same2?2:3));
+            float firstSpan=firstIndex==0?spans.x:
+                (firstIndex==1?spans.y:(firstIndex==2?spans.z:spans.w));
+            float bandSpan=(same0?spans.x:0.0)+(same1?spans.y:0.0)
+                +(same2?spans.z:0.0)+(same3?spans.w:0.0);
+            int distributableBudget=max(bandBudget-2,0);
+            int firstExtra=clamp(
+                (int)floor(
+                    float(distributableBudget)*firstSpan/max(bandSpan,1e-4)+0.5),
+                0,distributableBudget);
+            int firstBudget=1+firstExtra;
+            result=targetIndex==firstIndex
+                ?firstBudget:bandBudget-firstBudget;
+        }
+    }
+    return result;
 }
 
 int4 cloudPackedIntervalSampleBudgets(
@@ -4425,16 +4650,20 @@ float3 cloudNearLightOpticalDepthResiduals(
     CloudFourStateTransportLanes detailedThirdState=
         cloudInitialFourStateTransportLanes();
     float previousSegmentEnd=-1.0;
+    int previousBandId=-1;
     [loop] for(int sampleIndex=0;
                sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;
                ++sampleIndex){
         float rayDistance=0.0;
         float sampleSpacing=0.0;
+        int sampleBandId=-1;
         if(!cloudLightSampleTerms(
                intervals,CLOUD_LIGHT_DETAIL_SAMPLE_COUNT,sampleIndex,
-               rayDistance,sampleSpacing)) continue;
+               rayDistance,sampleSpacing,sampleBandId)) continue;
         float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&segmentStart>previousSegmentEnd+1e-3){
+        if(previousSegmentEnd>=0.0&&
+           (sampleBandId!=previousBandId||
+            segmentStart>previousSegmentEnd+1e-3)){
             lowFirstState.active=0.0.xxxx;
             lowSecondState.active=0.0.xxxx;
             lowThirdState.active=0.0.xxxx;
@@ -4443,6 +4672,7 @@ float3 cloudNearLightOpticalDepthResiduals(
             detailedThirdState.active=0.0.xxxx;
         }
         previousSegmentEnd=rayDistance+0.5*sampleSpacing;
+        previousBandId=sampleBandId;
         float3 samplePosition=rayOrigin+lightDirection*rayDistance;
         CloudMacroSample macro=sampleCloudMacroLightingSegment(
             samplePosition,coverage,lightDirection,sampleSpacing);
@@ -4487,21 +4717,26 @@ float3 traceCloudMainLightDepths(
         intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
         rayOrigin,lightDirection);
     float previousSegmentEnd=-1.0;
+    int previousBandId=-1;
     [loop] for(int sampleIndex=0;
                sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
                ++sampleIndex){
         float rayDistance=0.0;
         float sampleSpacing=0.0;
+        int sampleBandId=-1;
         if(!cloudAdaptiveLightSampleTerms(
                intervals,sampleCounts,sampleIndex,
-               rayDistance,sampleSpacing)) continue;
+               rayDistance,sampleSpacing,sampleBandId)) continue;
         float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&segmentStart>previousSegmentEnd+1e-3){
+        if(previousSegmentEnd>=0.0&&
+           (sampleBandId!=previousBandId||
+            segmentStart>previousSegmentEnd+1e-3)){
             firstOrderState.active=0.0.xxxx;
             secondOrderState.active=0.0.xxxx;
             thirdOrderState.active=0.0.xxxx;
         }
         previousSegmentEnd=rayDistance+0.5*sampleSpacing;
+        previousBandId=sampleBandId;
         float3 samplePosition=rayOrigin+lightDirection*rayDistance;
         CloudMacroSample macro=sampleCloudMacroLightingSegment(
             samplePosition,coverage,lightDirection,sampleSpacing);
@@ -4638,21 +4873,26 @@ float3 traceCloudShadowDepths(
         intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
         rayOrigin,lightDirection);
     float previousSegmentEnd=-1.0;
+    int previousBandId=-1;
     [loop] for(int sampleIndex=0;
                sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
                ++sampleIndex){
         float rayDistance=0.0;
         float sampleSpacing=0.0;
+        int sampleBandId=-1;
         if(!cloudAdaptiveLightSampleTerms(
                intervals,sampleCounts,sampleIndex,
-               rayDistance,sampleSpacing)) continue;
+               rayDistance,sampleSpacing,sampleBandId)) continue;
         float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&segmentStart>previousSegmentEnd+1e-3){
+        if(previousSegmentEnd>=0.0&&
+           (sampleBandId!=previousBandId||
+            segmentStart>previousSegmentEnd+1e-3)){
             firstOrderState.active=0.0.xxxx;
             secondOrderState.active=0.0.xxxx;
             thirdOrderState.active=0.0.xxxx;
         }
         previousSegmentEnd=rayDistance+0.5*sampleSpacing;
+        previousBandId=sampleBandId;
         float3 samplePosition=rayOrigin+lightDirection*rayDistance;
         CloudMacroSample lightMacro=sampleCloudMacroLightingSegment(
             samplePosition,coverage,lightDirection,sampleSpacing);
@@ -5053,20 +5293,24 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
         CloudFourStateTransportLanes thirdOrderState=
             cloudInitialFourStateTransportLanes();
         float previousSegmentEnd=-1.0;
+        int previousBandId=-1;
         [loop] for(int sampleIndex=0;sampleIndex<SAMPLE_COUNT;++sampleIndex){
             float sampleDistance=0.0;
             float stepLength=0.0;
+            int sampleBandId=-1;
             if(!cloudLightSampleTerms(
                    bandIntervals,SAMPLE_COUNT,sampleIndex,
-                   sampleDistance,stepLength)) continue;
+                   sampleDistance,stepLength,sampleBandId)) continue;
             float segmentStart=sampleDistance-0.5*stepLength;
             if(previousSegmentEnd>=0.0&&
-               segmentStart>previousSegmentEnd+1e-3){
+               (sampleBandId!=previousBandId||
+                segmentStart>previousSegmentEnd+1e-3)){
                 firstOrderState.active=0.0.xxxx;
                 secondOrderState.active=0.0.xxxx;
                 thirdOrderState.active=0.0.xxxx;
             }
             previousSegmentEnd=sampleDistance+0.5*stepLength;
+            previousBandId=sampleBandId;
             float3 p=rayOrigin+sun*sampleDistance;
             CloudMacroSample macro=sampleCloudMacroLightingSegment(
                 p,saturate(params.x),sun,stepLength);
@@ -7840,9 +8084,9 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
 namespace {
 
 constexpr u64 kCloudWorkloadMaximum = ~u64{0};
-// キャッシュ境界の最悪経路は、太陽円盤4方向の適応最大16標本と、共有する高周波3標本を使う。
+// キャッシュ境界の最悪経路は、太陽円盤4方向それぞれの適応最大16標本と高周波3標本を使う。
 constexpr u64 kCloudMaximumMainLightDensitySamples =
-    4u * static_cast<u64>(kVolumetricCloudMaxLightMarchSamples) + 3u;
+    4u * (static_cast<u64>(kVolumetricCloudMaxLightMarchSamples) + 3u);
 u64 SaturatingCloudWorkloadAdd(u64 left, u64 right) noexcept {
     return right > kCloudWorkloadMaximum - left
         ? kCloudWorkloadMaximum : left + right;

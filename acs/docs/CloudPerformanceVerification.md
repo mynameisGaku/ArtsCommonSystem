@@ -89,7 +89,7 @@ Each scenario must prove all of the following:
 - completed GPU queries and the native GPU pass window are available;
 - cloud frame/pass timings are finite and positive;
 - viewport and cloud trace resolutions are coherent;
-- cloud scale is exactly `0.25`, with 384 view samples and an adaptive light-sample ceiling of 16;
+- cloud scale is exactly `0.25`, with 384 view samples and an adaptive ceiling of 16 light samples per each of four sun-disk directions plus three high-frequency samples per direction;
 - cloud work was attempted and submitted;
 - temporal history was available and reused without invalidation, with TSR
   enabled;
@@ -1839,6 +1839,8 @@ Editorの時刻はフレーム差分を積算してから3D描画へ渡され、
 格子状の別名雑音を作るため、従来の低詳細度基準だけを保持する。主描画側で現在画素の差分を重ねることで、
 影キャッシュの解像度、視線標本数、公開APIは変えていない。主光路と影光路の最大16標本は固定数を
 常に使うのではなく、雲形状の実空間相関長から各雲帯の必要量を求め、相関の短い区間へ予算を配る。
+この必要量は優先順位であり、1方向の固定予算を超える場合に常に相関長の半分以下の間隔を保証する値ではない。
+その場合も有効な各雲帯へ最低1標本を予約し、残りを要求量の不足が大きい帯へ配分することで、短い帯を無標本で捨てない。
 
 実行画像は`C:\dev\acs_temp_builds\CloudLightBandResidual-20260824`へ保存した。地上では青空の隙間と
 雲底の明暗を維持し、雲層内では明部、遮光された雲芯、薄い霧が一色へ収束していない。斜め上空と
@@ -2316,7 +2318,7 @@ SHA-256は`3B5D4C6EAD5C01A1EB888A28E89C385CE31FBA4E0FD4280B04F37ECF8A9F6597`で�
 ## 品質を保つ最適化規則
 
 Ultra cloud optimization keeps the `0.25` trace scale, 384 view-sample ceiling,
-the 16-sample adaptive light-probe ceiling, sixteen-phase TSR, world-space density coordinates, and every
+the 16-sample adaptive light-probe ceiling for each of four sun-disk directions plus three high-frequency samples per direction, sixteen-phase TSR, world-space density coordinates, and every
 accepted probe position fixed. A candidate is retained only when the same
 provenance-locked horizon/zenith/above harness shows a repeatable GPU improvement;
 FXC instruction count is diagnostic evidence, not acceptance by itself.
@@ -2327,8 +2329,9 @@ FXC instruction count is diagnostic evidence, not acceptance by itself.
 新しい事前棄却は代数上の反例がないことに加え、同一の地上・天頂・上空入力でGPU時間を短縮し、
 分岐発散によって採取削減を相殺しない場合だけ採用する。
 
-最初の3個の光標本は採取間隔で侵食帯域を制限する。主光路と影光路の最大16標本は、区間中央の相関長から
-必要標本量を求め、雲帯間の晴天距離を飛ばして適応的に積分する。利用できる場所だけ、現在または直近3フレーム以内に
+各方向の高周波3標本は採取間隔で侵食帯域を制限する。主光路と影光路の最大16標本は、区間両端と中央の最短相関長から
+必要標本量を求め、雲帯間の晴天距離を飛ばして適応的に積分する。必要量は予算内の優先順位であり、予算不足時の相関長半分以下を保証するものではない。
+有効な各雲帯へ最低1標本を予約し、残りを要求量の不足が大きい帯へ配分する。利用できる場所だけ、現在または直近3フレーム以内に
 生成した遠距離の光学的深さへ置き換える。標本数、テクスチャ解像度、近距離の品質を減らす最適化ではない。
 
 Curved-shell intersection also preserves the original factorized quadratic.
