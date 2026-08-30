@@ -743,6 +743,15 @@ f32 CloudWeatherCoverageEvolutionForTest(
     return boundedPhase * edgeResponse;
 }
 
+// HLSLの対流位相による高さ分布の再配置をCPUで再現する。
+f32 CloudConvectionHeightForTest(
+    f32 height, f32 localPhase, f32 toweringStrength) noexcept {
+    const f32 response = 0.018f +
+        (0.06f - 0.018f) * SaturateForTest(toweringStrength);
+    return SaturateForTest(
+        height + localPhase * response);
+}
+
 // 低周波の湿度核を所有者とし、境界だけへ高周波の零平均変位を加える。
 // 正値化前の符号を保ち、LODで未凝結側の距離を失わない。
 f32 CloudHierarchicalShapeForTest(
@@ -8274,7 +8283,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatcloudWeatherCoverageEvolution(float4weather){"
         "float2localPattern=float2(weather.a,weather.g)*2.0-1.0;"
-        "floatslowPhase=dot(cloudEvolution.xy,localPattern);"
+        "floatslowPhase=cloudLocalConvectionPhase(weather);"
         "floatfinePhase=dot(cloudEvolution.zw,localPattern.yx);"
         "floatedgeBase=weather.r*(1.0-weather.r);"
         "floatedgeResponse=16.0*edgeBase*edgeBase;"
@@ -8305,6 +8314,51 @@ ACS_TEST(VolumetricClouds,
         const std::string helper = shader.substr(
             helperBegin, helperEnd - helperBegin);
         EXPECT_FALSE(Contains(helper, "SampleLevel("));
+    }
+}
+
+ACS_TEST(VolumetricClouds,
+         ConvectionPhaseRepositionsHeightProfileWithoutLeavingLayer) {
+    EXPECT_NEAR(
+        CloudConvectionHeightForTest(0.5f, 0.25f, 0.0f),
+        0.5045f, 1e-6f);
+    EXPECT_NEAR(
+        CloudConvectionHeightForTest(0.5f, 0.25f, 1.0f),
+        0.515f, 1e-6f);
+    EXPECT_NEAR(
+        CloudConvectionHeightForTest(0.0f, -1.0f, 1.0f),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        CloudConvectionHeightForTest(1.0f, 1.0f, 1.0f),
+        1.0f, 0.0f);
+
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    const std::size_t macroBegin = shader.find(
+        "CloudMacroSamplesampleCloudMacroFromThreshold(");
+    const std::size_t macroEnd = shader.find(
+        "CloudMacroSamplesampleCloudMacro(", macroBegin);
+    EXPECT_TRUE(macroBegin != std::string::npos);
+    EXPECT_TRUE(macroEnd != std::string::npos);
+    if (macroBegin != std::string::npos &&
+        macroEnd != std::string::npos) {
+        const std::string macro =
+            shader.substr(macroBegin, macroEnd - macroBegin);
+        const std::size_t height =
+            macro.find("macro.height=layerHeight;");
+        const std::size_t response =
+            macro.find(
+                "floatconvectionResponse=lerp(0.018,0.06,saturate(macro.toweringStrength));");
+        const std::size_t convectionHeight =
+            macro.find(
+                "floatconvectionHeight=saturate(macro.height+cloudLocalConvectionPhase(macro.weather)*convectionResponse);");
+        const std::size_t profile =
+            macro.find(
+                "macro.heightProfile=saturate(cloudProfile(convectionHeight,");
+        EXPECT_TRUE(height < response);
+        EXPECT_TRUE(response < convectionHeight);
+        EXPECT_TRUE(convectionHeight < profile);
     }
 }
 
@@ -11464,7 +11518,9 @@ ACS_TEST(VolumetricClouds, ContinuousCloudTimeUsesReprojectionInsteadOfWholeFram
     EXPECT_FALSE(Contains(source, "timeDelta>0.25f"));
     EXPECT_FALSE(Contains(source, "windDelta>2.0f"));
     EXPECT_TRUE(Contains(source, "if(coverageDelta>0.001f||densityDelta>0.001f||" "windSpeedDelta>0.001f)historyValid=false;"));
-    EXPECT_TRUE(Contains(source, "constrender_internal::FVolumetricCloudShadowTemporalDecision" "shadowTemporalDecision=render_internal::ResolveVolumetricCloudShadowTemporalDecision(" "recorded.frame_index,evolutionFrameTerms,previousEvolutionFrameTerms," "windOffset,m_PrevWindOffset);"));
+    EXPECT_TRUE(Contains(source, "constboolpreviousEvolutionStateAvailable=historyValid&&render_internal::CloudTemporalValueIsFinite_Internal(m_PrevTime);"));
+    EXPECT_TRUE(Contains(source, "constFVolumetricCloudEvolutionFrameTermspreviousShadowEvolutionFrameTerms"));
+    EXPECT_TRUE(Contains(source, "constrender_internal::FVolumetricCloudShadowTemporalDecision" "shadowTemporalDecision=render_internal::ResolveVolumetricCloudShadowTemporalDecision(" "recorded.frame_index,evolutionFrameTerms,previousShadowEvolutionFrameTerms," "windOffset,m_PrevWindOffset);"));
     EXPECT_TRUE(Contains(source, "constf32selfShadowVerticalSpan=" "highestCloudAltitude-m_Layer.base_height;"));
     EXPECT_TRUE(Contains(source, "constf32worldShadowVerticalSpan=" "highestCloudAltitude>recorded.world_shadow_reference_height" "?highestCloudAltitude-recorded.world_shadow_reference_height" ":0.0f;"));
     EXPECT_TRUE(Contains(source, "ResolveVolumetricCloudSunProjectionDelta_Internal(" "safeSun,m_PrevSunDir,selfShadowVerticalSpan," "selfSunDirectionStepDistance);"));

@@ -2703,7 +2703,7 @@ float cloudLocalConvectionPhase(float4 weather){
 // 既存の時間位相と天候模様だけを使うため、テクスチャ採取は増えない。
 float cloudWeatherCoverageEvolution(float4 weather){
     float2 localPattern=float2(weather.a,weather.g)*2.0-1.0;
-    float slowPhase=dot(cloudEvolution.xy,localPattern);
+    float slowPhase=cloudLocalConvectionPhase(weather);
     float finePhase=dot(cloudEvolution.zw,localPattern.yx);
     float edgeBase=weather.r*(1.0-weather.r);
     float edgeResponse=16.0*edgeBase*edgeBase;
@@ -4150,8 +4150,15 @@ CloudMacroSample sampleCloudMacroFromThreshold(
         macro.weather,layerCoverageThreshold,
         layerInverseTransitionWidth,
         macro.height,macro.toweringStrength);
+    // 対流位相を雲縁だけでなく高さ分布へも伝え、移流だけでは表現できない
+    // 雲の局所的な発達・衰退を作る。積雲ほど応答を大きくし、層雲は安定させる。
+    float convectionResponse=lerp(
+        0.018,0.06,saturate(macro.toweringStrength));
+    float convectionHeight=saturate(
+        macro.height+cloudLocalConvectionPhase(macro.weather)
+            *convectionResponse);
     macro.heightProfile=saturate(cloudProfile(
-        macro.height,macro.weather.g,macro.toweringStrength,
+        convectionHeight,macro.weather.g,macro.toweringStrength,
         macro.columnSpan,upperBand));
     macro.curl=cloudCurlOffset(p,safeFootprint.xz);
     float maximumDomainFootprint=cloudShapeMaximumDomainFootprint(
@@ -11107,11 +11114,20 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         (recorded.shadow_cache_valid || recorded.world_shadow_valid ||
          recorded.shadow_cache_warmup_mask != 0u ||
          recorded.world_shadow_warmup_mask != 0u);
+    // 画面履歴の対流差は影キャッシュの準備状態に依存させない。影がまだ温まって
+    // いない起動直後でも、前フレームの雲形状変化を画面再構成へ正しく伝える。
+    const bool previousEvolutionStateAvailable =
+        historyValid &&
+        render_internal::CloudTemporalValueIsFinite_Internal(m_PrevTime);
     const FVolumetricCloudEvolutionFrameTerms previousEvolutionFrameTerms =
+        previousEvolutionStateAvailable
+            ? ResolveVolumetricCloudEvolutionFrameTerms(m_PrevTime, m_PrevWindSpeed)
+            : evolutionFrameTerms;
+    const FVolumetricCloudEvolutionFrameTerms previousShadowEvolutionFrameTerms =
         previousShadowStateAvailable
             ? ResolveVolumetricCloudEvolutionFrameTerms(m_PrevTime, m_PrevWindSpeed)
             : evolutionFrameTerms;
-    const render_internal::FVolumetricCloudShadowTemporalDecision shadowTemporalDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(recorded.frame_index, evolutionFrameTerms, previousEvolutionFrameTerms, windOffset, m_PrevWindOffset);
+    const render_internal::FVolumetricCloudShadowTemporalDecision shadowTemporalDecision = render_internal::ResolveVolumetricCloudShadowTemporalDecision(recorded.frame_index, evolutionFrameTerms, previousShadowEvolutionFrameTerms, windOffset, m_PrevWindOffset);
 
     const bool bakeShapeNoiseThisFrame =
         !recorded.noise_baked && m_NoisePipe && m_NoiseFilterResources &&
