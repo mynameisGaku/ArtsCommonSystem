@@ -725,8 +725,12 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "float erosionThreshold=erosion*erosionAmount;"));
     EXPECT_TRUE(Contains(source, "float cloudCondensationPotential("));
     EXPECT_TRUE(Contains(source, "float cloudCondensationDensity("));
-    EXPECT_TRUE(Contains(source, "macro.weather=cloudWeatherDataBandLimitedPoint("));
-    EXPECT_TRUE(Contains(source, "p,safeFootprint.xz);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
+    EXPECT_TRUE(Contains(
+        source,
+        "p,safeFootprint.xz,macro.weather,shapeWeather);"));
     EXPECT_TRUE(Contains(source, "lowerCoverage*cloudUpperTerms.x"));
     EXPECT_FALSE(Contains(source, "macro.densityWeatherMask*=cloudUpperTerms.x"));
     EXPECT_TRUE(Contains(source, "densityDistribution=cloudScaleDensityDistribution("));

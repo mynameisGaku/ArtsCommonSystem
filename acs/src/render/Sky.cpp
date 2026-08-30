@@ -2693,11 +2693,23 @@ float cloudProfile(
         columnSpan,upperBand);
 }
 // 既に採取した二つの天候模様で時間位相の向きと強さを場所ごとに変える。
-// 全地点へ同じ位相を足したときの一様な上下動を避け、追加のテクスチャ採取は行わない。
+// 戻り値は層厚で割った無次元変位として扱い、追加のテクスチャ採取は行わない。
 float cloudLocalConvectionPhase(float4 weather){
     float warpPattern=smoothstep(0.36,0.64,weather.a)*2.0-1.0;
     float typePattern=weather.g*2.0-1.0;
     return dot(cloudEvolution.xy,float2(warpPattern,typePattern));
+}
+// 同じ天候標本から、主形状の横方向二軸へ作用する局所位相を作る。
+// 一方向の平行移動へ潰さず、天候場の二つの独立成分を形状変形へ残す。
+float2 cloudLocalConvectionShapeVector(float4 weather){
+    float warpPattern=smoothstep(0.36,0.64,weather.a)*2.0-1.0;
+    // 横変位は地域の雲種細部ではなく、総観被覆とゆがみの場で決める。
+    // 細かな雲種を層厚級の変位へ使うと、物質座標が折り返して柱になる。
+    float coveragePattern=weather.r*2.0-1.0;
+    float2 localPattern=float2(warpPattern,coveragePattern);
+    return float2(
+        dot(cloudEvolution.xy,localPattern),
+        dot(cloudEvolution.xy,float2(-localPattern.y,localPattern.x)));
 }
 // 空と濃い中心を固定し、雲縁の被覆だけを場所ごとに成長または消散させる。
 // 既存の時間位相と天候模様だけを使うため、テクスチャ採取は増えない。
@@ -2723,6 +2735,20 @@ float cloudShapeVerticalSpan(bool upperBand){
         ?cloudUpperLayer.z:cloudFrameTerms.w;
     return cloudShapeScale()/max(inverseThickness,1e-6);
 }
+// 局所対流の横曲げを、最大でも層厚の4分の1の高さ係数へ制限する。
+// 形状変位と相関長・占有上限で同じ係数を使い、経路ごとの安全幅を一致させる。
+static const float CLOUD_CONVECTION_LATERAL_BEND_FRACTION=0.22;
+static const float CLOUD_WEATHER_VALUE_DERIVATIVE_BOUND=1.5;
+static const float CLOUD_WEATHER_GLOBAL_PERIOD=65536.0;
+static const float CLOUD_WEATHER_COVERAGE_FREQUENCY_WEIGHT_SUM=
+    3.0*0.68+7.0*0.32;
+static const float CLOUD_CONVECTION_WARP_RESPONSE_RANGE=0.28;
+static const float CLOUD_CONVECTION_GROWTH_RANGE=0.72;
+static const float CLOUD_CONVECTION_GROWTH_DERIVATIVE_BOUND=
+    CLOUD_WEATHER_VALUE_DERIVATIVE_BOUND/CLOUD_CONVECTION_GROWTH_RANGE;
+// rotateNoise の各行で、XZの未知変位を絶対値上限へ射影する係数。
+static const float CLOUD_CONVECTION_DOMAIN_X_BOUND=1.4;
+static const float CLOUD_CONVECTION_DOMAIN_YZ_BOUND=1.2727922;
 float2 cloudWindWorld(){
     // CPU側で風の移動距離を同じ方向へ射影し、フレームごとに一度だけ求める。
     return cloudFrameTerms.xy;
@@ -2734,9 +2760,82 @@ float2 cloudHeightShapeShear(float layerHeight,bool upperBand){
     return float2(0.9284767,0.3713907)
           *(850.0*saturate(layerHeight)*bandScale);
 }
+// 対流による物質座標の変位を、雲底から雲頂までの実距離で求める。
+// 高さ分布だけを変えると同じ2D被覆が柱として残るため、局所位相を高さで
+// 非線形に変形し、二軸の膨張・収縮として3D形状へ接続する。
+float2 cloudConvectionShapeShear(
+    float layerHeight,bool upperBand,float2 localPhase){
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    float layerThickness=1.0/max(inverseThickness,1e-6);
+    float2 safePhase=float2(
+        cloudValueIsFinite(localPhase.x)?localPhase.x:0.0,
+        cloudValueIsFinite(localPhase.y)?localPhase.y:0.0);
+    float h=saturate(layerHeight);
+    float growth=smoothstep(0.10,0.82,h);
+    float2 nonlinearPhase=safePhase*abs(safePhase);
+    float2 materialPhase=lerp(safePhase,nonlinearPhase,growth);
+    float2 lateralBend=float2(-materialPhase.y,materialPhase.x)
+        *(CLOUD_CONVECTION_LATERAL_BEND_FRACTION*h*(1.0-h));
+    return layerThickness*(materialPhase*h+lateralBend);
+}
+// 生成済み天候模様から、二つの形状位相が1 mで変化できる上限を返す。
+// 3・7・13・29帯域の補間勾配と二つのsmoothstepの微分上限から求め、
+// 絶対変位をセル幅と誤認しないようにする。
+float cloudConvectionShapeHorizontalPhaseGradientBound(){
+    // 形状側は総観サンプルaだけを使うため、地域領域の周波数を含めない。
+    float worldScale=1.0/CLOUD_WEATHER_GLOBAL_PERIOD;
+    // 2D補間のX・Z両方向をまとめるため、各軸の上限をユークリッド長へ広げる。
+    float coverageFieldGradient=CLOUD_WEATHER_VALUE_DERIVATIVE_BOUND
+        *CLOUD_WEATHER_COVERAGE_FREQUENCY_WEIGHT_SUM*worldScale
+        *sqrt(2.0);
+    float patternGradient=2.0*CLOUD_WEATHER_VALUE_DERIVATIVE_BOUND
+        /CLOUD_CONVECTION_WARP_RESPONSE_RANGE*coverageFieldGradient;
+    float phaseWeightX=cloudValueIsFinite(cloudEvolution.x)
+        ?abs(cloudEvolution.x):0.0;
+    float phaseWeightY=cloudValueIsFinite(cloudEvolution.y)
+        ?abs(cloudEvolution.y):0.0;
+    // 2つの独立したスカラー場を形状ベクトルへ写すため、出力2成分の
+    // ユークリッド長も上限へ含め、片方だけの勾配と誤認しない。
+    return (phaseWeightX+phaseWeightY)
+        *patternGradient*sqrt(2.0);
+}
+// 対流変位場の空間勾配を、水平天候勾配と高さ方向の非線形勾配から求める。
+// この値は「変位量」ではなく、隣接する物質点がどれだけ離れるかの上限である。
+float cloudConvectionShapeGradientBound(
+    float layerHeight,bool upperBand){
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    float layerThickness=1.0/max(inverseThickness,1e-6);
+    float phaseWeightX=cloudValueIsFinite(cloudEvolution.x)
+        ?abs(cloudEvolution.x):0.0;
+    float phaseWeightY=cloudValueIsFinite(cloudEvolution.y)
+        ?abs(cloudEvolution.y):0.0;
+    float phaseBound=phaseWeightX+phaseWeightY;
+    float nonlinearBound=phaseBound*phaseBound;
+    float componentBound=max(phaseBound,nonlinearBound);
+    float materialPhaseSlope=max(1.0,2.0*componentBound);
+    float horizontalPhaseGradient=
+        cloudConvectionShapeHorizontalPhaseGradientBound();
+    float h=saturate(layerHeight);
+    float horizontalGradient=layerThickness*horizontalPhaseGradient
+        *(h*materialPhaseSlope
+          +CLOUD_CONVECTION_LATERAL_BEND_FRACTION*h*(1.0-h));
+    float verticalPhaseSlope=componentBound*2.0
+        *CLOUD_CONVECTION_GROWTH_DERIVATIVE_BOUND;
+    float verticalGradient=layerThickness*max(inverseThickness,0.0)*(
+        componentBound+verticalPhaseSlope
+        +CLOUD_CONVECTION_LATERAL_BEND_FRACTION*(
+            componentBound+verticalPhaseSlope*0.25));
+    // 水平と鉛直の変化が同時に起きる斜め方向でも上限を下回らないよう、
+    // 直交する二方向の勾配をユークリッドノルムで結合する。
+    return length(float2(horizontalGradient,verticalGradient));
+}
 // 一つの物質座標で、広域と地域の天候領域を混ぜる。地域領域は担当面積で
 // 解像できるときだけ使い、未解像の細かな天候模様を別の低周波へ折り返さない。
-float4 cloudWeatherDataAtMaterialXz(float2 xz,float regionalWeight){
+void cloudWeatherDataAtMaterialXz(
+    float2 xz,float regionalWeight,out float4 weather,
+    out float4 shapeWeather){
     // 二つの独立した2D回転をまとめ、四つの内積ではなく一つの積和として計算する。
     float4 rotated=
         xz.x*float4(0.8660254,0.5,0.9563048,-0.2923717)
@@ -2749,9 +2848,9 @@ float4 cloudWeatherDataAtMaterialXz(float2 xz,float regionalWeight){
         weatherMap_sampler,weatherUv.xy,0);
     float4 b=weatherMap.SampleLevel(
         weatherMap_sampler,weatherUv.zw,0);
-    float4 weather=lerp(a,b,0.45*saturate(regionalWeight));
+    shapeWeather=a;
+    weather=lerp(a,b,0.45*saturate(regionalWeight));
     weather.b=max(a.b,b.b*0.72*saturate(regionalWeight));
-    return weather;
 }
 // 担当幅で解像できない地域天候だけを総観領域へ戻す。値の面積平均は行わず、
 // 非線形なしきい値より前に晴天列と雲列を混ぜない。
@@ -2781,11 +2880,24 @@ float4 cloudFinalizeWeatherData(float4 weather){
 // 担当幅は地域天候の周波数選択だけへ使い、総観領域の一点値を保つ。
 float4 cloudWeatherDataBandLimitedPoint(
     float3 p,float2 resolutionFootprint){
+    float4 shapeWeather=0.0.xxxx;
+    float4 weather=0.0.xxxx;
     float2 safeFootprint=max(resolutionFootprint,0.0.xx);
     float regionalWeight=cloudRegionalWeatherWeight(safeFootprint);
     float2 xz=p.xz-cloudWindWorld();
-    return cloudFinalizeWeatherData(
-        cloudWeatherDataAtMaterialXz(xz,regionalWeight));
+    cloudWeatherDataAtMaterialXz(
+        xz,regionalWeight,weather,shapeWeather);
+    return cloudFinalizeWeatherData(weather);
+}
+void cloudWeatherDataAndShapeBandLimitedPoint(
+    float3 p,float2 resolutionFootprint,out float4 weather,
+    out float4 shapeWeather){
+    float2 safeFootprint=max(resolutionFootprint,0.0.xx);
+    float regionalWeight=cloudRegionalWeatherWeight(safeFootprint);
+    float2 xz=p.xz-cloudWindWorld();
+    cloudWeatherDataAtMaterialXz(
+        xz,regionalWeight,weather,shapeWeather);
+    weather=cloudFinalizeWeatherData(weather);
 }
 float3 rotateNoise(float3 q){
     return float3(
@@ -2816,12 +2928,15 @@ float2 cloudCurlOffset(float3 p,float2 horizontalFootprint){
                       max(horizontalFootprint.y,0.0))/shortestCurlPeriod);
     return (a*0.68+b.yx*0.32)*frequencyVisibility;
 }
-float3 cloudUVW(
-    float3 p,float normalizedLayerHeight,bool upperBand){
+float3 cloudUVWWithConvection(
+    float3 p,float normalizedLayerHeight,bool upperBand,
+    float2 localConvectionPhase){
     float shapeScale=cloudShapeScale();
     float2 xz=p.xz-cloudWindWorld()
-             +cloudHeightShapeShear(normalizedLayerHeight,upperBand);
-    // 低周波形状は、天候しきい値や局所雲頂で座標自体を曲げない。
+             +cloudHeightShapeShear(normalizedLayerHeight,upperBand)
+             +cloudConvectionShapeShear(
+                 normalizedLayerHeight,upperBand,localConvectionPhase);
+    // 低周波形状は天候しきい値や局所雲頂では曲げず、明示した対流変位だけを使う。
     // 同じ物理点を視線・自己影・環境光が同じ3D物質座標として読むことで、
     // 空間探索の担当幅を解析可能にし、高さごとの縦筋と移流時の位相飛びを防ぐ。
     float canonicalY=saturate(normalizedLayerHeight)
@@ -2833,6 +2948,11 @@ float3 cloudUVW(
     // 直交回転で物理尺度を保ったまま世界軸との整列を外す。同じXZの上下で
     // tile周期が一致して断面が積み重なる、煙柱状の反復を防ぐ。
     return rotateNoise(canonicalPosition);
+}
+float3 cloudUVW(
+    float3 p,float normalizedLayerHeight,bool upperBand){
+    return cloudUVWWithConvection(
+        p,normalizedLayerHeight,upperBand,0.0.xx);
 }
 static const float CLOUD_CONDENSATION_BASE_SUPPORT_SCALE=0.20;
 static const float CLOUD_CONDENSATION_MAXIMUM_BASE_SUPPORT=0.42;
@@ -3123,13 +3243,25 @@ float cloudUnresolvedDensityCorrelationLengthAtDirection(
     float bandScale=upperBand?0.25:1.0;
     float2 shearRate=float2(0.9284767,0.3713907)
         *(850.0*bandScale*max(inverseThickness,0.0)*altitudeRate);
+    // 対流変形の未知方向成分は、回転後の各軸へ絶対値上限として加える。
+    // 既存の高させん断と符号付き加算すると、下降光路で相殺して過少標本化する。
+    float layerHeight=heightFractionFromAltitude(
+        cloudAltitude(p),upperBand);
+    float convectionDerivative=cloudConvectionShapeGradientBound(
+        layerHeight,upperBand);
     float3 materialDirection=float3(
         rayDirection.x+shearRate.x,
         altitudeRate,
         rayDirection.z+shearRate.y);
     float3 domainDirection=rotateNoise(materialDirection);
+    float3 convectionDomainBound=float3(
+        CLOUD_CONVECTION_DOMAIN_X_BOUND,
+        CLOUD_CONVECTION_DOMAIN_YZ_BOUND,
+        CLOUD_CONVECTION_DOMAIN_YZ_BOUND)*convectionDerivative;
+    float3 boundedDomainDirection=abs(domainDirection)
+        +convectionDomainBound;
     float inverseDomainDistance=length(
-        domainDirection/CLOUD_COARSE_CORRELATION_DOMAIN_LENGTHS);
+        boundedDomainDirection/CLOUD_COARSE_CORRELATION_DOMAIN_LENGTHS);
     float inversePhysicalDistance=
         max(cloudShapeScale(),0.0)*inverseDomainDistance;
     return inversePhysicalDistance>1e-8
@@ -3175,6 +3307,7 @@ float cloudLightIntervalSampleDemand(
         (intervalIndex==2?intervals.ends.z:intervals.ends.w));
     bool validInput=cloudFiniteFloat3(rayOrigin)
         &&cloudFiniteFloat3(rayDirection)
+        &&dot(rayDirection,rayDirection)>1e-12
         &&cloudValueIsFinite(intervalStart)
         &&cloudValueIsFinite(intervalEnd)
         &&intervalEnd>intervalStart;
@@ -3184,6 +3317,8 @@ float cloudLightIntervalSampleDemand(
     validInput=validInput&&intervalLength>0.0;
     validInput=validInput&&cloudValueIsFinite(evaluationEnd);
     float result=0.0;
+    if(!validInput)
+        return result;
     if(intervalLength>0.0){
         float midpoint=intervalStart+0.5*intervalLength;
         float3 startPosition=rayOrigin+rayDirection*intervalStart;
@@ -3212,7 +3347,10 @@ float cloudLightIntervalSampleDemand(
         bool finiteCorrelation=finitePositions
             &&cloudValueIsFinite(startCorrelationLength)
             &&cloudValueIsFinite(midpointCorrelationLength)
-            &&cloudValueIsFinite(endCorrelationLength);
+            &&cloudValueIsFinite(endCorrelationLength)
+            &&startCorrelationLength>=0.0
+            &&midpointCorrelationLength>=0.0
+            &&endCorrelationLength>=0.0;
         float shortestCorrelationLength=3.402823466e+38;
         bool hasPositiveCorrelation=false;
         if(startCorrelationLength>0.0){
@@ -3230,18 +3368,18 @@ float cloudLightIntervalSampleDemand(
                 shortestCorrelationLength,endCorrelationLength);
             hasPositiveCorrelation=true;
         }
-        if(finiteCorrelation){
-            result=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
-            if(hasPositiveCorrelation){
-                float requestedDemand=
-                    2.0*intervalLength/shortestCorrelationLength;
-                if(cloudValueIsFinite(requestedDemand))
-                    result=min(
-                        float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT),
-                        max(1.0,requestedDemand));
-            }else{
-                result=1.0;
-            }
+        if(!finitePositions||!finiteCorrelation)
+            return float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
+        result=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
+        if(hasPositiveCorrelation){
+            float requestedDemand=
+                2.0*intervalLength/shortestCorrelationLength;
+            if(cloudValueIsFinite(requestedDemand))
+                result=min(
+                    float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT),
+                    max(1.0,requestedDemand));
+        }else{
+            result=1.0;
         }
     }
     return result;
@@ -3257,8 +3395,11 @@ int4 cloudAdaptiveLightSampleCounts(
     int safeSampleCount=clamp(
         requestedSampleCount,0,CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
     bool validInput=cloudPackedBandIntervalsAreFinite(intervals)
-        &&cloudFiniteFloat3(rayOrigin)&&cloudFiniteFloat3(rayDirection);
-    if(intervalCount>0&&safeSampleCount>0&&validInput){
+        &&cloudFiniteFloat3(rayOrigin)&&cloudFiniteFloat3(rayDirection)
+        &&dot(rayDirection,rayDirection)>1e-12;
+    if(!validInput)
+        return sampleCounts;
+    if(intervalCount>0&&safeSampleCount>0){
         float4 demands=float4(
             cloudLightIntervalSampleDemand(
                 intervals,rayOrigin,rayDirection,0),
@@ -3606,8 +3747,22 @@ CloudFourStateTransportResultLanes cloudFourStateTransportLanes(
     float4 safeLengths=cloudFiniteNonnegative4(segmentLengths);
     float activeExtinction=
         cloudValueIsFinite(extinction)&&extinction>0.0?1.0:0.0;
+    float4 finiteCorrelationMask=float4(
+        cloudValueIsFinite(correlationLengths.x)
+            &&correlationLengths.x>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.y)
+            &&correlationLengths.y>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.z)
+            &&correlationLengths.z>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.w)
+            &&correlationLengths.w>=0.0?1.0:0.0);
+    float4 invalidCorrelationMask=1.0.xxxx-finiteCorrelationMask;
+    // 相関長が壊れたレーンを均一媒質へ黙って戻すと、雲の遮蔽だけが不連続に変わる。
+    // そのレーンの状態を捨て、次の有限な区間で初期状態から再開する。
+    cloudResetFourStateTransportLanes(state,invalidCorrelationMask);
+    state.active=lerp(state.active,0.0.xxxx,invalidCorrelationMask);
     float4 activeMask=cloudPositiveMask4(safeLengths)
-        *activeExtinction.xxxx;
+        *activeExtinction.xxxx*finiteCorrelationMask;
     float4 entryMask=activeMask*(1.0.xxxx-saturate(state.active));
     float4 safeCorrelations=cloudFiniteNonnegative4(correlationLengths);
     float4 heterogeneousMask=
@@ -3913,11 +4068,23 @@ float cloudErosionPotentialOffset(
 }
 // 採取間隔が各帯域の半周期へ近づく前に細部を消し、別の低周波模様への折り返しを防ぐ。
 float cloudShapeMaximumDomainFootprint(
-    float3 physicalFootprint,bool upperBand){
+    float3 physicalFootprint,bool upperBand,float normalizedLayerHeight){
     float3 physicalWidth=max(physicalFootprint,0.0.xxx);
+    float convectionGradient=cloudConvectionShapeGradientBound(
+        normalizedLayerHeight,upperBand);
+    // 水平セルが高さ方向の最大勾配を跨いでも過少評価しないよう、
+    // 層全体の解析上限を現在点の評価と比較する。
+    float layerMaximumConvectionGradient=
+        cloudConvectionShapeGradientBound(1.0,upperBand);
+    convectionGradient=max(
+        convectionGradient,layerMaximumConvectionGradient);
+    // 一様な平行移動はセル内の幅を増やさない。隣接点の変位差だけを
+    // 勾配上限へ掛け、形状変形が実際に作る物質領域だけをLODへ渡す。
+    float altitudeWidth=length(physicalWidth);
+    physicalWidth.x+=convectionGradient*altitudeWidth;
+    physicalWidth.z+=convectionGradient*altitudeWidth;
     // 球殻高度の勾配は長さ1なので、軸別箱の対角長を高度方向の最大幅として使う。
     // これにより接平面原点から離れた場所でも、世界Yだけを高度幅とみなさない。
-    float altitudeWidth=length(physicalWidth);
     float inverseThickness=upperBand
         ?cloudUpperLayer.z:cloudFrameTerms.w;
     float bandScale=upperBand?0.25:1.0;
@@ -4019,12 +4186,20 @@ float2 cloudShapeOccupancyAtInterval(
     float altitude=cloudAltitude(p);
     bool upperBand=inUpperCloudBandFromAltitude(altitude);
     float layerHeight=heightFractionFromAltitude(altitude,upperBand);
+    float4 weather=0.0.xxxx;
+    float4 shapeWeather=0.0.xxxx;
+    cloudWeatherDataAndShapeBandLimitedPoint(
+        p,physicalFootprint.xz,weather,shapeWeather);
+    float2 convectionShapeVector=cloudLocalConvectionShapeVector(
+        shapeWeather);
     float maximumDomainFootprint=cloudShapeMaximumDomainFootprint(
-        physicalFootprint,upperBand);
+        physicalFootprint,upperBand,layerHeight);
     float4 frequencyWeights=cloudShapeFrequencyWeights(
         maximumDomainFootprint);
     float maximumShapePotential=cloudShapeOccupancyMaximum(
-        cloudUVW(p,layerHeight,upperBand),maximumDomainFootprint);
+        cloudUVWWithConvection(
+            p,layerHeight,upperBand,convectionShapeVector),
+        maximumDomainFootprint);
     float maximumPositiveOffset=
         CLOUD_CONDENSATION_MAXIMUM_POSITIVE_OFFSET;
     float pointOwner=max(
@@ -4046,6 +4221,10 @@ float2 cloudShapeOccupancyAtInterval(
 struct CloudMacroSample {
     float4 weather;
     float2 curl;
+    // 天候から求めた層厚基準の局所対流変位。形状と高さ分布で共有する。
+    float convectionPhase;
+    // 同じ天候から求めた、二軸の非線形な形状変位。詳細形状とも共有する。
+    float2 convectionShapeVector;
     // xyzは最粗・中間・完成形状の符号付き3D湿度。正値化前には混ぜない。
     float4 shapePotential;
     // xyzは各点形状、wは最粗周期も未解像な解析分布の非負重み。合計は1。
@@ -4097,6 +4276,8 @@ CloudMacroSample sampleCloudMacroFromThreshold(
     CloudMacroSample macro;
     macro.weather=float4(0,0,0,0);
     macro.curl=float2(0,0);
+    macro.convectionPhase=0.0;
+    macro.convectionShapeVector=0.0.xx;
     macro.shapePotential=-1.0.xxxx;
     macro.shapeFrequencyWeights=float4(0.0,0.0,0.0,1.0);
     macro.columnInterior=0.0;
@@ -4122,8 +4303,9 @@ CloudMacroSample sampleCloudMacroFromThreshold(
         transverseFootprint,0.0.xxx);
     float3 safeFootprint=
         safeLongitudinalFootprint+safeTransverseFootprint;
-    macro.weather=cloudWeatherDataBandLimitedPoint(
-        p,safeFootprint.xz);
+    float4 shapeWeather=0.0.xxxx;
+    cloudWeatherDataAndShapeBandLimitedPoint(
+        p,safeFootprint.xz,macro.weather,shapeWeather);
     macro.upperBand=upperBand?1.0:0.0;
     // 上層の被覆割合は密度倍率ではなく面積へ適用し、下層と相関した薄膜を作らない。
     float layerCoverageThreshold=coverageThreshold;
@@ -4150,21 +4332,24 @@ CloudMacroSample sampleCloudMacroFromThreshold(
         macro.weather,layerCoverageThreshold,
         layerInverseTransitionWidth,
         macro.height,macro.toweringStrength);
-    // 対流位相を雲縁だけでなく高さ分布へも伝え、移流だけでは表現できない
-    // 雲の局所的な発達・衰退を作る。積雲ほど応答を大きくし、層雲は安定させる。
+    // 対流位相を雲縁・高さ分布・3D形状へ同じ順序で伝え、移流だけでは表現できない
+    // 雲の局所的な発達・衰退と、上下で断面が変わる立体構造を作る。
+    macro.convectionPhase=cloudLocalConvectionPhase(macro.weather);
+    macro.convectionShapeVector=
+        cloudLocalConvectionShapeVector(shapeWeather);
     float convectionResponse=lerp(
         0.018,0.06,saturate(macro.toweringStrength));
     float convectionHeight=saturate(
-        macro.height+cloudLocalConvectionPhase(macro.weather)
-            *convectionResponse);
+        macro.height+macro.convectionPhase*convectionResponse);
     macro.heightProfile=saturate(cloudProfile(
         convectionHeight,macro.weather.g,macro.toweringStrength,
         macro.columnSpan,upperBand));
     macro.curl=cloudCurlOffset(p,safeFootprint.xz);
     float maximumDomainFootprint=cloudShapeMaximumDomainFootprint(
-        safeFootprint,upperBand);
+        safeFootprint,upperBand,macro.layerHeight);
     macro.shapePotential=cloudShapePotentialBands(
-        cloudUVW(p,macro.layerHeight,upperBand));
+        cloudUVWWithConvection(
+            p,macro.layerHeight,upperBand,macro.convectionShapeVector));
     macro.shapeFrequencyWeights=cloudShapeFrequencyWeights(
         maximumDomainFootprint);
     return macro;
@@ -4458,6 +4643,9 @@ float4 cloudDensityDistributionFromPositiveWeatherMacro(
             // 基本凝結場とは別のメートル基準領域を使い、雲塊と細部に同じ模様を出さない。
             float2 detailXz=p.xz-cloudWindWorld()
                            +cloudHeightShapeShear(macro.layerHeight,macro.upperBand>0.5)
+                           +cloudConvectionShapeShear(
+                               macro.layerHeight,macro.upperBand>0.5,
+                               macro.convectionShapeVector)
                            +macro.curl*35.0;
             float3 detailDomainA,detailDomainB;
             cloudDetailDomains(
@@ -6597,14 +6785,182 @@ Texture2D<float4> cloudLow     : register(t0);
 Texture2D<float2> cloudDepth   : register(t1);
 Texture2D<float4> historyColor : register(t2);
 Texture2D<float2> historyDepth : register(t3);
+Texture2D<float4> weatherMap   : register(t4);
 RWTexture2D<float4> historyColorOut : register(u0);
 RWTexture2D<float2> historyDepthOut : register(u1);
 SamplerState cloudLow_sampler     : register(s0);
 SamplerState cloudDepth_sampler   : register(s1);
 SamplerState historyColor_sampler : register(s2);
 SamplerState historyDepth_sampler : register(s3);
+SamplerState weatherMap_sampler   : register(s4);
 static const float CLOUD_PLANET_RADIUS=6360000.0;
 static const float4 CLOUD_TEMPORAL_MIN_RANGE=float4(0.015,0.015,0.015,0.025);
+static const float CLOUD_CONVECTION_LATERAL_BEND_FRACTION=0.22;
+// Resolveへ渡る単一floatを有限値へ検査し、異常な履歴入力を0へ閉じる。
+bool ResolveCloudValueIsFinite(float value){
+    return value==value&&value>=-3.402823466e38
+        &&value<=3.402823466e38;
+}
+// Resolveの水平座標を有限値として検査する。
+bool ResolveCloudFiniteFloat2(float2 value){
+    return ResolveCloudValueIsFinite(value.x)
+        &&ResolveCloudValueIsFinite(value.y);
+}
+// Resolveの物質座標を有限値として検査する。
+bool ResolveCloudFiniteFloat3(float3 value){
+    return ResolveCloudValueIsFinite(value.x)
+        &&ResolveCloudValueIsFinite(value.y)
+        &&ResolveCloudValueIsFinite(value.z);
+}
+// 雲形状を動かす低周波の総観天候を、現在または前フレームの風位置で読む。
+// 密度用の地域天候をここで混ぜず、Resolveと主ray marchの物質座標を一致させる。
+float4 ResolveCloudShapeWeatherAtWorldXz(
+    float2 worldXz,float2 windOffset){
+    float2 safeWorldXz=ResolveCloudFiniteFloat2(worldXz)
+        ?worldXz:0.0.xx;
+    float2 safeWindOffset=ResolveCloudFiniteFloat2(windOffset)
+        ?windOffset:0.0.xx;
+    float2 xz=safeWorldXz-safeWindOffset;
+    float4 rotated=
+        xz.x*float4(0.8660254,0.5,0.9563048,-0.2923717)
+       +xz.y*float4(-0.5,0.8660254,0.2923717,0.9563048);
+    float4 weatherUv=
+        rotated/float4(65536.0,65536.0,9127.0,9127.0)
+       +float4(0.173,0.417,0.619,0.281);
+    return weatherMap.SampleLevel(
+        weatherMap_sampler,weatherUv.xy,0);
+}
+float2 ResolveCloudConvectionShapeVector(
+    float4 weather,float4 evolution){
+    float safeWarp=ResolveCloudValueIsFinite(weather.a)?weather.a:0.0;
+    float safeCoverage=ResolveCloudValueIsFinite(weather.r)
+        ?weather.r:0.0;
+    float2 safeEvolution=float2(
+        ResolveCloudValueIsFinite(evolution.x)?evolution.x:0.0,
+        ResolveCloudValueIsFinite(evolution.y)?evolution.y:0.0);
+    float warpPattern=smoothstep(0.36,0.64,safeWarp)*2.0-1.0;
+    float coveragePattern=safeCoverage*2.0-1.0;
+    float2 localPattern=float2(warpPattern,coveragePattern);
+    return float2(
+        dot(safeEvolution,localPattern),
+        dot(safeEvolution,float2(-localPattern.y,localPattern.x)));
+}
+float ResolveCloudAltitude(float3 p){
+    float3 local=p-worldOrigin.xyz;
+    float radialY=max(CLOUD_PLANET_RADIUS+local.y,1.0);
+    float radialXz2=dot(local.xz,local.xz);
+    float inverseRadialY=1.0/radialY;
+    float q=radialXz2*inverseRadialY;
+    return local.y+q*(0.5-q*inverseRadialY*0.125);
+}
+// 前フレーム物質点から上下層と正規化高度を再計算し、層境界の履歴ずれを防ぐ。
+void ResolveCloudLayerTermsAtWorldPoint(
+    float3 p,out float layerHeight,out bool upperBand){
+    float3 safeP=ResolveCloudFiniteFloat3(p)?p:0.0.xxx;
+    float altitude=ResolveCloudAltitude(safeP);
+    bool finiteAltitude=ResolveCloudValueIsFinite(altitude);
+    upperBand=finiteAltitude&&cloudUpperLayer.w>0.5
+        &&altitude>=cloudUpperLayer.x;
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    bool finiteThickness=ResolveCloudValueIsFinite(inverseThickness)
+        &&inverseThickness>0.0;
+    layerHeight=finiteAltitude&&finiteThickness
+        ?(altitude-(upperBand?cloudUpperLayer.x:layer.x))
+            *inverseThickness:0.0;
+    layerHeight=ResolveCloudValueIsFinite(layerHeight)
+        ?saturate(layerHeight):0.0;
+}
+float2 ResolveCloudConvectionShapeShear(
+    float layerHeight,bool upperBand,float2 localPhase){
+    float inverseThickness=upperBand
+        ?cloudUpperLayer.z:cloudFrameTerms.w;
+    bool validThickness=ResolveCloudValueIsFinite(inverseThickness)
+        &&inverseThickness>0.0;
+    float layerThickness=validThickness
+        ?1.0/inverseThickness:0.0;
+    float2 finitePhase=float2(
+        ResolveCloudValueIsFinite(localPhase.x)?localPhase.x:0.0,
+        ResolveCloudValueIsFinite(localPhase.y)?localPhase.y:0.0);
+    float2 safePhase=clamp(
+        finitePhase,float2(-1.0,-1.0),float2(1.0,1.0));
+    float h=saturate(layerHeight);
+    float growth=smoothstep(0.10,0.82,h);
+    float2 materialPhase=lerp(
+        safePhase,safePhase*abs(safePhase),growth);
+    float2 lateralBend=float2(-materialPhase.y,materialPhase.x)
+        *(CLOUD_CONVECTION_LATERAL_BEND_FRACTION*h*(1.0-h));
+    return layerThickness*(materialPhase*h+lateralBend);
+}
+float3 ResolveCloudPreviousWorldPoint(
+    float3 currentWorldP,float layerHeight,bool upperBand,
+    float2 currentConvectionVector,out bool converged){
+    const float2 windDirection=float2(0.9284767,0.3713907);
+    float currentTime=ResolveCloudValueIsFinite(params.z)?params.z:0.0;
+    float previousTime=ResolveCloudValueIsFinite(temporal.y)
+        ?temporal.y:0.0;
+    float windDelta=currentTime-previousTime;
+    float3 windDeltaWorld=float3(
+        windDirection.x*windDelta,0.0,windDirection.y*windDelta);
+    float2 currentDisplacement=ResolveCloudConvectionShapeShear(
+        layerHeight,upperBand,currentConvectionVector);
+    float3 previousWorldP=currentWorldP-windDeltaWorld;
+    float previousIterationDelta=3.402823e38;
+    // 対流変位は前フレーム位置の天候にも依存するため、固定点反復する。
+    // 反復の変化量が収まらない場合は、誤った別雲の履歴へ変換せず棄却する。
+    [unroll] for(int iteration=0;iteration<2;iteration++){
+        float4 previousWeather=ResolveCloudShapeWeatherAtWorldXz(
+            previousWorldP.xz,
+            temporal.y*windDirection);
+        float2 previousConvectionVector=
+            ResolveCloudConvectionShapeVector(
+                previousWeather,cloudPreviousEvolution);
+        float previousLayerHeight=0.0;
+        bool previousUpperBand=false;
+        ResolveCloudLayerTermsAtWorldPoint(
+            previousWorldP,previousLayerHeight,previousUpperBand);
+        float2 previousDisplacement=
+            ResolveCloudConvectionShapeShear(
+                previousLayerHeight,previousUpperBand,
+                previousConvectionVector);
+        float3 nextPreviousWorldP=currentWorldP-windDeltaWorld+float3(
+            currentDisplacement.x-previousDisplacement.x,
+            0.0,
+            currentDisplacement.y-previousDisplacement.y);
+        previousIterationDelta=length(
+            nextPreviousWorldP-previousWorldP);
+        previousWorldP=nextPreviousWorldP;
+    }
+    float3 previousCheckWeatherWorldP=previousWorldP;
+    float4 previousCheckWeather=ResolveCloudShapeWeatherAtWorldXz(
+        previousCheckWeatherWorldP.xz,
+        temporal.y*windDirection);
+    float2 previousCheckVector=ResolveCloudConvectionShapeVector(
+        previousCheckWeather,cloudPreviousEvolution);
+    float previousCheckLayerHeight=0.0;
+    bool previousCheckUpperBand=false;
+    ResolveCloudLayerTermsAtWorldPoint(
+        previousWorldP,previousCheckLayerHeight,previousCheckUpperBand);
+    float2 previousCheckDisplacement=ResolveCloudConvectionShapeShear(
+        previousCheckLayerHeight,previousCheckUpperBand,
+        previousCheckVector);
+    float3 previousFixedPoint=currentWorldP-windDeltaWorld+float3(
+        currentDisplacement.x-previousCheckDisplacement.x,
+        0.0,
+        currentDisplacement.y-previousCheckDisplacement.y);
+    float residual=length(previousFixedPoint-previousWorldP);
+    float shapeScale=ResolveCloudValueIsFinite(cloudFrameTerms.z)
+        &&cloudFrameTerms.z>0.0?cloudFrameTerms.z:0.0;
+    float convergenceDistance=shapeScale>0.0
+        ?0.25/(shapeScale*128.0):0.0;
+    converged=shapeScale>0.0
+        &&ResolveCloudFiniteFloat3(previousWorldP)
+        &&ResolveCloudValueIsFinite(previousIterationDelta)
+        &&ResolveCloudValueIsFinite(residual)
+        &&previousIterationDelta<=convergenceDistance
+        &&residual<=convergenceDistance;
+    return previousWorldP;
+}
 float2 LowUv(int2 q) {
     q=clamp(q,int2(0,0),int2(dims.xy)-1);
     return (float2(q)+0.5)/dims.xy;
@@ -6790,12 +7146,29 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             abs(refC.a-sameScreenColor.a)<0.42;
         if(seedValid && currentInterior) {
             float3 stableRay=ResolveViewDirection(uv);
-            float stableWindDelta=params.z-temporal.y;
-            // 現在の相対位置へカメラ移動量と風の逆移流だけを加え、
-            // 大きなワールド座標を経由せず前フレームの位置を作る。
-            float3 stablePrevCameraRelativeP=stableRay*sameScreenDepth.x+(camPos.xyz-prevCamPos.xyz)-float3(stableWindDelta*0.9284767,0.0,stableWindDelta*0.3713907);
+            float3 stableCurrentWorldP=camPos.xyz
+                +stableRay*sameScreenDepth.x;
+            float stableAltitude=ResolveCloudAltitude(
+                stableCurrentWorldP);
+            bool stableUpperBand=cloudUpperLayer.w>0.5 &&
+                stableAltitude>=cloudUpperLayer.x;
+            float stableLayerHeight=(stableAltitude-(stableUpperBand
+                ?cloudUpperLayer.x:layer.x))
+                *(stableUpperBand?cloudUpperLayer.z:cloudFrameTerms.w);
+            stableLayerHeight=saturate(stableLayerHeight);
+            float4 stableWeather=ResolveCloudShapeWeatherAtWorldXz(
+                stableCurrentWorldP.xz,cloudFrameTerms.xy);
+            float2 stableConvectionVector=
+                ResolveCloudConvectionShapeVector(
+                    stableWeather,cloudEvolution);
+            bool stableConverged=false;
+            float3 stablePreviousWorldP=ResolveCloudPreviousWorldPoint(
+                stableCurrentWorldP,stableLayerHeight,stableUpperBand,
+                stableConvectionVector,stableConverged);
+            float3 stablePrevCameraRelativeP=stablePreviousWorldP
+                -prevCamPos.xyz;
             float4 stablePrevClip=mul(float4(stablePrevCameraRelativeP,1.0),prevCameraRelativeViewProj);
-            if(stablePrevClip.w>1e-5) {
+            if(stableConverged&&stablePrevClip.w>1e-5) {
                 float2 stablePrevNdc=stablePrevClip.xy/stablePrevClip.w;
                 float2 stableHistoryUv=float2(
                     stablePrevNdc.x*0.5+0.5,
@@ -6945,12 +7318,25 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     if(temporal.x>0.5 &&
        reprojectionDepth<=250000.0 && seedDepth.y>0.001) {
         float3 ray=ResolveViewDirection(uv);
-        // 同じ密度形状を前フレームへ戻す。相対位置へカメラ移動量を加え、
-        // 風の移流量を引くことで、ワールド固定を保ったまま精度低下を避ける。
-        float windDelta=params.z-temporal.y;
-        float3 prevCameraRelativeP=ray*reprojectionDepth+(camPos.xyz-prevCamPos.xyz)-float3(windDelta*0.9284767,0.0,windDelta*0.3713907);
+        float3 currentWorldP=camPos.xyz+ray*reprojectionDepth;
+        float altitude=ResolveCloudAltitude(currentWorldP);
+        bool upperBand=cloudUpperLayer.w>0.5 &&
+            altitude>=cloudUpperLayer.x;
+        float layerHeight=(altitude-(upperBand
+            ?cloudUpperLayer.x:layer.x))
+            *(upperBand?cloudUpperLayer.z:cloudFrameTerms.w);
+        layerHeight=saturate(layerHeight);
+        float4 weather=ResolveCloudShapeWeatherAtWorldXz(
+            currentWorldP.xz,cloudFrameTerms.xy);
+        float2 convectionVector=ResolveCloudConvectionShapeVector(
+            weather,cloudEvolution);
+        bool converged=false;
+        float3 previousWorldP=ResolveCloudPreviousWorldPoint(
+            currentWorldP,layerHeight,upperBand,convectionVector,
+            converged);
+        float3 prevCameraRelativeP=previousWorldP-prevCamPos.xyz;
         float4 prevClip=mul(float4(prevCameraRelativeP,1.0),prevCameraRelativeViewProj);
-        if(prevClip.w>1e-5) {
+        if(converged&&prevClip.w>1e-5) {
             float2 prevNdc=prevClip.xy/prevClip.w;
             float2 historyUv=float2(prevNdc.x*0.5+0.5,-prevNdc.y*0.5+0.5);
             bool onScreen=all(historyUv>=0.001)&&all(historyUv<=0.999);
@@ -10556,20 +10942,24 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
     {   FComputePipelineDesc pd{};
         pd.cs = m_ResolveCs.Get();
         pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "CloudCB";
-        pd.srv_slots = 4;
+        pd.srv_slots = 5;
         pd.srv_names[0] = "cloudLow";
         pd.srv_names[1] = "cloudDepth";
         pd.srv_names[2] = "historyColor";
         pd.srv_names[3] = "historyDepth";
+        pd.srv_names[4] = "weatherMap";
         pd.uav_slots = 2;
         pd.uav_names[0] = "historyColorOut";
         pd.uav_names[1] = "historyDepthOut";
-        pd.static_sampler_count = 4;
-        for (u32 i = 0; i < 4; ++i) {
-            pd.static_samplers[i].filter = (i == 2) ? ESamplerFilter::Linear : ESamplerFilter::Point;
+        pd.static_sampler_count = 5;
+        for (u32 i = 0; i < 5; ++i) {
+            pd.static_samplers[i].filter = (i == 2 || i == 4)
+                ? ESamplerFilter::Linear : ESamplerFilter::Point;
             pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
             pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
         }
+        pd.static_samplers[4].address_u = ESamplerAddress::Wrap;
+        pd.static_samplers[4].address_v = ESamplerAddress::Wrap;
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_ResolvePipe = Move(r.Value()); }
     {   FPipelineDesc pd{};
         pd.vs = m_CompVs.Get(); pd.ps = m_CompPs.Get();
@@ -11618,6 +12008,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     cl.SetTexture(1, *m_CloudDepth);
     cl.SetTexture(2, *m_HistoryColor[prev]);
     cl.SetTexture(3, *m_HistoryDepth[prev]);
+    cl.SetTexture(4, *m_WeatherTex);
     cl.BindUav(0, *m_HistoryColor[cur]);
     cl.BindUav(1, *m_HistoryDepth[cur]);
     cl.Dispatch((m_FullW + 7u) / 8u, (m_FullH + 7u) / 8u, 1);

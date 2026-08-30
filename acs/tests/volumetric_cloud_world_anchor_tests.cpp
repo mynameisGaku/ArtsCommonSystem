@@ -4043,9 +4043,10 @@ ACS_TEST(VolumetricClouds,
         shader,
         "float4cloudShapePotentialBands(float3uvw){"));
     EXPECT_TRUE(Contains(
-        shader,
-        "macro.weather=cloudWeatherDataBandLimitedPoint("
-        "p,safeFootprint.xz);"));
+        CompactShader(shader),
+        "float4weather=0.0.xxxx;"
+        "float4shapeWeather=0.0.xxxx;"
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
     EXPECT_FALSE(Contains(shader, "cloudStoredBaseNoise("));
     EXPECT_FALSE(Contains(shader, "periodicShapeLineSum("));
     EXPECT_FALSE(Contains(shader, "filtered*0.25"));
@@ -4228,6 +4229,12 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(
         ResolveVolumetricCloudShapeCorrelationLength_Internal(
             0.0f, 1.0f, 0.0f, 0.0f),
+        0.0f, 0.0f);
+    // 方向が非有限なら、相関距離を捏造せず無効値として閉じる。
+    const f32 infiniteDirection = std::numeric_limits<f32>::infinity();
+    EXPECT_NEAR(
+        ResolveVolumetricCloudShapeCorrelationLength_Internal(
+            shapeScale, infiniteDirection, 0.0f, 0.0f),
         0.0f, 0.0f);
 
     f32 distributionMean = 0.0f;
@@ -4990,6 +4997,32 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
         invalidState.state0.x,invalidState.state1.x,
         invalidState.state2.x,invalidState.state3.x);
 
+    // 負の相関長は状態を破棄し、密度を通さない無効レーンとして扱う。
+    CloudFourStateTransportLanes invalidCorrelationState=
+        cloudInitialFourStateTransportLanes();
+    invalidCorrelationState.state0=1.0.xxxx;
+    invalidCorrelationState.state1=0.0.xxxx;
+    invalidCorrelationState.state2=0.0.xxxx;
+    invalidCorrelationState.state3=0.0.xxxx;
+    invalidCorrelationState.boundaryDistances=4.0.xxxx;
+    invalidCorrelationState.cellLengths=6.0.xxxx;
+    invalidCorrelationState.boundaryPending=1.0.xxxx;
+    invalidCorrelationState.active=1.0.xxxx;
+    CloudFourStateTransportResultLanes invalidCorrelationTransport=
+        cloudFourStateTransportLanes(
+            densityState0,densityState1,densityState2,densityState3,
+            1.0,(-1.0).xxxx,0.25.xxxx,invalidCorrelationState);
+    cloudOut[uint2(31,0)]=float4(
+        invalidCorrelationTransport.transmittances.x,
+        invalidCorrelationTransport.absorptions.x,
+        invalidCorrelationTransport.centroidDistances.x,
+        invalidCorrelationState.boundaryDistances.x);
+    cloudOut[uint2(32,0)]=float4(
+        invalidCorrelationState.cellLengths.x,
+        invalidCorrelationState.boundaryPending.x,
+        invalidCorrelationState.active.x,
+        invalidCorrelationState.state0.x);
+
     // 級数と通常式の境界値を、コンパイラ後の実比較結果として保存する。
     float4 thresholdDepths=float4(
         0.125,0.1250000149011612,1.0,1.0000001192092896);
@@ -5087,7 +5120,7 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(pipelineResult.IsOk());
     if (pipelineResult.IsErr()) return;
 
-    constexpr u32 kProbeTexelCount = 31u;
+    constexpr u32 kProbeTexelCount = 33u;
     FTextureDesc textureDescription{};
     textureDescription.width = kProbeTexelCount;
     textureDescription.height = 1u;
@@ -5280,6 +5313,38 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
                     invalidState.conditional_survival[stateIndex],
                     kGpuAgreementEpsilon);
     }
+
+    // 負の相関長は均質媒質ではなく無効レーンとして、GPUと同じく恒等輸送へ閉じる。
+    FVolumetricCloudFourStateTransportStateInternal invalidCorrelationState{};
+    ResetVolumetricCloudFourStateTransport_Internal(invalidCorrelationState);
+    invalidCorrelationState.conditional_survival[0] = 1.0f;
+    invalidCorrelationState.conditional_survival[1] = 0.0f;
+    invalidCorrelationState.conditional_survival[2] = 0.0f;
+    invalidCorrelationState.conditional_survival[3] = 0.0f;
+    invalidCorrelationState.remaining_boundary_distance = 4.0f;
+    invalidCorrelationState.correlation_cell_length = 6.0f;
+    invalidCorrelationState.awaiting_next_cell_length = true;
+    const auto invalidCorrelationTransport =
+        ResolveVolumetricCloudFourStateTransportInterval_Internal(
+            distribution, 1.0f, -1.0f, 0.25f, invalidCorrelationState);
+    EXPECT_NEAR(gpuValue(31u, 0u), invalidCorrelationTransport.transmittance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(31u, 1u), invalidCorrelationTransport.absorption,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(31u, 2u),
+                invalidCorrelationTransport.absorption_centroid_distance,
+                kGpuAgreementEpsilon);
+    EXPECT_NEAR(gpuValue(31u, 3u),
+                invalidCorrelationState.remaining_boundary_distance, 0.0f);
+    EXPECT_NEAR(gpuValue(32u, 0u),
+                invalidCorrelationState.correlation_cell_length, 0.0f);
+    EXPECT_NEAR(gpuValue(32u, 1u),
+                invalidCorrelationState.awaiting_next_cell_length ? 1.0f : 0.0f,
+                0.0f);
+    EXPECT_NEAR(gpuValue(32u, 2u), 0.0f, 0.0f);
+    EXPECT_NEAR(gpuValue(32u, 3u),
+                invalidCorrelationState.conditional_survival[0],
+                kGpuAgreementEpsilon);
 
     const f32 thresholdDepths[4]{
         0.125f, 0.1250000149011612f,
@@ -6335,22 +6400,60 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader, "float3 local=p-worldOrigin.xyz;"));
     EXPECT_TRUE(Contains(
-        shader,
-        "macro.weather=cloudWeatherDataBandLimitedPoint(\n"
-        "        p,safeFootprint.xz);"));
+        CompactShader(shader),
+        "float4weather=0.0.xxxx;"
+        "float4shapeWeather=0.0.xxxx;"
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
     EXPECT_TRUE(Contains(
         CompactShader(shader),
         "macro.shapePotential=cloudShapePotentialBands("
-        "cloudUVW(p,macro.layerHeight,upperBand));"));
+        "cloudUVWWithConvection(p,macro.layerHeight,upperBand,"
+        "macro.convectionShapeVector));"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "macro.convectionPhase=cloudLocalConvectionPhase(macro.weather);"));
     EXPECT_TRUE(Contains(
         CompactShader(shader),
         "floatmaximumDomainFootprint="
         "cloudShapeMaximumDomainFootprint("
-        "physicalFootprint,upperBand);"));
+        "physicalFootprint,upperBand,layerHeight);"));
     EXPECT_TRUE(Contains(
         CompactShader(shader),
         "floatmaximumShapePotential=cloudShapeOccupancyMaximum("
-        "cloudUVW(p,layerHeight,upperBand),maximumDomainFootprint);"));
+        "cloudUVWWithConvection(p,layerHeight,upperBand,convectionShapeVector),"
+        "maximumDomainFootprint);"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "float4weather=0.0.xxxx;float4shapeWeather=0.0.xxxx;"
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "floatconvectionGradient=cloudConvectionShapeGradientBound("
+        "normalizedLayerHeight,upperBand);"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "returnlength(float2(horizontalGradient,verticalGradient));"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "*sqrt(2.0);"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "cloudConvectionShapeGradientBound(1.0,upperBand);"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "if(!validInput)returnresult;"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "if(!finitePositions||!finiteCorrelation)returnfloat(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "if(!validInput)returnsampleCounts;"));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "float4finiteCorrelationMask=float4("));
+    EXPECT_TRUE(Contains(
+        CompactShader(shader),
+        "cloudResetFourStateTransportLanes(state,invalidCorrelationMask);"));
     EXPECT_TRUE(!Contains(
         shader, "cloudWeatherData(p-camPos"));
     EXPECT_TRUE(!Contains(
@@ -6864,9 +6967,11 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(
         CountOccurrences(
             shader,
-            "cloudWeatherDataBandLimitedPoint(p,safeFootprint.xz);"),
-        static_cast<std::size_t>(1));
-    EXPECT_TRUE(Contains(shader, "cloudWeatherDataBandLimitedPoint(p,safeFootprint.xz);"));
+            "cloudWeatherDataAndShapeBandLimitedPoint("),
+        static_cast<std::size_t>(3));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
     EXPECT_FALSE(Contains(shader, "cloudWeatherVerticalBend"));
     EXPECT_FALSE(Contains(
         shader, "float4cloudWeatherData(float3p,floatlayerHeight"));
@@ -6875,11 +6980,17 @@ ACS_TEST(VolumetricClouds,
         "floatcanonicalY=saturate(normalizedLayerHeight)"
         "*cloudShapeVerticalSpan(upperBand)+0.07;"));
     EXPECT_TRUE(Contains(shader, "float2cloudHeightShapeShear(floatlayerHeight,boolupperBand){" "floatbandScale=upperBand?0.25:1.0;" "returnfloat2(0.9284767,0.3713907)" "*(850.0*saturate(layerHeight)*bandScale);}"));
-    EXPECT_TRUE(Contains(shader, "float2xz=p.xz-cloudWindWorld()" "+cloudHeightShapeShear(normalizedLayerHeight,upperBand);"));
+    EXPECT_TRUE(Contains(shader, "float2xz=p.xz-cloudWindWorld()" "+cloudHeightShapeShear(normalizedLayerHeight,upperBand)" "+cloudConvectionShapeShear("));
     EXPECT_EQ(CountOccurrences(shader, "cloudHeightShapeShear("), static_cast<std::size_t>(3));
     EXPECT_FALSE(Contains(shader, "weatherWarp"));
     EXPECT_FALSE(Contains(shader, "curlWarp"));
-    EXPECT_FALSE(Contains(shader, "convectionWarp"));
+    EXPECT_TRUE(Contains(shader, "cloudConvectionShapeShear"));
+    EXPECT_TRUE(Contains(shader, "float2cloudLocalConvectionShapeVector(float4weather){"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcoveragePattern=weather.r*2.0-1.0;"));
+    EXPECT_TRUE(Contains(shader, "float2nonlinearPhase=safePhase*abs(safePhase);"));
+    EXPECT_TRUE(Contains(shader, "float2lateralBend=float2(-materialPhase.y,materialPhase.x)"));
     EXPECT_FALSE(Contains(shader, "localCanonicalY"));
     EXPECT_FALSE(Contains(shader, "cloudShapeVerticalVariation"));
     EXPECT_TRUE(Contains(
@@ -7002,6 +7113,13 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         compactSource, "m_ResolveCs=Move(shaders.resolve);"));
     EXPECT_TRUE(Contains(compactSource, "pd.cs=m_ResolveCs.Get();"));
+    EXPECT_TRUE(Contains(compactSource, "pd.srv_slots=5;"));
+    EXPECT_TRUE(Contains(compactSource, "pd.srv_names[4]=\"weatherMap\";"));
+    EXPECT_TRUE(Contains(compactSource, "pd.static_sampler_count=5;"));
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "pd.static_samplers[i].filter=(i==2||i==4)"
+        "?ESamplerFilter::Linear:ESamplerFilter::Point;"));
     EXPECT_TRUE(Contains(
         compactSource,
         "pd.uav_slots=2;pd.uav_names[0]=\"historyColorOut\";"
@@ -7028,6 +7146,7 @@ ACS_TEST(VolumetricClouds,
             render,
             "cl.SetTexture(2,*m_HistoryColor[prev]);"
             "cl.SetTexture(3,*m_HistoryDepth[prev]);"
+            "cl.SetTexture(4,*m_WeatherTex);"
             "cl.BindUav(0,*m_HistoryColor[cur]);"
             "cl.BindUav(1,*m_HistoryDepth[cur]);"
             "cl.Dispatch((m_FullW+7u)/8u,(m_FullH+7u)/8u,1);"));
@@ -7706,7 +7825,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(
             occupancyShape,
             "floatmaximumShapePotential=cloudShapeOccupancyMaximum("
-            "cloudUVW(p,layerHeight,upperBand),maximumDomainFootprint);"));
+            "cloudUVWWithConvection(p,layerHeight,upperBand,convectionShapeVector),"
+            "maximumDomainFootprint);"));
         EXPECT_TRUE(Contains(
             occupancyShape,
             "floatunresolvedDensityUpper=cloudCondensationDensity("
@@ -8009,7 +8129,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatmaximumShapePotential=cloudShapeOccupancyMaximum("
-        "cloudUVW(p,layerHeight,upperBand),maximumDomainFootprint);"));
+        "cloudUVWWithConvection(p,layerHeight,upperBand,convectionShapeVector),"
+        "maximumDomainFootprint);"));
     EXPECT_FALSE(Contains(
         shader,
         "cloudCondensationDensity("
@@ -8352,7 +8473,7 @@ ACS_TEST(VolumetricClouds,
                 "floatconvectionResponse=lerp(0.018,0.06,saturate(macro.toweringStrength));");
         const std::size_t convectionHeight =
             macro.find(
-                "floatconvectionHeight=saturate(macro.height+cloudLocalConvectionPhase(macro.weather)*convectionResponse);");
+                "floatconvectionHeight=saturate(macro.height+macro.convectionPhase*convectionResponse);");
         const std::size_t profile =
             macro.find(
                 "macro.heightProfile=saturate(cloudProfile(convectionHeight,");
@@ -8457,6 +8578,7 @@ ACS_TEST(VolumetricClouds,
     const char* initializers[]{
         "macro.weather=float4(0,0,0,0);",
         "macro.curl=float2(0,0);",
+        "macro.convectionPhase=0.0;",
         "macro.shapePotential=-1.0.xxxx;",
         "macro.shapeFrequencyWeights=float4(0.0,0.0,0.0,1.0);",
         "macro.toweringStrength=0.0;",
@@ -8491,8 +8613,7 @@ ACS_TEST(VolumetricClouds,
             function.find("macro.layerHeight=layerHeight;");
         const std::size_t weather =
             function.find(
-                "macro.weather=cloudWeatherDataBandLimitedPoint("
-                "p,safeFootprint.xz);");
+                "cloudWeatherDataAndShapeBandLimitedPoint(");
         const std::size_t columnInterior =
             function.find("macro.columnInterior=cloudWeatherMask");
         const std::size_t toweringStrength =
@@ -8619,7 +8740,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "macro.curl=cloudCurlOffset(p,safeFootprint.xz);"));
-    EXPECT_TRUE(Contains(shader, "float2detailXz=p.xz-cloudWindWorld()+" "cloudHeightShapeShear(macro.layerHeight,macro.upperBand>0.5)+" "macro.curl*35.0;"));
+    EXPECT_TRUE(Contains(shader, "float2detailXz=p.xz-cloudWindWorld()+" "cloudHeightShapeShear(macro.layerHeight,macro.upperBand>0.5)+" "cloudConvectionShapeShear("));
+    EXPECT_TRUE(Contains(shader, "macro.convectionShapeVector)"));
+    EXPECT_TRUE(Contains(shader, "macro.curl*35.0;"));
     EXPECT_TRUE(Contains(
         shader,
         "cloudDetailDomains("
@@ -9759,12 +9882,14 @@ ACS_TEST(VolumetricClouds,
     EXPECT_FALSE(Contains(commonMacro, "densityHeightThreshold"));
     EXPECT_TRUE(Contains(
         commonMacro,
-        "macro.weather=cloudWeatherDataBandLimitedPoint(p,safeFootprint.xz);"));
+        "float4shapeWeather=0.0.xxxx;"
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
     EXPECT_TRUE(Contains(commonMacro, "macro.curl=cloudCurlOffset(p,safeFootprint.xz);"));
     EXPECT_TRUE(Contains(
         commonMacro,
         "macro.shapePotential=cloudShapePotentialBands("
-        "cloudUVW(p,macro.layerHeight,upperBand));"));
+        "cloudUVWWithConvection(p,macro.layerHeight,upperBand,"
+        "macro.convectionShapeVector));"));
     EXPECT_TRUE(Contains(
         commonMacro,
         "macro.shapeFrequencyWeights=cloudShapeFrequencyWeights("
@@ -9812,7 +9937,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(Contains(
             occupancyBody,
             "floatmaximumDomainFootprint="
-            "cloudShapeMaximumDomainFootprint(physicalFootprint,upperBand);"));
+            "cloudShapeMaximumDomainFootprint(physicalFootprint,upperBand,"
+            "layerHeight);"));
         EXPECT_TRUE(Contains(
             occupancyBody,
             "floatunresolvedDensityUpper=cloudCondensationDensity("
@@ -9822,7 +9948,13 @@ ACS_TEST(VolumetricClouds,
             occupancyBody,
             "floatdensityUpper=pointOwner*pointDensityUpper"
             "+max(frequencyWeights.w,0.0)*unresolvedDensityUpper;"));
-        EXPECT_FALSE(Contains(occupancyBody, "cloudWeather"));
+        EXPECT_TRUE(Contains(
+            occupancyBody,
+            "float4weather=0.0.xxxx;float4shapeWeather=0.0.xxxx;"
+            "cloudWeatherDataAndShapeBandLimitedPoint("));
+        EXPECT_TRUE(Contains(
+            occupancyBody,
+            "float2convectionShapeVector=cloudLocalConvectionShapeVector(shapeWeather);"));
         EXPECT_FALSE(Contains(occupancyBody, "cloudProfile"));
         EXPECT_FALSE(Contains(occupancyBody, "cloudCurl"));
         EXPECT_FALSE(Contains(occupancyBody, "cloudDetail"));
@@ -10137,8 +10269,8 @@ ACS_TEST(VolumetricClouds,
             shader.substr(helperBegin, helperEnd - helperBegin);
         EXPECT_TRUE(Contains(
             helper,
-            "macro.weather=cloudWeatherDataBandLimitedPoint("
-            "p,safeFootprint.xz);"));
+            "float4shapeWeather=0.0.xxxx;"
+            "cloudWeatherDataAndShapeBandLimitedPoint("));
         EXPECT_TRUE(Contains(
             helper,
             "macro.curl=cloudCurlOffset("
@@ -10152,7 +10284,7 @@ ACS_TEST(VolumetricClouds,
         EXPECT_FALSE(Contains(helper, "cloudColumnTopShift("));
         EXPECT_FALSE(Contains(helper, "cloudColumnHeightAndSpan("));
         EXPECT_FALSE(Contains(helper, "camPos"));
-        EXPECT_TRUE(Contains(helper, "cloudUVW("));
+        EXPECT_TRUE(Contains(helper, "cloudUVWWithConvection("));
     }
     EXPECT_TRUE(Contains(
         shader,
@@ -11638,7 +11770,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "macro.shapePotential=cloudShapePotentialBands("
-        "cloudUVW(p,macro.layerHeight,upperBand));"));
+        "cloudUVWWithConvection(p,macro.layerHeight,upperBand,"
+        "macro.convectionShapeVector));"));
     EXPECT_TRUE(Contains(
         shader,
         "macro.shapeFrequencyWeights=cloudShapeFrequencyWeights("
@@ -11783,12 +11916,35 @@ ACS_TEST(VolumetricClouds, CameraRelativeInverseViewProjectionIgnoresFarWorldTra
     EXPECT_TRUE(Contains(resolveShader, "float3stableRay=ResolveViewDirection(uv);"));
     EXPECT_TRUE(Contains(resolveShader, "float3ray=ResolveViewDirection(uv);"));
     EXPECT_FALSE(Contains(resolveShader, "farHomogeneous.xyz/farHomogeneous.w"));
-    EXPECT_TRUE(Contains(resolveShader, "float3stablePrevCameraRelativeP=stableRay*sameScreenDepth.x+(camPos.xyz-prevCamPos.xyz)-float3(stableWindDelta*0.9284767,0.0,stableWindDelta*0.3713907);"));
-    EXPECT_TRUE(Contains(resolveShader, "float3prevCameraRelativeP=ray*reprojectionDepth+(camPos.xyz-prevCamPos.xyz)-float3(windDelta*0.9284767,0.0,windDelta*0.3713907);"));
+    EXPECT_TRUE(Contains(resolveShader, "float3ResolveCloudPreviousWorldPoint("));
+    EXPECT_TRUE(Contains(
+        resolveShader, "voidResolveCloudLayerTermsAtWorldPoint("));
+    EXPECT_TRUE(Contains(
+        resolveShader, "boolResolveCloudValueIsFinite(floatvalue){"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatcurrentTime=ResolveCloudValueIsFinite(params.z)?params.z:0.0;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "converged=shapeScale>0.0&&ResolveCloudFiniteFloat3(previousWorldP)&&"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "ResolveCloudLayerTermsAtWorldPoint(previousWorldP,previousLayerHeight,previousUpperBand);"));
+    EXPECT_TRUE(Contains(resolveShader, "outboolconverged"));
+    EXPECT_TRUE(Contains(resolveShader, "previousIterationDelta=length("));
+    EXPECT_TRUE(Contains(resolveShader, "residual=length(previousFixedPoint-previousWorldP);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "ResolveCloudValueIsFinite(previousIterationDelta)&&ResolveCloudValueIsFinite(residual)&&previousIterationDelta<=convergenceDistance&&"));
+    EXPECT_TRUE(Contains(resolveShader, "float3stablePreviousWorldP=ResolveCloudPreviousWorldPoint("));
+    EXPECT_TRUE(Contains(resolveShader, "float3previousWorldP=ResolveCloudPreviousWorldPoint("));
     EXPECT_TRUE(Contains(resolveShader, "float4(prevCameraRelativeP,1.0),prevCameraRelativeViewProj"));
     EXPECT_TRUE(Contains(resolveShader, "floatexpectedDepth=length(prevCameraRelativeP);"));
-    EXPECT_FALSE(Contains(resolveShader, "float3worldP="));
-    EXPECT_FALSE(Contains(resolveShader, "prevWorldP"));
+    EXPECT_TRUE(Contains(resolveShader, "Texture2D<float4>weatherMap:register(t4);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "ResolveCloudShapeWeatherAtWorldXz("));
+    EXPECT_FALSE(Contains(resolveShader, "ResolveCloudPixelFootprint("));
     const std::string compositeShaders[]{
         compositeShader, atmosphereCompositeShader};
     for (const std::string& composite : compositeShaders) {
@@ -13339,11 +13495,33 @@ ACS_TEST(VolumetricClouds, AmbientVisibilityAndShapeFrequencyBlendRemainBounded)
         render_internal::ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(
             0.0f, 300.0f, 0.0f,
             0.00020f, 1.0f / 2000.0f, true);
+    // 対流変位の勾配は平行移動ではなく、隣接点の担当幅だけを広げる。
+    const f32 noConvectionFootprint =
+        render_internal::ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(
+            100.0f, 300.0f, 200.0f,
+            0.00020f, 1.0f / 9400.0f, false, 0.0f);
+    const f32 convectionFootprint =
+        render_internal::ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(
+            100.0f, 300.0f, 200.0f,
+            0.00020f, 1.0f / 9400.0f, false, 0.25f);
     EXPECT_TRUE(lowerVerticalFootprint > 0.0f);
     EXPECT_TRUE(upperVerticalFootprint > 0.0f);
     // 局所雲頂の正規化幅ではなく、有限な物理層厚だけが結果を決める。
     EXPECT_TRUE(lowerVerticalFootprint < 0.08f);
     EXPECT_TRUE(upperVerticalFootprint < 0.08f);
+    EXPECT_TRUE(convectionFootprint > noConvectionFootprint);
+    const f32 infiniteFootprint = std::numeric_limits<f32>::infinity();
+    const f32 invalidFootprint =
+        render_internal::ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(
+            infiniteFootprint, 300.0f, 300.0f,
+            0.00020f, 1.0f / 9400.0f, false);
+    const auto invalidFootprintBlend =
+        render_internal::ResolveVolumetricCloudShapeFrequencyBlend_Internal(
+            invalidFootprint);
+    EXPECT_NEAR(invalidFootprintBlend.unresolved, 1.0f, 0.0f);
+    EXPECT_NEAR(invalidFootprintBlend.coarse, 0.0f, 0.0f);
+    EXPECT_NEAR(invalidFootprintBlend.middle, 0.0f, 0.0f);
+    EXPECT_NEAR(invalidFootprintBlend.complete, 0.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -14142,7 +14320,16 @@ ACS_TEST(VolumetricClouds,
                 "float3p,float2resolutionFootprint){",
                 "float3rotateNoise("),
             "cloudWeatherDataAtMaterialXz("),
-        static_cast<std::size_t>(1));
+        static_cast<std::size_t>(2));
+    EXPECT_TRUE(Contains(
+        shader,
+        "voidcloudWeatherDataAtMaterialXz("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "voidcloudWeatherDataAndShapeBandLimitedPoint("));
+    EXPECT_TRUE(Contains(
+        shader,
+        "shapeWeather=a;"));
     EXPECT_TRUE(Contains(
         shader,
         "float3physicalFootprint="
@@ -14159,7 +14346,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(
         CountOccurrences(shader, "cloudCurlOffset(p,0.0.xx);"),
         static_cast<std::size_t>(0));
-    EXPECT_TRUE(Contains(shader, "cloudWeatherDataBandLimitedPoint(p,safeFootprint.xz);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "cloudWeatherDataAndShapeBandLimitedPoint("));
     EXPECT_TRUE(Contains(shader, "cloudCurlOffset(p,safeFootprint.xz);"));
     EXPECT_TRUE(Contains(
         shader,

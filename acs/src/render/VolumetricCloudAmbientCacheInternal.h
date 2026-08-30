@@ -3,6 +3,7 @@
 #define ACS_RENDER_VOLUMETRIC_CLOUD_AMBIENT_CACHE_INTERNAL_H
 
 #include "render/Sky.h"
+#include "render/VolumetricCloudDensityIntegrationInternal.h"
 
 namespace acs::render_internal {
 
@@ -115,16 +116,33 @@ inline f32 ResolveVolumetricCloudHemisphericVisibility_Internal(f32 optical_dept
     return visibility > 1.0f ? 1.0f : visibility;
 }
 
-/** 物理的な箱幅と高度せん断を形状の直交領域へ写し、最も広い一軸の幅を求める。 */
-inline f32 ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(f32 footprint_x, f32 footprint_y, f32 footprint_z, f32 shape_scale, f32 inverse_layer_height, bool upper_band) noexcept {
+/** 物理的な箱幅、対流勾配、高度せん断を形状の直交領域へ写し、最も広い一軸の幅を求める。 */
+inline f32 ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(f32 footprint_x, f32 footprint_y, f32 footprint_z, f32 shape_scale, f32 inverse_layer_height, bool upper_band, f32 convection_gradient = 0.0f) noexcept {
+    constexpr f32 maximumFiniteValue = 3.402823466e+38F;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(shape_scale))
+        return maximumFiniteValue;
     if (!(shape_scale > 0.0f)) return 0.0f;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(footprint_x) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(footprint_y) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(footprint_z) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(inverse_layer_height) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(convection_gradient))
+        return maximumFiniteValue;
     if (!(footprint_x > 0.0f)) footprint_x = 0.0f;
     if (!(footprint_y > 0.0f)) footprint_y = 0.0f;
     if (!(footprint_z > 0.0f)) footprint_z = 0.0f;
     if (!(inverse_layer_height > 0.0f)) inverse_layer_height = 0.0f;
+    if (!(convection_gradient > 0.0f)) convection_gradient = 0.0f;
     const f32 altitudeWidth = Sqrt(
         footprint_x * footprint_x + footprint_y * footprint_y +
         footprint_z * footprint_z);
+    // GPU側と同じく、対流変位の局所勾配だけを隣接点の担当幅へ加える。
+    // 平行移動量を足さないことで、時間変位を誤ってLOD幅へ変換しない。
+    footprint_x += convection_gradient * altitudeWidth;
+    footprint_z += convection_gradient * altitudeWidth;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(footprint_x) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(footprint_z))
+        return maximumFiniteValue;
     const f32 bandScale = upper_band ? 0.25f : 1.0f;
     const f32 shearScale = 850.0f * bandScale * inverse_layer_height;
     const f32 canonicalX =
@@ -134,6 +152,10 @@ inline f32 ResolveVolumetricCloudShapeMaximumDomainFootprint_Internal(f32 footpr
     const f32 canonicalZ =
         (footprint_z + 0.3713907f * shearScale * altitudeWidth) *
         shape_scale;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(canonicalX) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(canonicalY) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(canonicalZ))
+        return maximumFiniteValue;
     const f32 rotatedX = 0.8f * canonicalY + 0.6f * canonicalZ;
     const f32 rotatedY = 0.7071068f * canonicalX +
         0.4242641f * canonicalY + 0.5656854f * canonicalZ;

@@ -618,6 +618,10 @@ inline f32 ResolveVolumetricCloudShapeCorrelationLength_Internal(
     if (!CloudDensityIntegrationValueIsFinite_Internal(shape_scale) ||
         shape_scale <= 0.0f)
         return 0.0f;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(domain_direction_x) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(domain_direction_y) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(domain_direction_z))
+        return 0.0f;
     const f32 scaledX = domain_direction_x /
         kVolumetricCloudCoarseCorrelationDomainLengthX;
     const f32 scaledY = domain_direction_y /
@@ -1192,6 +1196,14 @@ ResolveVolumetricCloudFourStateTransportInterval_Internal(
     FVolumetricCloudFourStateTransportStateInternal& state) noexcept
 {
     FVolumetricCloudFourStateTransportIntervalInternal out{};
+    // GPU側は非有限または負の相関長を無効レーンとして破棄する。
+    // 均質媒質へ暗黙に戻すとCPUとGPUで遮蔽量が分岐するため、状態を初期化して恒等輸送にする。
+    if (!CloudDensityIntegrationValueIsFinite_Internal(correlation_length) ||
+        correlation_length < 0.0f)
+    {
+        ResetVolumetricCloudFourStateTransport_Internal(state);
+        return out;
+    }
     if (!CloudDensityIntegrationValueIsFinite_Internal(segment_length) ||
         segment_length <= 0.0f ||
         !CloudDensityIntegrationValueIsFinite_Internal(extinction_per_density) ||
@@ -1200,8 +1212,7 @@ ResolveVolumetricCloudFourStateTransportInterval_Internal(
     if (!state.initialized)
         ResetVolumetricCloudFourStateTransport_Internal(state);
 
-    if (!CloudDensityIntegrationValueIsFinite_Internal(correlation_length) ||
-        correlation_length <= 0.0f)
+    if (correlation_length == 0.0f)
     {
         const f32 meanDensity =
             ResolveVolumetricCloudDensityDistributionMean_Internal(distribution);
