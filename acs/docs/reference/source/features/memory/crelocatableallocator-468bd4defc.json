@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CRelocatableAllocator",
+    "kind": "クラス",
+    "header": "memory/RelocatableAllocator.h",
+    "summary": "確保した領域を後で動かして詰め直せる(ハンドル越しにアクセス)アロケータ。 Compact() で断片化を解消できる。 内部同期なし=単一スレッドで使う。 既定構築→Init() の二段階。",
+    "when": "長時間動かし続けてメモリ断片化が問題になる場面で、コンパクションしたい時。 生ポインタでなくハンドルで持つ。",
+    "sample": "CRelocatableAllocator ra;\nra.Init(1u << 20, 4096);             // 1MB アリーナ / ハンドル最大 4096\nFRelocHandle h = ra.Alloc(128);          // 失敗時は h.IsValid()==false\nvoid* p = ra.Resolve(h);                 // 使う直前に解決(次の Compact まで有効)\nra.Compact();                            // 隙間を詰める→生ポインタは無効化、ハンドルは有効\np = ra.Resolve(h);                       // Compact 後は取り直す",
+    "members": [
+      {
+        "sig": "TResult<void> Init(usize capacity_bytes, u32 max_handles, IAllocator* backing = nullptr)",
+        "ret": "成否",
+        "desc": "アリーナ容量とハンドル表サイズを確保。 backing=nullptr で DefaultAllocator。"
+      },
+      {
+        "sig": "FRelocHandle Alloc(usize size, usize align = 16)",
+        "ret": "ハンドル",
+        "desc": "確保してハンドルを返す。 末尾に入らなくても詰めれば入る時は自動 Compact。 失敗時は無効ハンドル。"
+      },
+      {
+        "sig": "void* Resolve(FRelocHandle h) const",
+        "ret": "現ポインタ",
+        "desc": "ハンドルの現在位置。 無効/解放済みは null。 次の Compact まで有効。"
+      },
+      {
+        "sig": "usize Compact()",
+        "ret": "回収バイト数",
+        "desc": "生存ブロックを前方に詰めて断片化を解消し、全ハンドルの参照先を更新する。"
+      },
+      {
+        "sig": "void Free(FRelocHandle h) / usize SizeOf(h) / bool ValidateHandle(h)",
+        "desc": "解放・サイズ取得・有効性検証。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "アリーナとハンドルテーブルを backing へ返却する(デストラクタでも呼ばれる)。"
+      },
+      {
+        "sig": "usize Capacity() / Used() / HighWater() const",
+        "ret": "統計",
+        "desc": "アリーナ容量 / 生存ペイロード総量 / bump カーソル位置(gap 込み)。"
+      },
+      {
+        "sig": "u32 LiveCount() const",
+        "ret": "生存数",
+        "desc": "現在生きている確保(ハンドル)の数。"
+      },
+      {
+        "sig": "using FRelocatableAllocator = CRelocatableAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRelocatableAllocator を使う。"
+      }
+    ]
+  }
+}

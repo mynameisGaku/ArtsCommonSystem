@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "GetMlRuntimeStub / GetUpscalerStub / GetDefaultMlRuntime / SetMlRuntimeProvider",
+    "kind": "関数",
+    "header": "gameframework/MlRuntime.h",
+    "summary": "ML / IUpscaler の窓口アクセサ群。 プロセス内に 1 個だけある stub への参照を返すほか、実 backend を SetMlRuntimeProvider で結線して GetDefaultMlRuntime から backend 非依存に取得できる。",
+    "when": "ゲームコードから backend を直接 include せずに既定 ML ランタイムを取りたい時。 provider 未登録なら自動で stub を返す。",
+    "sample": "#if WITH_ACS_ML_ONNX\n    acs::mlonnx::InstallOnnxAsDefault(); // provider 登録\n#endif\nIMlRuntime& ml = GetDefaultMlRuntime(); // 実 or stub",
+    "members": [
+      {
+        "sig": "IMlRuntime& GetMlRuntimeStub() / IUpscaler& GetUpscalerStub()",
+        "desc": "プロセス共有の stub への参照。"
+      },
+      {
+        "sig": "void SetMlRuntimeProvider(MlRuntimeProvider provider)",
+        "desc": "実 backend が「既定 runtime を返す関数」を登録 (後勝ち、nullptr で stub に戻す)。"
+      },
+      {
+        "sig": "IMlRuntime& GetDefaultMlRuntime()",
+        "desc": "provider 登録済みなら実 runtime、未登録なら stub を返す。"
+      }
+    ]
+  }
+}

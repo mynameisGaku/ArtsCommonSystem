@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CPbrShader::FAreaLight / CPbrShader::FLightProbe",
+    "kind": "構造体(入れ子)",
+    "header": "render/PbrShader.h",
+    "summary": "CPbrShader 専用の入力。 FAreaLight=矩形のエリアライト(中心 + 2 軸の半幅ベクトル + 色)、FLightProbe=静的光プローブ(位置 + 球面調和9 係数)。",
+    "when": "面光源で柔らかい照明を作る / シーンに事前計算の間接光プローブを置くとき。",
+    "sample": "CPbrShader::FAreaLight a;\na.center = FVec3{0,3,0};\na.axis_x = FVec3{1,0,0}; a.axis_y = FVec3{0,0,1};\na.color  = FVec3{8,8,8};\nshd.SetAreaLights(&a, 1);",
+    "members": [
+      {
+        "sig": "struct FAreaLight{ FVec3 center, axis_x, axis_y, color }",
+        "desc": "矩形中心 + 半幅 2 軸 + 放射輝度。 法線方向の逆へ片面 emit。"
+      },
+      {
+        "sig": "struct FLightProbe{ FVec3 position, FVec4 sh9[9] }",
+        "desc": "world 位置と SH9 9 係数(xyz=RGB)。"
+      }
+    ]
+  }
+}

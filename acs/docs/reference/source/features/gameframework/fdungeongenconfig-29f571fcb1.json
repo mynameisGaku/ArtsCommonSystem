@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FDungeonGenConfig",
+    "kind": "構造体",
+    "header": "gameframework/DungeonGenerator.h",
+    "summary": "CDungeonGenerator の生成パラメータ。 幅・高さ・部屋の最小/最大サイズ・分割の最小サイズ・シード・BSP 再帰の最大深さを持つ。 0 や不整合な値は内部で安全な既定に補正される。",
+    "when": "ダンジョンの規模や部屋の大きさ、再現用シードを指定する時。"
+  }
+}

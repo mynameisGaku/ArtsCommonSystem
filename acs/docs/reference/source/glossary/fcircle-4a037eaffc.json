@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FCircle",
+  "definition": "2D の円コライダー（中心+半径）。"
+}

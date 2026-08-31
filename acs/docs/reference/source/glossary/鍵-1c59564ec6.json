@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "鍵",
+  "definition": "暗号化/復号に使う秘密のデータ。 ACS では 256bit(32 バイト)の FAcpakKey。"
+}

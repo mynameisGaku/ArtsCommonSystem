@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCardDef",
+    "kind": "構造体",
+    "header": "gameframework/DeckSystem.h",
+    "summary": "カード 1 種類の定義 (immutable)。 id・表示名・cost・rarity・card_type・description・art_path を持つ。 文字列はすべて非所有。",
+    "when": "RegisterCard() に渡す時。",
+    "sample": "FCardDef def{ \\\"card.bear\\\", \\\"Grizzly Bears\\\", 2, 1, \\\"creature\\\", \\\"A 2/2 bear.\\\", \\\"ui/bears.png\\\" };"
+  }
+}

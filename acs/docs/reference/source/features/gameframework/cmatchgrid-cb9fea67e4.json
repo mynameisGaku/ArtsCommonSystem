@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CMatchGrid",
+    "kind": "クラス",
+    "header": "gameframework/MatchGrid.h",
+    "summary": "match-3パズルの2Dグリッドを管理します。 隣接 swap、3個以上の連続検出、消去、special 効果、重力落下、補充、連鎖を処理します。 隣接 swap → 3 個以上の連続検出 → 消去 (special 効果) → 重力落下 → 補充 → 連鎖、までを内包する。",
+    "when": "マッチ 3 パズルを作る時。 盤面の状態とロジックだけを持ち、VFX/SFX/スコアは消去コールバックで外に出す。",
+    "sample": "CMatchGrid g;\ng.Init(8, 8, /*color_count=*/5);\ng.FillRandom(0xC0FFEEull); // 初期マッチが残らない決定論埋め\ng.SetOnClearCallback(&MyClearFx, &fx);\nif (g.TrySwap(3, 4, 4, 4)) {        // 成立すれば自動 resolve\n    u32 chains  = g.ChainLevel();\n    u32 cleared = g.TotalClearedThisChain();\n    g.ResetChain();\n}",
+    "members": [
+      {
+        "sig": "void Init(u32 width, u32 height, u32 color_count)",
+        "desc": "グリッドを初期化。 color_count は使う色数 (色 ID は 1..color_count)。 不正値は安全な既定に。"
+      },
+      {
+        "sig": "u32 Width() / u32 Height() const",
+        "desc": "盤面サイズ。"
+      },
+      {
+        "sig": "const FGridCell& Get(u32 x, u32 y) const",
+        "desc": "セルを const 参照。 範囲外は内部の空 dummy を返す (安全)。"
+      },
+      {
+        "sig": "void Set(u32 x, u32 y, u8 color, ESpecialKind = Normal)",
+        "desc": "セルを書き換え。 color==0 で空セルに。 範囲外は no-op。"
+      },
+      {
+        "sig": "void FillRandom(u32 seed = 0)",
+        "desc": "全セルをランダム色で埋める。 初期 3 連続が出ないよう調整。 seed=0 はグローバル乱数。",
+        "when": "盤面の初期化時。"
+      },
+      {
+        "sig": "bool TrySwap(u32 x1, u32 y1, u32 x2, u32 y2)",
+        "ret": "成立したか",
+        "desc": "隣接セルの swap を試す。 マッチが出れば ResolveAllMatches まで実行して true、出なければ swap を戻して false。"
+      },
+      {
+        "sig": "u32 DetectMatches(FMatchInfo* out, u32 max) const",
+        "ret": "マッチ数",
+        "desc": "3+ 連続マッチを検出して書き出す。 out=nullptr なら個数のみ。"
+      },
+      {
+        "sig": "u32 ResolveAllMatches()",
+        "ret": "除去総数",
+        "desc": "検出→消去 (special 効果)→重力→補充 を安定するまで反復。 各 cascade で chain level +1。"
+      },
+      {
+        "sig": "u32 ApplyGravity() / u32 RefillFromTop()",
+        "desc": "空セルを上向きに吸い上げる 1 step / 上端の空をランダム色で埋める 1 step。"
+      },
+      {
+        "sig": "void SetOnClearCallback(ClearCallback cb, void* user)",
+        "desc": "消去 1 個ごとのコールバック (VFX/SFX/score hook)。"
+      },
+      {
+        "sig": "u32 TotalClearedThisChain() / u32 ChainLevel() const",
+        "desc": "現 chain の累計除去数 / cascade 段数。"
+      },
+      {
+        "sig": "void ResetChain() / void ClearAll()",
+        "desc": "新ターン用に chain カウンタを 0 に / 全セルを空に (サイズは保持)。"
+      },
+      {
+        "sig": "using FMatchGrid = CMatchGrid",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMatchGrid を使う。"
+      }
+    ]
+  }
+}

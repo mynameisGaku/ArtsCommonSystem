@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "tombstone",
+  "definition": "削除済みスロットの目印。 ACS の THashMap はこれを残さず後方シフトで詰める。"
+}

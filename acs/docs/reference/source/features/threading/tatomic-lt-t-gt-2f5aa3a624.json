@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "TAtomic<T>",
+    "kind": "クラステンプレート",
+    "header": "threading/Atomic.h",
+    "summary": "複数スレッドが同時に触っても途中状態が見えず壊れない。 整数・列挙(enum)・ポインタ(1/2/4/8 バイト)に使える。 コピー不可。",
+    "when": "カウンタ・フラグ・状態など『1 つの小さな値』をロックなしで複数スレッドから安全に共有したい時。 複雑なデータには FMutex を使う。",
+    "sample": "TAtomic<u32> counter{0};\ncounter.FetchAdd(1);              // どのスレッドから呼んでも正しく +1\nu32 now = counter.Load();        // 現在値を読む\nTAtomic<bool> ready{false};\nready.Store(true, EMemoryOrder::Release); // 公開",
+    "members": [
+      {
+        "sig": "T Load(EMemoryOrder o = SeqCst) const",
+        "ret": "現在値",
+        "desc": "値を読む。 Relaxed 指定で最速(順序保証なし)。",
+        "when": "他スレッドが書いた値を読み取る時。"
+      },
+      {
+        "sig": "void Store(T v, EMemoryOrder o = SeqCst)",
+        "desc": "値を書き込む。 Release 指定でそれ以前の書き込みを公開できる。"
+      },
+      {
+        "sig": "T Exchange(T v)",
+        "ret": "古い値",
+        "desc": "新しい値を書きつつ、書く前の値を返す(XCHG 相当)。"
+      },
+      {
+        "sig": "bool CompareExchange(T& expected, T desired)",
+        "ret": "成功したか",
+        "desc": "現在値が expected と一致すれば desired に書き換え true。 失敗時は expected に実際の値が入り false。 CAS。",
+        "when": "『今が X なら Y にする』というロックフリーな更新ループを書く時。",
+        "sample": "u32 cur = a.Load();\nwhile (!a.CompareExchange(cur, cur + 1)) { /* cur は実値に更新済 */ }"
+      },
+      {
+        "sig": "T FetchAdd(T v) / FetchSub(T v)",
+        "ret": "演算前の値",
+        "desc": "加算/減算しつつ、演算する前の値を返す。 32/64bit 型用(FetchOr/And/Exchange/CompareExchange は 1/2/4/8 byte 全対応)。 順序引数は取らない。"
+      },
+      {
+        "sig": "T FetchOr(T v) / FetchAnd(T v)",
+        "ret": "演算前の値",
+        "desc": "ビット OR / AND しつつ演算前の値を返す。 フラグ集合の操作に。"
+      },
+      {
+        "sig": "T operator++() / operator--()",
+        "desc": "アトミックなインクリメント/デクリメント。 前置は演算後、後置(++(int))は演算前の値を返す。"
+      }
+    ]
+  }
+}

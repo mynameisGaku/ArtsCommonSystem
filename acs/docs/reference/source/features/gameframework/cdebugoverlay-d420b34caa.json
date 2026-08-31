@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CDebugOverlay",
+    "kind": "クラス",
+    "header": "gameframework/DebugOverlay.h",
+    "summary": "FPS / シーン名 / カスタム watch をテキスト表示するための状態保持クラス。 実描画は呼出側の責務で、本クラスは「何を出すか」と FPS の 60 フレーム移動平均だけを保持する。 Headless でも動く。",
+    "when": "画面に FPS や任意の数値 (Player.HP 等) をデバッグ表示したい時。",
+    "sample": "CDebugOverlay ov;\nov.Init();\nov.SetSceneName(\\\"Gameplay\\\");\nov.AddWatch(\\\"Player.HP\\\", hpText);  // 値文字列は caller 所有\nvoid OnUpdate(f32 dt) { ov.Tick(dt); }\n// 描画: DrawString(8,8, ov.CurrentFps()...);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "内部バッファを事前確保する (60 frame 履歴)。 再 Init は履歴クリア。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "1 フレーム進めて FPS の移動平均 / min / max を更新する。 dt<=0 は無視 (発散防止)。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "f32 CurrentFps() const",
+        "desc": "最新フレームの瞬間 FPS (1/dt)。"
+      },
+      {
+        "sig": "f32 AverageFps() const",
+        "desc": "直近 60 フレームの平均 FPS。"
+      },
+      {
+        "sig": "f32 MinFps() / f32 MaxFps() const",
+        "desc": "履歴中の最小 / 最大 FPS。"
+      },
+      {
+        "sig": "void AddWatch(const char* label, const char* value)",
+        "desc": "任意のラベル + 値文字列を表示項目に追加する。 同名は後勝ち上書き。 値バッファは caller が毎フレーム更新する。",
+        "when": "HP やスコア等を画面に出したい時。"
+      },
+      {
+        "sig": "void RemoveWatch(const char* label)",
+        "desc": "ラベル一致の watch を削除する (順序非保持)。"
+      },
+      {
+        "sig": "const FWatch* AllWatches(u32& out_count) const",
+        "desc": "全 watch を読み取り用に列挙する。 描画側が順に描く。"
+      },
+      {
+        "sig": "void Show() / Hide() / Toggle()",
+        "desc": "表示の ON/OFF (例: F3 で Toggle)。"
+      },
+      {
+        "sig": "void SetSceneName(const char* name)",
+        "desc": "オーバーレイに出すシーン名を設定する (caller 所有のリテラル)。"
+      },
+      {
+        "sig": "using FDebugOverlay = CDebugOverlay",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDebugOverlay を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "THasher<T> / HashBytes / HashMix64",
+    "kind": "ハッシュ関数群",
+    "header": "container/Hash.h",
+    "summary": "THashMap 等が使うハッシュ関数。 整数・ポインタ・FStringView 用の THasher 特殊化が既定で用意され、独自キー型は THasher を特殊化して対応する。",
+    "when": "標準キー(整数 / ポインタ / 文字列ビュー)ならそのまま使える。 自作のキー型をマップに入れたい時だけ THasher<FMyKey> を特殊化する。",
+    "sample": "// 自作キーをマップで使う:\ntemplate<> struct acs::THasher<FMyKey> {\n    u64 operator()(const FMyKey& k) const noexcept {\n        return HashBytes(&k, sizeof(k));\n    }\n};",
+    "members": [
+      {
+        "sig": "u64 HashMix64(u64 x)",
+        "ret": "混ぜた 64bit 値",
+        "desc": "整数 / ポインタキーのビットを拡散し、THashMap のバケット偏りを抑える 64bit 混合関数。"
+      },
+      {
+        "sig": "u64 HashBytes(const void* data, usize len, u64 seed = ...)",
+        "ret": "ハッシュ値",
+        "desc": "任意のバイト列のハッシュ。 汎用キーや自作型のハッシュ実装に使う。"
+      },
+      {
+        "sig": "struct THasher<T>",
+        "desc": "キー型 T からハッシュ値を作る関数オブジェクト。 整数 / T* / FStringView は特殊化済み。"
+      }
+    ]
+  }
+}

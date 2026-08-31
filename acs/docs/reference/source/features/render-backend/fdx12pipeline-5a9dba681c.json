@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "FDx12Pipeline",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12Pipeline.h",
+    "summary": "DX12 のグラフィックスパイプライン(IRhiPipeline 派生)。 FPipelineDesc(VS+PS・頂点レイアウト・ブレンド・深度/ステンシル・ターゲットフォーマット)から PSO とルートシグネチャを組み立てます。",
+    "when": "CreateRhiPipeline() が DX12 で生成する実体。 描画の「設定一式」を 1 つに固めたもの。 初期化時に作り、描画時は cmd.SetPipeline で切り替える。",
+    "sample": "FPipelineDesc pd;\npd.vs = vs.get(); pd.ps = ps.get();\npd.vertex_stride = sizeof(FVertex);\npd.layout[0] = {\"POSITION\",0,EFormat::R32G32B32_Float,0};\npd.layout_count = 1;\npd.cbuffer_slots = 1; pd.texture_slots = 1;\nauto pso = CreateRhiPipeline(*dev, pd).Value();",
+    "members": [
+      {
+        "sig": "ID3D12PipelineState* Pso() const",
+        "ret": "PSO",
+        "desc": "内部用。 組み上がった ID3D12PipelineState。"
+      },
+      {
+        "sig": "ID3D12RootSignature* RootSignature() const",
+        "ret": "ルートシグネチャ",
+        "desc": "内部用。 CBV/SRV/サンプラの配置を定義するルートシグネチャ。"
+      },
+      {
+        "sig": "EPrimitiveTopology Topology() const",
+        "desc": "プリミティブ種別(三角形リスト等)。"
+      },
+      {
+        "sig": "u32 CBufferSlots() / TextureSlots() const",
+        "desc": "このパイプラインが受け付ける定数バッファ / テクスチャの slot 数。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TOneWayBinder<T>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Binder.h",
+    "summary": "片方向同期(src → dst のみ)。 src が変わると dst へ流れるが、逆は流れない。 生成時に src の値を dst へ初期反映。",
+    "when": "Model → View のように一方通行で十分な時。 View → VM 方向にしたいなら TOneWayBinder(view, vm) と引数の順で表す(別名は提供しない)。",
+    "sample": "TObservable<i32> score { 0 };\nTObservable<i32> ui_score;\nTOneWayBinder<i32> b(score, ui_score);\nscore.Set(10);   // ui_score も 10\n// ui_score.Set(99) は score に影響しない",
+    "members": [
+      {
+        "sig": "TOneWayBinder(TObservable<T>& src, TObservable<T>& dst)",
+        "desc": "src を dst へ片方向結合する。"
+      }
+    ]
+  }
+}

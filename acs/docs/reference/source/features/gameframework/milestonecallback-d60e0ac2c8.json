@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "MilestoneCallback",
+    "kind": "関数ポインタ型",
+    "header": "gameframework/Progression.h",
+    "summary": "マイルストーン達成時に 1 回だけ呼ばれる関数ポインタ型 = void(*)(void* user, const char* milestone_id) noexcept。 milestone_id は登録時の id がそのまま渡る。",
+    "when": "達成の瞬間に効果音を鳴らす / トースト UI を出す / Unlock 処理に橋渡しする時。",
+    "sample": "void OnAchieved(void* u, const char* id) noexcept {\n    PlaySe(\"se.unlock\");\n    ShowToast(id);\n}\np.SetOnAchievedCallback(&OnAchieved, &game);"
+  }
+}

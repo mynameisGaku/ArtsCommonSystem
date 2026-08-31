@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "steamworks",
+    "title": "steamworks — Steam 連携",
+    "description": "Steam の実績・リーダーボード・クラウドセーブ・フレンドなどを使うバックエンドです。 ゲーム側は acs::game の シーム(抽象 I/F)越しに呼ぶだけで、このモジュールが本物の Steamworks SDK につなぎます。"
+  },
+  "feature": {
+    "name": "kSubSteamworks* (エラー subcode)",
+    "kind": "定数(u16)",
+    "header": "steamworks/SteamworksBridgeImpl.h",
+    "summary": "TResult が Err の時に err.subcode で原因を見分けるための定数群(カテゴリは ErrCategory::Generic)。 実装固有の失敗理由を表します。",
+    "when": "Init() 等が失敗した時、原因別に分岐したい場合に err.subcode == ... で照合する。",
+    "sample": "auto r = steam.Init();\nif (r.IsErr() && r.Error().subcode\n        == acs::steamworks::kSubSteamworksInitFailed) {\n    // Steam クライアント未起動など\n}",
+    "members": [
+      {
+        "sig": "kSubSteamworksInitFailed = 1003",
+        "desc": "SteamAPI_Init() が失敗した(Steam 未起動 / AppID 不一致 等)。"
+      },
+      {
+        "sig": "kSubSteamworksFindBoardFailed = 1004",
+        "desc": "FindLeaderboard に失敗した。"
+      },
+      {
+        "sig": "kSubSteamworksUploadFailed = 1005",
+        "desc": "UploadLeaderboardScore に失敗した。"
+      },
+      {
+        "sig": "kSubSteamworksDownloadFailed = 1006",
+        "desc": "DownloadLeaderboardEntries に失敗した。"
+      },
+      {
+        "sig": "kSubSteamworksTimeout = 1007",
+        "desc": "非同期 API が完了せずタイムアウトした。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FThreadId",
+    "kind": "構造体",
+    "header": "threading/ThreadId.h",
+    "summary": "比較可能でハッシュにも使える POD。",
+    "when": "『今どのスレッドから呼ばれたか』を識別・比較・記録したい時。",
+    "sample": "FThreadId me = CurrentThreadId();\nif (me == g_MainThread) {\n    // メインスレッドからの呼び出し\n}",
+    "members": [
+      {
+        "sig": "u32 raw",
+        "desc": "OS の DWORD と等価な生の ID。"
+      },
+      {
+        "sig": "bool operator==(FThreadId) / operator!=(FThreadId)",
+        "desc": "ID 同士の一致/不一致を比べる。"
+      }
+    ]
+  }
+}

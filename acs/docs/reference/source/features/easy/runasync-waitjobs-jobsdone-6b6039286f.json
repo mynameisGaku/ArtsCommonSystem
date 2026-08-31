@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "RunAsync / WaitJobs / JobsDone",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "1 つの処理を非同期に走らせて即座に戻り、FJobBatch を返す。 後で WaitJobs で完了を待つか JobsDone で待たずに確認する。 同じ batch に追加投入もできる。",
+    "when": "重い読み込みや計算を裏で進めつつ、ローディング画面を回したい時。 中では計算だけして結果は捕捉変数に書き、描画はしないこと。",
+    "sample": "FJobBatch jobs = RunAsync([&]{ loadLevel(); });\nRunAsync(jobs, [&]{ buildNav(); });   // 同じ batch に追加\nwhile (NextFrame()) {\n    if (JobsDone(jobs)) break;        // 待たずに確認\n    DrawString(20, 20, \"Loading...\", FColor::White);\n}\nWaitJobs(jobs);                       // 念のため完了を保証",
+    "members": [
+      {
+        "sig": "FJobBatch RunAsync<Fn>(Fn fn)",
+        "ret": "ジョブハンドル",
+        "desc": "fn を非同期で 1 つ走らせ、すぐ戻る。"
+      },
+      {
+        "sig": "void RunAsync<Fn>(FJobBatch batch, Fn fn)",
+        "desc": "既存 batch に追加投入する（同じ WaitJobs でまとめて待てる）。"
+      },
+      {
+        "sig": "void WaitJobs(FJobBatch batch)",
+        "desc": "batch の全ジョブ完了まで待つ。 待ち終えた batch は無効化される。"
+      },
+      {
+        "sig": "bool JobsDone(FJobBatch batch)",
+        "ret": "完了したか",
+        "desc": "待たずに完了状態を確認する。 ローディング表示の継続判定に。"
+      }
+    ]
+  }
+}

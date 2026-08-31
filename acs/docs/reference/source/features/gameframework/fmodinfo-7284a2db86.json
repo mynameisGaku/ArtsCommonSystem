@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FModInfo",
+    "kind": "構造体",
+    "header": "gameframework/ModRegistry.h",
+    "summary": "1 Mod 分のメタデータ。 id・表示名・バージョン・load_order・有効フラグ・.acpak パス。",
+    "when": "Register に渡す。 文字列はすべて非所有 (manifest loader が組み立て寿命を保証)。",
+    "members": [
+      {
+        "sig": "const char* id / name / pack_path",
+        "desc": "一意キー / 表示名 / .acpak パス (すべて非所有、nullptr 許容)。"
+      },
+      {
+        "sig": "u32 version",
+        "desc": "(major<<24)|(minor<<16)|patch エンコーディング想定 (Registry は不透明に扱う)。"
+      },
+      {
+        "sig": "i32 load_order",
+        "desc": "読み込み順 (昇順。 小さい方が先 load、大きい方が上書き)。 負値は core 系。"
+      },
+      {
+        "sig": "bool enabled",
+        "desc": "有効か。"
+      }
+    ]
+  }
+}

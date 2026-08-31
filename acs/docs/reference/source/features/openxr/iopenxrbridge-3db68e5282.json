@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "IOpenXrBridge",
+    "kind": "インターフェース",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "XR ランタイム/HMD を抽象化した共通インターフェース(seam)。 ゲームロジックはこの型越しに頭・手のポーズやパススルーを叩き、具象 backend(CKhronosOpenXrBridge / stub 等)は差し替えで選ぶ。 シングルスレッド専用・コピー/ムーブ不可。",
+    "when": "XR を使う側のコードはこの参照型で受け取る。 これにより実機が無い CI でも mock に差し替えてテストできる。",
+    "sample": "void UpdateVr(acs::game::IOpenXrBridge& xr, float dt) {\n    xr.Tick(dt);\n    if (!xr.IsTracking()) return;     // 未追跡なら 2D へ\n    auto head = xr.HeadPose();\n    if (xr.LeftController().trigger > 0.5f) Shoot();\n}",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init(EXrPlatform = Unknown)",
+        "ret": "成功 または 失敗",
+        "desc": "backend を初期化。 Unknown なら利用可能な SDK を自動検出。"
+      },
+      {
+        "sig": "virtual void Shutdown()",
+        "desc": "backend を破棄。 Init 前に呼んでも安全。"
+      },
+      {
+        "sig": "virtual bool IsInitialized() const",
+        "ret": "初期化済みか",
+        "desc": "Init 成功後 Shutdown 前なら true。"
+      },
+      {
+        "sig": "virtual bool IsTracking() const",
+        "ret": "追跡中か",
+        "desc": "ポーズが実際にライブ追跡されているか。 false ならポーズは原点なので使わない。 既定実装は false(安全側)。",
+        "when": "ポーズを使う前に毎回確認。"
+      },
+      {
+        "sig": "virtual EXrPlatform ActivePlatform() const",
+        "ret": "プラットフォーム",
+        "desc": "今 active な XR プラットフォーム種別。 stub は Unknown。"
+      },
+      {
+        "sig": "virtual FXrPose HeadPose() const",
+        "ret": "頭のポーズ",
+        "desc": "直近 Tick の HMD ポーズ。 stub/未初期化は原点。"
+      },
+      {
+        "sig": "virtual FXrControllerState LeftController() const",
+        "ret": "左手状態",
+        "desc": "左コントローラの入力スナップショット。 未接続はゼロ state。"
+      },
+      {
+        "sig": "virtual FXrControllerState RightController() const",
+        "ret": "右手状態",
+        "desc": "右コントローラの入力スナップショット。"
+      },
+      {
+        "sig": "virtual void Tick(f32 dt)",
+        "desc": "ポーズ/入力の取り込みを進める。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "virtual bool IsPassthroughSupported() const",
+        "ret": "対応可否",
+        "desc": "パススルーに対応するか。 stub は常に false。"
+      },
+      {
+        "sig": "virtual void SetPassthrough(bool on)",
+        "desc": "パススルー on/off を要求。 非対応/未初期化なら no-op。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "GetDefaultLuaVm()",
+    "kind": "関数",
+    "header": "scripting/LuaVm.h",
+    "summary": "プロセスで 1 個だけ共有される既定の CLuaVm(シングルトン)への参照を返す。 InstallLuaAsDefault() が gameframework の provider へ登録する実体でもある。",
+    "when": "アプリ全体で 1 つの Lua VM を共有したい時。 通常は直接呼ばず InstallLuaAsDefault() 経由で acs::game::GetDefaultScriptVm() から使う。",
+    "sample": "acs::game::IScriptVm& vm = acs::scripting::GetDefaultLuaVm();\nvm.Init();"
+  }
+}

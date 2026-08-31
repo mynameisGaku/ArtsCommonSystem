@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "retained-mode",
+  "definition": "毎フレーム UI を作り直すのではなく、部品のツリーを保持し続けて使う方式。 対義は immediate-mode(ImGui 等)。"
+}

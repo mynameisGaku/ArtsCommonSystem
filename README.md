@@ -2,13 +2,12 @@
 
 ## ACS Editor
 
-The current desktop Editor architecture, scene and asset workflows, profiler,
-packaging constraints, and aggregate verification commands are documented in
-[`acs/docs/EditorArchitecture.md`](acs/docs/EditorArchitecture.md).
-Current production-foundation slices include explicit native ABI capability
-negotiation, cancellable/cached material previews, deterministic multi-document
-save coordination, and package `verify`/`inspect`/`diff` commands that operate
-without extracting or executing the archive.
+現行デスクトップ Editor のアーキテクチャ、シーンとアセットのワークフロー、
+プロファイラー、パッケージ化の制約、一括検証コマンドは
+[`Editor アーキテクチャ`](acs/docs/architecture/editor.md)で説明します。
+本番基盤には、native ABI 機能の明示的な折衝、取消可能なキャッシュ付きマテリアルプレビュー、
+決定的な複数文書保存の調停、アーカイブを展開・実行せずに動作する
+パッケージ `verify` / `inspect` / `diff` コマンドを実装しています。
 
 Windows 64-bit 向けのモジュール式 C++20 ゲームフレームワークです。ウィンドウ・入力・
 2D/3D 描画・ECS・アセット・音声・ネットワーク・UI・GameFramework と、初学者向けの
@@ -40,8 +39,8 @@ int main() {
 
 実用的な2Dゲームでは `CGame`、`AScene`、`ANode`、`AComponent` を組み合わせます。
 初学者向けの説明は
-[`QUICKSTART.md`](acs/docs/QUICKSTART.md)、問題が起きた場合は
-[`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) を参照してください。
+[`クイックスタート`](acs/docs/getting-started/quickstart.md)、問題が起きた場合は
+[`トラブルシューティング`](acs/docs/getting-started/troubleshooting.md)を参照してください。
 
 ## 必要な環境
 
@@ -61,7 +60,7 @@ Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しませ�
 ## 生成・ビルド・実行
 
 日常のWindows操作は
-[`ProjectOperations.md`](acs/docs/ProjectOperations.md)を正本とします。PowerShellでは
+[`プロジェクト操作`](acs/docs/operations/project-commands.md)を正本とします。PowerShellでは
 `.\acs.ps1`、コマンドプロンプトとIDE外部ツールでは`acs.cmd`を使います。両launcherは
 同じ操作実体へ委譲し、buildやcleanの規則を複製しません。
 
@@ -155,11 +154,11 @@ ctest --test-dir .\acs\Intermediate\vs -C Debug --output-on-failure
 namespace公開の意味付きscalar/value型aliasは`F`で始めます。delegate、callback、
 function-pointer aliasはprefix自由で、template aliasは今回のscalar監査対象外です。
 `u32`・`f32`・`usize`などのプリミティブaliasもprefixなしです。詳細は
-[`StyleGuide.md`](acs/docs/StyleGuide.md) を参照してください。
+[`コーディング規約`](acs/docs/standards/coding-style.md)を参照してください。
 型名の移行はC++の型identifierだけを対象とし、既存のheaderとfile名はinclude経路の
 互換性のため維持します。公開型の正規名、定義header、互換aliasはregistryでexact固定され、
 登録済みの型名移行債務は0件です。新しい公開型やrole変更は
-[`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) の監査で再流入を防ぎます。
+[`型役割監査`](acs/docs/standards/type-role-audit.md)で再流入を防ぎます。
 ACS Editorの新規クラス生成とBlueprint C++生成も同じ規約を適用し、表示名を保ったまま
 ACS objectを`A`、機能classを`C`、データ型を`F`、列挙型を`E`で始まる安全なC++識別子へ正規化します。
 
@@ -185,7 +184,7 @@ Root().AddChild(Move(player));
 
 親は`TObjectPtr<ANode>`で子を所有し、長期参照には`TWeakObjectPtr<ANode>`を使います。
 所有権・transform・描画順・serialization の詳細は
-[`NodeUnification.md`](acs/docs/NodeUnification.md) にあります。
+[`ノードモデル`](acs/docs/architecture/node-model.md)にあります。
 
 ## Subsystemの取得
 
@@ -254,15 +253,15 @@ AEventBus* component_events = component.GetSubsystem<AEventBus>();
 ## 学習例
 
 Engine は現在、学習用実行例を同梱していません。再導入候補と受け入れ条件は
-[`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) を正本とします。
-公開 API の使い方は [`QUICKSTART.md`](acs/docs/QUICKSTART.md)、tutorial、
-[`RECIPES.md`](acs/docs/RECIPES.md) の自己完結したコード例で説明します。
+[`学習サンプル運用`](acs/docs/operations/samples/learning-sample-migration.md)を正本とします。
+公開APIの使い方は[`クイックスタート`](acs/docs/getting-started/quickstart.md)、チュートリアル、
+[`実装レシピ`](acs/docs/guides/recipes.md)の自己完結したコード例で説明します。
 
 ## 設計上の前提
 
 - ACS sourceはC++例外を使用せず、失敗を`TResult<T,E>`などで明示的に返します。
-  raw-DX12構成ではcompiler例外も無効です。Diligent static libraryを含む構成だけは
-  MSVC STL ABIを一致させるためcompiler例外を有効にしますが、ACSの例外禁止規約は変わりません。
+  Raw DX12 構成ではコンパイラー例外も無効です。Diligent の静的ライブラリを含む構成だけは
+  MSVC STL ABI を一致させるためコンパイラー例外を有効にしますが、ACS の例外禁止規約は変わりません。
   RTTIはどちらの構成でも無効です。
 - 公開・コアAPIは`TArray`や`FString`などのallocator対応型を使います。一部のbackend実装は
   C/C++ runtimeの低レベルutilityを利用しますが、STL containerを公開APIへ要求しません。
@@ -270,23 +269,23 @@ Engine は現在、学習用実行例を同梱していません。再導入候�
 - 生成物は`Binaries`・`Intermediate`・`Saved`へ分離し、ソースツリー表層を保ちます。
 - module / feature依存はCMakeで検証し、利用可能なtargetだけを生成します。
 
-詳しい設計は [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) を参照してください。
+詳しい設計は[`アーキテクチャ`](acs/docs/architecture/README.md)を参照してください。
 
 ## ドキュメント
 
-- [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
-- [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
-- [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
-- [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 学習用実行例の唯一のバックログ
-- [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
-- [`InteractiveWater3D.md`](acs/docs/InteractiveWater3D.md) — 海・川・プール・水たまりを共通化する3D水面
-- [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
-- [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
-- [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
-- [`NodeUnification.md`](acs/docs/NodeUnification.md) — 統一 `ANode` の責務、所有権、transform
-- [`SceneUnification.md`](acs/docs/SceneUnification.md) — 統一 `AScene` の責務、所有権、lifecycle
-- [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
-- [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処
+- [`クイックスタート`](acs/docs/getting-started/quickstart.md) — 初学者向けの導入
+- [`プロジェクト操作`](acs/docs/operations/project-commands.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
+- [`固定更新時計`](acs/docs/guides/game-framework/fixed-step-clock.md) — 値所有の固定更新時計と一括処理の安全契約
+- [`学習サンプル運用`](acs/docs/operations/samples/learning-sample-migration.md) — 学習用実行例の唯一のバックログ
+- [`実装レシピ`](acs/docs/guides/recipes.md) — 3D描画・音・UIなどの逆引き
+- [`対話型3D水面`](acs/docs/guides/rendering/interactive-water-3d.md) — 海・川・プール・水たまりを共通化する3D水面
+- [`アーキテクチャ`](acs/docs/architecture/README.md) — module構成と設計
+- [`コーディング規約`](acs/docs/standards/coding-style.md) — A / C / F / I / T / E命名とcoding rule
+- [`型役割監査`](acs/docs/standards/type-role-audit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
+- [`ノードモデル`](acs/docs/architecture/node-model.md) — 統一`ANode`の責務、所有権、transform
+- [`シーン統一`](acs/docs/architecture/scene-unification.md) — 統一`AScene`の責務、所有権、lifecycle
+- [`安全契約`](acs/docs/safety/README.md) — 外部入力、永続化、checked API
+- [`トラブルシューティング`](acs/docs/getting-started/troubleshooting.md) — よくある問題と対処
 
 ## ライセンス
 

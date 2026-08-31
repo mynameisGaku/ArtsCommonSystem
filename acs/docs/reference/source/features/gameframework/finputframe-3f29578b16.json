@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputFrame",
+    "kind": "構造体",
+    "header": "gameframework/Lockstep.h",
+    "summary": "1 tick / 1 プレイヤー分の入力 (POD)。 tick・player_id・ボタン bitmask (8 ボタン)・アナログスティック軸。",
+    "when": "RecordInput に渡す/ConsumeInput で受け取る時。",
+    "members": [
+      {
+        "sig": "u32 tick / u32 player_id",
+        "desc": "フレーム番号 / プレイヤー ID。"
+      },
+      {
+        "sig": "u8 buttons",
+        "desc": "ボタン bitmask (最大 8)。"
+      },
+      {
+        "sig": "FVec2 axis",
+        "desc": "アナログスティック (-1..1 想定、範囲チェックはしない)。"
+      }
+    ]
+  }
+}

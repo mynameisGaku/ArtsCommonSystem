@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EGizmoMode",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "ギズモの操作モード。 None はハンドルを描画も操作もしない OFF 状態。 editor の Q/W/E/R 系キーで切り替える想定。",
+    "when": "CEditorGizmo::SetMode で translate / rotate / scale を切り替える時。",
+    "members": [
+      {
+        "sig": "None = 0",
+        "desc": "gizmo 完全 OFF(描画も操作もしない)。"
+      },
+      {
+        "sig": "Translate = 1",
+        "desc": "移動(axis arrow + plane handle)。"
+      },
+      {
+        "sig": "Rotate = 2",
+        "desc": "回転(axis ring)。"
+      },
+      {
+        "sig": "Scale = 3",
+        "desc": "拡縮(axis box)。"
+      }
+    ]
+  }
+}

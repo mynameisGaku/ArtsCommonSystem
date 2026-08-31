@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="1 件のホットリロード通知。 「どのファイルが」「いつ」「更新か削除か」を表すPOD。">
+  <title>FHotReloadEvent — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FHotReloadEvent</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FHotReloadEvent</h1>
+<p class="lead">1 件の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26186">ホットリロード</button><span class="term-tooltip" id="term-tip-26186" role="tooltip">ゲームを再起動せずにアセットやコードを差し替えて即反映させる開発手法。</span></span>通知。 「どのファイルが」「いつ」「更新か削除か」を表す<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26187">POD</button><span class="term-tooltip" id="term-tip-26187" role="tooltip">Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。</span></span>。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fhotreloadevent-130adaf5.html"><code>acs::game::FHotReloadEvent</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>ConsumeNext<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26178">Event</button><span class="term-tooltip" id="term-tip-26178" role="tooltip">ウィンドウや入力で起きた『出来事』1 つ分を表す構造体。 種別に応じて中のunionの対応フィールドだけが有効になる。</span></span> や<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26179">コールバック</button><span class="term-tooltip" id="term-tip-26179" role="tooltip">あとで呼んでもらうために登録しておく関数。 ACS では関数ポインタ + void* ユーザーデータの形を取る(STL 不依存方針)。</span></span>で受け取り、該当<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26180">アセット</button><span class="term-tooltip" id="term-tip-26180" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span>を再読み込みする時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/HotReload.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-80b5c82979467e5173f6"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fhotreloadevent-130adaf5/file-path-41025c14.html">file_path</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>watcher が所有する対象ファイルの借用パス。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26181">callback</button><span class="term-tooltip" id="term-tip-26181" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> 引数ではその <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26182">callback</button><span class="term-tooltip" id="term-tip-26182" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> が戻るまで、ConsumeNext<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26183">Event</button><span class="term-tooltip" id="term-tip-26183" role="tooltip">ウィンドウや入力で起きた『出来事』1 つ分を表す構造体。 種別に応じて中のunionの対応フィールドだけが有効になる。</span></span> の出力では次の ConsumeNext<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26184">Event</button><span class="term-tooltip" id="term-tip-26184" role="tooltip">ウィンドウや入力で起きた『出来事』1 つ分を表す構造体。 種別に応じて中のunionの対応フィールドだけが有効になる。</span></span> / Clear<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26185">Event</button><span class="term-tooltip" id="term-tip-26185" role="tooltip">ウィンドウや入力で起きた『出来事』1 つ分を表す構造体。 種別に応じて中のunionの対応フィールドだけが有効になる。</span></span>s / Shutdown まで有効。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fhotreloadevent-130adaf5/file-path-41025c14.html"><code>acs::game::FHotReloadEvent::file_path</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-a2871a99558fc1625328"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u64 <a href="../../symbols/gameframework/fhotreloadevent-130adaf5/modified-timestamp-5617aee0.html">modified_timestamp</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>変更検出時刻。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fhotreloadevent-130adaf5/modified-timestamp-5617aee0.html"><code>acs::game::FHotReloadEvent::modified_timestamp</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-3ea3e0b2a985f5c8a0fa"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/gameframework/fhotreloadevent-130adaf5/removed-c8f3b9f7.html">removed</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>true=削除、false=更新。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fhotreloadevent-130adaf5/removed-c8f3b9f7.html"><code>acs::game::FHotReloadEvent::removed</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FHotReloadEventの使用例"><code>void OnReload(void* user, const FHotReloadEvent&amp; ev) noexcept {
+    static_cast&lt;Importer*&gt;(user)-&gt;Queue(ev.file_path, ev.removed);
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

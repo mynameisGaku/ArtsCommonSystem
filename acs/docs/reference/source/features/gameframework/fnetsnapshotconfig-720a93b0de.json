@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FNetSnapshotConfig",
+    "kind": "構造体",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "CNetSnapshot のランタイム設定。 commit 目標 Hz・ring buffer 件数・補間遅延秒・payload 上限。",
+    "when": "Init に渡す。",
+    "members": [
+      {
+        "sig": "u32 snapshot_rate_hz",
+        "desc": "server の目標 commit Hz (自動 throttle はしない)。"
+      },
+      {
+        "sig": "u32 buffer_capacity_snapshots",
+        "desc": "client 側 ring buffer 件数 (>=2 必須)。"
+      },
+      {
+        "sig": "f32 interpolation_delay_sec",
+        "desc": "補間の遅延 (= jitter buffer の深さ)。"
+      },
+      {
+        "sig": "u32 max_payload_bytes",
+        "desc": "1 snapshot の payload 上限。"
+      }
+    ]
+  }
+}

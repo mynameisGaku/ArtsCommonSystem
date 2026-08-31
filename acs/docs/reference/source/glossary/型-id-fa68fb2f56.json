@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "型 ID",
+  "definition": "アセットやローダの種類を表す数値(AssetType)。 文字列名のハッシュから作られる。"
+}

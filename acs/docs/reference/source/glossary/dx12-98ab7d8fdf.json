@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DX12",
+  "definition": "Direct3D 12。 Windows の低レベル GPU API。 ACS の Dx12* 系がネイティブ実装。"
+}

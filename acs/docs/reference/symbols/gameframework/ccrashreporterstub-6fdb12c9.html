@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ICrashReporterBackend の null-object 実装。 全 API が NotImplemented を返す defensive stub。 Init() ですら成功扱いにしないことで、 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。">
+  <title>acs::game::CCrashReporterStub — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="ccrashreporterstub-6fdb12c9.html" aria-current="page">CCrashReporterStub</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/addbreadcrumb-cf1c9b88.html">AddBreadcrumb</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/ccrashreporterstub-1c9940eb.html">CCrashReporterStub</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/init-9031a09c.html">Init</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/isavailable-be97986c.html">IsAvailable</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/reportcrash-2f9a9512.html">ReportCrash</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/reporterror-480e6840.html">ReportError</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/setuserid-93029a01.html">SetUserId</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/shutdown-89ef8f60.html">Shutdown</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/tick-085864ea.html">Tick</a><a class="tree-child" href="ccrashreporterstub-6fdb12c9/ccrashreporterstub-3d661158.html">~CCrashReporterStub</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CCrashReporterStub</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::CCrashReporterStub</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5581">ICrashReporterBackend</button><span class="term-tooltip" id="term-tip-5581" role="tooltip">gameframework 側のクラッシュ報告 backend 抽象インターフェース。 crashwin はその Windows 実装。</span></span> の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5582">null-object</button><span class="term-tooltip" id="term-tip-5582" role="tooltip">「何もしない」を正しく実装した置き換え用オブジェクト。 実装が無い時でも安全に呼べる (Stub がこの形)。</span></span> 実装。 全 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5583">API</button><span class="term-tooltip" id="term-tip-5583" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> が NotImplemented を返す defensive stub。 Init() ですら成功扱いにしないことで、 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CCrashReporterStubの宣言"><code>class <a href="ccrashreporterstub-6fdb12c9.html" aria-current="page">CCrashReporterStub</a> final : public ICrashReporterBackend;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/CrashReporter.h:224</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="ccrashreporterstub-6fdb12c9/addbreadcrumb-cf1c9b88.html"><span><span class="identifier">TResult&lt;void&gt; AddBreadcrumb(const char* category, const char* message) noexcept override;</span><span class="summary">常に NotImplemented エラーを返す (追加しない)。 category: 無視されるカテゴリ。 message: 無視されるメッセージ。 戻り値: kSub_NotImplemented のエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/ccrashreporterstub-1c9940eb.html"><span><span class="identifier">CCrashReporterStub() noexcept = default;</span><span class="summary">stub を構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/init-9031a09c.html"><span><span class="identifier">TResult&lt;void&gt; Init(const char* product_id, const char* version) noexcept override;</span><span class="summary">常に NotImplemented エラーを返す (初期化しない)。 product_id: 無視される製品識別子。 version: 無視されるバージョン文字列。 戻り値: kSub_NotImplemented のエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/isavailable-be97986c.html"><span><span class="identifier">bool IsAvailable() const noexcept override;</span><span class="summary">常に利用不可を返す。 戻り値: 常に false。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/reportcrash-2f9a9512.html"><span><span class="identifier">TResult&lt;void&gt; ReportCrash(const FCrashContext&amp; ctx) noexcept override;</span><span class="summary">常に NotImplemented エラーを返す (送信しない)。 ctx: 無視されるクラッシュ context。 戻り値: kSub_NotImplemented のエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/reporterror-480e6840.html"><span><span class="identifier">TResult&lt;void&gt; ReportError(const char* category, const char* message) noexcept override;</span><span class="summary">常に NotImplemented エラーを返す (送信しない)。 category: 無視されるカテゴリ。 message: 無視されるメッセージ。 戻り値: kSub_NotImplemented のエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/setuserid-93029a01.html"><span><span class="identifier">void SetUserId(const char* anonymous_id) noexcept override;</span><span class="summary">no-op (stub はユーザー ID を保持しない)。 anonymous_id: 無視される匿名 ID。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/shutdown-89ef8f60.html"><span><span class="identifier">void Shutdown() noexcept override;</span><span class="summary">no-op (stub は never-initialized 状態のため何もしない)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/tick-085864ea.html"><span><span class="identifier">void Tick(f32 dt) noexcept override;</span><span class="summary">no-op (stub には pump 対象がない)。 dt: 無視される経過秒。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ccrashreporterstub-6fdb12c9/ccrashreporterstub-3d661158.html"><span><span class="identifier">~CCrashReporterStub() noexcept override = default;</span><span class="summary">破棄する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

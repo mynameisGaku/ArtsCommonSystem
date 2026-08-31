@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FBone",
+    "kind": "構造体",
+    "header": "asset/SkinnedMesh.h",
+    "summary": "ボーン 1 本。 名前・親番号・バインド姿勢(平行移動/回転/スケール)と、計算済みの逆バインド行列を持つ。",
+    "when": "スキンメッシュの骨格を定義する時。",
+    "sample": "FBone b;\nb.name = \"spine\";\nb.parent = 0;                 // -1 = ルート\nb.bind_translation = FVec3{0, 1, 0};",
+    "members": [
+      {
+        "sig": "FString name",
+        "desc": "ボーン名。"
+      },
+      {
+        "sig": "i32 parent",
+        "desc": "親ボーンの番号。 -1 ならルート。"
+      },
+      {
+        "sig": "FVec3 bind_translation / FQuat bind_rotation / FVec3 bind_scale",
+        "desc": "バインド姿勢の TRS。"
+      },
+      {
+        "sig": "FMat4 inverse_bind",
+        "desc": "逆バインド行列。 ComputeInverseBindMatrices() で計算される。"
+      }
+    ]
+  }
+}

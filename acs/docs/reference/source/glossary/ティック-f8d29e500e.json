@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ティック",
+  "definition": "高精度タイマ（QPC）が刻む最小単位の時間。 TicksPerSecond() で秒に換算する。"
+}

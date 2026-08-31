@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FRacerId",
+    "kind": "構造体",
+    "header": "gameframework/LapTimer.h",
+    "summary": "レース参加者のハンドル。 24bit index + 8bit 世代(generation)を packed した u32。 0 が無効。",
+    "when": "AddRacer の戻り値を保持し、通知や問い合わせに渡す。 スロット再利用後の古いハンドルは世代不一致で弾かれる。",
+    "members": [
+      {
+        "sig": "constexpr u32 Index() / u8 Generation() const",
+        "desc": "内部 index / 世代。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "desc": "有効か (m_Packed != 0)。"
+      }
+    ]
+  }
+}

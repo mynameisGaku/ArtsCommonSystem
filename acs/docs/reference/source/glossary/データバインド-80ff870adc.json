@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "データバインド",
+  "definition": "TObservable な状態と UI を結びつけ、変更を自動で反映させる MVVM の仕組み。"
+}

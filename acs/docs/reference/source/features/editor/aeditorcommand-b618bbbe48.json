@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AEditorCommand",
+    "kind": "クラス(抽象基底)",
+    "header": "gameframework/tools/editor_core/EditorCommand.h",
+    "summary": "undo / redo の原子単位(GoF Command パターン)。 1 操作 = 1 派生インスタンス。 Execute / Undo / Description を必ず override し、CanMerge / MergeWith は既定で merge 拒否、連続 drag をまとめたい派生のみ override する。 RTTI を避けるため Kind() が返す静的アドレスで型を識別する。 純粋抽象 + virtual dtor、非コピー / 非ムーブ、全 noexcept。",
+    "when": "新しい undo 可能な操作を CUndoStack 経由で実装する時に継承する。",
+    "sample": "class FMyCmd : public acs::game::editor_core::AEditorCommand {\npublic:\n    void Execute() noexcept override { /* 実行処理 */ }\n    void Undo() noexcept override    { /* 取り消し処理 */ }\n    const char* Description() const noexcept override { return \"My Op\"; }\n};",
+    "members": [
+      {
+        "sig": "virtual const void* Kind() const noexcept",
+        "ret": "型 tag",
+        "desc": "RTTI なしで command の「種類」を識別する static アドレス。 既定 nullptr(= kind 不明 / merge 対象外)。 派生は自前の静的アドレスを返す。"
+      },
+      {
+        "sig": "virtual void Execute() noexcept = 0",
+        "ret": "—",
+        "desc": "純粋仮想。 「Do」を実行。 Push 直後と Redo 経路の両方から呼ばれるので idempotent に書く。"
+      },
+      {
+        "sig": "virtual void Undo() noexcept = 0",
+        "ret": "—",
+        "desc": "純粋仮想。 Execute の逆操作。 Execute → Undo → Execute の往復対称性が要件。"
+      },
+      {
+        "sig": "virtual const char* Description() const noexcept = 0",
+        "ret": "ラベル",
+        "desc": "純粋仮想。 undo history UI 用の短い人間可読ラベル。 永続文字列(literal or 派生内 char[N])を返すこと。"
+      },
+      {
+        "sig": "virtual bool CanMerge(const AEditorCommand& next) const noexcept",
+        "ret": "merge 可否",
+        "desc": "直後に Push される next を自分に merge 可能か返す。 既定 false。 同対象 + 同 kind のときのみ true を返すよう派生で実装。"
+      },
+      {
+        "sig": "virtual void MergeWith(const AEditorCommand& next) noexcept",
+        "ret": "—",
+        "desc": "CanMerge が true の直後に CUndoStack が呼ぶ。 next の「new 値」を取り込み(old 値は保持)。 既定 no-op。"
+      },
+      {
+        "sig": "using FEditorCommand = AEditorCommand",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AEditorCommand を使う。"
+      }
+    ]
+  }
+}

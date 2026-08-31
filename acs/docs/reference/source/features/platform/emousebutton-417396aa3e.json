@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EMouseButton",
+    "kind": "列挙(enum)",
+    "header": "platform/InputCodes.h",
+    "summary": "マウスのボタンを表す列挙。 左・右・中（ホイール押し込み）とサイドボタン 2 つ。",
+    "when": "CInput::IsMouseButtonDown などに渡す。",
+    "sample": "if (CInput::IsMouseButtonPressed(EMouseButton::Left))   Fire();\nif (CInput::IsMouseButtonDown(EMouseButton::Right))     Aim();",
+    "members": [
+      {
+        "sig": "Left = 0 / Right = 1 / Middle = 2",
+        "desc": "左・右・中ボタン（中はホイール押し込み）。 基底型は u8。"
+      },
+      {
+        "sig": "X1 = 3 / X2 = 4",
+        "desc": "サイドボタン 1・2（戻る/進む等）。 末尾に内部用の番兵 _Count がある。"
+      }
+    ]
+  }
+}

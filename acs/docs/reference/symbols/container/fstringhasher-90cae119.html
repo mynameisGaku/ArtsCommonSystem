@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FString と FStringView を同じ byte hash へ写す異種検索用 hasher。 THashMap の H 引数へ指定すると、FindAs(FStringView) で一時 FString を作らない。">
+  <title>acs::FStringHasher — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/container.html">container モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/container.html">container モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/container.html">container モジュール</a><a href="fstringhasher-90cae119.html" aria-current="page">FStringHasher</a><a class="tree-child" href="fstringhasher-90cae119/operator-0f35829c.html">operator()</a><a class="tree-child" href="fstringhasher-90cae119/operator-88ccaf20.html">operator()</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/container.html">container</a><span>/</span><span aria-current="page">FStringHasher</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / container</div>
+<h1 class="identifier">acs::FStringHasher</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1351">FString</button><span class="term-tooltip" id="term-tip-1351" role="tooltip">短い文字列はヒープ無しで持つ最適化付き。</span></span> と <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1352">FStringView</button><span class="term-tooltip" id="term-tip-1352" role="tooltip">文字列を所有せず参照だけする軽量ビュー。</span></span> を同じ byte hash へ写す異種検索用 hasher。 THashMap の H 引数へ指定すると、FindAs(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1353">FStringView</button><span class="term-tooltip" id="term-tip-1353" role="tooltip">文字列を所有せず参照だけする軽量ビュー。</span></span>) で一時 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1354">FString</button><span class="term-tooltip" id="term-tip-1354" role="tooltip">短い文字列はヒープ無しで持つ最適化付き。</span></span> を作らない。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FStringHasherの宣言"><code>struct <a href="fstringhasher-90cae119.html" aria-current="page">FStringHasher</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/container.html">container</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/container/StringHasher.h:14</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fstringhasher-90cae119/operator-0f35829c.html"><span><span class="identifier">ACS_FORCEINLINE u64 operator()(const FString&amp; Value) const noexcept;</span><span class="summary">所有文字列の全 byte を hash 化する。 Value: hash 化する所有文字列。 戻り値: HashBytes と同じ 64bit hash。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fstringhasher-90cae119/operator-88ccaf20.html"><span><span class="identifier">ACS_FORCEINLINE u64 operator()(FStringView Value) const noexcept;</span><span class="summary">文字列 view の全 byte を hash 化する。 Value: hash 化する非所有 view。 戻り値: 所有文字列 overload と同じ 64bit hash。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

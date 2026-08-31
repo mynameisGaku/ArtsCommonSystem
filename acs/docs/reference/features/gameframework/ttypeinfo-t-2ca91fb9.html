@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="RTTI を使わない最小のリフレクション(型情報の自己記述)。 型の名前・サイズ・各フィールドの名前 / オフセット / サイズをコンパイル時に取り出せます。 シリアライザやインスペクタの土台。">
+  <title>TTypeInfo&lt;T&gt; — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">TTypeInfo&lt;T&gt;</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">TTypeInfo&lt;T&gt;</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27031">RTTI</button><span class="term-tooltip" id="term-tip-27031" role="tooltip">Run-Time Type Information。 C++ 標準の実行時型情報。 ACS では使わず、軽量な型 ID / リフレクションで代替する。</span></span> を使わない最小の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27032">リフレクション</button><span class="term-tooltip" id="term-tip-27032" role="tooltip">型が自身の構造(フィールド名 / 型 / オフセット)を自己記述する仕組み。 シリアライザやインスペクタの土台になる。</span></span>(型情報の自己記述)。 型の名前・サイズ・各フィールドの名前 / オフセット / サイズをコンパイル時に取り出せます。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27033">シリアライザ</button><span class="term-tooltip" id="term-tip-27033" role="tooltip">オブジェクトの中身をファイルに保存できる形へ書き出し、また読み戻す部品。</span></span>やインスペクタの土台。</p></div><div class="badges"><span class="badge">クラステンプレート</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/ttypeinfo-0e8a92f9.html"><code>acs::game::TTypeInfo</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>セーブ / ロードやデバッグ表示で「この構造体にはどんなフィールドがあるか」を機械的に知りたい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラステンプレート</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/TypeInfo.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-7bae48f932bcf21750fa"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>static const <a href="../../symbols/gameframework/ftypeinfobase-2837e595.html">FTypeInfoBase</a>&amp; <a href="../../symbols/gameframework/ttypeinfo-0e8a92f9/get-782729d8.html">Get</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>型 T の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27030">リフレクション</button><span class="term-tooltip" id="term-tip-27030" role="tooltip">型が自身の構造(フィールド名 / 型 / オフセット)を自己記述する仕組み。 シリアライザやインスペクタの土台になる。</span></span>情報を返す。 未反射の型では field_count == 0 の空情報。</dd></div><div class="fact"><dt>戻り値</dt><dd>型情報</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595.html"><code>acs::game::FTypeInfoBase</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ttypeinfo-0e8a92f9/get-782729d8.html"><code>acs::game::TTypeInfo::Get</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="TTypeInfo&lt;T&gt;の使用例"><code>struct FPlayerState { acs::f32 x; acs::f32 y; acs::i32 hp; };
+ACS_GAME_REFLECT(FPlayerState,
+    ACS_GAME_FIELD(FPlayerState, x,  &quot;f32&quot;),
+    ACS_GAME_FIELD(FPlayerState, hp, &quot;i32&quot;))
+// 取得:
+const auto&amp; ti = acs::game::Reflect&lt;FPlayerState&gt;();
+for (acs::u32 i = 0; i &lt; ti.field_count; ++i) {  }</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

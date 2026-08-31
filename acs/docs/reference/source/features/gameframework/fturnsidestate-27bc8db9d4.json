@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTurnSideState",
+    "kind": "構造体",
+    "header": "gameframework/TurnManager.h",
+    "summary": "陣営 1 つの表示用 snapshot。 GetSideState が返す読み取り専用ビューで、UI / AI / セーブで現在の AP や行動済みかを見るのに使います。",
+    "when": "ターン UI に各陣営の AP や名前を出す時。",
+    "sample": "if (auto* s = tm.GetSideState(id)) {\n    // s->display_name, s->current_action_points を UI に表示\n}",
+    "members": [
+      {
+        "sig": "const char* display_name",
+        "desc": "AddSide で渡した名前(非所有、寿命は呼び出し側)。"
+      },
+      {
+        "sig": "u32 max_action_points / u32 current_action_points",
+        "desc": "最大 AP / 現在の残量。"
+      },
+      {
+        "sig": "u32 initiative",
+        "desc": "行動順(大きいほど先)。"
+      },
+      {
+        "sig": "bool is_player_controlled / bool has_acted",
+        "desc": "プレイヤー操作か / 今ラウンドで行動済みか。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="記録された backend プラットフォームを返す。 戻り値: Init() で渡されたプラットフォーム (未初期化なら Unknown)。">
+  <title>acs::openxr::CKhronosOpenXrBridge::ActivePlatform — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/openxr.html">openxr モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/openxr.html">openxr モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/openxr.html">openxr モジュール</a><a href="../ckhronosopenxrbridge-4add8e84.html">CKhronosOpenXrBridge の概要</a><a class="tree-child" href="activeplatform-3ff490e8.html" aria-current="page">ActivePlatform</a><a class="tree-child" href="ckhronosopenxrbridge-83bf5db2.html">CKhronosOpenXrBridge</a><a class="tree-child" href="headpose-3e7112df.html">HeadPose</a><a class="tree-child" href="init-50509326.html">Init</a><a class="tree-child" href="isinitialized-181d2e3c.html">IsInitialized</a><a class="tree-child" href="ispassthroughsupported-d52d10a3.html">IsPassthroughSupported</a><a class="tree-child" href="istracking-5509b35d.html">IsTracking</a><a class="tree-child" href="leftcontroller-efec4304.html">LeftController</a><a class="tree-child" href="m-binitialized-22459cd1.html">m_bInitialized</a><a class="tree-child" href="m-bpassthroughrequested-0f3de776.html">m_bPassthroughRequested</a><a class="tree-child" href="m-bpassthroughsupported-1b4a7027.html">m_bPassthroughSupported</a><a class="tree-child" href="m-bsessiontracking-0cb4310b.html">m_bSessionTracking</a><a class="tree-child" href="m-btickwarned-ed46d752.html">m_bTickWarned</a><a class="tree-child" href="m-headpose-cbbdc29e.html">m_HeadPose</a><a class="tree-child" href="m-instance-7d543e31.html">m_Instance</a><a class="tree-child" href="m-left-6208bc15.html">m_Left</a><a class="tree-child" href="m-platform-1bbaa6d9.html">m_Platform</a><a class="tree-child" href="m-right-e6205a40.html">m_Right</a><a class="tree-child" href="rightcontroller-4d2ead9a.html">RightController</a><a class="tree-child" href="setpassthrough-a9b7b569.html">SetPassthrough</a><a class="tree-child" href="shutdown-c9c227d9.html">Shutdown</a><a class="tree-child" href="tick-5d6969b0.html">Tick</a><a class="tree-child" href="ckhronosopenxrbridge-c1030785.html">~CKhronosOpenXrBridge</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/openxr.html">openxr</a><span>/</span><a href="../ckhronosopenxrbridge-4add8e84.html">CKhronosOpenXrBridge</a><span>/</span><span aria-current="page">ActivePlatform</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / openxr</div>
+<h1 class="identifier">acs::openxr::CKhronosOpenXrBridge::ActivePlatform</h1>
+<p class="lead">記録された <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16591">backend</button><span class="term-tooltip" id="term-tip-16591" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16592">プラットフォーム</button><span class="term-tooltip" id="term-tip-16592" role="tooltip">対象とする機種/環境の種別。 ここでは Meta Quest や Valve Index など XR 機器の系統。</span></span>を返す。 戻り値: Init() で渡された<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16593">プラットフォーム</button><span class="term-tooltip" id="term-tip-16593" role="tooltip">対象とする機種/環境の種別。 ここでは Meta Quest や Valve Index など XR 機器の系統。</span></span> (未初期化なら Unknown)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::openxr::CKhronosOpenXrBridge::ActivePlatformの宣言"><code>acs::game::<a href="../../gameframework/exrplatform-2ea4f959.html">EXrPlatform</a> <a href="activeplatform-3ff490e8.html" aria-current="page">ActivePlatform</a>() const noexcept override;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/openxr.html">openxr</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ckhronosopenxrbridge-4add8e84.html"><code>acs::openxr::CKhronosOpenXrBridge</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/openxr/KhronosOpenXrBridge.h:61</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

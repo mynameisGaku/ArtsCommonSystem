@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TcpListener",
+  "definition": "TCP 接続を待ち受ける側(サーバ)。 Accept() でクライアントの接続を 1 本ずつ受理して TcpConnection にする。"
+}

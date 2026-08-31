@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FieldChangeCallback",
+  "definition": "AInspectorPanel が field 編集時に外部へ変更を通知する raw 関数ポインタ型 (undo / 永続化への委譲口)。"
+}

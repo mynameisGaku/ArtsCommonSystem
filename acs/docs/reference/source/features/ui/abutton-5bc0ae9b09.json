@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "AButton",
+    "kind": "クラス",
+    "header": "ui/Widgets.h",
+    "summary": "押せるボタン。 クリック(同じボタン上で押して離す)が完結した瞬間に clicked が一瞬だけ true になり、Subscribe した処理が走る。",
+    "when": "『OK』『攻撃』などの 1 回押すと何かが起きるボタンが欲しい時。",
+    "sample": "AButton* btn = root.Add<AButton>(\"開始\");\nbtn->clicked.Subscribe([](const bool& on, void*){\n    if (on) StartGame();   // true の瞬間だけ反応\n}, nullptr);",
+    "members": [
+      {
+        "sig": "TObservable<FString> text",
+        "desc": "ボタンに出すラベル文字列。"
+      },
+      {
+        "sig": "TObservable<bool> clicked",
+        "desc": "クリック完了時に true→false とパルス発火する。 Subscribe 側は true の時だけ反応する。 subscriber が current button を親ツリーから同期除去した場合は、破棄後の false 書き戻しを行わず安全に終了する。",
+        "when": "ボタンの押下を受け取る標準の方法。",
+        "sample": "btn->clicked.Subscribe([](const bool& on, void*){ if(on) DoIt(); }, nullptr);"
+      },
+      {
+        "sig": "using FButton = AButton",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AButton を使う。"
+      }
+    ]
+  }
+}

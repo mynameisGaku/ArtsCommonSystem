@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CGame",
+  "definition": "ゲームアプリの基底クラス。 CApplication を継承し、シーン管理・固定タイムステップ・シーン遷移を内蔵する。"
+}

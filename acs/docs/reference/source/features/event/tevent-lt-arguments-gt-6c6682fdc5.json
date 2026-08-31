@@ -1,0 +1,45 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TEvent<Arguments...>",
+    "kind": "クラステンプレート",
+    "header": "event/TypedEvent.h",
+    "summary": "引数型を保ったまま、同じスレッド内の複数購読先へ同期通知する局所イベント。 世代付き解除、一回購読、優先度、所有購読に対応する。",
+    "when": "通知する引数型がコンパイル時に決まり、実行時の型番号を使わず部品内や所有者内で通知したい時。",
+    "members": [
+      {
+        "sig": "FTypedEventHandle Subscribe(callback, user)",
+        "ret": "購読ハンドル",
+        "desc": "関数を追加する。 配信中に追加した関数は次回配信から有効になる。"
+      },
+      {
+        "sig": "SubscribeOnce / SubscribeWithPriority / SubscribeOnceWithPriority",
+        "ret": "購読ハンドル",
+        "desc": "一回限り、優先度付き、または両方の条件で関数を追加する。"
+      },
+      {
+        "sig": "TEventSubscription<Arguments...> SubscribeOwned(callback, user)",
+        "ret": "所有購読",
+        "desc": "返り値の破棄時に自動解除する購読を追加する。"
+      },
+      {
+        "sig": "bool Unsubscribe(FTypedEventHandle handle)",
+        "ret": "解除できたか",
+        "desc": "同じイベント個体と世代に一致する購読だけを解除する。"
+      },
+      {
+        "sig": "void Publish(Arguments... values)",
+        "desc": "優先度の高い順、同値なら登録枠順で、配信開始時点の購読へ同期通知する。"
+      },
+      {
+        "sig": "void Clear() / u32 SubscriptionCount() const",
+        "desc": "全購読の解除と、現在有効な購読数の取得を行う。"
+      }
+    ]
+  }
+}

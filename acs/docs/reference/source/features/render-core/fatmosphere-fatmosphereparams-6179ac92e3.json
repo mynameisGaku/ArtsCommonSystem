@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FAtmosphere / FAtmosphereParams",
+    "kind": "クラス / 構造体",
+    "header": "render/Atmosphere.h",
+    "summary": "物理大気散乱(Rayleigh + Mie 単散乱)を CPU で評価して equirect 画像に焼く。 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば、物理ベースの空から env→irradiance→prefilter の IBL 一式が組める。",
+    "when": "プリセット空ではなく、物理的に正しい青空/夕焼けを太陽方角から生成して背景・環境光に使いたいとき。",
+    "sample": "FAtmosphereParams ap;\nap.sun_dir = FVec3{0.4f, 0.7f, 0.4f};\nTArray<f32> rgba = CAtmosphere::BakeEquirect(512, 256, ap);\nibl.LoadEquirectHdrFromMemory(*dev, *cl, rgba.Data(), 512, 256);",
+    "members": [
+      {
+        "sig": "static TArray<f32> BakeEquirect(u32 width, u32 height, const FAtmosphereParams& params)",
+        "ret": "RGBA float 配列",
+        "desc": "CPU で equirect 画像(w×h×4 float、v=0 が天頂)を焼いて返す(move)。"
+      },
+      {
+        "sig": "struct FAtmosphereParams{ FVec3 sun_dir, sun_intensity, ground_albedo, u32 ray_steps, sun_steps }",
+        "desc": "太陽方角・輝度・地面アルベドとレイのサンプル数。"
+      },
+      {
+        "sig": "using FAtmosphere = CAtmosphere",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAtmosphere を使う。"
+      }
+    ]
+  }
+}

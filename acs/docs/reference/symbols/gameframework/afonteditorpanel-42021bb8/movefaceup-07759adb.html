@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="i 番目の face を 1 つ上に移動する (= chain で優先度を上げる、index 0 へ近づける)。 移動後、入れ替えた両者の fallback_index を再書き込みする。 selection が move 対象 (どちらか) なら追随する。 i == 0 または範囲外は no-op。 i: 移動する face のインデックス。">
+  <title>acs::game::fontedit::AFontEditorPanel::MoveFaceUp — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../afonteditorpanel-42021bb8.html">AFontEditorPanel の概要</a><a class="tree-child" href="addfontface-b976ca4c.html">AddFontFace</a><a class="tree-child" href="afonteditorpanel-07968a11.html">AFontEditorPanel</a><a class="tree-child" href="afonteditorpanel-a5861b45.html">AFontEditorPanel</a><a class="tree-child" href="afonteditorpanel-d07f6dd0.html">AFontEditorPanel</a><a class="tree-child" href="drawui-b0e2f72c.html">DrawUI</a><a class="tree-child" href="fontfacecount-0ba0c5d8.html">FontFaceCount</a><a class="tree-child" href="getfontface-ae755eef.html">GetFontFace</a><a class="tree-child" href="init-7ec107b3.html">Init</a><a class="tree-child" href="kcharrangepreviewmax-8de229be.html">kCharRangePreviewMax</a><a class="tree-child" href="kcharrangepreviewmin-c699f30f.html">kCharRangePreviewMin</a><a class="tree-child" href="kmaxfontfaces-c8e0216f.html">kMaxFontFaces</a><a class="tree-child" href="kmaxpreviewfontsize-8ea753ed.html">kMaxPreviewFontSize</a><a class="tree-child" href="kminpreviewfontsize-0ea90d79.html">kMinPreviewFontSize</a><a class="tree-child" href="kpreviewtextcapacity-742b7851.html">kPreviewTextCapacity</a><a class="tree-child" href="m-faces-ff24e239.html">m_Faces</a><a class="tree-child" href="m-previewsize-963f3828.html">m_PreviewSize</a><a class="tree-child" href="m-previewtext-da4103c5.html">m_PreviewText</a><a class="tree-child" href="m-selected-26450424.html">m_Selected</a><a class="tree-child" href="movefacedown-1529f9ea.html">MoveFaceDown</a><a class="tree-child" href="movefaceup-07759adb.html" aria-current="page">MoveFaceUp</a><a class="tree-child" href="oninit-754aad3d.html">OnInit</a><a class="tree-child" href="operator-36890e8f.html">operator=</a><a class="tree-child" href="operator-c5b6c0ab.html">operator=</a><a class="tree-child" href="previewfontsize-3a245b32.html">PreviewFontSize</a><a class="tree-child" href="previewtext-15e552aa.html">PreviewText</a><a class="tree-child" href="removefontface-37594550.html">RemoveFontFace</a><a class="tree-child" href="selectedindex-5ffe70ab.html">SelectedIndex</a><a class="tree-child" href="selectface-b3525e15.html">SelectFace</a><a class="tree-child" href="setpreviewfontsize-df43f749.html">SetPreviewFontSize</a><a class="tree-child" href="setpreviewtext-0813883d.html">SetPreviewText</a><a class="tree-child" href="shutdown-62ddca49.html">Shutdown</a><a class="tree-child" href="title-21e8302b.html">Title</a><a class="tree-child" href="afonteditorpanel-d454ab7c.html">~AFontEditorPanel</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../afonteditorpanel-42021bb8.html">AFontEditorPanel</a><span>/</span><span aria-current="page">MoveFaceUp</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::fontedit::AFontEditorPanel::MoveFaceUp</h1>
+<p class="lead">i 番目の face を 1 つ上に移動する (= chain で優先度を上げる、index 0 へ近づける)。 移動後、入れ替えた両者の fallback_index を再書き込みする。 selection が move 対象 (どちらか) なら追随する。 i == 0 または範囲外は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11528">no-op</button><span class="term-tooltip" id="term-tip-11528" role="tooltip">何もしない処理。 呼んでも安全で副作用が無いこと。</span></span>。 i: 移動する face の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11529">インデックス</button><span class="term-tooltip" id="term-tip-11529" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::fontedit::AFontEditorPanel::MoveFaceUpの宣言"><code>void <a href="movefaceup-07759adb.html" aria-current="page">MoveFaceUp</a>(<a href="../../foundation/u32-4ce4a209.html">u32</a> i) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../afonteditorpanel-42021bb8.html"><code>acs::game::fontedit::AFontEditorPanel</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/tools/fontedit/FontEditorPanel.h:224</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

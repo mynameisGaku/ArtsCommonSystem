@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "例外",
+  "definition": "C++ の throw/catch による失敗伝搬。 ACS は性能と単純さのため使わず TResult を選ぶ。"
+}

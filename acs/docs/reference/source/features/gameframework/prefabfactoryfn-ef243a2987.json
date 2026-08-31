@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "PrefabFactoryFn",
+    "kind": "関数ポインタ型",
+    "header": "gameframework/PrefabSystem.h",
+    "summary": "Prefab を実体化するファクトリ関数の型 = TObjectPtr<ANode>(*)(void* user_data) noexcept。 user_data は Register 時に渡したコンテキスト (クロージャの代替)。 失敗時は空 TObjectPtr を返してよい。",
+    "when": "Register() に渡す自前の生成関数を書く時のシグネチャ。",
+    "sample": "static TObjectPtr<ANode> Make(void* user) noexcept {\n    auto* cfg = static_cast<FConfig*>(user);\n    return BuildNode(cfg);\n}"
+  }
+}

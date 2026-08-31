@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FMutex",
+    "kind": "クラス",
+    "header": "threading/Mutex.h",
+    "summary": "守りたいデータを触る前に Lock し、終わったら Unlock する。 Win32 SRWLOCK ベースで軽量。 コピー不可。",
+    "when": "複数の値をまとめて更新する等、TAtomic 1 個では守れない『データのかたまり』を保護したい時。",
+    "sample": "FMutex m;\nm.Lock();\n// ここは同時に1スレッドだけ\nlist.Add(x);\nm.Unlock();\n// 実際は手で Unlock せず FScopedLock を使うのが安全",
+    "members": [
+      {
+        "sig": "void Lock()",
+        "desc": "排他ロックを取る。 他が持っていれば取れるまで待つ(ブロッキング)。"
+      },
+      {
+        "sig": "bool TryLock()",
+        "ret": "取れたか",
+        "desc": "取れたら true、取れなければ待たずに即 false を返す。",
+        "when": "ロックが空いていれば処理し、塞がっていれば後回しにしたい時。"
+      },
+      {
+        "sig": "void Unlock()",
+        "desc": "ロックを手放す。 Lock と必ず対で呼ぶ。"
+      }
+    ]
+  }
+}

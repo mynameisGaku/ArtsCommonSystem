@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TMessagePipe<T>",
+    "kind": "クラステンプレート",
+    "header": "event/MessagePipe.h",
+    "summary": "スレッドをまたいで値を渡すための MPMC キュー(複数の生産者/複数の消費者)。 生産側が Push で値を積み、消費側が別スレッドで TryPop/Pop で取り出します。 内部は ミューテックス+条件変数でスレッド安全。",
+    "when": "ワーカースレッドの結果をメインスレッドで受け取る等、違うスレッド間でイベントや値を受け渡したい時。 同一スレッド内の即時配信は CMessageBroker を使う。",
+    "sample": "TMessagePipe<FDamageEvent> pipe;\n\n// 生産スレッド:\npipe.Push(FDamageEvent{ enemy, 25.0f });\n\n// 消費スレッド (毎フレーム):\nFDamageEvent e;\nwhile (pipe.TryPop(e)) {\n    ApplyDamage(e);   // 溜まっている分を全部処理\n}",
+    "members": [
+      {
+        "sig": "bool Push(T value)",
+        "ret": "積めたか",
+        "desc": "値を末尾に積む。 Close() 済みなら false。 待っている消費者が居れば 1 人起こす。",
+        "when": "生産側スレッドからイベント/結果を送る時。"
+      },
+      {
+        "sig": "bool TryPop(T& out)",
+        "ret": "取れたか",
+        "desc": "待たずに1 件取り出す。 空なら即 false。",
+        "when": "毎フレームのループで「来ている分だけ」処理する時。"
+      },
+      {
+        "sig": "bool Pop(T& out)",
+        "ret": "取れたか",
+        "desc": "値が来るまでブロックして待つ。 Close() されて空になったら false で抜ける。",
+        "when": "受信専用スレッドで、来るまで眠って待ちたい時。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "閉じる。 Pop で待っている全スレッドを false で起こして解放する。",
+        "when": "終了時。 待ち中の Pop が居るなら破棄前に必ず呼ぶ。"
+      },
+      {
+        "sig": "bool IsClosed() const",
+        "ret": "閉じているか",
+        "desc": "すでに Close() されていれば true。"
+      },
+      {
+        "sig": "usize Size() const",
+        "ret": "件数",
+        "desc": "現在キューに溜まっている要素数(瞬間値)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "PCSS",
+  "definition": "Percentage-Closer Soft Shadows。 遮蔽物との距離に応じて影の縁をぼかし、柔らかい影(penumbra)を作る技法。"
+}

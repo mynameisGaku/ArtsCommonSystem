@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "文字を描く（DrawString ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "UTF-8 の文字列（日本語可、\\n で改行）を描く。 中央そろえ版や、文字の幅・高さを測る関数もある。 size で文字サイズを指定。",
+    "when": "スコア・メッセージ・メニューの表示。 中央そろえはタイトルやボタンに便利。",
+    "sample": "DrawString(20, 20, \"スコア: 1200\", FColor::White);\nDrawString(20, 60, \"大きい\", FColor::Yellow, 48);\nDrawStringCentered(ScreenWidth()/2, 200, \"GAME OVER\", FColor::Red, 64);\nf32 w = TextWidth(\"ボタン\");   // 中央配置の計算に",
+    "members": [
+      {
+        "sig": "void DrawString(f32 x, f32 y, const char* text, FColor color)",
+        "desc": "(x,y) を左上に文字を描く。"
+      },
+      {
+        "sig": "void DrawString(f32 x, f32 y, const char* text, FColor color, f32 size)",
+        "desc": "文字サイズ指定版。"
+      },
+      {
+        "sig": "void DrawStringCentered(f32 center_x, f32 y, const char* text, FColor color)",
+        "desc": "center_x を横の中心にそろえて描く。"
+      },
+      {
+        "sig": "void DrawStringCentered(f32 center_x, f32 y, const char* text, FColor color, f32 size)",
+        "desc": "中央そろえ＋サイズ指定版。"
+      },
+      {
+        "sig": "f32 TextWidth(const char* text) / f32 TextWidth(const char* text, f32 size)",
+        "ret": "横幅(px)",
+        "desc": "描いたときの横幅。 配置計算に。"
+      },
+      {
+        "sig": "f32 TextHeight() / f32 TextHeight(f32 size)",
+        "ret": "高さ(px)",
+        "desc": "1 行の高さ。 行送りの計算に。"
+      }
+    ]
+  }
+}

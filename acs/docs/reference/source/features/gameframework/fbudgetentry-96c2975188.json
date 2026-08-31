@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FBudgetEntry",
+    "kind": "構造体",
+    "header": "gameframework/PerfBudget.h",
+    "summary": "1 カテゴリ分の予算 + 実測 (category 名 / spent_ms / budget_ms / spent_bytes / budget_bytes)。 CPerfBudget::AllCategories() が返す要素。",
+    "when": "予算ビューを自分で描画する時、各カテゴリの現状を読む単位。",
+    "sample": "u32 n = 0;\nconst FBudgetEntry* e = budget.AllCategories(n);\nfor (u32 i = 0; i < n; ++i)\n    Draw(e[i].category, e[i].spent_ms, e[i].budget_ms);"
+  }
+}

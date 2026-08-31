@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPartySystem",
+    "kind": "クラス",
+    "header": "gameframework/PartySystem.h",
+    "summary": "ローカルプレイヤーをまとめた「パーティ」の状態と、簡易フレンドリストを扱う窓口。 ロビーや Co-op 入室前の集合、ストアのフレンド表示などを 1 つの API で扱う。 プラットフォーム非依存で、実 SDK 接続は Storefront 側 (Steam/EOS/PSN 等) が橋渡しする。",
+    "when": "オンライン協力プレイのパーティ機能を作る時。 状態遷移 (Solo → Joining → InParty → Leaving) とメンバ/フレンド管理だけをまず動かしたい時。",
+    "sample": "CPartySystem ps;\nps.AddFriend({ \"steam:7656...\", \"alice\", true, true });\nif (ps.CreateParty(\"my_squad\")) {\n    ps.InviteFriend(\"steam:7656...\");\n}\nps.Tick(dt);   // Joining/Leaving の timeout 処理",
+    "members": [
+      {
+        "sig": "TResult<void> CreateParty(const char* party_name)",
+        "desc": "新規パーティ作成 (Solo 状態のみ受理)。 状態を Joining → InParty へ遷移。"
+      },
+      {
+        "sig": "TResult<void> JoinParty(const char* party_id)",
+        "desc": "招待で受け取った ID で参加 (Solo のみ)。 Joining に遷移し Tick で timeout 監視。"
+      },
+      {
+        "sig": "TResult<void> LeaveParty()",
+        "desc": "現在のパーティから離脱 (InParty のみ)。 Leaving に遷移。"
+      },
+      {
+        "sig": "TResult<void> InviteFriend(const char* friend_id)",
+        "desc": "フレンドに招待を送る (InParty のみ)。 リーダー権限の判定は呼び出し側責任。"
+      },
+      {
+        "sig": "bool IsInParty() const",
+        "desc": "パーティ所属中なら true。 State() で EPartyState も取れる。"
+      },
+      {
+        "sig": "TResult<void> AddMember(const FPartyMember& member)",
+        "desc": "メンバを 1 件追加。 player_id が nullptr / 既存と重複の場合はエラー。 SDK で accept された相手を流し込む用途。"
+      },
+      {
+        "sig": "bool RemoveMember(const char* player_id)",
+        "desc": "一致メンバを削除して true。 順序を保ち前詰め。 見つからなければ false (no-op)。"
+      },
+      {
+        "sig": "u32 MemberCount() const",
+        "desc": "パーティ内メンバ数 (自分含む)。 Solo は 0。 Members() で生バッファも取れる。"
+      },
+      {
+        "sig": "u32 FindMember(const char* player_id) const",
+        "ret": "index または kInvalidIndex",
+        "desc": "player_id 一致メンバの index。 GetMember() にそのまま渡せる。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "Joining / Leaving の timeout 監視 + 状態遷移。 呼ばないと Joining のまま停滞する。"
+      },
+      {
+        "sig": "void AddFriend(const FFriend& f)",
+        "desc": "フレンドを 1 件登録。 FriendCount() / Friends() で一覧取得。"
+      },
+      {
+        "sig": "using FPartySystem = CPartySystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPartySystem を使う。"
+      }
+    ]
+  }
+}

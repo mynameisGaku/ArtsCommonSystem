@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="型のリフレクション情報の本体。 Reflect&lt;T&gt;() が返す型で、型名・サイズ・整列・フィールド配列・一意な型 ID を持ちます。">
+  <title>FTypeInfoBase — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FTypeInfoBase</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FTypeInfoBase</h1>
+<p class="lead">型の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26582">リフレクション</button><span class="term-tooltip" id="term-tip-26582" role="tooltip">型が自身の構造(フィールド名 / 型 / オフセット)を自己記述する仕組み。 シリアライザやインスペクタの土台になる。</span></span>情報の本体。 Reflect&lt;T&gt;() が返す型で、型名・サイズ・整列・フィールド配列・一意な<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26583">型 ID</button><span class="term-tooltip" id="term-tip-26583" role="tooltip">アセットやローダの種類を表す数値(AssetType)。 文字列名のハッシュから作られる。</span></span> を持ちます。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/ftypeinfobase-2837e595.html"><code>acs::game::FTypeInfoBase</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26580">リフレクション</button><span class="term-tooltip" id="term-tip-26580" role="tooltip">型が自身の構造(フィールド名 / 型 / オフセット)を自己記述する仕組み。 シリアライザやインスペクタの土台になる。</span></span>結果を走査してフィールドを列挙する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/TypeInfo.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-726e267eb42ea207e09b"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const c8* <a href="../../symbols/gameframework/ftypeinfobase-2837e595/type-name-a37062a6.html">type_name</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>型名文字列(未反射なら nullptr)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/type-name-a37062a6.html"><code>acs::game::FTypeInfoBase::type_name</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-ee4da191f26639215d59"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>usize <a href="../../symbols/gameframework/ftypeinfobase-2837e595/size-edd2dd82.html">size</a> / usize <a href="../../symbols/gameframework/ftypeinfobase-2837e595/alignment-10bcf6a8.html">alignment</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>sizeはsizeof(T)、alignmentはalignof(T)を保持します。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/size-edd2dd82.html"><code>acs::game::FTypeInfoBase::size</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/alignment-10bcf6a8.html"><code>acs::game::FTypeInfoBase::alignment</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-3b88346c1434eab8a72d"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>const <a href="../../symbols/gameframework/ffieldinfo-ea39b6d2.html">FFieldInfo</a>* <a href="../../symbols/gameframework/ftypeinfobase-2837e595/fields-59dff5c6.html">fields</a> / u32 <a href="../../symbols/gameframework/ftypeinfobase-2837e595/field-count-f4bf231e.html">field_count</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>フィールド配列とその要素数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ffieldinfo-ea39b6d2.html"><code>acs::game::FFieldInfo</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/fields-59dff5c6.html"><code>acs::game::FTypeInfoBase::fields</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/field-count-f4bf231e.html"><code>acs::game::FTypeInfoBase::field_count</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-5e01c5a06d10ef095de2"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>const void* <a href="../../symbols/gameframework/ftypeinfobase-2837e595/type-tag-d3623b44.html">type_tag</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>一意な<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26581">型 ID</button><span class="term-tooltip" id="term-tip-26581" role="tooltip">アセットやローダの種類を表す数値(AssetType)。 文字列名のハッシュから作られる。</span></span>(= TypeTag&lt;T&gt;())。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ftypeinfobase-2837e595/type-tag-d3623b44.html"><code>acs::game::FTypeInfoBase::type_tag</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FTypeInfoBaseの使用例"><code>const auto&amp; ti = acs::game::Reflect&lt;PlayerState&gt;();
+for (acs::u32 i = 0; i &lt; ti.field_count; ++i)
+    Log(ti.fields[i].name);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

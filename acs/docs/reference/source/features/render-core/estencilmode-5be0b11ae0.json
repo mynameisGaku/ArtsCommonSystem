@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "EStencilMode",
+    "kind": "列挙(enum)",
+    "header": "render/SpriteBatch.h",
+    "summary": "CSpriteBatch::SetStencilMode 用のステンシルマスクモード。 マスク形状を焼く・その内側/外側だけ描く、を切り替える。",
+    "when": "円形ミニマップや任意形状のくり抜きなど、2D で形マスクをかけたいとき。",
+    "sample": "sb.SetStencilMode(EStencilMode::WriteMask);   // マスク形状を焼く\nsb.Draw(circle_tex, ...);\nsb.SetStencilMode(EStencilMode::KeepInside);  // 内側だけ通す\nsb.Draw(content_tex, ...);\nsb.SetStencilMode(EStencilMode::Off);",
+    "members": [
+      {
+        "sig": "Off / WriteMask / KeepInside / KeepOutside",
+        "desc": "テスト無し / 参照値を書く / 一致部だけ描く / 不一致部だけ描く。"
+      }
+    ]
+  }
+}

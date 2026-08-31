@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "UTF-8 cursor",
+  "definition": "ATextInput が UTF-8 の byte offset とコードポイント境界を対応付けて保持する編集位置。"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "EProjectileKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ProjectileSystem.h",
+    "summary": "弾種ヒント。 Bullet / Rocket / Arrow / MagicBolt / Grenade / BeamPulse / Custom。 描画や効果音の切り替えキーとして使い、挙動そのものには影響しない。",
+    "when": "弾の見た目や効果音をカテゴリで分けたい時。"
+  }
+}

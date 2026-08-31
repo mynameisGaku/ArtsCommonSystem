@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSの3 つの名前空間に関するガイドです。">
+  <title>3 つの名前空間 — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><a href="../guide.html">はじめる</a><span>/</span><span aria-current="page">3 つの名前空間</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS ガイド</div><h1>3 つの名前空間</h1></div></header>
+<article class="doc-blocks" id="guide-content"><h2>3 つの名前空間</h2><p>コードは大きく 3 つの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29706">名前空間</button><span class="term-tooltip" id="term-tip-29706" role="tooltip">名前の衝突を防ぐ入れ物。 acs::easy::OpenWindow の acs::easy の部分。</span></span>に分かれます。 どの層を使っているかを意識すると迷いません。</p><ul><li>acs … 基盤(型・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29707">コンテナ</button><span class="term-tooltip" id="term-tip-29707" role="tooltip">値をまとめて入れておく入れ物(TArray や THashMap など)。 ACS は STL の代わりに独自のものを使う。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29708">メモリ</button><span class="term-tooltip" id="term-tip-29708" role="tooltip">プログラムが使う記憶領域。 確保と解放の管理が性能と安全性を左右する。</span></span>・数学・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29709">描画</button><span class="term-tooltip" id="term-tip-29709" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>・ECS など)。 エンジン本体。</li><li>acs::easy … 初心者向けの簡単モード。 関数を呼ぶだけで<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29710">ウィンドウ</button><span class="term-tooltip" id="term-tip-29710" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29711">描画</button><span class="term-tooltip" id="term-tip-29711" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29712">入力</button><span class="term-tooltip" id="term-tip-29712" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29713">ジョブ</button><span class="term-tooltip" id="term-tip-29713" role="tooltip">並列実行する小さな仕事の単位。 依存関係を付けて CJobGraph で順序立てて走らせられる。</span></span>が使える薄い層。</li><li>acs::game … ゲーム作りの部品(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29714">シーン</button><span class="term-tooltip" id="term-tip-29714" role="tooltip">タイトル・ゲーム本編・リザルトのような、画面の一場面とその進行をまとめた単位。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29715">コンポーネント</button><span class="term-tooltip" id="term-tip-29715" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>・各ジャンルキット)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29716">GameFramework</button><span class="term-tooltip" id="term-tip-29716" role="tooltip">シーン、コンポーネント、各ジャンル用機能、アセット読み書きの抽象 API など、ゲーム構築用の部品を提供する acs::game モジュールです。</span></span> モジュール。</li></ul></article>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#guide-content">3 つの名前空間</a></nav></aside>
+  </div>
+</body>
+</html>

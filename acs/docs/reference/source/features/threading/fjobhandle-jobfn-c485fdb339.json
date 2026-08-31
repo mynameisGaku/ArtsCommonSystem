@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FJobHandle / JobFn",
+    "kind": "構造体 / 型エイリアス",
+    "header": "threading/JobGraph.h",
+    "summary": "FJobHandle=CJobGraph に追加したジョブを指す軽い参照で、これ越しに依存関係を張る。 JobFn=ジョブ本体の関数型 void(*)(void* user, u32 worker_index)(TaskFn と同形式)。",
+    "when": "CJobGraph::Add の戻り値として受け取り、DependOn で順序を組む時。",
+    "sample": "auto build  = g.Add(&Build,  &ctx);\nauto upload = g.Add(&Upload, &ctx);\nupload.DependOn(build);   // build → upload の順\nif (build.IsValid()) { /* 追加成功 */ }",
+    "members": [
+      {
+        "sig": "CJobGraph* graph",
+        "desc": "このハンドルが属するグラフ。"
+      },
+      {
+        "sig": "u32 index",
+        "desc": "グラフ内のジョブ番号。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "正しいジョブを指していれば true。"
+      },
+      {
+        "sig": "void DependOn(FJobHandle upstream)",
+        "desc": "upstream が完了するまでこのジョブを走らせない、という依存を張る。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "EPrimitiveTopology / EResourceState",
+    "kind": "列挙(enum)",
+    "header": "render/RhiTypes.h",
+    "summary": "EPrimitiveTopology=頂点をどう繋いで図形にするか(点/線/三角形列)。 EResourceState=GPU リソースが今どんな用途状態かを表す抽象(DX12/Vulkan のバリア共通化)。",
+    "when": "EPrimitiveTopology はパイプライン作成時に。 EResourceState は普段は内部で自動管理され、手で触ることはまれ。",
+    "sample": "FPipelineDesc pd;\npd.topology = EPrimitiveTopology::TriangleList;  // 三角形リスト(既定)\n// LineList ならワイヤーフレームやデバッグ線",
+    "members": [
+      {
+        "sig": "EPrimitiveTopology: PointList / LineList / LineStrip / TriangleList / TriangleStrip",
+        "desc": "点・線・線の連結・三角形・三角形帯。"
+      },
+      {
+        "sig": "EResourceState: RenderTarget / Present / DepthWrite / PixelShaderResource / CopySrc / CopyDst / UnorderedAccess / Common / DepthRead",
+        "desc": "RT / 提示用 / 深度書込 / シェーダ読取 / コピー元・先 / UAV / 既定 / 深度読取。"
+      }
+    ]
+  }
+}

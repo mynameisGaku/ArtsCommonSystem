@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TTF",
+  "definition": "TrueType フォントのファイル形式。 ACS は TTF/OTF を GPU アトラスに焼いて文字を描く。"
+}

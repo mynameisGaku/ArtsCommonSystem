@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "SetScriptVmProvider / GetDefaultScriptVm",
+    "kind": "関数",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "backend 非依存で既定 VM を取得する結線点。 gameframework は実 backend(ACS::Scripting)に依存できない(循環依存)ため、実 backend 側が SetScriptVmProvider() で「既定 VM を返す関数」を登録し、ゲームは GetDefaultScriptVm() で取得する。 未登録なら GetVmStub() を返す。",
+    "when": "アプリ起動時に 1 度 backend を結線したい時。 以降はどこでも backend 非依存に既定 VM を引ける。",
+    "sample": "#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();   // provider を登録\n#endif\nacs::game::IScriptVm& vm = acs::game::GetDefaultScriptVm();  // 実 Lua or stub\nhost.Init(&vm);",
+    "members": [
+      {
+        "sig": "using ScriptVmProvider = IScriptVm& (*)() noexcept",
+        "desc": "既定 VM を返す関数ポインタ型。"
+      },
+      {
+        "sig": "void SetScriptVmProvider(ScriptVmProvider provider)",
+        "desc": "provider を登録(nullptr で stub に戻す。 後勝ち)。 実 backend の Install* から呼ぶ。"
+      },
+      {
+        "sig": "IScriptVm& GetDefaultScriptVm()",
+        "ret": "VM 参照",
+        "desc": "provider 登録済みなら実 VM、未登録なら GetVmStub()。"
+      }
+    ]
+  }
+}

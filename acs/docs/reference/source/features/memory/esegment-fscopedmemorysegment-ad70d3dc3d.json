@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "ESegment / FScopedMemorySegment",
+    "kind": "enum / クラス",
+    "header": "memory/Segment.h",
+    "summary": "メモリを目的・寿命で分ける論理ヒープの種別。 CMemorySystem が各セグメントに独立予算を持つ。 FScopedMemorySegment でスコープ中の既定確保先を切り替える(RAII)。",
+    "when": "確保を用途別に隔離して断片化や予算を管理したい時。",
+    "sample": "{ FScopedMemorySegment seg(ESegment::Resource);  // アセット用領域へ\n  auto tex = LoadTexture(...);\n}                                               // 抜けると元へ戻る",
+    "members": [
+      {
+        "sig": "ESegment::Default / Permanent / Temp / Resource / Develop",
+        "desc": "汎用 / 起動時常駐 / 1フレーム / アセット / エディタ・デバッグ。"
+      },
+      {
+        "sig": "enum class EAllocKind",
+        "desc": "プロファイラ分類用のタグ(Generic=0 / Engine=1 / Game=2 / Render=3 / Audio=4 / Asset=5 / UI=6 / Network=7 / Debug=8)。"
+      },
+      {
+        "sig": "const char* ToString(ESegment s)",
+        "ret": "名前文字列",
+        "desc": "ESegment を \"Default\" 等の文字列にする(ログ/プロファイラ表示用)。"
+      },
+      {
+        "sig": "explicit FScopedMemorySegment(ESegment s)",
+        "desc": "現在セグメントを切り替え、デストラクタで元に戻す。"
+      }
+    ]
+  }
+}

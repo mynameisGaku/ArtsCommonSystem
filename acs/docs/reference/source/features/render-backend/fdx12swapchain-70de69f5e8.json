@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "FDx12Swapchain",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12Swapchain.h",
+    "summary": "DX12 のスワップチェイン(IRhiSwapchain 派生)。 IDXGISwapChain3 と、最大 3 枚のバックバッファ・その RTV ヒープを管理し、毎フレーム描画先を切り替えて画面に提示します。",
+    "when": "CreateRhiSwapchain() が DX12 バックエンドで生成する実体。 ウィンドウへ最終結果を出すのに毎フレーム使う(取得→描画→提示)。",
+    "sample": "FSwapchainConfig sc;\nsc.window = &window;  sc.buffer_count = 2;  sc.vsync = true;\nauto swap = CreateRhiSwapchain(*dev, sc).Value();\nu32 idx = swap->AcquireNextImage();   // 描く先のバッファ番号\n// ...cmd で描画...\nif (!swap->Present()) { /* 描画ループを停止 */ }",
+    "members": [
+      {
+        "sig": "u32 AcquireNextImage()",
+        "ret": "バッファ番号",
+        "desc": "次に書き込めるバックバッファをロックして取得。 描画開始前に毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "bool Present()",
+        "ret": "提示成功なら true",
+        "desc": "描き終えた内容を画面へ反映。 vsync 設定に従い、device removal/backend failure は false。"
+      },
+      {
+        "sig": "bool Resize(u32 width, u32 height)",
+        "ret": "成否",
+        "desc": "ウィンドウサイズ変更時にバッファを作り直す。 false なら本フレームの描画はスキップして次で再試行する。"
+      },
+      {
+        "sig": "u32 BufferCount() / Width() / Height() const",
+        "desc": "現在のバッファ枚数・解像度。"
+      },
+      {
+        "sig": "ID3D12Resource* BackBuffer(u32 i) const",
+        "ret": "バッファ または null",
+        "desc": "内部用。 i 番目のバックバッファリソース。 範囲外は nullptr。"
+      },
+      {
+        "sig": "D3D12_CPU_DESCRIPTOR_HANDLE BackBufferRTV(u32 i) const",
+        "ret": "RTV ハンドル",
+        "desc": "内部用。 i 番目バックバッファの RTV。 CommandList がレンダーターゲットをバインドする時に使う。"
+      },
+      {
+        "sig": "ID3D12DescriptorHeap* RtvHeap() const",
+        "ret": "RTV ヒープ",
+        "desc": "内部用。 バックバッファ RTV を並べた専用ディスクリプタヒープ。"
+      }
+    ]
+  }
+}

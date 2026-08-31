@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FRayHit3",
+    "kind": "構造体",
+    "header": "math/Collision3D.h",
+    "summary": "3D レイキャストの結果。 命中したか・距離 t・衝突点・表面法線を持つ。",
+    "when": "3D の Raycast 系関数の戻り値。 命中位置や面の向きを使って描画やヒット処理をする時。",
+    "sample": "FRayHit3 h = RaycastSphere(ray, enemy);\nif (h.hit) {\n    spawnImpact(h.point, h.normal);\n    f32 dist = h.t * Length(ray.direction);\n}",
+    "members": [
+      {
+        "sig": "bool hit",
+        "desc": "命中したら true。"
+      },
+      {
+        "sig": "f32 t",
+        "ret": "距離係数",
+        "desc": "origin + direction * t が衝突点。"
+      },
+      {
+        "sig": "FVec3 point / FVec3 normal",
+        "desc": "衝突座標と命中面の法線。"
+      }
+    ]
+  }
+}

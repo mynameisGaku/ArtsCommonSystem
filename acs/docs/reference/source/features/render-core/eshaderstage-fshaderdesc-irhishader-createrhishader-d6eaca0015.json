@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "EShaderStage / FShaderDesc / IRhiShader / CreateRhiShader",
+    "kind": "列挙 / 構造体 / インターフェース / ファクトリ",
+    "header": "render/IRhiShader.h",
+    "summary": "HLSL ソースをコンパイルして保持するシェーダの抽象。 頂点・ピクセル・コンピュートのステージを指定する。",
+    "when": "独自シェーダで描きたいとき。 標準ヘルパ(CStandardShader 等)を使う場合は内部で作られるので普通は触らない。",
+    "sample": "FShaderDesc d;\nd.stage = EShaderStage::Vertex;\nd.hlsl_source = vs_src;\nd.entry_point = \"main\";\nauto vs = CreateRhiShader(*dev, d).Value();",
+    "members": [
+      {
+        "sig": "enum EShaderStage: Vertex / Pixel / Compute",
+        "desc": "シェーダステージ。"
+      },
+      {
+        "sig": "struct FShaderDesc{ stage, hlsl_source, entry_point, target, debug_name }",
+        "desc": "ステージ・HLSL 文字列・エントリ名・ターゲット(null で自動)。"
+      },
+      {
+        "sig": "EShaderStage Stage() const",
+        "desc": "このシェーダのステージ。"
+      },
+      {
+        "sig": "const byte* Bytecode() / usize BytecodeSize() const",
+        "desc": "コンパイル済みバイトコード(パイプライン作成時に内部参照)。"
+      },
+      {
+        "sig": "TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice&, const FShaderDesc&)",
+        "ret": "シェーダ",
+        "desc": "HLSL をコンパイルしてシェーダを作る。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "ATrail2DComponent",
+    "kind": "クラス (コンポーネント)",
+    "header": "gameframework/Effects2D.h",
+    "summary": "owner ノードを追従するモーショントレイル (残像) を描くコンポーネント。 過去の位置を FIFO で保持し、細くなる帯として描く。",
+    "when": "高速移動するキャラ・弾・剣閃に残像を付けたい時。",
+    "sample": "auto& t = node->AddComponent<ATrail2DComponent>();\nt.SetColor({0.3f, 0.8f, 1.0f});\nt.SetWidth(0.3f);\nt.SetPoints(24);   // 残像の節の数 (2..48)",
+    "members": [
+      {
+        "sig": "void SetColor(FVec3 rgb) / SetWidth(f32 w)",
+        "desc": "トレイルの色 / 太さ。"
+      },
+      {
+        "sig": "void SetPoints(u32 k)",
+        "desc": "残像を構成する点数 (2〜48 にクランプ)。 多いほど長く滑らか。"
+      }
+    ]
+  }
+}

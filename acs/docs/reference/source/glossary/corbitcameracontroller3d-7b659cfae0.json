@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "COrbitCameraController3D",
+  "definition": "3D orbit camera の入力・状態・固定時間から次状態を決定し、snapshot検証、描画補間、障害物距離と明示時間からpresentation eye/look-atを計算する。"
+}

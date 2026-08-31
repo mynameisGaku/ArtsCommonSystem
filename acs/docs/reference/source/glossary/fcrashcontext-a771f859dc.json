@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FCrashContext",
+  "definition": "クラッシュ 1 件分の文脈（例外種別・メッセージ・スタック・シーン名等）をまとめた構造体（gameframework 側）。"
+}

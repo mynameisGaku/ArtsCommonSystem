@@ -1,0 +1,83 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "mvvm::imgui::Bind / BindReadOnly ほか",
+    "kind": "関数群",
+    "header": "mvvm/ImguiBindings.h",
+    "summary": "TObservable<T> を ImGui ウィジェットに毎フレーム結ぶヘルパ群。 現在値を読んで描画し、ユーザー操作があれば Set で書き戻す。 即時 mode 前提なので毎フレーム呼ぶ。",
+    "when": "デバッグ UI を素早く作りたい時(本番 UI は src/ui/ 推奨)。 スライダ・チェックボックス・カラーピッカー・コンボ・文字列入力・ボタン・読み取り専用表示が揃う。",
+    "sample": "// ImGui::Begin/End の中で毎フレーム:\nacs::mvvm::imgui::Bind(\"HP\",   vm.hp,   0.0f, 100.0f);\nacs::mvvm::imgui::Bind(\"Lv\",   vm.level, 1, 99);\nacs::mvvm::imgui::Bind(\"無敵\", vm.invincible);\nacs::mvvm::imgui::BindReadOnly(\"表示\", vm.hp);\nacs::mvvm::imgui::BindCommand(\"攻撃\", vm.attack);",
+    "members": [
+      {
+        "sig": "void Bind(const char* label, TObservable<f32>& v, f32 v_min, f32 v_max)",
+        "desc": "f32 スライダ。 範囲 v_min..v_max で編集し Set で書き戻す。"
+      },
+      {
+        "sig": "void Bind(const char* label, TObservable<f64>& v, f64 v_min, f64 v_max)",
+        "desc": "f64 スライダ。 範囲 v_min..v_max で編集し Set で書き戻す。"
+      },
+      {
+        "sig": "void Bind(const char* label, TObservable<i32>& v, i32 v_min, i32 v_max)",
+        "desc": "i32 スライダ。 範囲 v_min..v_max で編集し Set で書き戻す。"
+      },
+      {
+        "sig": "void Bind(const char* label, TObservable<u32>& v, u32 v_min, u32 v_max)",
+        "desc": "u32 スライダ。 範囲 v_min..v_max で編集し Set で書き戻す。"
+      },
+      {
+        "sig": "void Bind(const char* label, TObservable<bool>& v)",
+        "desc": "チェックボックスで bool を編集する。"
+      },
+      {
+        "sig": "void BindSlider2(const char* label, TObservable<FVec2>& v, f32 v_min, f32 v_max)",
+        "desc": "FVec2 の各成分をスライダで編集する。"
+      },
+      {
+        "sig": "void BindSlider3(const char* label, TObservable<FVec3>& v, f32 v_min, f32 v_max)",
+        "desc": "FVec3 の各成分をスライダで編集する。"
+      },
+      {
+        "sig": "void BindColor3(const char* label, TObservable<FVec3>& v)",
+        "desc": "FVec3 を 0..1 の RGB として扱うカラーピッカー。"
+      },
+      {
+        "sig": "void BindCombo(const char* label, TObservable<i32>& v, const char* const* labels, u32 count)",
+        "desc": "i32 を index としてラベル配列から選ぶコンボボックス。"
+      },
+      {
+        "sig": "void BindText(const char* label, TObservable<acs::FString>& v, char* persistent, usize cap)",
+        "desc": "FString を文字列入力で編集する。 persistent はフレーム間で保持される caller 持ちバッファ。"
+      },
+      {
+        "sig": "void BindFormat<T>(const char* fmt, const TObservable<T>& v)",
+        "desc": "printf 形式(例 \"HP: %d\")の表示専用ラベル。 f32/f64/i32/u32 に特殊化済み。"
+      },
+      {
+        "sig": "bool BindCommand(const char* label, FCommand& cmd)",
+        "ret": "押されたか",
+        "desc": "FCommand をボタン化する。 CanExecute()==false の間は自動でグレーアウトする。"
+      },
+      {
+        "sig": "void BindReadOnly(const char* label, const TObservable<f32>& v)",
+        "desc": "f32 値を編集不可のテキストとして表示する。"
+      },
+      {
+        "sig": "void BindReadOnly(const char* label, const TObservable<i32>& v)",
+        "desc": "i32 値を編集不可のテキストとして表示する。"
+      },
+      {
+        "sig": "void BindReadOnly(const char* label, const TObservable<bool>& v)",
+        "desc": "bool 値を編集不可のテキストとして表示する。"
+      },
+      {
+        "sig": "void BindProgress(const char* label, const TObservable<f32>& v, f32 v_min, f32 v_max)",
+        "desc": "HP/MP などをプログレスバーで表示する。"
+      }
+    ]
+  }
+}

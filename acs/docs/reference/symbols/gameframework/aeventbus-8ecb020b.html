@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="名前付きイベントの pub/sub を行う World サブシステム(オブジェクト間の疎結合通信)。">
+  <title>acs::game::AEventBus — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="aeventbus-8ecb020b.html" aria-current="page">AEventBus</a><a class="tree-child" href="aeventbus-8ecb020b/eventid-3bf63dfb.html">EventId</a><a class="tree-child" href="aeventbus-8ecb020b/fsub-8fefc230.html">FSub</a><a class="tree-child" href="aeventbus-8ecb020b/handlerfn-c14478d1.html">HandlerFn</a><a class="tree-child" href="aeventbus-8ecb020b/id-f51d9bbe.html">Id</a><a class="tree-child" href="aeventbus-8ecb020b/m-subs-8ecd51de.html">m_Subs</a><a class="tree-child" href="aeventbus-8ecb020b/ondeinitialize-3c241d97.html">OnDeinitialize</a><a class="tree-child" href="aeventbus-8ecb020b/publish-8c5806c1.html">Publish</a><a class="tree-child" href="aeventbus-8ecb020b/subscribe-cc0e719e.html">Subscribe</a><a class="tree-child" href="aeventbus-8ecb020b/subscriptionslots-d5df44ba.html">SubscriptionSlots</a><a class="tree-child" href="aeventbus-8ecb020b/unsubscribe-45ccbfaa.html">Unsubscribe</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">AEventBus</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::AEventBus</h1>
+<p class="lead">名前付き<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3358">イベント</button><span class="term-tooltip" id="term-tip-3358" role="tooltip">『× ボタンが押された』『キーが押された』のような、その瞬間に起きた出来事の通知。 ACS では FEvent として届く。</span></span>の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3359">pub/sub</button><span class="term-tooltip" id="term-tip-3359" role="tooltip">発行(publish)と購読(subscribe)で、送り手と受け手が互いを知らずに通知をやり取りする方式。</span></span> を行う World <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3360">サブシステム</button><span class="term-tooltip" id="term-tip-3360" role="tooltip">所有元の寿命に従い、共有機能の開始、更新、終了を管理する部品です。</span></span>(オブジェクト間の疎結合通信)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::AEventBusの宣言"><code>class <a href="aeventbus-8ecb020b.html" aria-current="page">AEventBus</a> : public <a href="../subsystem/asubsystem-965caa1f.html">ASubsystem</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/EventBus.h:35</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="aeventbus-8ecb020b/eventid-3bf63dfb.html"><span><span class="identifier">using EventId = u32;</span><span class="summary">イベント識別子(名前の FNV-1a ハッシュ)。</span></span><span class="kind-label">型alias →</span></a><a class="member-card" href="aeventbus-8ecb020b/fsub-8fefc230.html"><span><span class="identifier">struct FSub;</span><span class="summary">ACS の gameframework モジュールで FSub を表す構造体です。</span></span><span class="kind-label">構造体 →</span></a><a class="member-card" href="aeventbus-8ecb020b/handlerfn-c14478d1.html"><span><span class="identifier">using HandlerFn = void (*)(void* listener, const void* payload);</span><span class="summary">イベントハンドラ(listener=Subscribe で渡したコンテキスト、payload=Publish のデータ)。</span></span><span class="kind-label">型alias →</span></a><a class="member-card" href="aeventbus-8ecb020b/id-f51d9bbe.html"><span><span class="identifier">static constexpr EventId Id(const char* name) noexcept;</span><span class="summary">イベント名 → 安定 ID(コンパイル時)。 Publish/Subscribe で同じ名前を使う。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/m-subs-8ecd51de.html"><span><span class="identifier">TArray&lt;FSub&gt; m_Subs;</span><span class="summary">AEventBus が提供する m_Subs メンバー変数です。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/ondeinitialize-3c241d97.html"><span><span class="identifier">void OnDeinitialize() noexcept override;</span><span class="summary">AEventBus が提供する OnDeinitialize メンバー関数です。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/publish-8c5806c1.html"><span><span class="identifier">void Publish(EventId ev, const void* payload = nullptr) noexcept;</span><span class="summary">イベント ev を発火し、購読中の全ハンドラを payload 付きで呼ぶ。 ハンドラ内からの Subscribe/Unsubscribe にも耐える(各スロットを «値コピー» してから 呼ぶので、配列が再確保されても安全。 発火中に追加された購読は呼ばれる場合がある)。 ev: 発火するイベント ID。 payload: ハンドラへ渡すデータ(任意、既定 nullptr)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/subscribe-cc0e719e.html"><span><span class="identifier">int Subscribe(EventId ev, HandlerFn fn, void* listener = nullptr) noexcept;</span><span class="summary">イベント ev を購読する。 発火時に fn(listener, payload) が呼ばれる。 ev: 購読するイベント ID(AEventBus::Id(&quot;...&quot;) )。 fn: ハンドラ(captureless。 null は無視)。 listener: ハンドラへ渡すコンテキスト(通常は this)。 戻り値: 解除用ハンドル(&gt;=0)。 失敗で -1。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/subscriptionslots-d5df44ba.html"><span><span class="identifier">u32 SubscriptionSlots() const noexcept;</span><span class="summary">現在の購読数(空きスロット含む。 デバッグ/検証用)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aeventbus-8ecb020b/unsubscribe-45ccbfaa.html"><span><span class="identifier">void Unsubscribe(int handle) noexcept;</span><span class="summary">Subscribe が返したハンドルで購読を解除する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

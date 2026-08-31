@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "FSprite / FSound",
+    "kind": "構造体",
+    "header": "easy/Easy.h",
+    "summary": "LoadSprite / LoadSound が返す、コピー可能な軽い素材ハンドル（中身は番号 id だけ）。 id==0 は無効。",
+    "when": "読み込んだ画像・音を持ち回って描画/再生に渡す時。 失敗しても落ちず、無効ハンドルが返る（描画/再生は無視される）。",
+    "sample": "FSprite player = LoadSprite(\"player.png\");\nFSound  jump   = LoadSound(\"jump.wav\");\nif (player.id != 0) DrawSprite(player, 100, 100);",
+    "members": [
+      {
+        "sig": "u32 id",
+        "desc": "素材を指す内部番号。 0 は無効（読み込み失敗など）。"
+      }
+    ]
+  }
+}

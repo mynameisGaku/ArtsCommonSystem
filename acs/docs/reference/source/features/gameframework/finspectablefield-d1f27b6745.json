@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInspectableField",
+    "kind": "構造体",
+    "header": "gameframework/InspectorSeam.h",
+    "summary": "公開する 1 フィールドの記述。 表示名 + 型タグ (EFieldKind) + データへのポインタ + (enum 用) ラベル配列。",
+    "when": "GetObject() が返す配列の 1 要素として組む時。",
+    "sample": "FInspectableField fld{ \"speed\", EFieldKind::F32,\n                      &m_Speed, 0, nullptr };",
+    "members": [
+      {
+        "sig": "const char* name",
+        "desc": "表示名 (借用)。"
+      },
+      {
+        "sig": "EFieldKind kind",
+        "desc": "データの型タグ。 描画側はこれで switch してキャストする。"
+      },
+      {
+        "sig": "void* data",
+        "desc": "該当型へのポインタ。"
+      },
+      {
+        "sig": "u32 enum_value_count / const char** enum_values",
+        "desc": "kind == Enum のときの値→ラベル配列とその長さ。"
+      }
+    ]
+  }
+}

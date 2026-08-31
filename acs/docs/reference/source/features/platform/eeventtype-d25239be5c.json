@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EEventType",
+    "kind": "列挙(enum)",
+    "header": "platform/Event.h",
+    "summary": "FEvent の種別を表す列挙。 ウィンドウ系（閉じる・サイズ変更・フォーカス）と入力系（キー・マウス・文字）がある。",
+    "when": "受け取った FEvent の type と比較して分岐する。",
+    "sample": "switch (e.type) {\n    case EEventType::WindowClose:  /* 閉じる */ break;\n    case EEventType::KeyPressed:   /* 押下   */ break;\n    case EEventType::MouseScrolled:/* ホイール*/ break;\n}",
+    "members": [
+      {
+        "sig": "None",
+        "desc": "未設定（無効なイベント）。"
+      },
+      {
+        "sig": "WindowClose / WindowResize",
+        "desc": "× ボタン押下 / ウィンドウサイズ変更。"
+      },
+      {
+        "sig": "WindowFocus / WindowLostFocus",
+        "desc": "フォーカスの獲得 / 喪失。"
+      },
+      {
+        "sig": "KeyPressed / KeyReleased / KeyRepeat",
+        "desc": "キーの押下開始 / 解放 / 押しっぱなしリピート。"
+      },
+      {
+        "sig": "MouseButtonPressed / MouseButtonReleased",
+        "desc": "マウスボタンの押下 / 解放。"
+      },
+      {
+        "sig": "MouseMoved / MouseScrolled",
+        "desc": "カーソル移動 / ホイール回転。"
+      },
+      {
+        "sig": "CharInput",
+        "desc": "文字入力（IME 確定後のテキスト用）。"
+      }
+    ]
+  }
+}

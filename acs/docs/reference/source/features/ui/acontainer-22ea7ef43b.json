@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "AContainer",
+    "kind": "クラス",
+    "header": "ui/Widget.h",
+    "summary": "自分自身は何も描かず、親からもらった範囲をそのまま全部の子に渡す透過パネル。 重ね合わせ(同じ場所に複数を配置)に使える。",
+    "when": "背景は出さずに、複数の子を同じ領域に重ねたい/グループ化だけしたい時。",
+    "sample": "AContainer layer;\nlayer.Add<ALabel>(\"背景の上に乗せる\");\nlayer.Add<AButton>(\"OK\");  // 同じ範囲に重なる",
+    "members": [
+      {
+        "sig": "void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override",
+        "desc": "自身のrectを確定し、表示中の全子へ親と同じ矩形を渡す。Add<W>()、Parent()、Child()、ChildCount()、HitTestRecursive()、visible、rect、requestedは基底AWidgetから継承する。"
+      },
+      {
+        "sig": "using FContainer = AContainer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AContainer を使う。"
+      }
+    ]
+  }
+}

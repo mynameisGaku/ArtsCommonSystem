@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="plaintext を AES-256-GCM で暗号化し、ciphertext と認証タグを書き出す。 nonce は呼び出し側で per-entry に一意な 12 バイトを渡すこと (GenerateRandomNonce で生成可)。 同一 (key, nonce) は GCM を破滅させるため 絶対に再利用しない。 plaintext == ciphertext (in-place) は許可される。 size == 0 のときも tag_out は計算される (= GMAC として動作)。 失敗時は kAcpakSubCryptoInit (provider/key 失敗) / kAcpakSubCryptoOp (BCryptEncrypt 失敗)。 key: 暗号化に使う AES-256 鍵。 nonce: per-entry に一意な 12 バイトの nonce。 plaintext: 暗号化する平文 (size バイト)。 size: 平文のバイト数。 ciphertext: 暗号文の出力先 (size バイト)。 tag_out: 認証タグの出力先 (16 バイト)。 戻り値: 成功なら空の TResult、失敗ならエラー。">
+  <title>acs::assetpack::CAcpakCrypto::Encrypt — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/assetpack.html">assetpack モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/assetpack.html">assetpack モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/assetpack.html">assetpack モジュール</a><a href="../cacpakcrypto-9be6c0dc.html">CAcpakCrypto の概要</a><a class="tree-child" href="cacpakcrypto-207eac6f.html">CAcpakCrypto</a><a class="tree-child" href="decrypt-83595ec9.html">Decrypt</a><a class="tree-child" href="derivekey-fdbea8f3.html">DeriveKey</a><a class="tree-child" href="encrypt-44c054a7.html" aria-current="page">Encrypt</a><a class="tree-child" href="generaterandomnonce-4de966d5.html">GenerateRandomNonce</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/assetpack.html">assetpack</a><span>/</span><a href="../cacpakcrypto-9be6c0dc.html">CAcpakCrypto</a><span>/</span><span aria-current="page">Encrypt</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / assetpack</div>
+<h1 class="identifier">acs::assetpack::CAcpakCrypto::Encrypt</h1>
+<p class="lead">plaintext を <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-791">AES-256-GCM</button><span class="term-tooltip" id="term-tip-791" role="tooltip">256bit 鍵の共通鍵暗号化方式。 暗号化と同時に改竄検知(認証タグ)も行う AEAD。</span></span> で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-792">暗号化</button><span class="term-tooltip" id="term-tip-792" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>し、ciphertext と認証<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-793">タグ</button><span class="term-tooltip" id="term-tip-793" role="tooltip">AES-GCM が出力する 16 バイトの認証データ。 これが合わないとデータが改竄/破損とみなす。</span></span>を書き出す。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-794">nonce</button><span class="term-tooltip" id="term-tip-794" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span> は呼び出し側で per-entry に一意な 12 バイトを渡すこと (GenerateRandomNonce で生成可)。 同一 (key, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-795">nonce</button><span class="term-tooltip" id="term-tip-795" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span>) は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-796">GC</button><span class="term-tooltip" id="term-tip-796" role="tooltip">Garbage Collection(ガベージコレクション)。 不要になったメモリを自動回収する仕組み。 Lua が内部で行う。</span></span>M を破滅させるため 絶対に再利用しない。 plaintext == ciphertext (in-place) は許可される。 size == 0 のときも tag_out は計算される (= GMAC として動作)。 失敗時は kAcpakSubCryptoInit (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-797">provider</button><span class="term-tooltip" id="term-tip-797" role="tooltip">『既定の実装を返す関数』を後から登録する仕組み。 登録するとアプリ全体の既定実装が差し替わる。</span></span>/key 失敗) / kAcpakSubCryptoOp (BCryptEncrypt 失敗)。 key: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-798">暗号化</button><span class="term-tooltip" id="term-tip-798" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>に使う AES-256 鍵。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-799">nonce</button><span class="term-tooltip" id="term-tip-799" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span>: per-entry に一意な 12 バイトの <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-800">nonce</button><span class="term-tooltip" id="term-tip-800" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span>。 plaintext: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-801">暗号化</button><span class="term-tooltip" id="term-tip-801" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>する平文 (size バイト)。 size: 平文のバイト数。 ciphertext: 暗号文の出力先 (size バイト)。 tag_out: 認証<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-802">タグ</button><span class="term-tooltip" id="term-tip-802" role="tooltip">AES-GCM が出力する 16 バイトの認証データ。 これが合わないとデータが改竄/破損とみなす。</span></span>の出力先 (16 バイト)。 戻り値: 成功なら空の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-803">TResult</button><span class="term-tooltip" id="term-tip-803" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span>、失敗ならエラー。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::assetpack::CAcpakCrypto::Encryptの宣言"><code>static TResult&lt;void&gt; <a href="encrypt-44c054a7.html" aria-current="page">Encrypt</a>(const <a href="../facpakkey-75d4b5c1.html">FAcpakKey</a>&amp; key, const <a href="../../foundation/u8-b0858e19.html">u8</a> nonce[<a href="../kacpaknoncesize-ce10bc8e.html">kAcpakNonceSize</a>], const <a href="../../foundation/u8-b0858e19.html">u8</a>* plaintext, <a href="../../foundation/u64-8740131c.html">u64</a> size, <a href="../../foundation/u8-b0858e19.html">u8</a>* ciphertext, <a href="../../foundation/u8-b0858e19.html">u8</a> tag_out[<a href="../kacpaktagsize-71bf310a.html">kAcpakTagSize</a>]) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/assetpack.html">assetpack</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cacpakcrypto-9be6c0dc.html"><code>acs::assetpack::CAcpakCrypto</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/assetpack/AcpakCrypto.h:124</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

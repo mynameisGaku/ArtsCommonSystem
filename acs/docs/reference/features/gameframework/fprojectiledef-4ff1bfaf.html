@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="弾種ごとの挙動パラメータ。 RegisterDef で『弾の設計図』として登録しておき、Spawn 時に名前で参照する。">
+  <title>FProjectileDef — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FProjectileDef</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FProjectileDef</h1>
+<p class="lead">弾種ごとの挙動パラメータ。 RegisterDef で『弾の設計図』として登録しておき、Spawn 時に名前で参照する。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fprojectiledef-83373253.html"><code>acs::game::FProjectileDef</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>新しい弾の種類 (速い弾・重力で落ちる手榴弾・貫通弾・追尾弾など) を定義する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ProjectileSystem.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-44c36b0450ebc2a7bed6"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fprojectiledef-83373253/id-8835fb81.html">id</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>弾種の名前 (Spawn のキー)。 文字列リテラル推奨。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/id-8835fb81.html"><code>acs::game::FProjectileDef::id</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-e5a0088f2a6164bc4f89"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/eprojectilekind-aec85216.html">EProjectileKind</a> <a href="../../symbols/gameframework/fprojectiledef-83373253/kind-2ec4082d.html">kind</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>VFX/SE 振り分け用のヒント。 挙動には影響しない。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/eprojectilekind-aec85216.html"><code>acs::game::EProjectileKind</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/kind-2ec4082d.html"><code>acs::game::FProjectileDef::kind</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-5c367145a0af0322e90c"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>f32 <a href="../../symbols/gameframework/fprojectiledef-83373253/speed-a8450a90.html">speed</a> / f32 <a href="../../symbols/gameframework/fprojectiledef-83373253/lifetime-sec-0d139f24.html">lifetime_sec</a> / f32 <a href="../../symbols/gameframework/fprojectiledef-83373253/radius-1bec85e1.html">radius</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>初速の目安・最大寿命(秒)・当たり判定半径。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/speed-a8450a90.html"><code>acs::game::FProjectileDef::speed</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/lifetime-sec-0d139f24.html"><code>acs::game::FProjectileDef::lifetime_sec</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/radius-1bec85e1.html"><code>acs::game::FProjectileDef::radius</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-56487b06ab97ecc66b48"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>f32 <a href="../../symbols/gameframework/fprojectiledef-83373253/gravity-y-731ceecf.html">gravity_y</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>重力 (正で下向き)。 0 で直進、手榴弾や矢は &gt;0。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/gravity-y-731ceecf.html"><code>acs::game::FProjectileDef::gravity_y</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-01738da5575f264ec81a"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>bool <a href="../../symbols/gameframework/fprojectiledef-83373253/pierces-228b1af5.html">pierces</a> / u32 <a href="../../symbols/gameframework/fprojectiledef-83373253/max-pierces-30c7ec0a.html">max_pierces</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>貫通するか、何体まで貫通するか。 max_pierces=2 なら 3 体目で消滅。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/pierces-228b1af5.html"><code>acs::game::FProjectileDef::pierces</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/max-pierces-30c7ec0a.html"><code>acs::game::FProjectileDef::max_pierces</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-48e86eab3afb968a56a7"><h3>API項目 6</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 6 の宣言"><code>bool <a href="../../symbols/gameframework/fprojectiledef-83373253/homing-cc6d561e.html">homing</a> / f32 <a href="../../symbols/gameframework/fprojectiledef-83373253/homing-strength-56c462d5.html">homing_strength</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>追尾するか、その強さ [0,1]。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/homing-cc6d561e.html"><code>acs::game::FProjectileDef::homing</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectiledef-83373253/homing-strength-56c462d5.html"><code>acs::game::FProjectileDef::homing_strength</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FProjectileDefの使用例"><code>FProjectileDef d{};
+d.id = &quot;arrow&quot;;
+d.speed = 600.0f;
+d.lifetime_sec = 2.0f;
+d.gravity_y = 300.0f;      // 弧を描いて落ちる
+d.pierces = true; d.max_pierces = 2;  // 3 体目で消える</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

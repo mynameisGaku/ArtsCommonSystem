@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FVec4",
+  "definition": "4 次元ベクトル(x, y, z, w)。 RGBA 色や同次座標、行列との掛け算に使う。"
+}

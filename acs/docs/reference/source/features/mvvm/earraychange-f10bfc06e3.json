@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "EArrayChange",
+    "kind": "列挙(enum)",
+    "header": "mvvm/ObservableArray.h",
+    "summary": "TObservableArray の変更の種類を表す列挙。 通知コールバックの中でこれを switch して処理を分ける。",
+    "when": "配列の変更通知を受け取った時、何が起きたか(追加/削除/書換/全消去)を判別する。",
+    "sample": "switch (kind) {\n    case EArrayChange::Inserted: /* idx に value を追加 */ break;\n    case EArrayChange::Removed:  /* idx を削除 (value=nullptr) */ break;\n    case EArrayChange::Changed:  /* idx を value に書換 */ break;\n    case EArrayChange::Cleared:  /* 全削除 (value=nullptr) */ break;\n}",
+    "members": [
+      {
+        "sig": "Inserted",
+        "desc": "index に value を挿入した。"
+      },
+      {
+        "sig": "Removed",
+        "desc": "index の要素を削除した(value はもう無いので nullptr)。"
+      },
+      {
+        "sig": "Changed",
+        "desc": "index の要素を別の値に書き換えた(value = 新値)。"
+      },
+      {
+        "sig": "Cleared",
+        "desc": "全要素を削除した(index=0, value=nullptr)。"
+      }
+    ]
+  }
+}

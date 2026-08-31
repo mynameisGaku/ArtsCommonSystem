@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "EPauseReason",
+    "kind": "列挙(enum)",
+    "header": "gameframework/PauseDirector.h",
+    "summary": "pause 理由を表すビットフラグ。 None (=0、pause していない特異値) / UserMenu / SystemMenu / FocusLost / Cinematic / PhotoMode / NetworkSync / Custom1 / Custom2。 | / & 演算子付き。",
+    "when": "なぜ pause しているか / させたいかを表す時。 複数同時に立てられる。",
+    "sample": "pause.Pause(EPauseReason::FocusLost);\nif (pause.IsPausedFor(EPauseReason::Cinematic)) HideHUD();"
+  }
+}

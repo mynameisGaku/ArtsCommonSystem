@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "コンテナ",
+  "definition": "値をまとめて入れておく入れ物(TArray や THashMap など)。 ACS は STL の代わりに独自のものを使う。"
+}

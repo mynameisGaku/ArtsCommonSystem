@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ViewModel",
+  "definition": "MVVM の橋渡し層。 実型 CViewModel と TObservable で状態を公開し、View(画面)がそれを購読して自動反映する。"
+}

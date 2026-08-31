@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "EVoiceProvider / EVoiceChannel",
+    "kind": "列挙(enum)",
+    "header": "gameframework/VoiceChat.h",
+    "summary": "EVoiceProvider はボイスの実装プロバイダ(None / SteamVoice / EosVoice / Vivox / Discord / OpusSelf)、EVoiceChannel はチャンネル種別(Party / Team / Global / Custom)を表す列挙です。",
+    "when": "Init でプロバイダを選ぶ / JoinChannel でチャンネル種別を指定する時。",
+    "sample": "voice->Init(EVoiceProvider::Vivox);\nvoice->JoinChannel(EVoiceChannel::Team, matchId);",
+    "members": [
+      {
+        "sig": "EVoiceProvider::{None, SteamVoice, EosVoice, Vivox, Discord, OpusSelf}",
+        "desc": "未選択 / Steam Voice / EOS Voice / Vivox / Discord SDK / 自前 Opus。"
+      },
+      {
+        "sig": "EVoiceChannel::{Party, Team, Global, Custom}",
+        "desc": "パーティ / チーム / 全体 / タイトル固有の追加チャンネル。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCheckpointInfo",
+    "kind": "構造体",
+    "header": "gameframework/CheckpointSystem.h",
+    "summary": "1 つの checkpoint の定義。 id・復活座標・level_index・sort_order・one_way (戻れなくする) ・requires_unlock (隠し) を持つ。",
+    "when": "Register() に渡す時。",
+    "sample": "FCheckpointInfo cp{};\ncp.id = \\\"cp.boss\\\";\ncp.spawn_pos = {500, 200};\ncp.sort_order = 1;\ncp.one_way = true;        // ここまで来たら戻れない\ncp.requires_unlock = false;"
+  }
+}

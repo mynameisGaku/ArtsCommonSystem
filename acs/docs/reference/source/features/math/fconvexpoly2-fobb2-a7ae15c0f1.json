@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FConvexPoly2 / FObb2",
+    "kind": "構造体",
+    "header": "math/Collision2D.h",
+    "summary": "FConvexPoly2=凸多角形コライダー（最大 16 頂点）。 FObb2=回転できる矩形（OBB、中心+半サイズ+回転角）。 複雑な形のスプライト当たり判定に。",
+    "when": "回転する箱や、スプライトの凸包など、軸並行矩形では表せない形の当たり判定が要る時。 判定は内部で SAT に委譲される。",
+    "sample": "FConvexPoly2 tri;\ntri.Add({0,0}); tri.Add({10,0}); tri.Add({5,10});\nObb2 box{ {x,y}, {16,8}, 0.5f };  // 中心,半サイズ,回転(rad)\nif (Intersect(box, tri)) { /* 衝突 */ }\nConvexPoly2 p = ToPoly(box);      // OBB を多角形に",
+    "members": [
+      {
+        "sig": "void FConvexPoly2::Add(FVec2 v) / Clear()",
+        "desc": "頂点を追加 / 全消去。 最大 kMaxVerts(16) まで。"
+      },
+      {
+        "sig": "FObb2{ FVec2 center, FVec2 half_size, f32 rotation }",
+        "desc": "回転矩形。 rotation はラジアン（反時計回り）。"
+      },
+      {
+        "sig": "FVec2 FObb2::AxisX() / AxisY()",
+        "ret": "ローカル軸",
+        "desc": "回転後のローカル X/Y 軸（単位ベクトル）。"
+      },
+      {
+        "sig": "FConvexPoly2 ToPoly(const FAabb2/FObb2&)",
+        "ret": "多角形",
+        "desc": "矩形/OBB を 4 頂点の凸多角形に変換し、共通の SAT 判定へ載せる。"
+      },
+      {
+        "sig": "FAabb2 AabbOf(const FConvexPoly2/FObb2&)",
+        "ret": "外接矩形",
+        "desc": "形状を囲む軸並行矩形を求める。 広域カリングの前段に。"
+      },
+      {
+        "sig": "FVec2 Centroid(const FConvexPoly2&)",
+        "ret": "重心",
+        "desc": "多角形の頂点平均（重心の近似）。"
+      }
+    ]
+  }
+}

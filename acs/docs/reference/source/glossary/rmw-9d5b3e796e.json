@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "RMW",
+  "definition": "Read-Modify-Write。 読んで・変えて・書く、を一気にアトミックに行う操作(FetchAdd 等)。"
+}

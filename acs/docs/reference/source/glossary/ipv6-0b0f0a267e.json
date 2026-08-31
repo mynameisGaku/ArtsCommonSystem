@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IPv6",
+  "definition": "IPv4 を拡張した新しいアドレス形式。 ACS v1 では未対応。"
+}

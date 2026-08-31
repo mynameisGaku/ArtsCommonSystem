@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CNetSnapshot / transport 共通のエラー subcode 集。 NotConnected / BadArgument / BufferFull / PayloadTooBig / BadMagic / BadCrc や、UDP 固有の WSA エラー等を固定値で持つ。">
+  <title>FNetSnapshotError — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FNetSnapshotError</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FNetSnapshotError</h1>
+<p class="lead">CNetSnapshot / transport 共通のエラー <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26291">subcode</button><span class="term-tooltip" id="term-tip-26291" role="tooltip">エラーコードの細目番号。 ACS の Result が持つ FErrorCode.subcode で、どの段階・原因の失敗かを区別する。 AssetPack は 1300 番台を使う。</span></span> 集。 Not<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26292">Connect</button><span class="term-tooltip" id="term-tip-26292" role="tooltip">IBackendClient で送信先(サーバや出力ファイル)を開いて通信を始めること。 終了時は Disconnect。</span></span>ed / BadArgument / BufferFull / PayloadTooBig / BadMagic / BadCrc や、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26293">UDP</button><span class="term-tooltip" id="term-tip-26293" role="tooltip">接続を張らずデータグラムを 1 通ずつ送る通信方式。 速いが到達・順序は保証されない。 関連語 TCP。</span></span> 固有の WSA エラー等を固定値で持つ。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fnetsnapshoterror-eb78e258.html"><code>acs::game::FNetSnapshotError</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26289">TResult</button><span class="term-tooltip" id="term-tip-26289" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span> の失敗時に <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26290">subcode</button><span class="term-tooltip" id="term-tip-26290" role="tooltip">エラーコードの細目番号。 ACS の Result が持つ FErrorCode.subcode で、どの段階・原因の失敗かを区別する。 AssetPack は 1300 番台を使う。</span></span> で switch 分岐したい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/NetSnapshot.h</dd></div></dl></section>
+
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CWorkshopBridgeStub",
+    "kind": "クラス",
+    "header": "gameframework/WorkshopBridge.h",
+    "summary": "Workshop SDK 未統合ビルド / テスト用の何もしない実装。 Init() だけ成功し、公開 / 購読 / DL 系は「未実装」エラー、IsAvailable() は常に false です。",
+    "when": "実 SDK を繋ぐ前の既定実装として、コンパイルと UI 判定だけ通したい時。",
+    "sample": "IWorkshopBridge& ws = GetWorkshopStub();\nif (!ws.IsAvailable()) HideWorkshopButton();",
+    "members": [
+      {
+        "sig": "TResult<void> Init() noexcept override",
+        "desc": "常に成功(m_Initialized = true)。"
+      },
+      {
+        "sig": "bool IsAvailable() const noexcept override",
+        "desc": "常に false。"
+      },
+      {
+        "sig": "f32 GetDownloadProgress(u64) noexcept override",
+        "desc": "常に -1 を返す。"
+      },
+      {
+        "sig": "using FWorkshopBridgeStub = CWorkshopBridgeStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWorkshopBridgeStub を使う。"
+      }
+    ]
+  }
+}

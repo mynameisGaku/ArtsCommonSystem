@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "DefaultAllocator()",
+    "kind": "関数",
+    "header": "memory/Memory.h",
+    "summary": "既定のアロケータを返す(起動時は CSystemAllocator)。 MakeShared 等が指定なしの時に使う。 SetDefaultAllocator で差し替え可能。",
+    "when": "特別な事情がなければこれでよい。",
+    "sample": "IAllocator& a = DefaultAllocator();"
+  }
+}

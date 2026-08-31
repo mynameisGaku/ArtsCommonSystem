@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SSAO(Screen-Space Ambient Occlusion、GTAO ベース)。 深度 + 法線 G-buffer から各ピクセルの遮蔽量を求め、隙間や接地部を自然に暗くする。 コンタクトシャドウも出力。 深度対応のバイラテラルブラーでノイズを除去する。">
+  <title>CSsao — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-core.html">render-core モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-core.html">render-core</a><span>/</span><span aria-current="page">CSsao</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-core</div><h1 class="identifier">CSsao</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28763">SSAO</button><span class="term-tooltip" id="term-tip-28763" role="tooltip">Screen-Space Ambient Occlusion。 深度から隙間や接地部の遮蔽を求めて陰影を足す技法。</span></span>(Screen-Space Ambient Occlusion、GTAO ベース)。 深度 + <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28764">法線</button><span class="term-tooltip" id="term-tip-28764" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span> G-buffer から各ピクセルの遮蔽量を求め、隙間や接地部を自然に暗くする。 コンタクトシャドウも出力。 深度対応の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28765">バイラテラルブラー</button><span class="term-tooltip" id="term-tip-28765" role="tooltip">深度などのエッジを保ちつつノイズだけをぼかすブラー。</span></span>でノイズを除去する。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/render/cssao-293b94ae.html"><code>acs::CSsao</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>オブジェクトの隙間・接地・しわなどに陰影を足してリアル感を上げたいとき。 出力を CPbrShader::SetSsao に渡す。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-core</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/Ssao.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-3fae103e9f74eaf061db"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/render/cssao-293b94ae/init-45a809c8.html">Init</a>(IRhiDevice&amp;, u32 width, u32 height) / <a href="../../symbols/render/cssao-293b94ae/resize-baf962c1.html">Resize</a>(...)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>出力 RT と AO/blur <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28762">パイプライン</button><span class="term-tooltip" id="term-tip-28762" role="tooltip">1 回の描画方式(VS+PS・頂点レイアウト・ブレンド・深度等)を丸ごと固めたオブジェクト。 PSO とも。</span></span>を作る。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cssao-293b94ae/init-45a809c8.html"><code>acs::CSsao::Init</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cssao-293b94ae/resize-baf962c1.html"><code>acs::CSsao::Resize</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-8a15c055c6b1026b97eb"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>void <a href="../../symbols/render/cssao-293b94ae/render-b8a9abdd.html">Render</a>(IRhiDevice&amp;, IRhiCommandList&amp;, scene_depth, normal_gbuffer, view_proj, inv_view_proj, view, eye, light_dir, intensity = 1.0f, radius = 0.5f)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>AO + コンタクトシャドウを計算しブラーまでかける。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cssao-293b94ae/render-b8a9abdd.html"><code>acs::CSsao::Render</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-87e7e2f2a492721bb88f"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>IRhiTexture* <a href="../../symbols/render/cssao-293b94ae/outputtexture-592bcb9b.html">OutputTexture</a>() / <a href="../../symbols/render/cssao-293b94ae/rawtexture-395e2aa8.html">RawTexture</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ブラー後(通常こちら) / ブラー前。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cssao-293b94ae/outputtexture-592bcb9b.html"><code>acs::CSsao::OutputTexture</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cssao-293b94ae/rawtexture-395e2aa8.html"><code>acs::CSsao::RawTexture</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-82aaf18b1dc43eaaab1a"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>using <a href="../../symbols/render/fssao-5b0f06b9.html">FSsao</a> = CSsao</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CSsao を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fssao-5b0f06b9.html"><code>acs::FSsao</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CSsao</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/render/cssao-293b94ae.html"><code>acs::CSsao</code></a><span class="summary"><code>class CSsao;</code></span></li><li><a href="../../symbols/render/cssao-293b94ae/cssao-1c3c9343.html"><code>acs::CSsao::CSsao</code></a><span class="summary"><code>CSsao() noexcept = default;</code></span></li><li><a href="../../symbols/render/cssao-293b94ae/cssao-6636c20a.html"><code>acs::CSsao::CSsao</code></a><span class="summary"><code>CSsao(const CSsao&amp;) = delete;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CSsaoの使用例"><code>CSsao ssao;
+ssao.Init(*dev, w, h);
+ssao.Render(*dev, *cl, scene_depth, mv.OutputNormalTexture(),
+            vp, inv_vp, view, eye, light_dir,
+            /*intensity=*/1.0f, /*radius=*/0.5f);
+pbr.SetSsao(ssao.OutputTexture(), 1.0f, w, h);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

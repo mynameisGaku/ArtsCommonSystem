@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="レーティング軸 (年齢ゲート / Storefront age rating 表示用)。 SexualMinor_HardcodedBlock だけは特別で、実装 (Stub / 実 SDK / モック) がこの レーティングを返した場合 verdict は必ず Block にハードコードする。 Allow へ降格する 経路を残さず、法令遵守上の最重要ガードレールをシーム層で保証する。">
+  <title>acs::game::EContentRating — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="econtentrating-d1db327a.html" aria-current="page">EContentRating</a><a class="tree-child" href="econtentrating-d1db327a/explicit-cf94191d.html">Explicit</a><a class="tree-child" href="econtentrating-d1db327a/mature-33b2fa97.html">Mature</a><a class="tree-child" href="econtentrating-d1db327a/mild-0fb52423.html">Mild</a><a class="tree-child" href="econtentrating-d1db327a/safe-265631e2.html">Safe</a><a class="tree-child" href="econtentrating-d1db327a/sexualminor-hardcodedblock-ec57789f.html">SexualMinor_HardcodedBlock</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">EContentRating</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / gameframework</div>
+<h1 class="identifier">acs::game::EContentRating</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9659">レーティング</button><span class="term-tooltip" id="term-tip-9659" role="tooltip">プレイヤーの腕前を表す数値(Elo / Glicko-2 等)。 値が近い者同士を組ませると公平な対戦になりやすい。</span></span>軸 (年齢ゲート / Storefront age rating 表示用)。 SexualMinor_HardcodedBlock だけは特別で、実装 (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9660">Stub</button><span class="term-tooltip" id="term-tip-9660" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> / 実 SDK / モック) がこの <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9661">レーティング</button><span class="term-tooltip" id="term-tip-9661" role="tooltip">プレイヤーの腕前を表す数値(Elo / Glicko-2 等)。 値が近い者同士を組ませると公平な対戦になりやすい。</span></span>を返した場合 verdict は必ず Block にハードコードする。 Allow へ降格する 経路を残さず、法令遵守上の最重要ガードレールを<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9662">シーム</button><span class="term-tooltip" id="term-tip-9662" role="tooltip">プラットフォーム固有 SDK との結合点を抽象化した純粋仮想インターフェース。 ゲーム側はこれ越しに呼び、実装をビルド時に差し替える。</span></span>層で保証する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::EContentRatingの宣言"><code>enum class <a href="econtentrating-d1db327a.html" aria-current="page">EContentRating</a> : <a href="../foundation/u8-b0858e19.html">u8</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/ContentModerator.h:81</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="econtentrating-d1db327a/explicit-cf94191d.html"><span><span class="identifier">Explicit = 3</span><span class="summary">露骨な暴力 / 性的描写 (18+ 相当、要 age gate)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="econtentrating-d1db327a/mature-33b2fa97.html"><span><span class="identifier">Mature = 2</span><span class="summary">成人向け要素を含む (17+ 相当)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="econtentrating-d1db327a/mild-0fb52423.html"><span><span class="identifier">Mild = 1</span><span class="summary">軽度の暴力 / 風刺 等 (PG 相当)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="econtentrating-d1db327a/safe-265631e2.html"><span><span class="identifier">Safe = 0</span><span class="summary">全年齢。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="econtentrating-d1db327a/sexualminor-hardcodedblock-ec57789f.html"><span><span class="identifier">SexualMinor_HardcodedBlock = 4</span><span class="summary">児童性的搾取に該当。 実装にかかわらず verdict は常に Block。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

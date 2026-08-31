@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "WorkerCount / IsWorker",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "並列ワーカ数と、今のコードがワーカスレッド上で動いているかを返す。",
+    "when": "分割数の目安にしたり、ジョブの中（ワーカ上）で誤って描画関数を呼んでいないか確認したりする時。",
+    "sample": "i32 n = WorkerCount();   // 1 以上\nif (IsWorker()) { /* ここで描画系を呼んではいけない */ }",
+    "members": [
+      {
+        "sig": "i32 WorkerCount()",
+        "ret": "ワーカ数",
+        "desc": "並列ワーカの数（1 以上）。"
+      },
+      {
+        "sig": "bool IsWorker()",
+        "ret": "ワーカ上か",
+        "desc": "今このコードがワーカスレッド上で動いていれば true。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CNavGrid::FPathPoint",
+    "kind": "構造体",
+    "header": "gameframework/Pathfinding.h",
+    "summary": "経路の 1 セルを表す座標ペア (u32 x, y)。 FindPath() の出力配列の要素。",
+    "when": "求めた経路をたどってキャラを動かす時、各セルの座標として読む。",
+    "sample": "for (usize i = 0; i < path.Size(); ++i) {\n    u32 cx = path[i].x, cy = path[i].y;\n}"
+  }
+}

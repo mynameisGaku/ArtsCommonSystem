@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSky",
+    "kind": "クラス",
+    "header": "render/Sky.h",
+    "summary": "テクスチャ不要の手続き生成スカイ。 ピクセルシェーダで天頂・地平線・地面の色と太陽を補間して背景の空を描く。 Day/Sunset/Night プリセット付き。",
+    "when": "3D シーンの背景に空を出したいとき。 シーン描画より先に呼ぶ。 IBL の環境マップ元にもなる。",
+    "sample": "CSky sky;\nsky.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nsky.PresetSunset();\nsky.SetSunDirection(FVec3{0.3f, 0.2f, -0.9f});\n// 描画フレームの最初に\nsky.Render(*cl, camera);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)",
+        "desc": "初期化。"
+      },
+      {
+        "sig": "void PresetDay() / PresetSunset() / PresetNight()",
+        "desc": "青空 / 茜色 / 紺青のプリセット。"
+      },
+      {
+        "sig": "void SetSunDirection(FVec3) / SetSunColor(FVec3) / SetSunRadius(f32) / SetSunGlow(f32)",
+        "desc": "太陽の方向・色・見かけサイズ・周囲のハロー。"
+      },
+      {
+        "sig": "void SetZenithColor(FVec3) / SetHorizonColor(FVec3) / SetGroundColor(FVec3)",
+        "desc": "天頂・地平線・地面方向の色。"
+      },
+      {
+        "sig": "FVec3 SunDirection() / SunColor() / ZenithColor() / HorizonColor() / GroundColor() / f32 SunRadius() / SunGlow()",
+        "desc": "現在の太陽・空パラメータ取得。 CStandardShader / IBL と太陽方向を整合させるのに使う。"
+      },
+      {
+        "sig": "void Render(IRhiCommandList& cl, const CCamera& camera)",
+        "desc": "空を描く。 深度は背景塗り想定で書込み無し・テスト無し。",
+        "when": "シーン描画の先頭。"
+      },
+      {
+        "sig": "using FSky = CSky",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSky を使う。"
+      }
+    ]
+  }
+}

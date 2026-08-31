@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "FComponentTypeId",
+    "kind": "型エイリアス",
+    "header": "ecs/ComponentId.h",
+    "summary": "コンポーネント型ごとに一意な番号(u32)を割り当てる仕組み。 GetComponentTypeId<T>() は型 T に固有の番号を返し、ストレージ配列の添字に使う。 初回呼び出しで割り当て、以降は同じ値(スレッド安全)。",
+    "when": "通常ユーザーが直接触ることは少なく、CWorld 内部がコンポーネントの保管場所を引くために使う。 低レベルに自前管理したい時のみ。",
+    "sample": "FComponentTypeId pid = GetComponentTypeId<Position>();\nFComponentTypeId vid = GetComponentTypeId<Velocity>();\n// pid != vid（型ごとに別番号）",
+    "members": [
+      {
+        "sig": "constexpr FComponentTypeId kMaxComponentTypes = 256",
+        "desc": "扱えるコンポーネント型の上限(0..255)。"
+      },
+      {
+        "sig": "FComponentTypeId GetComponentTypeId<T>()",
+        "ret": "型固有の番号",
+        "desc": "型 T に対応する番号を返す。 初めて呼んだ型に新しい番号を振る。"
+      },
+      {
+        "sig": "using ComponentTypeId = FComponentTypeId",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは FComponentTypeId を使う。"
+      }
+    ]
+  }
+}

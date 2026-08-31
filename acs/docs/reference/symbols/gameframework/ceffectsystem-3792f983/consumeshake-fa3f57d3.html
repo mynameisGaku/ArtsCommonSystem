@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="pending のシェイク trauma を 0 にリセットする (CCamera2D が AddShake 後に呼ぶ)。">
+  <title>acs::game::CEffectSystem::ConsumeShake — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ceffectsystem-3792f983.html">CEffectSystem の概要</a><a class="tree-child" href="ceffectsystem-0bbef5bf.html">CEffectSystem</a><a class="tree-child" href="ceffectsystem-392a290b.html">CEffectSystem</a><a class="tree-child" href="ceffectsystem-9ade3dd2.html">CEffectSystem</a><a class="tree-child" href="consumeshake-fa3f57d3.html" aria-current="page">ConsumeShake</a><a class="tree-child" href="flash-e79926b0.html">Flash</a><a class="tree-child" href="flashcolor-274c2f91.html">FlashColor</a><a class="tree-child" href="flashintensity-f9635492.html">FlashIntensity</a><a class="tree-child" href="hitstop-75399d6c.html">HitStop</a><a class="tree-child" href="hitstopremain-0b1e1bd6.html">HitStopRemain</a><a class="tree-child" href="ishitstop-cef3c584.html">IsHitStop</a><a class="tree-child" href="m-flashcolor-7496b92f.html">m_FlashColor</a><a class="tree-child" href="m-flashmax-3149cc9f.html">m_FlashMax</a><a class="tree-child" href="m-flasht-26015b27.html">m_FlashT</a><a class="tree-child" href="m-flashtotal-b9ccfebc.html">m_FlashTotal</a><a class="tree-child" href="m-hitstopremain-09d489f0.html">m_HitStopRemain</a><a class="tree-child" href="m-pendingshake-08c8c051.html">m_PendingShake</a><a class="tree-child" href="operator-41ad799b.html">operator=</a><a class="tree-child" href="operator-cf23bfc5.html">operator=</a><a class="tree-child" href="pendingshaketrauma-b481fdc9.html">PendingShakeTrauma</a><a class="tree-child" href="tick-02f2e0ba.html">Tick</a><a class="tree-child" href="triggershake-514b42dd.html">TriggerShake</a><a class="tree-child" href="ceffectsystem-59b969d6.html">~CEffectSystem</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ceffectsystem-3792f983.html">CEffectSystem</a><span>/</span><span aria-current="page">ConsumeShake</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CEffectSystem::ConsumeShake</h1>
+<p class="lead">pending のシェイク <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6081">trauma</button><span class="term-tooltip" id="term-tip-6081" role="tooltip">画面振動 (camera shake) の強さを表す [0,1] の連続値。 被弾などで加算し、毎フレーム減衰させる。</span></span> を 0 にリセットする (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6082">CCamera2D</button><span class="term-tooltip" id="term-tip-6082" role="tooltip">2D カメラ。 位置/ズーム/回転、ターゲット追従、画面振動、world↔screen 座標変換を持つ。</span></span> が AddShake 後に呼ぶ)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CEffectSystem::ConsumeShakeの宣言"><code>void <a href="consumeshake-fa3f57d3.html" aria-current="page">ConsumeShake</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ceffectsystem-3792f983.html"><code>acs::game::CEffectSystem</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/EffectSystem.h:163</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

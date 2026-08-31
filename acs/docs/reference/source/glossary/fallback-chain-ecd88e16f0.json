@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "fallback chain",
+  "definition": "複数の font face を優先順位付きで並べ、ある文字が前の face に無ければ次の face で補う仕組み。 CJK や emoji を別 face で埋める用途に使う。"
+}

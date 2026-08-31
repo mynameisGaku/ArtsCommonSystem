@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTweenHandle",
+    "kind": "構造体",
+    "header": "gameframework/Tween.h",
+    "summary": "個々のトゥイーンを指すハンドル(index + 世代)。 古い / 完了済みのトゥイーンを誤って操作しないための識別子です。",
+    "when": "Tween の戻り値を保持して、後で Cancel / IsActive に渡す時。",
+    "sample": "FTweenHandle h = tweens.Tween(&x, 0.0f, 1.0f, 1.0f);\nif (tweens.IsActive(h)) tweens.Cancel(h);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "generation != 0 なら有効。"
+      }
+    ]
+  }
+}

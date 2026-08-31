@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "GetTransportStub()",
+    "kind": "関数",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "プロセス共有の stub INetTransport を返す。 常に NotImplemented を返す null-object。",
+    "when": "transport を結線せずリンク互換を保ちたい時 (Init が nullptr 時に内部で差し替えるのもこれ)。"
+  }
+}

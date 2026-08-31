@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mlonnx",
+    "title": "mlonnx — 機械学習(ONNX)推論",
+    "description": "学習済み AI モデルを ONNX 形式で読み込み、ゲーム内で推論(入力 → 出力の計算)を実行するモジュール。 NPC の行動判断・画像認識・音声処理などに使えます。 ゲーム本体はbackend(具体的な ML 実行エンジン)を意識せず、acs::game の共通窓口越しに呼べるのが特徴です。"
+  },
+  "feature": {
+    "name": "InstallOnnxAsDefault()",
+    "kind": "関数",
+    "header": "mlonnx/OnnxMlRuntime.h",
+    "summary": "gameframework 側の provider 窓口に GetDefaultOnnxMlRuntime を登録する結線ヘルパ。 以降 acs::game::GetDefaultMlRuntime() が本物の ONNX backend を返すようになる。",
+    "when": "アプリ起動時に 一度だけ呼ぶ。 これでゲーム本体は backend 非依存のまま GetDefaultMlRuntime() だけで実 runtime を取得でき、#if WITH_ACS_ML_ONNX はこの呼び出し 1 箇所に集約できる。",
+    "sample": "// アプリ起動時に一度だけ:\n#if WITH_ACS_ML_ONNX\n    acs::mlonnx::InstallOnnxAsDefault();   // provider を登録\n#endif\n// 以降どこでも本物の ONNX runtime が得られる:\nacs::game::IMlRuntime& rt = acs::game::GetDefaultMlRuntime();",
+    "members": [
+      {
+        "sig": "void InstallOnnxAsDefault() noexcept",
+        "desc": "既定 MlRuntime provider として ONNX backend を登録する。 未登録の状態では GetDefaultMlRuntime() は stub を返す。"
+      }
+    ]
+  }
+}

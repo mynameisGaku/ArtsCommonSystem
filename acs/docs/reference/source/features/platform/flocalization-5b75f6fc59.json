@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FLocalization",
+    "kind": "クラス",
+    "header": "platform/Localization.h",
+    "summary": "多言語対応（i18n）の仕組み。 各言語を FStorage（INI 形式の翻訳辞書）として持ち、キーから現在言語の文字列を引く。 見つからなければ代替言語、それも無ければキー名そのものを返す。",
+    "when": "メニューやセリフを日本語・英語など複数言語で出したい時。 表示文字列をコードに直書きせず、言語ファイルにまとめる。",
+    "sample": "FLocalization L;\nL.LoadActive(L\"lang/ja.lang\");     // 現在言語\nL.LoadFallback(L\"lang/en.lang\");   // 代替\n// 描画時:\nsb.DrawText(font, L.Tr(\"menu.start\"), x, y, color);",
+    "members": [
+      {
+        "sig": "TResult<void> LoadActive(const wchar_t* path)",
+        "desc": "現在表示する言語をファイルから読み込む。"
+      },
+      {
+        "sig": "TResult<void> LoadFallback(const wchar_t* path)",
+        "desc": "キーが無い時に使う代替言語を読み込む。"
+      },
+      {
+        "sig": "TResult<void> LoadActiveBytes / LoadFallbackBytes(const u8* data, usize size)",
+        "desc": "メモリ上のバイト列から読み込む（埋め込み用）。"
+      },
+      {
+        "sig": "void Swap()",
+        "desc": "active と fallback を入れ替える（簡易な言語切替）。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "両方の言語辞書を空にする。"
+      },
+      {
+        "sig": "const char* Tr(const char* key) const",
+        "ret": "翻訳文字列",
+        "desc": "キーを翻訳して返す。 active → fallback → キー自体 の順で探す。",
+        "when": "画面に出すすべての文字列をこれ経由で取る。",
+        "sample": "const char* s = L.Tr(\"greeting\");"
+      },
+      {
+        "sig": "bool Has(const char* key) const",
+        "ret": "存在するか",
+        "desc": "active か fallback にキーがあれば true。"
+      },
+      {
+        "sig": "FStorage& Active() / Fallback()",
+        "ret": "FStorage 参照",
+        "desc": "中の翻訳辞書（FStorage）に直接アクセスする。 独自に加工したい時用。"
+      }
+    ]
+  }
+}

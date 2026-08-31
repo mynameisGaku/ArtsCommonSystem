@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "MRT",
+  "definition": "Multiple Render Targets。 1 回の描画で複数のレンダーターゲットに同時出力すること。"
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTurnSideId",
+    "kind": "構造体",
+    "header": "gameframework/TurnManager.h",
+    "summary": "ターンの陣営(side)を識別する 32bit のハンドル(24bit index + 8bit世代)。 除外→再追加でスロットが再利用されても、古い ID を無効と検出できます。",
+    "when": "CTurnManager の各 API で陣営を指す時。",
+    "sample": "FTurnSideId id = tm.AddSide(\"Enemy\", 2, 50, false);\nif (id.IsValid()) tm.RemoveSide(id);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "有効な ID なら true(packed != 0)。"
+      },
+      {
+        "sig": "u32 Index() const / u8 Gen() const",
+        "desc": "index 部 / 世代部を取り出す。"
+      },
+      {
+        "sig": "static FTurnSideId Pack(u32 index, u8 gen)",
+        "desc": "index と世代からハンドルを組み立てる。"
+      }
+    ]
+  }
+}

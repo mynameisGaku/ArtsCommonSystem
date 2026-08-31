@@ -1,0 +1,79 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "FString",
+    "kind": "クラス",
+    "header": "container/String.h",
+    "summary": "NUL 終端を維持する UTF-8 可変長文字列。 22 バイト以下は本体内に保持し、超過時だけ指定 IAllocator から確保する。 FStringView へ暗黙変換できる。",
+    "when": "中身を書き換えたり連結したりする文字列が欲しい時。 名前・ログ・組み立て中のテキストなど。",
+    "sample": "FString s = \"Hello\";\ns.Append(\", \");\ns.Append(FStringView(\"world\"));\ns.AppendFormat(\" (%d)\", 42);  // printf 風\nFStringView v = s;            // ビューへ暗黙変換",
+    "members": [
+      {
+        "sig": "FString(const char* cstr, IAllocator& a = DefaultAllocator())",
+        "desc": "C 文字列から作る。 アロケータも指定できる。"
+      },
+      {
+        "sig": "FString(FStringView v, IAllocator& a = DefaultAllocator())",
+        "desc": "ビューから中身をコピーして作る。"
+      },
+      {
+        "sig": "void Append(FStringView v) / Append(char c)",
+        "desc": "末尾に文字列 / 1 文字を追記する。"
+      },
+      {
+        "sig": "usize AppendFormat(const char* fmt, ...)",
+        "ret": "最終サイズ(失敗時 0)",
+        "desc": "printf 風の書式で末尾に整形追記する。",
+        "sample": "s.AppendFormat(\"hp=%d/%d\", cur, max);"
+      },
+      {
+        "sig": "void Reserve(usize n)",
+        "desc": "容量を予約して追記中の再確保を減らす。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "中身を空にし、現在の確保容量は保持する。"
+      },
+      {
+        "sig": "const char* Data() / usize Size() / bool IsEmpty()",
+        "desc": "先頭ポインタ(NUL 終端) / バイト長 / 空かどうか。"
+      },
+      {
+        "sig": "usize Capacity() const",
+        "ret": "確保容量",
+        "desc": "現在の確保済み容量。 本体内に保持している時は 22。"
+      },
+      {
+        "sig": "FStringView View() const / operator FStringView()",
+        "ret": "非所有ビュー",
+        "desc": "中身を指す FStringView を返す。 多くの API はこの形で受ける。"
+      },
+      {
+        "sig": "char& operator[](usize i)",
+        "desc": "i バイト目を参照する(範囲外はアサート)。"
+      },
+      {
+        "sig": "static constexpr usize kSsoCapacity = 22",
+        "desc": "ヒープを使わずインライン保持できる最大バイト数。"
+      },
+      {
+        "sig": "void Add(char c)",
+        "desc": "末尾に 1 文字を追記する(Append(char) の別名)。"
+      },
+      {
+        "sig": "explicit FString(IAllocator& a)",
+        "desc": "空文字列を指定アロケータで作る。 引数なしの既定構築も可能。"
+      },
+      {
+        "sig": "bool operator==(const FString&/FStringView, const FString&/FStringView)",
+        "ret": "等しいか",
+        "desc": "FString 同士、または FString と FStringView をバイト単位で比較する自由関数(3 オーバーロード)。"
+      }
+    ]
+  }
+}

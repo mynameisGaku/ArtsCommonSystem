@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FEditorKeyframe",
+    "kind": "構造体",
+    "header": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+    "summary": "ACinematicsTimelineEditorPanel が内部保持する keyframe (リッチ payload 付き)。 runtime の CCinematicsDirector::FTimelineKeyframe より広い payload (FVec3 / 色 / scale / event_id) を持つ。 Play 時に kind に応じた FTimelineKeyframe へ変換 (ベイク) される。 active な kind に対応するフィールドのみ意味を持つ。",
+    "when": "panel 内部の keyframe 配列の要素として。 通常は AddKeyframe 経由で生成され、直接構築はあまりしない。",
+    "sample": "acs::game::cinetimeline::FEditorKeyframe kf {};\nkf.time_sec = 2.0f;\nkf.kind = acs::game::cinetimeline::ETimelineKeyKind::FadeColor;\nkf.fade_start_color = { 0.0f, 0.0f, 0.0f };\nkf.fade_end_color   = { 1.0f, 1.0f, 1.0f };",
+    "members": [
+      {
+        "sig": "f32 time_sec = 0.0f",
+        "desc": "タイムライン上の発火時刻 [秒]。"
+      },
+      {
+        "sig": "ETimelineKeyKind kind = ETimelineKeyKind::TriggerCallback",
+        "desc": "この keyframe の種別。"
+      },
+      {
+        "sig": "FVec3 camera_target { 0,0,0 }",
+        "desc": "CameraCut / SpawnEffect で使用 (target / spawn position)。"
+      },
+      {
+        "sig": "FVec3 fade_start_color { 0,0,0 }",
+        "desc": "FadeColor で使用 (r,g,b in [0,1])。"
+      },
+      {
+        "sig": "FVec3 fade_end_color { 1,1,1 }",
+        "desc": "FadeColor で使用 (r,g,b in [0,1])。"
+      },
+      {
+        "sig": "f32 time_scale { 1.0f }",
+        "desc": "TimeScale で使用 (時間倍率)。"
+      },
+      {
+        "sig": "u32 event_id { 0u }",
+        "desc": "SpawnEffect / TriggerCallback で使用。"
+      },
+      {
+        "sig": "FEditorKeyframe() noexcept = default",
+        "desc": "既定構築 (全フィールド上記既定値)。"
+      }
+    ]
+  }
+}

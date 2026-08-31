@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "セグメント",
+  "definition": "メモリを目的・寿命で分けた論理ヒープ(Default/Permanent/Temp/Resource/Develop)。 CMemorySystem が各セグメントに独立した予算を持つ。"
+}

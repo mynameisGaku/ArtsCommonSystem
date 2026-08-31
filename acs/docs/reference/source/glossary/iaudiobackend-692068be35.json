@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IAudioBackend",
+  "definition": "CAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。 Windows では XAudio2 実装が差し込まれる。"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "localmatch",
+    "title": "localmatch — ローカルマッチメイク",
+    "description": "サーバを使わず、同じプロセスの中だけでプレイヤー同士を引き合わせるマッチメイクの実装です。 検索を出した者同士をレーティング(腕前の数値)が近い順に組ませます。 テストやオフライン開発、ローカル対戦の動作確認に使います。"
+  },
+  "feature": {
+    "name": "InstallLocalMatchmakerAsDefault()",
+    "kind": "関数",
+    "header": "localmatch/LocalMatchmaker.h",
+    "summary": "gameframework の matchmaker provider にローカル実装を登録します。 これ以降 acs::game::GetDefaultMatchmaker() がローカル matchmaker を返すようになります。",
+    "when": "アプリ起動時に一度だけ呼ぶ。 これで上位コードは backend を意識せず GetDefaultMatchmaker() だけで実 matchmaker を得られる(未登録時は stub が返る)。",
+    "sample": "// 起動時に一度だけ\nacs::localmatch::InstallLocalMatchmakerAsDefault();\n// 以降どこでも:\nacs::game::IMatchmaker& mm = acs::game::GetDefaultMatchmaker();"
+  }
+}

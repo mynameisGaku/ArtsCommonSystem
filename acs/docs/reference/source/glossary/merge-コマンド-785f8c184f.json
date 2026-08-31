@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "merge(コマンド)",
+  "definition": "連続 drag のような細かい操作を 1 件の undo エントリにまとめること。 AEditorCommand の CanMerge / MergeWith で判定・統合する。"
+}

@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CEntitlementRegistry",
+    "kind": "クラス",
+    "header": "gameframework/Entitlement.h",
+    "summary": "プレイヤーが DLC・シーズンパス・コスメパック・引換コードなどの権利 (entitlement) を「持っているか」をゲーム側から問い合わせる窓口。 ストアやプラットフォーム SDK には依存せず、取得結果を Add() で流し込んでもらう設計。",
+    "when": "「拡張マップを解放するか」「シーズンパス所持バッジを出すか」を権利の有無で判定したい時。",
+    "sample": "CEntitlementRegistry reg;\nreg.Add({ \"dlc.expansion_1\",  EEntitlementKind::Dlc,          true });\nreg.Add({ \"cosmetic.hat_red\", EEntitlementKind::CosmeticPack, true });\nif (reg.IsActive(\"dlc.expansion_1\")) UnlockExpansionMap();\nif (reg.HasAny(EEntitlementKind::CosmeticPack)) ShowCosmeticBadge();",
+    "members": [
+      {
+        "sig": "void Add(FEntitlementInfo info)",
+        "desc": "権利を登録。 id==nullptr は no-op。 重複 dedup はストア側責務。"
+      },
+      {
+        "sig": "bool Has(const char* id)",
+        "ret": "登録済みか",
+        "desc": "active 不問で id があるか。"
+      },
+      {
+        "sig": "bool IsActive(const char* id)",
+        "ret": "有効な権利か",
+        "desc": "登録済みかつ active なら true。"
+      },
+      {
+        "sig": "bool HasAny(EEntitlementKind k)",
+        "ret": "種別に有効なものがあるか",
+        "desc": "指定種別の active な権利が 1 つでもあるか。",
+        "when": "「シーズンパス所持者向け UI を出すか」等の判定で。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全削除 (ストア再同期時に呼ぶ想定)。"
+      },
+      {
+        "sig": "u32 Count() / const FEntitlementInfo* AllInfos()",
+        "desc": "件数 / 生バッファ (デバッグ・列挙用)。"
+      },
+      {
+        "sig": "using FEntitlementRegistry = CEntitlementRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEntitlementRegistry を使う。"
+      }
+    ]
+  }
+}

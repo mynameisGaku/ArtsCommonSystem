@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ACheckbox",
+  "definition": "真偽値を click で反転し、label と observable state を持つ UI checkbox。"
+}

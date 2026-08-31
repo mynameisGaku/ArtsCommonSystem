@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="C++ と Lua の間で値を受け渡すためのタグ付き共用体風の POD。 kind で種類を、v で中身を表す。 種類は Nil / Bool / Number / String / Handle の 5 つ。 CLuaVm の引数 / 戻り値はすべてこの型の配列で表現する。">
+  <title>FScriptValue — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/scripting.html">scripting モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/scripting.html">scripting</a><span>/</span><span aria-current="page">FScriptValue</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / scripting</div><h1 class="identifier">FScriptValue</h1>
+<p class="lead">C++ と <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29168">Lua</button><span class="term-tooltip" id="term-tip-29168" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span> の間で値を受け渡すための<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29169">タグ</button><span class="term-tooltip" id="term-tip-29169" role="tooltip">AES-GCM が出力する 16 バイトの認証データ。 これが合わないとデータが改竄/破損とみなす。</span></span>付き共用体風の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29170">POD</button><span class="term-tooltip" id="term-tip-29170" role="tooltip">Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。</span></span>。 kind で種類を、v で中身を表す。 種類は Nil / Bool / Number / String / Handle の 5 つ。 C<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29171">Lua</button><span class="term-tooltip" id="term-tip-29171" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span>Vm の引数 / 戻り値はすべてこの型の配列で表現する。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fscriptvalue-17137112.html"><code>acs::game::FScriptValue</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>CallFunction に引数を渡す / 戻り値を受け取る時や、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29166">NativeFunction</button><span class="term-tooltip" id="term-tip-29166" role="tooltip">Lua 側から呼べる C++ 関数の型。 例外を投げてはいけない。</span></span> の中で値を読み書きする時に使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>scripting</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ScriptHost.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-bdfce999f6a486f60ed3"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/gameframework/escriptvaluekind-4352b546.html">EScriptValueKind</a> <a href="../../symbols/gameframework/fscriptvalue-17137112/kind-3fcff05f.html">kind</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>値の種類(既定は Nil)。 これを見てから v の正しいフィールドを読む。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/escriptvaluekind-4352b546.html"><code>acs::game::EScriptValueKind</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/kind-3fcff05f.html"><code>acs::game::FScriptValue::kind</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-c9d599a3393d39e92dd9"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>union { bool <a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/b-4c291c57.html">b</a>; f64 <a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/num-43e6e18a.html">num</a>; const char* <a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/str-5ce232b3.html">str</a>; u32 <a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/handle-f2e83d74.html">handle</a>; } <a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476.html">v</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>中身。 Number は num(整数も f64 に丸めて格納)、文字列は str(所有しない)、Handle は handle(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29167">エンティティ</button><span class="term-tooltip" id="term-tip-29167" role="tooltip">ゲームの登場物を表すただの ID(番号)。 データ自体は持たず、コンポーネントを付けて意味を与える。</span></span>等の不透明 ID)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/b-4c291c57.html"><code>acs::game::FScriptValue::v.b</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/num-43e6e18a.html"><code>acs::game::FScriptValue::v.num</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/str-5ce232b3.html"><code>acs::game::FScriptValue::v.str</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476/handle-f2e83d74.html"><code>acs::game::FScriptValue::v.handle</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112/v-f540a476.html"><code>acs::game::FScriptValue::v</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FScriptValueの使用例"><code>acs::game::FScriptValue v;
+v.kind = acs::game::EScriptValueKind::Number;
+v.v.num = 3.14;          // Number は f64
+// 文字列は所有しない(寿命は呼び出し側が保証)
+acs::game::FScriptValue s;
+s.kind = acs::game::EScriptValueKind::String;
+s.v.str = &quot;hello&quot;;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

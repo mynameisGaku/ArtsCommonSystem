@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "IMatchmaker",
+    "kind": "インターフェース",
+    "header": "gameframework/BackendClient.h",
+    "summary": "対戦相手を探すマッチメイキングのシーム (Glicko-2 / TrueSkill 等の rating ベースを想定)。 StartSearch で検索開始 → PollStatus で状態確認 → AcceptMatch / CancelSearch で完了、という流れ。",
+    "when": "オンライン対戦のマッチ検索を実装したい時。 実アルゴリズムはプロジェクト側実装に委ねる。",
+    "sample": "IMatchmaker& mm = GetDefaultMatchmaker();\nauto t = mm.StartSearch(\"ranked_1v1\", 1500);\nif (t.IsOk()) {\n    FMatchTicket ticket = t.Value();\n    if (mm.PollStatus(ticket) == EMatchStatus::Matched)\n        mm.AcceptMatch(ticket);\n}",
+    "members": [
+      {
+        "sig": "TResult<FMatchTicket> StartSearch(const char* mode, u32 elo_hint)",
+        "ret": "検索チケット",
+        "desc": "mode (\"ranked_1v1\" 等) と rating 推定値で検索を開始する。"
+      },
+      {
+        "sig": "TResult<void> CancelSearch(FMatchTicket t)",
+        "desc": "検索をキャンセルする (無効チケットは no-op)。"
+      },
+      {
+        "sig": "EMatchStatus PollStatus(FMatchTicket t)",
+        "ret": "検索状態",
+        "desc": "現在の検索状態 (Searching/Matched/Cancelled/Failed) を返す。 副作用なし。"
+      },
+      {
+        "sig": "TResult<void> AcceptMatch(FMatchTicket t)",
+        "desc": "Matched 状態のチケットを確定する。 失敗時は再検索に戻る設計を許容。"
+      }
+    ]
+  }
+}

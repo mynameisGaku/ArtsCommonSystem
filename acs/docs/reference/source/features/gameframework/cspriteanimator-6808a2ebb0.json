@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSpriteAnimator",
+    "kind": "クラス",
+    "header": "gameframework/SpriteAnimator.h",
+    "summary": "「経過時間から現在フレーム番号を計算する」ロジックだけを担う部品。 画像 / 描画 API には触れず、利用者が CurrentFrame() を取り出して自分の絵に適用する。",
+    "when": "コマ送りの時間管理だけ欲しい時。 描画と切り離してテストしやすい。 指定フレームでイベント (足音など) を鳴らせる。",
+    "sample": "CSpriteAnimator anim;\nanim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);\nanim.AddFrameEvent(4, [](void* ud) noexcept {\n    static_cast<MyActor*>(ud)->OnFootstep();\n}, this);\nanim.Play();\nanim.Tick(dt);\nu32 idx = anim.CurrentFrame();",
+    "members": [
+      {
+        "sig": "void Init(u32 frame_count, f32 fps, EPlayMode mode = EPlayMode::Loop)",
+        "desc": "フレーム数・速度・再生モードを設定。 不正値は安全な既定 (frame=1, fps=1) に。"
+      },
+      {
+        "sig": "void Play() / Pause() / Stop()",
+        "desc": "現在位置から再開 / 位置維持で停止 / 先頭に戻して停止。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "経過時間を流す。 dt <= 0 は no-op (巻き戻し非対応)。"
+      },
+      {
+        "sig": "u32 CurrentFrame() const",
+        "ret": "フレーム番号",
+        "desc": "今のフレーム。 これを UV 切替に使う。"
+      },
+      {
+        "sig": "bool IsFinished() const",
+        "desc": "Once モードで末尾に達したか。"
+      },
+      {
+        "sig": "f32 NormalizedTime() const",
+        "ret": "進行率 [0,1]",
+        "desc": "周期内 (Loop/PingPong) または 0→1 (Once) の進み具合。"
+      },
+      {
+        "sig": "void SetCurrentFrame(u32 i) / void SetFps(f32 fps)",
+        "desc": "強制シーク / 速度変更。"
+      },
+      {
+        "sig": "void AddFrameEvent(u32 frame, FrameEventFn cb, void* user)",
+        "desc": "指定フレームに入った瞬間 1 度だけ関数を呼ぶ (Loop の周回毎に再発火)。",
+        "when": "足音・エフェクト発生など特定コマに同期させたい時。"
+      },
+      {
+        "sig": "u32 FrameCount() const / f32 Fps() const / EPlayMode Mode() const",
+        "desc": "設定済みの総フレーム数 / 再生速度 (fps) / 再生モードを取得する。"
+      },
+      {
+        "sig": "using FSpriteAnimator = CSpriteAnimator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSpriteAnimator を使う。"
+      }
+    ]
+  }
+}

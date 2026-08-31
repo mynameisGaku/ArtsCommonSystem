@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのaudioモジュールに含まれる機能とAPIです。">
+  <title>audio モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="audio.html">audio モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="audio.html">audio モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="audio.html">audio モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">audio</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">audio</h1>
+<p class="lead">audio モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 3</span><span class="badge">API 5</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/audio/caudioengine-5ab0ced3.html"><span class="card-title">CAudioEngine</span><span class="card-description">音声再生の中心となるエンジン。 AAudioAsset を渡して鳴らし、音量変更・停止・一時停止などを行う。 中身は XAudio2 実装を pimpl で隠している。 コピー不可。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/audio/fsoundhandle-894be15a.html"><span class="card-title">FSoundHandle</span><span class="card-description">再生中の 1 つの音を識別する軽量なハンドル。 CAudioEngine::Play が発行する。 世代付きなので、止めた後に同じ内部スロットが別の音に再利用されても、古いハンドルは無効と判定される(取り違え防止)。</span><span class="card-meta">構造体</span></a><a class="card" href="../features/audio/kinvalidsound-e82243d6.html"><span class="card-title">kInvalidSound</span><span class="card-description">『どの音も指していない』ことを表す無効な FSoundHandle の定数(FSoundHandle{0xFFFFFFFF, 0})。</span><span class="card-meta">定数</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/audio/caudioengine-d4758d6c.html"><span><span class="identifier">acs::CAudioEngine</span><span class="summary">XAudio2を使って音声の再生と停止を管理する。 内部状態の寿命と発音枠を個別に同期し、別スレッドからのShutdownを待ち合わせる。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/audio/faudioengine-eda0b3e0.html"><span><span class="identifier">acs::FAudioEngine</span><span class="summary">ACS の audio モジュールで FAudioEngine を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>定数</h3><div class="member-list"><a class="member-card" href="../symbols/audio/kaudioengineresidentbufferbudgetbytes-bd09800a.html"><span><span class="identifier">acs::kAudioEngineResidentBufferBudgetBytes</span><span class="summary">ACS の audio モジュールで kAudioEngineResidentBufferBudgetBytes を表す定数です。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="../symbols/audio/kinvalidsound-4e2b8982.html"><span><span class="identifier">acs::kInvalidSound</span><span class="summary">ACS の audio モジュールで kInvalidSound を表す定数です。</span></span><span class="kind-label">定数 →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/audio/fsoundhandle-062c509f.html"><span><span class="identifier">acs::FSoundHandle</span><span class="summary">再生中の音声を識別する世代付きハンドル。 CAudioEngine が Play で発行する。 スロット番号 (index) と世代 (generation) の組で、 スロットが停止後に再利用されても世代が進むため、古いハンドルは自動的に無効化される。</span></span><span class="kind-label">構造体 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

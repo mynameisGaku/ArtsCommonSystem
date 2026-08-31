@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSettings",
+  "definition": "音量・解像度・キー設定などゲームをまたいで残したい値を型付き key-value で持つ小さなストア。 INI 風テキストで保存/読込できる。"
+}

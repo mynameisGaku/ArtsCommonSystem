@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="優先順に並べた整数fieldのbit幅から、64 bit描画sort keyのshiftとmaskをcompile time生成するlayout。">
+  <title>TDrawPacketSortKeyLayout — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-core.html">render-core モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-core.html">render-core</a><span>/</span><span aria-current="page">TDrawPacketSortKeyLayout</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-core</div><h1 class="identifier">TDrawPacketSortKeyLayout</h1>
+<p class="lead">優先順に並べた整数fieldのbit幅から、64 bit<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29076">描画</button><span class="term-tooltip" id="term-tip-29076" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>sort keyのshiftとmaskをcompile time生成するlayout。</p></div><div class="badges"><span class="badge">テンプレート構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d.html"><code>acs::TDrawPacketSortKeyLayout</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>pipeline、material、depthなど複数fieldのkey配置を型として固定し、手書きshiftの重複やbit超過を防ぐとき。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-core</dd></div><div class="fact"><dt>分類</dt><dd>テンプレート構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/DrawPacketSortKey.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-e00f3403d45cfb3b5b03"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>static constexpr u32 <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldcount-d6322425.html">FieldCount</a>() / <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/totalbits-a543613d.html">TotalBits</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>field数 / 全fieldの合計bit数。 合計64 bit超過はcompile error。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldcount-d6322425.html"><code>acs::TDrawPacketSortKeyLayout::FieldCount</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/totalbits-a543613d.html"><code>acs::TDrawPacketSortKeyLayout::TotalBits</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-345b8288a14da096ed1d"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>template&lt;u32 I&gt; static constexpr u32 <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldbits-5777f3b1.html">FieldBits</a>() / <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldshift-db19a2da.html">FieldShift</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>指定fieldのbit幅 / key内の下位bit位置。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldbits-5777f3b1.html"><code>acs::TDrawPacketSortKeyLayout::FieldBits</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/fieldshift-db19a2da.html"><code>acs::TDrawPacketSortKeyLayout::FieldShift</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-2b766196d1d3857012d0"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>template&lt;u32 I&gt; static constexpr u64 <a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/insert-8c972ce9.html">Insert</a>(u64 value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>値をfield幅でmaskし、優先順の位置へ配置する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/tdrawpacketsortkeylayout-c347fa4d/insert-8c972ce9.html"><code>acs::TDrawPacketSortKeyLayout::Insert</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="TDrawPacketSortKeyLayoutの使用例"><code>using FKey = TDrawPacketSortKeyLayout&lt;12u, 20u, 32u&gt;;
+u64 key = FKey::Insert&lt;0u&gt;(pipeline) |
+          FKey::Insert&lt;1u&gt;(material) |
+          FKey::Insert&lt;2u&gt;(depth);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

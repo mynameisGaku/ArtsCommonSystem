@@ -3,54 +3,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSの機能とAPIを横断検索します。">
   <title>検索 — ACS リファレンス</title>
-  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/css/reference.css">
+  <script src="assets/js/search-index.js" defer></script>
+  <script src="assets/js/reference.js" defer></script>
 </head>
-<body data-page="search">
-  <script>window.ACS_REF = { modules: [], glossary: {}, guide: [], troubleshooting: [] };</script>
-  <script src="data/_meta.js"></script>
-  <script src="assets/nav.js"></script>
-  <!-- DATA-SCRIPTS:START -->
-  <script src="data/app.js"></script>
-  <script src="data/asset.js"></script>
-  <script src="data/assetpack.js"></script>
-  <script src="data/audio.js"></script>
-  <script src="data/collision.js"></script>
-  <script src="data/container.js"></script>
-  <script src="data/crashwin.js"></script>
-  <script src="data/easy.js"></script>
-  <script src="data/ecs.js"></script>
-  <script src="data/editor.js"></script>
-  <script src="data/event.js"></script>
-  <script src="data/foundation.js"></script>
-  <script src="data/gameframework_1.js"></script>
-  <script src="data/gameframework_2.js"></script>
-  <script src="data/gameframework_3.js"></script>
-  <script src="data/gameframework_4.js"></script>
-  <script src="data/gameframework_5.js"></script>
-  <script src="data/gameframework_6.js"></script>
-  <script src="data/gameframework_7.js"></script>
-  <script src="data/gameframework_8.js"></script>
-  <script src="data/imgui.js"></script>
-  <script src="data/localmatch.js"></script>
-  <script src="data/math.js"></script>
-  <script src="data/memory.js"></script>
-  <script src="data/mlonnx.js"></script>
-  <script src="data/mvvm.js"></script>
-  <script src="data/network.js"></script>
-  <script src="data/openxr.js"></script>
-  <script src="data/platform.js"></script>
-  <script src="data/render_backend.js"></script>
-  <script src="data/render_core.js"></script>
-  <script src="data/scripting.js"></script>
-  <script src="data/steamworks.js"></script>
-  <script src="data/subsystem.js"></script>
-  <script src="data/telemetryfile.js"></script>
-  <script src="data/test.js"></script>
-  <script src="data/timing.js"></script>
-  <script src="data/threading.js"></script>
-  <script src="data/ui.js"></script>
-  <!-- DATA-SCRIPTS:END -->
-  <script src="assets/app.js"></script>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="index.html">リファレンス概要</a><a href="guide.html">はじめる</a><a href="search.html">機能とAPIを検索</a><a href="glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="index.html">リファレンス</a><span>/</span><span aria-current="page">検索</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 全体検索</div><h1>機能とAPIを検索</h1>
+<p class="lead">機能名、モジュール名、型名、関数名、メンバー名、定数、用語、症状を横断検索します。</p></div></header>
+<form class="page-search" data-reference-search role="search" aria-label="機能とAPIの検索結果を絞り込む">
+  <label class="visually-hidden" for="reference-search-input">検索語</label>
+  <input id="reference-search-input" data-reference-search-input type="search" name="q" placeholder="例: TUniquePtr、Get、所有権、真っ黒" autocomplete="off">
+  <button type="submit">検索</button>
+</form>
+<noscript><p class="notice">検索結果の絞り込みにはJavaScriptが必要です。APIは<a href="index.html">リファレンス概要</a>のモジュール一覧から参照できます。</p></noscript>
+<p class="search-status" data-search-status aria-live="polite"></p>
+<div class="result-list" data-search-results></div>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+  </div>
 </body>
 </html>

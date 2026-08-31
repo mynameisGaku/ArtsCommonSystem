@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "EDamageType",
+    "kind": "列挙(enum)",
+    "header": "gameframework/HealthSystem.h",
+    "summary": "ダメージ属性。 Physical / Fire / Ice / Lightning / Poison / True (耐性無効の確定ダメージ) の 6 種。 本クラスは倍率を掛けず、種別を callback に伝えるだけ。",
+    "when": "ダメージ処理や表示効果を EDamageType で分岐するときに使用します。"
+  }
+}

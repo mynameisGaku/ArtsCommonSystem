@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EventCallback",
+    "kind": "型エイリアス",
+    "header": "platform/Window.h",
+    "summary": "FWindow がイベントを通知するときに呼ぶ関数ポインタ型。 void (*)(void* user, const FEvent& e) の別名で、user には SetEventCallback に渡した任意ポインタがそのまま渡る。 PollEvents 中に 1 フレームで複数回呼ばれうる。",
+    "when": "FWindow::SetEventCallback に渡すコールバックの型として使う。 多くは CInput::OnEvent へ橋渡しするために用いる。",
+    "sample": "void OnEvent(void* user, const FEvent& e) {\n    CInput::OnEvent(e);   // FWindow のイベントを CInput へ流す\n}\nw.SetEventCallback(OnEvent, nullptr);\n// ラムダ(キャプチャ無し)も関数ポインタに変換できる:\nw.SetEventCallback([](void* u, const FEvent& e){ CInput::OnEvent(e); }, nullptr);"
+  }
+}

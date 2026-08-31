@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "イプシロン",
+  "definition": "浮動小数の比較に使う非常に小さな許容誤差。 kEpsilon = 1e-6。"
+}

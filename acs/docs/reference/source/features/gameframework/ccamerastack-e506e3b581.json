@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CCameraStack",
+    "kind": "クラス",
+    "header": "gameframework/CameraStack.h",
+    "summary": "Push/Pop で旧 top→新 top を線形補間でブレンドし、描画側は Effective* で「今どこを写しているか」を読む。",
+    "when": "平常カメラと演出カメラを滑らかに切り替えたい時 (ボス登場の寄りなど)。 最大 4 層。",
+    "sample": "CCameraStack stack;\nstack.PushCamera(followCam);        // 初期 top\n// ボス登場:\nstack.PushCamera(cinematicCam, 1.0f); // 1 秒で blend\n// 戻る:\nstack.PopCamera(0.5f);\n// 毎フレーム:\nstack.Tick(dt);\nrc.SetViewCenter(stack.EffectivePosition());\nrc.SetViewZoom(stack.EffectiveZoom());",
+    "members": [
+      {
+        "sig": "void PushCamera(CCamera2D& cam, f32 blend_duration = 0.5f)",
+        "desc": "カメラを top に積み、blend_duration 秒かけて旧 top から補間する (<=0 で即時)。 カメラは非所有。"
+      },
+      {
+        "sig": "void PopCamera(f32 blend_duration = 0.5f)",
+        "desc": "top をフェードアウトしてから取り除く。 1 枚以下では無視 (空にしない)。"
+      },
+      {
+        "sig": "CCamera2D* Active() const",
+        "ret": "現在の top",
+        "desc": "最上層のカメラを返す (空なら nullptr)。"
+      },
+      {
+        "sig": "bool IsBlending() const / f32 BlendProgress() const",
+        "desc": "ブレンド中か / その進捗 [0,1] (非ブレンド時は 1) を返す。"
+      },
+      {
+        "sig": "FVec2 EffectivePosition() const / f32 EffectiveZoom() const / f32 EffectiveRotation() const",
+        "ret": "補間済みの値",
+        "desc": "ブレンド中は下層と補間した値を返す。 zoom は対数補間、rotation は最短角補間。",
+        "when": "描画フレームで view 設定に使う。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "ブレンドタイマーを進め、active な 2 層だけ Tick し、pop blend 完了で実際に top を外す。"
+      },
+      {
+        "sig": "u32 Depth() const / void Clear()",
+        "desc": "スタックの深さを返す / 全部クリアする。"
+      },
+      {
+        "sig": "using FCameraStack = CCameraStack",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCameraStack を使う。"
+      }
+    ]
+  }
+}

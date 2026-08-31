@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPerfBudget",
+    "kind": "クラス",
+    "header": "gameframework/PerfBudget.h",
+    "summary": "フレーム時間 (ms) とメモリ確保量 (bytes) の予算超過を追跡する state holder。 カテゴリ単位で予算を決め、毎フレーム実測値を記録 → 集計し、各カテゴリ / フレーム全体の超過を問い合わせられる。 実測 (計測) と UI 描画は呼び出し側責務。",
+    "when": "「Render は 8ms 以内」「AI は 2ms 以内」のように予算を決めて、超えたら警告を出すパフォーマンス可視化を作りたい時。",
+    "sample": "CPerfBudget budget;\nbudget.SetFrameBudget(16.67f);                  // 60fps\nbudget.DefineCategory(\"Render\", 8.0f, 64u*1024u*1024u);\n// 毎フレーム\nbudget.BeginFrame();\nbudget.RecordTimeMs(\"Render\", render_ms);\nbudget.EndFrame();\nif (budget.IsOverBudget(\"Render\")) { /* 警告 */ }",
+    "members": [
+      {
+        "sig": "void SetFrameBudget(f32 ms)",
+        "desc": "目標フレーム時間 (60fps→16.67)。 <= 0 でフレーム超過判定を無効化。"
+      },
+      {
+        "sig": "void DefineCategory(const char* category, f32 budget_ms, u32 budget_bytes)",
+        "desc": "カテゴリを新規定義 / 上書き。 同名があれば予算だけ差し替え、実測値は保持。 名前は呼び出し側所有 (リテラル想定)。"
+      },
+      {
+        "sig": "void RecordTimeMs(const char* category, f32 elapsed_ms)",
+        "desc": "経過時間をカテゴリに加算 (累積)。 未定義 / nullptr / <= 0 は no-op。"
+      },
+      {
+        "sig": "void RecordMemoryAlloc(const char* category, u32 bytes)",
+        "desc": "メモリ確保量を加算。 RecordMemoryFree() は減算 (0 に clamp)。"
+      },
+      {
+        "sig": "void BeginFrame()",
+        "desc": "全カテゴリの spent_ms を 0 リセット (spent_bytes は累積保持)。"
+      },
+      {
+        "sig": "void EndFrame()",
+        "desc": "全カテゴリの spent_ms 合計を 60 frame 循環バッファに push し、フレーム超過判定を更新。"
+      },
+      {
+        "sig": "bool IsOverBudget(const char* category) const",
+        "desc": "そのカテゴリが ms か bytes のいずれかで予算超過しているか。"
+      },
+      {
+        "sig": "bool IsFrameOverBudget() const",
+        "desc": "直近 EndFrame のフレーム合計 ms が予算を超えたか。"
+      },
+      {
+        "sig": "f32 AverageFrameMs() const",
+        "desc": "直近 60 frame の合計 ms の算術平均。 LastFrameMs() は最新値。"
+      },
+      {
+        "sig": "const FBudgetEntry* AllCategories(u32& out_count) const",
+        "ret": "カテゴリ配列",
+        "desc": "全カテゴリを読み取り用に列挙。 out_count に件数。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "全カテゴリ削除 + frame 履歴クリア (frame_budget_ms は保持)。"
+      },
+      {
+        "sig": "using FPerfBudget = CPerfBudget",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPerfBudget を使う。"
+      }
+    ]
+  }
+}

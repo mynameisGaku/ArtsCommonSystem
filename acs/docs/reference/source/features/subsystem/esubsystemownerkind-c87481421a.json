@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "ESubsystemOwnerKind",
+    "kind": "列挙",
+    "header": "subsystem/SubsystemOwner.h",
+    "summary": "subsystemへ渡すownerの責務種別。",
+    "when": "非所有pointerをapplication、game、sceneの型へ安全に解釈する時。",
+    "members": [
+      {
+        "sig": "Unknown",
+        "desc": "旧APIまたは責務を保証できないowner。"
+      },
+      {
+        "sig": "Application",
+        "desc": "application寿命を所有する CApplication。"
+      },
+      {
+        "sig": "Game",
+        "desc": "game session寿命を所有する CGame。"
+      },
+      {
+        "sig": "Scene",
+        "desc": "world寿命を所有する AScene。"
+      }
+    ]
+  }
+}

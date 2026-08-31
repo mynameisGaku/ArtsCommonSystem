@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FReplayMetadata",
+    "kind": "構造体",
+    "header": "gameframework/ReplayDirector.h",
+    "summary": "1 録画分のメタデータ。 ゲームバージョン・レベル ID・シード・録画日時・録画時間・プレイヤー名・チェックサムを持つ。",
+    "when": "リプレイ一覧の表示や、バージョン不一致の検出に使う。",
+    "members": [
+      {
+        "sig": "const char* game_version / const char* level_id",
+        "desc": "ゲームバージョンと録画開始時のシーン ID (長寿命な文字列を渡す)。"
+      },
+      {
+        "sig": "u64 seed",
+        "desc": "決定論再生用の RNG シード。"
+      },
+      {
+        "sig": "u64 timestamp / u32 duration_ticks",
+        "desc": "録画開始時刻 (Unix 秒) と総 tick 数 (停止時に確定)。"
+      },
+      {
+        "sig": "const char* player_name / const char* checksum_hex",
+        "desc": "プレイヤー名とロックステップチェックサムの hex 文字列。"
+      }
+    ]
+  }
+}

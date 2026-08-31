@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "ATextAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/TextAsset.h",
+    "summary": "テキスト(UTF-8 文字列)を保持するアセット。 末尾 NUL 付きで C 文字列として取り出せる。 txt/json/xml/yaml/csv/md/hlsl/glsl/lua 等に対応。",
+    "when": "設定ファイル・スクリプト・シェーダソースなどテキストを読み込む時。",
+    "sample": "auto r = reg.Load(L\"config/level.json\");\nauto* t = static_cast<ATextAsset*>(r.Value().Get());\nconst char* json = t->CStr();   // NUL 終端\nusize len = t->Size();",
+    "members": [
+      {
+        "sig": "const char* CStr()",
+        "ret": "NUL 終端文字列",
+        "desc": "中身を C 文字列として返す(空なら \"\")。"
+      },
+      {
+        "sig": "usize Size()",
+        "ret": "文字数",
+        "desc": "NUL を除いたバイト長。"
+      },
+      {
+        "sig": "const TArray<char>& Raw()",
+        "ret": "生配列",
+        "desc": "末尾 NUL を含む生のバイト配列。"
+      },
+      {
+        "sig": "using FTextAsset = ATextAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ATextAsset を使う。"
+      }
+    ]
+  }
+}

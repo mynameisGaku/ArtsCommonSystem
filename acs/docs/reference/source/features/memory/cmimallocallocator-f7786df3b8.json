@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CMimallocAllocator",
+    "kind": "クラス",
+    "header": "memory/MimallocAllocator.h",
+    "summary": "mimalloc v3 の first-class heap を所有する汎用アロケータ。 要求量の厳密なハード予算、未解放件数、ピーク、サイズ帯ヒストグラム、独立ブロック走査を提供する。 malloc/new のグローバル上書きは行わない。",
+    "when": "独立した仮想メモリヒープ、並列確保、用途別予算、終了時のリーク照合が必要な時。 通常は CMemorySystem 経由で使う。",
+    "sample": "CMimallocAllocator allocator;\nif (allocator.Init(64u << 20).IsOk()) {\n    void* memory = allocator.Alloc(4096, 64, FSourceLoc::Current());\n    allocator.Free(memory);\n    MimallocHeapInspectionStatistics inspection = allocator.InspectHeap();\n    allocator.Shutdown();\n}",
+    "members": [
+      {
+        "sig": "TResult<void> Init(u64 hard_budget_bytes = 0)",
+        "ret": "成否",
+        "desc": "独立ヒープを作成する。 0 は予算無制限。"
+      },
+      {
+        "sig": "void* Alloc / void Free / void* Realloc",
+        "desc": "スレッドセーフな確保・解放・再確保。 再確保中は旧領域と新領域の要求量を両方予算へ含める。"
+      },
+      {
+        "sig": "MimallocHeapInspectionStatistics InspectHeap()",
+        "ret": "独立統計",
+        "desc": "mimalloc のブロック列挙から予約・コミット・生存要求量を再構築し、atomic カウンタと照合する。"
+      },
+      {
+        "sig": "MimallocAllocationHistogram CaptureAllocationHistogram() const",
+        "ret": "サイズ分布",
+        "desc": "small / medium / large の生存件数と要求量を返す。"
+      },
+      {
+        "sig": "using FMimallocAllocator = CMimallocAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMimallocAllocator を使う。"
+      }
+    ]
+  }
+}

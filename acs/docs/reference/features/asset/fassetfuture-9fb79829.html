@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="非同期ロードの結果ハンドル(フューチャ)。 LoadAsync が返す。 完了をノンブロッキングで確認したり、待って結果を取り出したりできる。">
+  <title>FAssetFuture — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/asset.html">asset モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/asset.html">asset</a><span>/</span><span aria-current="page">FAssetFuture</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / asset</div><h1 class="identifier">FAssetFuture</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22213">非同期</button><span class="term-tooltip" id="term-tip-22213" role="tooltip">処理の完了を待たずに先へ進み、結果は後で受け取るやり方。 重い読み込みなどで画面を止めない。</span></span>ロードの結果<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22214">ハンドル</button><span class="term-tooltip" id="term-tip-22214" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22215">フューチャ</button><span class="term-tooltip" id="term-tip-22215" role="tooltip">「あとで完了する処理の結果」を表すハンドル。 完了を待つ/確認することができる。</span></span>)。 LoadAsync が返す。 完了を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22216">ノンブロッキング</button><span class="term-tooltip" id="term-tip-22216" role="tooltip">受信や接続待ちの関数が、結果が無くても待たずにすぐ返る動作モード。 ゲームループを止めずに通信できる。</span></span>で確認したり、待って結果を取り出したりできる。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/asset/fassetfuture-8ae23d9a.html"><code>acs::FAssetFuture</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22207">CAssetRegistry</button><span class="term-tooltip" id="term-tip-22207" role="tooltip">パスからアセットを読み込み、TSharedPtr でキャッシュ共有する中心クラス。</span></span>::LoadAsync の戻り値を保持し、後で完了を確認・取得する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>asset</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>asset/AssetFuture.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-2737946a10d255827312"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/asset/fassetfuture-8ae23d9a/isready-1f32eeb2.html">IsReady</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22208">ノンブロッキング</button><span class="term-tooltip" id="term-tip-22208" role="tooltip">受信や接続待ちの関数が、結果が無くても待たずにすぐ返る動作モード。 ゲームループを止めずに通信できる。</span></span>で完了を確認。 true なら Get() がすぐ返る。</dd></div><div class="fact"><dt>戻り値</dt><dd>完了済みか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fassetfuture-8ae23d9a/isready-1f32eeb2.html"><code>acs::FAssetFuture::IsReady</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-8312e8ac4249bcae1823"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/asset/fassetfuture-8ae23d9a/valid-b85fdafa.html">Valid</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>中身のある future か(構築失敗なら false)。</dd></div><div class="fact"><dt>戻り値</dt><dd>有効か</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fassetfuture-8ae23d9a/valid-b85fdafa.html"><code>acs::FAssetFuture::Valid</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-3739edd97f9caf9f35a5"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>TResult&lt;TSharedPtr&lt;AAsset&gt;&gt; <a href="../../symbols/asset/fassetfuture-8ae23d9a/get-7b1acfa7.html">Get</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>完了を待って結果を取り出す。 呼び出し<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22209">スレッド</button><span class="term-tooltip" id="term-tip-22209" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>がワーカーなら読み込みを手伝う(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22210">ワークスチール</button><span class="term-tooltip" id="term-tip-22210" role="tooltip">暇なワーカーが忙しいワーカーの未処理タスクを奪って実行し、全体の負荷を均す方式。</span></span>)。</dd></div><div class="fact"><dt>戻り値</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22211">アセット</button><span class="term-tooltip" id="term-tip-22211" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span> または エラー</dd></div><div class="fact"><dt>使う場面</dt><dd>結果が必要になったら呼ぶ。 完了済みなら待たずに返る。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fassetfuture-8ae23d9a/get-7b1acfa7.html"><code>acs::FAssetFuture::Get</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-6381d76a500103529399"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>TResult&lt;TSharedPtr&lt;AAsset&gt;&gt; <a href="../../symbols/asset/fassetfuture-8ae23d9a/wait-c63602e6.html">Wait</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>Get() の別名。 直感的に「待つ」と書きたい時に。</dd></div><div class="fact"><dt>戻り値</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22212">アセット</button><span class="term-tooltip" id="term-tip-22212" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span> または エラー</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fassetfuture-8ae23d9a/wait-c63602e6.html"><code>acs::FAssetFuture::Wait</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FAssetFutureの使用例"><code>FAssetFuture fut = reg.LoadAsync(L&quot;big_mesh.glb&quot;);
+while (!fut.IsReady()) { /* 他の処理を進める */ }
+auto r = fut.Get();
+if (r.IsOk()) TSharedPtr&lt;AAsset&gt; a = r.Value();</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "app",
+    "title": "app — アプリケーション",
+    "description": "アプリ全体の実行、asset、timer subsystemをまとめる公開入口。"
+  },
+  "feature": {
+    "name": "CApplication",
+    "kind": "クラス",
+    "header": "app/Application.h",
+    "summary": "アプリ全体の実行とapplication subsystemの所有をまとめる。",
+    "when": "起動、frame更新、終了、および共有subsystem取得を行う時。",
+    "members": [
+      {
+        "sig": "using FApplication = CApplication",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CApplication を使う。"
+      }
+    ]
+  }
+}

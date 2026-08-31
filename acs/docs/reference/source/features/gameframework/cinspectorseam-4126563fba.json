@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CInspectorSeam",
+    "kind": "クラス",
+    "header": "gameframework/InspectorSeam.h",
+    "summary": "ゲーム内オブジェクトが自分のフィールドを公開するプロバイダを集める「デバッグインスペクタのシーム(seam)」。 UI レイヤ (ImGui 等) はここを回してフィールドを描画/編集する。",
+    "when": "実行中に Player の HP や速度を画面で覗いて書き換えたい時。 本体はレジストリだけで、実際の描画は別レイヤ。 出荷ビルドでは登録ごと消す前提。",
+    "sample": "CInspectorSeam ins;\nins.Init();\nins.RegisterProvider(&player);\nfor (u32 p = 0; p < ins.ProviderCount(); ++p) {\n    auto* prov = ins.GetProvider(p);\n    // prov->GetObject(o) を回して描画\n}",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "多重呼び出し可。"
+      },
+      {
+        "sig": "void RegisterProvider(IInspectableProvider* p)",
+        "desc": "プロバイダを登録 (非所有)。 同一ポインタの二重登録・nullptr は無視。"
+      },
+      {
+        "sig": "void RegisterProviderForNode(FNodeId node, IInspectableProvider* p)",
+        "desc": "FNodeId 紐付きで登録。 後で GetProviderForNode で逆引きできる。",
+        "when": "シーングラフの特定ノードに対応する provider を引きたい時。"
+      },
+      {
+        "sig": "void UnregisterProvider(IInspectableProvider* p)",
+        "desc": "登録解除 (provider 自体は破棄しない)。"
+      },
+      {
+        "sig": "u32 ProviderCount() const",
+        "desc": "登録済み provider 数。"
+      },
+      {
+        "sig": "IInspectableProvider* GetProvider(u32 index) const",
+        "ret": "provider または null",
+        "desc": "登録順 index で provider を取得。 範囲外は nullptr。 FNodeId の Index() とは別物なので注意。"
+      },
+      {
+        "sig": "IInspectableProvider* GetProviderForNode(FNodeId node) const",
+        "desc": "FNodeId に完全一致する provider を逆引き。 node-keyed lookup の正しい入口。"
+      },
+      {
+        "sig": "void NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index)",
+        "desc": "UI が値を書き換えた後に呼び、該当 provider の OnFieldChanged へ転送する。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全登録を破棄 (provider 自体は残る)。"
+      },
+      {
+        "sig": "using FInspectorSeam = CInspectorSeam",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CInspectorSeam を使う。"
+      }
+    ]
+  }
+}

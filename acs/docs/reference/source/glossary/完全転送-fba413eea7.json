@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "完全転送",
+  "definition": "テンプレート関数が受け取った引数を、lvalue/rvalue の区別を保ったまま別の関数に渡すこと（Forward）。"
+}

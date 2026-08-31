@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "Ok / Err",
+    "kind": "ヘルパー関数",
+    "header": "foundation/Result.h",
+    "summary": "TResult を簡潔に作る入口。 Ok(v) で成功側、Err(e) でエラー側を生成する。 Ok()（引数なし）は TResult<void> の成功。",
+    "when": "関数の中で結果を返す時。 成功なら Ok(...)、失敗なら Err(...) または ACS_ERR(...) をそのまま return する。",
+    "sample": "TResult<u32> Parse(const char* s) {\n    if (!s) return Err<u32>(ACS_ERR(IO, 1, \"null 入力\"));\n    return Ok(ToU32(s));   // 成功側\n}",
+    "members": [
+      {
+        "sig": "TResult<T> Ok(T v)",
+        "desc": "値を成功側に包んだ TResult<T> を返す。"
+      },
+      {
+        "sig": "TResult<void> Ok()",
+        "desc": "TResult<void> の成功を返す。"
+      },
+      {
+        "sig": "TResult<T> Err(FErrorCode e)",
+        "desc": "エラーを包んだ TResult<T> を返す（T 既定は void）。"
+      }
+    ]
+  }
+}

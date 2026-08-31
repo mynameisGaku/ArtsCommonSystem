@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FAudioVoiceHandle / kInvalidAudioVoice",
+    "kind": "構造体",
+    "header": "gameframework/audio_backend/IAudioBackend.h",
+    "summary": "再生中の 1 voice を指す世代付きハンドル。 下位 24bit = index、上位 8bit = generation の packed u32。 slot 再利用を古いハンドルで触る事故を generation で検出する。 全 0 (kInvalidAudioVoice) が無効。 backend は generation を必ず 1 以上で配る (FNodeId / FShapeId と同一規約)。",
+    "when": "PlayOneShot / PlayLooped の戻り値を保持して後で停止・音量変更する時。",
+    "sample": "FAudioVoiceHandle v = backend.PlayLooped(clip, 1, 1);\nif (v.IsValid()) backend.SetVoiceVolume(v, 0.5f);\nbackend.StopVoice(v);",
+    "members": [
+      {
+        "sig": "constexpr FAudioVoiceHandle()",
+        "desc": "無効ハンドル (m_Packed == 0) を作る。"
+      },
+      {
+        "sig": "constexpr FAudioVoiceHandle(u32 index, u8 gen)",
+        "desc": "(index & 0x00FFFFFF) | (gen << 24) に詰めて構築する。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "desc": "m_Packed != 0 か。 確保失敗を弾く。"
+      },
+      {
+        "sig": "u32 Index() const",
+        "desc": "下位 24bit の voice index。"
+      },
+      {
+        "sig": "u8 Generation() const",
+        "desc": "上位 8bit の generation。"
+      },
+      {
+        "sig": "inline constexpr FAudioVoiceHandle kInvalidAudioVoice{}",
+        "ret": "無効値",
+        "desc": "全 0 の無効ハンドル定数。"
+      }
+    ]
+  }
+}

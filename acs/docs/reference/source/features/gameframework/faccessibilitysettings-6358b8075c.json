@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAccessibilitySettings",
+    "kind": "構造体",
+    "header": "gameframework/AccessibilityProfile.h",
+    "summary": "アクセシビリティ設定の値オブジェクト (POD)。 色覚モード・文字サイズの enum と、字幕/スクリーンリーダ/片手モード等の bool、振動/フラッシュ係数をまとめて持つ。 コピー可能。",
+    "when": "UI 画面の入力をスナップショットとして組み立て、FAccessibilityProfile::Set() に渡す時。",
+    "sample": "FAccessibilitySettings s;\ns.text_size         = ETextSize::Large;\ns.subtitles_enabled = true;\ns.screen_shake_scale = 0.0f;   // 振動オフ\nprofile.Set(s);"
+  }
+}

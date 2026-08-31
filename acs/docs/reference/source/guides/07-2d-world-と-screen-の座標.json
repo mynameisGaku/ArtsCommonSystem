@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "title": "2D world と screen の座標",
+  "blocks": [
+    {
+      "h2": "2D world と screen の座標"
+    },
+    {
+      "p": "GameFramework の 2D world はscene/camera中心で +Y が下向きです。 HUD、screen、easy のpixel座標は左上が原点で、下に行くほど Y が増えます。 world と screen は AScene::ScreenToWorld で変換します。"
+    }
+  ]
+}

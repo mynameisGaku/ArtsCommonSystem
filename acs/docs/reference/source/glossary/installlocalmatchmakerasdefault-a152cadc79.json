@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "InstallLocalMatchmakerAsDefault",
+  "definition": "ローカル matchmaker を既定 provider として登録する関数。 以降 GetDefaultMatchmaker() がこの実装を返す。"
+}

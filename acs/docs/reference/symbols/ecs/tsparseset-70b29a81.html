@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="コンポーネント T 専用の型付き TSparseSet。 基底の sparse/dense に加えて値配列 m_Data を持ち、Add/Remove/Contains を O(1)、 全走査を密配列の線形走査 (キャッシュフレンドリ) で提供する。 Remove は末尾要素を 穴に詰める swap-remove のため、削除すると dense 順 (= 走査順) が入れ替わる。 T: 格納するコンポーネント型。">
+  <title>acs::TSparseSet — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ecs.html">ecs モジュール</a><a href="tsparseset-70b29a81.html" aria-current="page">TSparseSet</a><a class="tree-child" href="tsparseset-70b29a81/add-09ff3943.html">Add</a><a class="tree-child" href="tsparseset-70b29a81/cloneerased-f4a84882.html">CloneErased</a><a class="tree-child" href="tsparseset-70b29a81/data-1630a49f.html">Data</a><a class="tree-child" href="tsparseset-70b29a81/data-d84952e9.html">Data</a><a class="tree-child" href="tsparseset-70b29a81/get-13445b46.html">Get</a><a class="tree-child" href="tsparseset-70b29a81/get-bf2aea81.html">Get</a><a class="tree-child" href="tsparseset-70b29a81/m-data-90674434.html">m_Data</a><a class="tree-child" href="tsparseset-70b29a81/remove-373e230c.html">Remove</a><a class="tree-child" href="tsparseset-70b29a81/removeerased-4aee88b4.html">RemoveErased</a><a class="tree-child" href="tsparseset-70b29a81/tsparseset-e6107783.html">TSparseSet</a><a class="tree-child" href="tsparseset-70b29a81/tsparseset-d404e776.html">~TSparseSet</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ecs.html">ecs</a><span>/</span><span aria-current="page">TSparseSet</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / ecs</div>
+<h1 class="identifier">acs::TSparseSet</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2403">コンポーネント</button><span class="term-tooltip" id="term-tip-2403" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span> T 専用の型付き <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2404">TSparseSet</button><span class="term-tooltip" id="term-tip-2404" role="tooltip">ACS の Sparse Set 実装。 エンティティ番号→コンポーネント値の高速対応表。</span></span>。 基底の sparse/dense に加えて値配列 m_Data を持ち、Add/Remove/Contains を O(1)、 全走査を密配列の線形走査 (キャッシュフレンドリ) で提供する。 Remove は末尾要素を 穴に詰める swap-remove のため、削除すると dense 順 (= 走査順) が入れ替わる。 T: 格納する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2405">コンポーネント</button><span class="term-tooltip" id="term-tip-2405" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TSparseSetの宣言"><code>template&lt;typename T&gt; class <a href="tsparseset-70b29a81.html" aria-current="page">TSparseSet</a> : public <a href="asparsesetbase-d26bc116.html">ASparseSetBase</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/ecs.html">ecs</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/ecs/SparseSet.h:144</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="tsparseset-70b29a81/add-09ff3943.html"><span><span class="identifier">void Add(u32 entity_index, T value) noexcept;</span><span class="summary">エンティティに値を追加する (既に存在すれば上書き)。 新規追加は dense 末尾に積む。 新規追加すると Size() が増え dense が 再確保され得るため、走査中の追加は DenseEntities() ポインタを無効化し得る。 entity_index: 値を結びつけるエンティティのスロット番号。 value: 格納する値 (ムーブで取り込む)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/cloneerased-f4a84882.html"><span><span class="identifier">ASparseSetBase* CloneErased(IAllocator&amp; alloc) const noexcept override;</span><span class="summary">この集合の完全な複製を確保して返す (基底 CloneErased の override)。 T がコピー構築可能な場合のみ複製できる (非コピー型は nullptr)。 OOM 時も nullptr (部分複製は返さない)。 alloc: 複製の確保に使うアロケータ。 戻り値: 複製した集合 (失敗なら nullptr)。 所有権は呼び出し側へ移る。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/data-1630a49f.html"><span><span class="identifier">const T* Data() const noexcept;</span><span class="summary">全値を dense 順に並べた const 生配列を返す。 戻り値: 値配列の先頭 (要素数は Size())。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/data-d84952e9.html"><span><span class="identifier">T* Data() noexcept;</span><span class="summary">全値を dense 順に並べた可変生配列を返す。 DenseEntities() と同じ並び。 Add/Remove で再確保・並べ替えされ得る。 戻り値: 値配列の先頭 (要素数は Size())。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/get-13445b46.html"><span><span class="identifier">const T* Get(u32 entity_index) const noexcept;</span><span class="summary">エンティティの値への const ポインタを返す。 entity_index: 取得するエンティティのスロット番号。 戻り値: 値への const ポインタ (未登録なら nullptr)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/get-bf2aea81.html"><span><span class="identifier">T* Get(u32 entity_index) noexcept;</span><span class="summary">エンティティの値への可変ポインタを返す。 entity_index: 取得するエンティティのスロット番号。 戻り値: 値へのポインタ (未登録なら nullptr)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/m-data-90674434.html"><span><span class="identifier">TArray&lt;T&gt; m_Data;</span><span class="summary">コンポーネント値配列 (dense 順、m_Dense と添字を共有)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="tsparseset-70b29a81/remove-373e230c.html"><span><span class="identifier">void Remove(u32 entity_index) noexcept;</span><span class="summary">エンティティから値を削除する (末尾と入れ替える O(1) swap-remove)。 未登録なら何もしない。 穴に末尾要素を詰めるため、削除した位置に 別エンティティが移り dense 順が入れ替わる (走査中の削除は順序を壊す)。 entity_index: 削除するエンティティのスロット番号。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/removeerased-4aee88b4.html"><span><span class="identifier">void RemoveErased(u32 entity_index) noexcept override;</span><span class="summary">型消去経由で値を削除する (基底 RemoveErased の override、Remove に委譲)。 entity_index: 削除するエンティティのスロット番号。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/tsparseset-e6107783.html"><span><span class="identifier">TSparseSet() noexcept = default;</span><span class="summary">空の集合を構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tsparseset-70b29a81/tsparseset-d404e776.html"><span><span class="identifier">~TSparseSet() noexcept override = default;</span><span class="summary">集合を破棄する (基底の仮想デストラクタを override)。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

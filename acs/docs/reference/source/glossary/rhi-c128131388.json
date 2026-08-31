@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "RHI",
+  "definition": "Render Hardware Interface。 DX12 / Vulkan / Diligent などの GPU API の違いを隠す、バックエンド非依存の薄い抽象層。 ACS では IRhiDevice 等がこれ。"
+}

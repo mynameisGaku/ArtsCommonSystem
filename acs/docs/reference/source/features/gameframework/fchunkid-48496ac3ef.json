@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FChunkId",
+    "kind": "構造体",
+    "header": "gameframework/StreamingDirector.h",
+    "summary": "ストリーミングチャンクの 2D 整数座標 (cx, cy)。 同じ座標は常に同じチャンクを指す (generation なし)。 比較は値ベース。",
+    "when": "CStreamingDirector::GetState / ForceUnload で特定チャンクを指す時。",
+    "sample": "FChunkId id{3, -1};\nif (dir.GetState(id) == EChunkState::Loaded) { /* ... */ }"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FObb2",
+  "definition": "回転できる 2D 矩形コライダー（OBB）。"
+}

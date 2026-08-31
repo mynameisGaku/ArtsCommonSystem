@@ -1,0 +1,104 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CEditorGizmo",
+    "kind": "クラス(サービス)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "選択 ANode の Transform を viewport 上で直接ドラッグ操作するハンドル。 translate / rotate / scale の 3 モードを持ち、各モードで X/Y/Z 軸 + 平面 + 画面並列ハンドルを提供する。 ProcessInput → Manipulate → DrawGizmo の 3 段に完全分離(headless test 可)。 描画は CDebugDraw 経由でレンダラ非依存(現状 2D 射影 = top-down)。 非コピー / 非ムーブ、全 noexcept。",
+    "when": "シーンビュー上で ANode の移動 / 回転 / 拡縮ハンドルを実装する時。",
+    "sample": "CEditorGizmo gizmo;\ngizmo.Init();\ngizmo.SetMode(EGizmoMode::Translate);\ngizmo.ProcessInput(ray_o, ray_d, lmb_down, lmb_held, lmb_up);\nif (gizmo.Manipulate(pos, rot, scl)) {\n    node.SetWorldPosition(pos);\n}\ngizmo.DrawGizmo(debug_draw, pos, rot, scl);",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "state を default に戻す(callback はクリアしない)。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "state + callback + snap step を完全初期化。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetMode(EGizmoMode mode) noexcept / EGizmoMode Mode() const",
+        "ret": "—",
+        "desc": "操作モードの設定 / 取得。"
+      },
+      {
+        "sig": "void SetSpace(EGizmoSpace space) noexcept / EGizmoSpace Space() const",
+        "ret": "—",
+        "desc": "操作座標系の設定 / 取得。"
+      },
+      {
+        "sig": "void SetSnapTranslate(f32 step) noexcept",
+        "ret": "—",
+        "desc": "移動 snap step(world units)。 step <= 0 で無効。"
+      },
+      {
+        "sig": "void SetSnapRotate(f32 step_deg) noexcept",
+        "ret": "—",
+        "desc": "回転 snap step(degrees、内部で radians 換算)。"
+      },
+      {
+        "sig": "void SetSnapScale(f32 step) noexcept",
+        "ret": "—",
+        "desc": "拡縮 snap step(倍率、例 0.1 で 10% 刻み)。"
+      },
+      {
+        "sig": "f32 SnapTranslate() const / f32 SnapRotateDeg() const / f32 SnapScale() const",
+        "ret": "step",
+        "desc": "各 snap step の取得(rotate は degree で返す)。"
+      },
+      {
+        "sig": "void ProcessInput(acs::FVec3 mouse_ray_origin, acs::FVec3 mouse_ray_direction, bool lmb_down, bool lmb_held, bool lmb_up) noexcept",
+        "ret": "—",
+        "desc": "毎フレーム、マウス ray と LMB の edge/level 状態を渡して drag 開始 / 継続 / 終了の遷移を更新する。 Manipulate / DrawGizmo の前に呼ぶ。 drag 中は hot_axis を保持、非 drag 時のみ毎フレーム再判定。",
+        "when": "毎フレーム最初に。"
+      },
+      {
+        "sig": "bool Manipulate(acs::FVec3& inout_position, acs::FVec3& inout_rotation_euler, acs::FVec3& inout_scale) noexcept",
+        "ret": "変更あり",
+        "desc": "ProcessInput の後に呼ぶ。 drag 中なら inout を in-place 更新し true。 Translate=position に delta 加算 / Rotate=euler に angular delta 加算(radians) / Scale=scale に倍率 delta 加算。",
+        "when": "ProcessInput の直後。"
+      },
+      {
+        "sig": "void DrawGizmo(CDebugDraw& dd, acs::FVec3 position, acs::FVec3 rotation_euler, acs::FVec3 scale) noexcept",
+        "ret": "—",
+        "desc": "CDebugDraw 経由で軸 line + ハンドルを描く。 CDebugDraw が 2D のため Z は XY 平面へ射影。 色: X=red / Y=green / Z=blue / 平面=半透明黄 / hot=白。"
+      },
+      {
+        "sig": "bool IsDragging() const noexcept / EGizmoAxis HotAxis() const noexcept",
+        "ret": "状態",
+        "desc": "drag 中か / 現在 hot な軸を返す。"
+      },
+      {
+        "sig": "const FGizmoState& State() const noexcept",
+        "ret": "FGizmoState&",
+        "desc": "FGizmoState の現値をまるごと参照で返す(テスト / inspector 用)。"
+      },
+      {
+        "sig": "void SetOnManipulateCallback(ManipulateCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "drag 終了時に 1 度呼ばれる callback を登録(nullptr で解除)。"
+      },
+      {
+        "sig": "void SetAxisLength(f32) / SetHandleRadius(f32) / SetPlaneHandleSize(f32) noexcept",
+        "ret": "—",
+        "desc": "ハンドル形状: 軸長(既定 1.0) / 軸 hit 円柱半径(既定 0.05) / 平面 hit 矩形半サイズ(既定 0.2)。 camera 距離スケーリングは外側責務。"
+      },
+      {
+        "sig": "f32 AxisLength() const / f32 HandleRadius() const / f32 PlaneHandleSize() const",
+        "ret": "値",
+        "desc": "各ハンドル形状パラメータの取得。"
+      },
+      {
+        "sig": "using FEditorGizmo = CEditorGizmo",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEditorGizmo を使う。"
+      }
+    ]
+  }
+}

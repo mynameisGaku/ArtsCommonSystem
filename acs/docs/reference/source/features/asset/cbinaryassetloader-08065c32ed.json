@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CBinaryAssetLoader",
+    "kind": "クラス(IAssetLoader 派生)",
+    "header": "asset/BinaryAsset.h",
+    "summary": "拡張子フォールバックローダ。 Extension() が \"*\" を返し、専用ローダにマッチしない任意ファイルを ABinaryAsset として読む。",
+    "when": "未知の拡張子でも生バイトとして読めるよう保険として登録しておく(標準ローダ登録に含まれる)。",
+    "sample": "CBinaryAssetLoader fallback;\nreg.RegisterLoader(&fallback);   // \"*\" で全拡張子を受ける",
+    "members": [
+      {
+        "sig": "using FBinaryAssetLoader = CBinaryAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBinaryAssetLoader を使う。"
+      }
+    ]
+  }
+}

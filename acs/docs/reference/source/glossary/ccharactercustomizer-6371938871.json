@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CCharacterCustomizer",
+  "definition": "キャラの見た目(cosmetic)だけを slot 単位で着せ替えするマネージャ。 戦闘性能はいじらない設計。"
+}

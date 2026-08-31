@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのACSのコンテナと所有権管理に関するガイドです。">
+  <title>ACSのコンテナと所有権管理 — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><a href="../guide.html">はじめる</a><span>/</span><span aria-current="page">ACSのコンテナと所有権管理</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS ガイド</div><h1>ACSのコンテナと所有権管理</h1></div></header>
+<article class="doc-blocks" id="guide-content"><h2>ACSの標準型</h2><p>ACSの公開<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29740">API</button><span class="term-tooltip" id="term-tip-29740" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span>では、用途に応じて次の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29741">コンテナ</button><span class="term-tooltip" id="term-tip-29741" role="tooltip">値をまとめて入れておく入れ物(TArray や THashMap など)。 ACS は STL の代わりに独自のものを使う。</span></span>、文字列、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29742">所有権</button><span class="term-tooltip" id="term-tip-29742" role="tooltip">そのメモリ/資源を『誰が解放する責任を持つか』。 はっきりさせると安全。</span></span>管理型を使用します。</p><ul><li>可変長配列には <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29743">TArray</button><span class="term-tooltip" id="term-tip-29743" role="tooltip">末尾追加が速く要素は連続メモリに並ぶ。 コピー禁止・ムーブ専用。</span></span> を使用します。</li><li>キーと値の対応表には THashMap を使用します。</li><li>文字列には <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29744">FString</button><span class="term-tooltip" id="term-tip-29744" role="tooltip">短い文字列はヒープ無しで持つ最適化付き。</span></span> を使用します。</li><li>単一所有には <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29745">TUniquePtr</button><span class="term-tooltip" id="term-tip-29745" role="tooltip">コピー不可・ムーブのみで、スコープを抜けると自動解放。</span></span> を使用します。</li><li>共有所有には <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29746">TSharedPtr</button><span class="term-tooltip" id="term-tip-29746" role="tooltip">複数で共有するスマートポインタ。 参照カウントが 0 で自動解放。</span></span> を使用します。</li><li><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29747">弱参照</button><span class="term-tooltip" id="term-tip-29747" role="tooltip">対象を所有せず(寿命を延ばさず)、生きているかだけを見られる参照。 循環参照を断ち切るのに使う。</span></span>には <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29748">TWeakPtr</button><span class="term-tooltip" id="term-tip-29748" role="tooltip">TSharedPtr への弱参照。 寿命を延ばさず生死だけ見る。</span></span> を使用します。</li></ul></article>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#guide-content">ACSのコンテナと所有権管理</a></nav></aside>
+  </div>
+</body>
+</html>

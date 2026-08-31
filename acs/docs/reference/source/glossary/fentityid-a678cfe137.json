@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FEntityId",
+  "definition": "1 つのエンティティを指す軽量な識別子。 index と generation の組。"
+}

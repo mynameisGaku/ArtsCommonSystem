@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "audio",
+    "title": "audio — オーディオ",
+    "description": "音(BGM や効果音)を鳴らすためのモジュール。 AAudioAsset(wav/mp3/flac/ogg)を渡すと再生でき、音量やループ、一時停止をまとめて扱えます。 内部では Windows の XAudio2 を使います。"
+  },
+  "feature": {
+    "name": "FSoundHandle",
+    "kind": "構造体",
+    "header": "audio/SoundHandle.h",
+    "summary": "再生中の 1 つの音を識別する軽量なハンドル。 CAudioEngine::Play が発行する。 世代付きなので、止めた後に同じ内部スロットが別の音に再利用されても、古いハンドルは無効と判定される(取り違え防止)。",
+    "when": "再生した音をあとから止める/音量変更する時に保持しておく。 値で持ち回ってよい小さな構造体。",
+    "sample": "FSoundHandle h = engine.Play(*se);\nif (h.IsValid()) {\n    engine.SetVolume(h, 0.5f);\n    engine.Stop(h);\n}\nFSoundHandle none = kInvalidSound;  // 無効を表す定数",
+    "members": [
+      {
+        "sig": "u32 index",
+        "desc": "内部スロット番号(初期値は無効を表す 0xFFFFFFFF)。"
+      },
+      {
+        "sig": "u32 generation",
+        "desc": "世代。 同じスロットが使い回された時に新旧を区別するためのカウンタ。"
+      },
+      {
+        "sig": "constexpr bool IsValid() const",
+        "ret": "有効か",
+        "desc": "index が無効値でなければ true。",
+        "sample": "if (h.IsValid()) engine.Stop(h);"
+      },
+      {
+        "sig": "constexpr bool operator==(FSoundHandle o) const",
+        "ret": "等しいか",
+        "desc": "index と generation が両方一致する時だけ等しい。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FScopedSharedLock / FScopedExclusiveLock",
+    "kind": "クラス",
+    "header": "threading/ScopedLock.h",
+    "summary": "FRwLock 用の RAII ガード。 Shared=共有(読み取り)を自動ロック/解除、Exclusive=排他(書き込み)を自動ロック/解除。",
+    "when": "FRwLock を使う時は手動の Lock/Unlock ではなくこれで包む。",
+    "sample": "FRwLock rw;\n{\n    FScopedSharedLock lk(rw);     // 読み取りで保持\n    Read(config);\n}\n{\n    FScopedExclusiveLock lk(rw);  // 書き込みで独占\n    Write(config);\n}",
+    "members": [
+      {
+        "sig": "explicit FScopedSharedLock(FRwLock& r) noexcept",
+        "desc": "構築時に r.LockShared()、デストラクタで r.UnlockShared()(読み取り、複数同時可)。"
+      },
+      {
+        "sig": "explicit FScopedExclusiveLock(FRwLock& r) noexcept",
+        "desc": "構築時に r.LockExclusive()、デストラクタで r.UnlockExclusive()(書き込み、独占)。"
+      }
+    ]
+  }
+}

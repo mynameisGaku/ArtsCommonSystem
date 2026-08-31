@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "EScriptValueKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "FScriptValue がどの種類の値かを表すタグ。 Lua / Wren / Python の動的型の最大公約数。",
+    "when": "FScriptValue を作る / 読む時に kind へ設定・判定する。",
+    "sample": "if (ret.kind == acs::game::EScriptValueKind::Number) {\n    f64 n = ret.v.num;\n}",
+    "members": [
+      {
+        "sig": "Nil = 0",
+        "desc": "値なし。 既定状態 / 戻り値なしを表す。"
+      },
+      {
+        "sig": "Bool = 1",
+        "desc": "真偽値(v.b)。"
+      },
+      {
+        "sig": "Number = 2",
+        "desc": "数値。 f64(v.num)で統一。 整数もここに丸めて入る。"
+      },
+      {
+        "sig": "String = 3",
+        "desc": "文字列(v.str)。 所有しないポインタ。"
+      },
+      {
+        "sig": "Handle = 4",
+        "desc": "u32 の不透明 ID(v.handle)。 生ポインタを Lua に渡さないための安全な間接層。"
+      }
+    ]
+  }
+}

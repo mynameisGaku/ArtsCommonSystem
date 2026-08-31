@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "（最小プログラム）",
+    "kind": "使い方",
+    "header": "easy/Easy.h",
+    "summary": "OpenWindow で開き、while (NextFrame()) ループの中で入力を読んで図形を描く、が基本形。 ゲームの状態は main の中のローカル変数でよく、すべての関数をメインスレッド 1 本から呼びます。 座標は左上が原点・ピクセル単位・Y は下向き、角度は度（°）で正が時計回り。",
+    "when": "本格化したくなったら acs::CApplication へ進めます。",
+    "sample": "#include \"easy/Easy.h\"\nusing namespace acs::easy;\nint main() {\n    OpenWindow(1280, 720, \"はじめてのゲーム\");\n    float x = 600;\n    while (NextFrame()) {                 // 閉じると false\n        if (IsKeyDown(EKey::Right)) x += 5;\n        if (IsKeyDown(EKey::Left))  x -= 5;\n        DrawRect(x, 320, 80, 80, FColor::Sky);\n    }\n}"
+  }
+}

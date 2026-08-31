@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "GetDefaultAssetPackReader / GetDefaultAssetPackWriter ほか provider 結線",
+    "kind": "関数",
+    "header": "gameframework/AssetPack.h",
+    "summary": "AssetPack 実装を backend 非依存に取得する仕組み。 実 backend が SetAssetPackReaderProvider() で実装を登録し、ゲームコードは GetDefaultAssetPackReader() で取得する。 未登録なら スタブを返す。",
+    "when": "循環依存を避けつつ、実 .acpak backend があればそれを、無ければ no-op stub を、自動で使い分けたい時。",
+    "sample": "// アプリ起動時 (backend 側が一度だけ):\nacs::assetpack::InstallAcpakReaderAsDefault();\n// 以降どこでも:\nIAssetPackReader& r = acs::game::GetDefaultAssetPackReader();",
+    "members": [
+      {
+        "sig": "IAssetPackReader& GetReaderStub() / IAssetPackWriter& GetWriterStub()",
+        "desc": "依存ゼロの no-op stub (全 API が NotImplemented) を返す。"
+      },
+      {
+        "sig": "void SetAssetPackReaderProvider(AssetPackReaderProvider p) / void SetAssetPackWriterProvider(...)",
+        "desc": "既定実装を返す関数を登録する。 nullptr で stub に戻す (後勝ち)。"
+      },
+      {
+        "sig": "IAssetPackReader& GetDefaultAssetPackReader() / IAssetPackWriter& GetDefaultAssetPackWriter()",
+        "desc": "provider 登録済みならその実装、未登録なら stub を返す。"
+      }
+    ]
+  }
+}

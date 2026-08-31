@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TOneWayBinder",
+  "definition": "Observable 同士を片方向(src→dst)で同期させる小さなクラス。"
+}

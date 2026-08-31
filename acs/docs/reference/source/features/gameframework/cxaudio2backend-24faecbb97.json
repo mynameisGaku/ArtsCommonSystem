@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CXAudio2Backend",
+    "kind": "クラス",
+    "header": "gameframework/audio_backend/XAudio2Backend.h",
+    "summary": "IAudioBackend の Windows 用 concrete 実装 = Win32 XAudio2 を叩いて実音声を出す。 重い <xaudio2.h> は pimpl で .cpp に隠蔽。 固定容量 voice pool + generation 付き handle で use-after-free を防ぐ。 COM 初期化も本クラスが責任を持つ。 非コピー・非ムーブ。",
+    "when": "Windows で CAudioDirector に実音声を鳴らさせたい時。 director.SetBackend(&xaudio2) で差し込む。",
+    "sample": "CXAudio2Backend m_Audio;\nFAudioDirector  m_Director;\nACS_TRY(m_Audio.Init(64));        // 同時発音 64 voice\nm_Director.SetBackend(&m_Audio);\n// 終了時:\nm_Director.SetBackend(nullptr);  // 先に director を切る\nm_Audio.Shutdown();",
+    "members": [
+      {
+        "sig": "CXAudio2Backend()",
+        "desc": "backend を構築 (まだ未初期化)。 Init を呼ぶまで音は出ない。"
+      },
+      {
+        "sig": "TResult<void> Init(u32 max_voices = 64) override",
+        "ret": "成否",
+        "desc": "XAudio2 / COM を起動し voice pool を確保する。 再 init 不可。"
+      },
+      {
+        "sig": "void SetMasterVolume(f32 volume)",
+        "desc": "マスタリングボイス音量 (最終出力の master volume)。 0.0〜1.0 推奨 (>1.0 は歪む)。",
+        "when": "全体音量をまとめて下げたい時。"
+      },
+      {
+        "sig": "struct FImpl",
+        "desc": "XAudio2 / COM の重ヘッダを .cpp に閉じ込める pimpl の前方宣言 (実体は .cpp)。"
+      },
+      {
+        "sig": "using FXAudio2Backend = CXAudio2Backend",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CXAudio2Backend を使う。"
+      }
+    ]
+  }
+}

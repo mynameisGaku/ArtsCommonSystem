@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AWidget",
+  "definition": "retained-mode UI ツリーの基底。 子を TUniquePtr で所有し、layout・render・hit test・入力 hook を提供する。"
+}

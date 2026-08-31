@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPrivacyDirector",
+    "kind": "クラス",
+    "header": "gameframework/PrivacyDirector.h",
+    "summary": "GDPR / CCPA / COPPA 対応で必須となる「ユーザーの同意」を一元管理する director。 解析・広告・テレメトリなどカテゴリ別に同意の on/off を持ち、初回ダイアログ判定、ポリシー版の追跡、ローカル永続化を提供する。",
+    "when": "解析や広告 SDK を呼ぶ前に「ユーザーが同意したか」を確認する仕組みを作る時。 カテゴリ別の granular consent が法的に求められる場面で使う。",
+    "sample": "CPrivacyDirector privacy;\nprivacy.Init(/*current_policy_version=*/2);\nprivacy.LoadConsent(L\"user/consent.bin\");\nif (privacy.RequiresInitialConsent() || privacy.IsPolicyOutdated()) {\n    privacy.GrantConsent(EConsentCategory::Analytics);\n    privacy.MarkInitialConsentShown();\n    privacy.SaveConsent(L\"user/consent.bin\");\n}\nif (privacy.HasConsent(EConsentCategory::Analytics)) SendEvent();",
+    "members": [
+      {
+        "sig": "void Init(u32 current_policy_version = 1)",
+        "desc": "有効なプライバシーポリシー版を設定。 保存済み版がこれより小さければ IsPolicyOutdated() が true になる。"
+      },
+      {
+        "sig": "void GrantConsent(EConsentCategory cat)",
+        "desc": "指定カテゴリの同意 bit を立てる (複合可)。 RevokeConsent は落とす。"
+      },
+      {
+        "sig": "void GrantAll()",
+        "desc": "Required を除く全カテゴリを ON (= \"Accept All\")。 RevokeAll() は全 OFF。"
+      },
+      {
+        "sig": "bool HasConsent(EConsentCategory cat) const",
+        "desc": "cat の全 bit が立っているか。 Required (=0) は常に true。"
+      },
+      {
+        "sig": "bool RequiresInitialConsent() const",
+        "desc": "まだ同意ダイアログを 1 度も提示していなければ true。 MarkInitialConsentShown() で false 化。"
+      },
+      {
+        "sig": "bool IsPolicyOutdated() const",
+        "desc": "ロード済み policy_version が現在より古ければ true (再同意を促す)。"
+      },
+      {
+        "sig": "TResult<void> SaveConsent(const wchar_t* file_path)",
+        "desc": "現在の同意状態を .acssave バイナリで保存。 LoadConsent は復元 (ファイル無しは初回起動扱いで Ok)。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "初期化前の状態に戻す (テスト / デバッグ用)。"
+      },
+      {
+        "sig": "using FPrivacyDirector = CPrivacyDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPrivacyDirector を使う。"
+      }
+    ]
+  }
+}

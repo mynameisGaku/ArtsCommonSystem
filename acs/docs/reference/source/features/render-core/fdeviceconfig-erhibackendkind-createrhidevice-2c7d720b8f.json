@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FDeviceConfig / ERhiBackendKind / CreateRhiDevice",
+    "kind": "構造体 / 列挙 / ファクトリ関数",
+    "header": "render/IRhiDevice.h",
+    "summary": "デバイス作成のオプションとバックエンド選択、そして実際にデバイスを作る関数。 CRenderer を使わず低レベルから組み立てるときの入口。",
+    "when": "描画パイプラインを自前で組むとき。 普通は CRenderer::Init が裏でこれを呼ぶ。",
+    "sample": "FDeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;    // 最良を自動選択(D3D12 優先)\ncfg.prefer_high_perf = true;            // ディスクリート GPU を優先\nauto dev = CreateRhiDevice(cfg).Value();",
+    "members": [
+      {
+        "sig": "struct FDeviceConfig{ enable_debug_layer, prefer_high_perf, backend }",
+        "desc": "デバッグレイヤ・高性能 GPU 優先・バックエンド種別。"
+      },
+      {
+        "sig": "enum ERhiBackendKind: Auto / D3D12 / Vulkan",
+        "desc": "Diligent 経由のときのみ意味を持つ。 raw DX12 backend では無視。"
+      },
+      {
+        "sig": "TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& cfg)",
+        "ret": "デバイス",
+        "desc": "デバイスを作る。 実際のバックエンドはビルド設定で決まる。"
+      }
+    ]
+  }
+}

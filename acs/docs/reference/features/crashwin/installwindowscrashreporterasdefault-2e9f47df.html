@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="gameframework の CrashReporter provider に本 Windows backend を登録する結線ヘルパ。 これを起動時に一度だけ呼ぶと、以降 acs::game::GetDefaultCrashReporter() が stub でなく本物の Windows backend を返すようになる。">
+  <title>InstallWindowsCrashReporterAsDefault() — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/crashwin.html">crashwin モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/crashwin.html">crashwin モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/crashwin.html">crashwin モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/crashwin.html">crashwin</a><span>/</span><span aria-current="page">InstallWindowsCrashReporterAsDefault()</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / crashwin</div><h1 class="identifier">InstallWindowsCrashReporterAsDefault()</h1>
+<p class="lead">gameframework の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22780">CrashReporter</button><span class="term-tooltip" id="term-tip-22780" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22781">provider</button><span class="term-tooltip" id="term-tip-22781" role="tooltip">『既定の実装を返す関数』を後から登録する仕組み。 登録するとアプリ全体の既定実装が差し替わる。</span></span> に本 Windows <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22782">backend</button><span class="term-tooltip" id="term-tip-22782" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> を登録する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22783">結線</button><span class="term-tooltip" id="term-tip-22783" role="tooltip">部品同士をつなぎ込む(実装を既定の口に登録する)こと。 これで上位が下位に直接依存せず使える。</span></span>ヘルパ。 これを起動時に一度だけ呼ぶと、以降 acs::game::GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22784">CrashReporter</button><span class="term-tooltip" id="term-tip-22784" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span>() が stub でなく本物の Windows <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22785">backend</button><span class="term-tooltip" id="term-tip-22785" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> を返すようになる。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/crashwin/installwindowscrashreporterasdefault-a715661d.html"><code>acs::crashwin::InstallWindowsCrashReporterAsDefault</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>アプリ起動時。 #if WITH_ACS_CRASH_REPORTER で囲って一度呼べば、上位コードは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22776">backend</button><span class="term-tooltip" id="term-tip-22776" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> 非依存のまま実 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22777">backend</button><span class="term-tooltip" id="term-tip-22777" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> を使える。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>crashwin</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>crashwin/WindowsCrashReporter.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-bf0b29670e47c763a97b"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/crashwin/installwindowscrashreporterasdefault-a715661d.html">InstallWindowsCrashReporterAsDefault</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>acs::game::Set<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22778">CrashReporter</button><span class="term-tooltip" id="term-tip-22778" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span>Provider() に <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22779">GetDefaultWindowsCrashReporter</button><span class="term-tooltip" id="term-tip-22779" role="tooltip">プロセス全体で共有される既定の CWindowsCrashReporter シングルトンを返す関数。</span></span> を登録する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/crashwin/installwindowscrashreporterasdefault-a715661d.html"><code>acs::crashwin::InstallWindowsCrashReporterAsDefault</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="InstallWindowsCrashReporterAsDefault()の使用例"><code>#if WITH_ACS_CRASH_REPORTER
+    acs::crashwin::InstallWindowsCrashReporterAsDefault();
+#endif
+// 以降はどこでも:
+auto&amp; crash = acs::game::GetDefaultCrashReporter();  // 実 backend が返る</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

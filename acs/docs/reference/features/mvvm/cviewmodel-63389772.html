@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MVVM の中央 VM(ビューモデル) の基底。 中身はあえて空で、命名と意図だけを与える。 継承して TObservable&lt;T&gt; のプロパティを並べて公開する。">
+  <title>CViewModel — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/mvvm.html">mvvm モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/mvvm.html">mvvm</a><span>/</span><span aria-current="page">CViewModel</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / mvvm</div><h1 class="identifier">CViewModel</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27676">MVVM</button><span class="term-tooltip" id="term-tip-27676" role="tooltip">Model(データ) / View(画面) / ViewModel(その橋渡し) の 3 層で UI を組む設計手法。 VM が Observable で状態を公開し、View が購読して自動反映する。</span></span> の中央 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27677">VM</button><span class="term-tooltip" id="term-tip-27677" role="tooltip">Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。</span></span>(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27678">ビュー</button><span class="term-tooltip" id="term-tip-27678" role="tooltip">同じリソースを「どう解釈して読むか」を表す窓。 1 つのテクスチャに SRV / RTV / DSV など複数のビューを作れる。</span></span>モデル) の基底。 中身はあえて空で、命名と意図だけを与える。 継承して T<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27679">Observable</button><span class="term-tooltip" id="term-tip-27679" role="tooltip">監視できる 1 個の値。 Set で変えると購読者へ通知が飛ぶ。 MVVM の中核。</span></span>&lt;T&gt; のプロパティを並べて公開する。</p></div><div class="badges"><span class="badge">基底クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/mvvm/cviewmodel-8a2e3d5e.html"><code>acs::CViewModel</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>UI に見せたいデータ群を 1 つの「画面の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27670">状態</button><span class="term-tooltip" id="term-tip-27670" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>」としてまとめたい時。 これを継承して各値を T<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27671">Observable</button><span class="term-tooltip" id="term-tip-27671" role="tooltip">監視できる 1 個の値。 Set で変えると購読者へ通知が飛ぶ。 MVVM の中核。</span></span> で持つ。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>mvvm</dd></div><div class="fact"><dt>分類</dt><dd>基底クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>mvvm/ViewModel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-2c338e3781b262843ef9"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>virtual <a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-b1f2f8f8.html">~CViewModel</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27672">デストラクタ</button><span class="term-tooltip" id="term-tip-27672" role="tooltip">オブジェクトが破棄される時に自動で呼ばれる後始末の関数(~ClassName)。</span></span>は仮想。 派生 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27673">VM</button><span class="term-tooltip" id="term-tip-27673" role="tooltip">Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。</span></span> を基底<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27674">ポインタ</button><span class="term-tooltip" id="term-tip-27674" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>で安全に破棄できる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-b1f2f8f8.html"><code>acs::CViewModel::~CViewModel</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CViewModel</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e.html"><code>acs::CViewModel</code></a><span class="summary"><code>class CViewModel;</code></span></li><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-6937dc87.html"><code>acs::CViewModel::CViewModel</code></a><span class="summary"><code>CViewModel() noexcept = default;</code></span></li><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-28a1c022.html"><code>acs::CViewModel::CViewModel</code></a><span class="summary"><code>CViewModel(const CViewModel&amp;) = delete;</code></span></li></ul></dd></div></dl></article><article class="card" id="member-41b384d23a2f75ff586d"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>using <a href="../../symbols/mvvm/fviewmodel-32d74f75.html">FViewModel</a> = CViewModel</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27675">CViewModel</button><span class="term-tooltip" id="term-tip-27675" role="tooltip">MVVM のビューモデル(VM)の基底クラス。 継承して TObservable なプロパティを並べ、画面に見せたい状態をまとめる。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/fviewmodel-32d74f75.html"><code>acs::FViewModel</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CViewModel</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e.html"><code>acs::CViewModel</code></a><span class="summary"><code>class CViewModel;</code></span></li><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-6937dc87.html"><code>acs::CViewModel::CViewModel</code></a><span class="summary"><code>CViewModel() noexcept = default;</code></span></li><li><a href="../../symbols/mvvm/cviewmodel-8a2e3d5e/cviewmodel-28a1c022.html"><code>acs::CViewModel::CViewModel</code></a><span class="summary"><code>CViewModel(const CViewModel&amp;) = delete;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CViewModelの使用例"><code>class FPlayerViewModel : public CViewModel {
+public:
+    TObservable&lt;f32&gt;  hp    { 100.0f };
+    TObservable&lt;i32&gt;  level { 1 };
+    TObservable&lt;bool&gt; invincible { false };
+};
+FPlayerViewModel vm;
+vm.hp.Set(vm.hp.Get() - 10.0f);   // View 側へ自動反映</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

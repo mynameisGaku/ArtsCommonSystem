@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EAnimationPlayState",
+    "kind": "列挙型(enum class : u8)",
+    "header": "gameframework/tools/modelview/ModelAnimationPanel.h",
+    "summary": "AModelAnimationPanel の再生状態を表す 3 状態 enum。 ACS の E-prefix 規約(enum class E* + 基底 u8)に従う。",
+    "when": "PlayState() の戻り値や再生制御の状態判定に使う。",
+    "sample": "if (anim.PlayState() == EAnimationPlayState::Playing) {\n    anim.Pause();\n}",
+    "members": [
+      {
+        "sig": "Stopped = 0",
+        "desc": "未再生(m_CurrentTime = 0、Play で頭から開始)。"
+      },
+      {
+        "sig": "Playing = 1",
+        "desc": "再生中(Tick(dt) で m_CurrentTime += dt * speed)。"
+      },
+      {
+        "sig": "Paused = 2",
+        "desc": "一時停止(m_CurrentTime 保持、Play で同位置から再開)。"
+      }
+    ]
+  }
+}

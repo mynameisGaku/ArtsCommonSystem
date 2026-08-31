@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FWeaponDef",
+    "kind": "構造体",
+    "header": "gameframework/WeaponSystem.h",
+    "summary": "武器 1 種類の不変定義。 id / 表示名 / 種別と、fire rate・リロード時間・マガジン容量・予備上限・ダメージ・拡散・ペレット数・弾種を持ちます。",
+    "when": "RegisterWeapon に渡す武器スペックを定義する時。",
+    "sample": "FWeaponDef shotgun{ \"shotgun\", \"Pump\", EWeaponKind::Shotgun,\n    1.0f, 2.6f, 6, 24, 12.0f, 6.0f, 8, \"proj.pellet\" };",
+    "members": [
+      {
+        "sig": "const char* id / const char* display_name",
+        "desc": "武器キー(Register / Equip のキー) / UI 表示名(非所有)。"
+      },
+      {
+        "sig": "EWeaponKind kind",
+        "desc": "武器ジャンル(メタ情報、機械挙動には不使用)。"
+      },
+      {
+        "sig": "f32 fire_rate_per_sec / f32 reload_sec",
+        "desc": "1 秒あたりの発射回数 / リロード秒数。 どちらも<=0 はフォールバック(1 発/秒 / 即時)。"
+      },
+      {
+        "sig": "u32 mag_size / u32 max_reserve",
+        "desc": "マガジン容量(0 はマガジン非搭載) / 予備上限(0 は無制限)。"
+      },
+      {
+        "sig": "f32 base_damage / f32 spread_deg / u32 pellets_per_shot",
+        "desc": "1 ペレットの基本ダメージ / 拡散角(片側 deg) / 1 発のペレット数(0 は 1)。"
+      },
+      {
+        "sig": "const char* projectile_id",
+        "desc": "発射する弾種 id(非所有、FireCallback へ伝達)。"
+      }
+    ]
+  }
+}

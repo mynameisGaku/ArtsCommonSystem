@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ワークスペース",
+  "definition": "複数のエディタ panel を 1 つの editor アプリとしてまとめ、ライフサイクル・メインループ・レイアウト永続化・イベント broadcast を統括する中央 hub。 ACS では CEditorWorkspace。"
+}

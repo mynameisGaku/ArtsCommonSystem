@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのnetworkモジュールに含まれる機能とAPIです。">
+  <title>network モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="network.html">network モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="network.html">network モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="network.html">network モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">network</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">network</h1>
+<p class="lead">network モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 5</span><span class="badge">API 7</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/network/cnetwork-7b118d29.html"><span class="card-title">CNetwork</span><span class="card-description">ネットワーク機能全体の初期化／終了をまとめる入口(WinSock の WSAStartup ラッパ)。 ソケットを使う前に一度 Init() を呼ぶ必要がある。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/network/fipaddress-78665948.html"><span class="card-title">FIpAddress</span><span class="card-description">IPv4 アドレス(4 個の数値)とポート番号をまとめた小さな値。 通信相手や自分の待ち受け先を指すのに使う。 v1 では IPv6 は未対応。</span><span class="card-meta">構造体</span></a><a class="card" href="../features/network/ftcpconnection-d3e57809.html"><span class="card-title">FTcpConnection</span><span class="card-description">確立済みの TCP 接続 1 本。 順序どおり・確実にデータを送受信できる。 クライアントとして自分から繋ぐか、サーバの FTcpListener が受理した接続として得る。 コピー不可・ムーブのみで、デストラクタで自動的に切断する。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/network/ftcplistener-9d4ffacf.html"><span class="card-title">FTcpListener</span><span class="card-description">TCP 接続を待ち受ける側(サーバ)。 指定ポートで Listen を始め、Accept() でクライアントの接続を 1 本ずつ受理して FTcpConnection に変える。 コピー不可・ムーブのみ。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/network/fudpsocket-dd0c3059.html"><span class="card-title">FUdpSocket</span><span class="card-description">UDP のソケット。 接続を張らずに、宛先を指定して1 通ずつデータ(データグラム)を送受信する。 速いが、到達・順序は保証されない。 コピー不可・ムーブのみ。</span><span class="card-meta">クラス</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/network/cnetwork-44ed50a7.html"><span><span class="identifier">acs::CNetwork</span><span class="summary">ネットワークサブシステムの初期化・終了を司る WSAStartup ラッパ。 全メンバが static。 多重 Init は内部の参照カウントで安全に扱い、最後の Shutdown で 実際に WSACleanup を呼ぶ。 CApplication は自動初期化しないので明示的に呼ぶこと。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/network/ftcpconnection-19fcbe79.html"><span><span class="identifier">acs::FTcpConnection</span><span class="summary">TCP ストリーム接続を表す single-owner なソケットハンドル。 クライアントは Connect で接続し、サーバ側は FTcpListener::Accept の戻り値から FromAccepted 経由で構築される。 Send/Recv でバイト列を送受信し、Close または デストラクタで切断する。 OS の SOCKET を単独所有する non-copy / move-only 型で、 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。 同じ接続への呼び出しは 利用側で直列化し、接続を破棄するまで CNetwork の初期化を保つ。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/network/ftcplistener-32a0e8b7.html"><span><span class="identifier">acs::FTcpListener</span><span class="summary">TCP 接続を待ち受けるリスナー (サーバ側)。 Listen() で bind/listen まで済んだソケットを生成し、Accept() で 1 接続ずつ FTcpConnection を受け取る。 ソケットを単独所有する non-copy / move-only 型で、 ムーブ後の元オブジェクトは無効状態 (m_Socket = ~uptr{0}) になる。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/network/fudpsocket-05cd1ad2.html"><span><span class="identifier">acs::FUdpSocket</span><span class="summary">コネクションレスな UDP ソケット。 Bind() で生成し、SendTo()/RecvFrom() でデータグラムを送受信する。 OS の ソケットハンドルを単独所有する non-copy / move-only 型で、デストラクタや Close() で確実にハンドルを閉じる。 内部ハンドルは ~uptr{0} を無効値として持つ。 同じソケットへの呼び出しは利用側で直列化し、破棄まで CNetwork の初期化を保つ。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/network/fnetwork-b7cdd8c4.html"><span><span class="identifier">acs::FNetwork</span><span class="summary">ACS の network モジュールで FNetwork を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/network/fipaddress-fd8a8549.html"><span><span class="identifier">acs::FIpAddress</span><span class="summary">IPv4 アドレスとポートを保持する値型 (v1 では IPv6 未対応)。 octets[0..3] にドット区切り表記の各オクテットを格納し、port にポート番号を持つ。 既定値は 0.0.0.0:0。 Any()/Loopback()/FromString() で生成する。</span></span><span class="kind-label">構造体 →</span></a><a class="member-card" href="../symbols/network/fnetworkdiagnostics-ce11ab48.html"><span><span class="identifier">acs::FNetworkDiagnostics</span><span class="summary">CNetwork が所有する Winsock 資源の診断スナップショット。</span></span><span class="kind-label">構造体 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

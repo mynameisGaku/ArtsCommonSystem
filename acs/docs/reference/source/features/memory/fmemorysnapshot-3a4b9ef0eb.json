@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FMemorySnapshot",
+    "kind": "クラス(静的)",
+    "header": "memory/MemorySnapshot.h",
+    "summary": "CMemorySystem の現状(セグメント別の予約/使用/予算)を SVG / BMP / コンソールに可視化出力するユーティリティ。 全メソッド static、外部依存ゼロ(自前ライタ)。 各セグメントを 1 行のバーとして描画する。",
+    "when": "メモリ使用率を人間が読める形で書き出してデバッグ/プロファイルしたい時。 SVG はブラウザで開け、BMP は外部ツールに流せる。",
+    "sample": "FMemorySnapshot::WriteSvg(L\"mem.svg\");   // 人間可読・ラベル付き\nFMemorySnapshot::WriteBmp(L\"mem.bmp\");   // 24bpp 画像\nFMemorySnapshot::DumpToStdOut();          // ターミナルへテキスト",
+    "members": [
+      {
+        "sig": "static TResult<void> WriteSvg(const wchar_t* path, u32 width = 800, u32 row_height = 40) noexcept",
+        "ret": "成否",
+        "desc": "SVG ファイルを出力する(ラベル付き、ブラウザで開ける)。"
+      },
+      {
+        "sig": "static TResult<void> WriteBmp(const wchar_t* path, u32 width = 800, u32 row_height = 30) noexcept",
+        "ret": "成否",
+        "desc": "24bpp の BMP 画像を出力する(外部依存ゼロ)。"
+      },
+      {
+        "sig": "static void DumpToStdOut() noexcept",
+        "desc": "コンソール(stdout)へテキストで使用率を出力する。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "コンパイラ / プラットフォーム検出マクロ",
+    "kind": "マクロ",
+    "header": "foundation/Compiler.h",
+    "summary": "どのコンパイラ・OS・アーキテクチャ・ビルド種別かを判定するマクロと、方言差を吸収した関数属性ラッパ（強制インライン化・到達ヒント等）をまとめたもの。 依存なしでどこからでも include できる。",
+    "when": "コンパイラごとに分岐したい、特定関数を強制インライン化したい、ホットパスに分岐予測ヒントを付けたい時。",
+    "sample": "#if ACS_COMPILER_MSVC\n    // MSVC 固有\n#endif\nACS_FORCEINLINE f32 Sq(f32 x) { return x * x; }\nif (ACS_UNLIKELY(err)) { /* まれな経路 */ }",
+    "members": [
+      {
+        "sig": "ACS_COMPILER_MSVC / _CLANG / _GCC",
+        "desc": "使用中コンパイラに対応するものが 1。"
+      },
+      {
+        "sig": "ACS_PLATFORM_WINDOWS / ACS_ARCH_X64 / ACS_ARCH_ARM64",
+        "desc": "OS / アーキテクチャ判定（現状 Windows・x64/ARM64）。"
+      },
+      {
+        "sig": "ACS_BUILD_DEBUG",
+        "desc": "デバッグビルドなら 1。"
+      },
+      {
+        "sig": "ACS_FORCEINLINE / ACS_NEVERINLINE",
+        "desc": "強制インライン化 / インライン抑制。"
+      },
+      {
+        "sig": "ACS_NORETURN / ACS_DEBUGBREAK() / ACS_THREAD_LOCAL",
+        "desc": "戻らない関数 / デバッガブレーク / スレッドローカル変数。"
+      },
+      {
+        "sig": "ACS_LIKELY(x) / ACS_UNLIKELY(x)",
+        "desc": "分岐予測ヒント（成立しやすい / しにくい）。"
+      },
+      {
+        "sig": "ACS_CACHELINE_SIZE / ACS_CACHELINE_ALIGN",
+        "desc": "キャッシュライン（64B）サイズと整列指定。"
+      },
+      {
+        "sig": "ACS_CONCAT(a,b) / ACS_STRINGIFY(x) / ACS_UNUSED(x)",
+        "desc": "トークン連結 / 文字列化 / 未使用警告抑制。"
+      },
+      {
+        "sig": "ACS_RESTRICT",
+        "desc": "restrict 修飾子のラッパ（MSVC は __restrict、それ以外は __restrict__）。 ポインタが指す領域が他とエイリアスしないと最適化器に伝える。"
+      },
+      {
+        "sig": "ACS_DLLEXPORT / ACS_DLLIMPORT",
+        "desc": "DLL シンボルのエクスポート / インポート指定（MSVC は __declspec(dllexport/dllimport)、GCC/Clang は visibility(\"default\") 相当）。"
+      },
+      {
+        "sig": "ACS_TARGET_AVX / ACS_TARGET_AVX2",
+        "desc": "その関数だけ AVX / AVX2(+FMA) を有効化する関数属性。 Clang/GCC は target(...) を付与、MSVC は空。 ランタイム CPU 判定で AVX 経路を選ぶ関数に付ける。"
+      },
+      {
+        "sig": "ACS_PRETTY_FUNC",
+        "desc": "関数シグネチャ文字列（MSVC は __FUNCSIG__、それ以外は __PRETTY_FUNCTION__）。"
+      },
+      {
+        "sig": "ACS_COMPILER_NAME / ACS_PLATFORM_NAME / ACS_ARCH_NAME",
+        "desc": "コンパイラ / OS / アーキテクチャ名の文字列リテラル（例 \"msvc\" / \"windows\" / \"x64\"）。"
+      }
+    ]
+  }
+}

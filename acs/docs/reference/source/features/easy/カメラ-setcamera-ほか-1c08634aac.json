@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "カメラ（SetCamera ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "ワールド座標と画面を分ける仕組み。 SetCamera 後に描く図形はワールド座標として扱われ、カメラの位置・ズームに応じて画面に映る。 カメラ設定は毎フレーム呼ぶ（呼ばなければカメラ無し）。",
+    "when": "プレイヤー追従のスクロールや、見下ろし/横スクロールのマップ表示。 HUD を描く前に ResetCamera() で固定表示に戻す。",
+    "sample": "SetCamera(playerX, playerY);   // プレイヤーを画面中央に\nSetCameraZoom(2.0f);            // 2 倍ズーム\nDrawSprite(map, 0, 0);         // ワールドに描く\nResetCamera();                 // 以降は画面固定（HUD 用）\nDrawString(10, 10, \"HUD\", FColor::White);",
+    "members": [
+      {
+        "sig": "void SetCamera(f32 x, f32 y)",
+        "desc": "(x,y) のワールド座標が画面中央に映るようカメラを置く。"
+      },
+      {
+        "sig": "void SetCameraZoom(f32 zoom)",
+        "desc": "ズーム倍率（1.0 等倍、2.0 で 2 倍に拡大）。"
+      },
+      {
+        "sig": "void ResetCamera()",
+        "desc": "スクロール無し・ズーム 1.0 に戻す。 HUD を描く前に。"
+      },
+      {
+        "sig": "f32 CameraX() / f32 CameraY()",
+        "ret": "カメラ中心",
+        "desc": "現在のカメラ中心のワールド座標。"
+      },
+      {
+        "sig": "f32 MouseWorldX() / f32 MouseWorldY()",
+        "ret": "マウスのワールド座標",
+        "desc": "スクロール・ズームを反映したマウス位置。 クリックでワールド上のものを掴む時に。"
+      }
+    ]
+  }
+}

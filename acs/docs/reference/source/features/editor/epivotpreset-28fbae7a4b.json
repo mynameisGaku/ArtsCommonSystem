@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EPivotPreset",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h",
+    "summary": "ASpriteAtlasEditorPanel のツールバー「Pivot toggle」用 enum。 frame の pivot をプリセット切替する。 E-prefix は ACS 規約。",
+    "when": "Pivot プリセットを選ぶ時。 SetPivotPreset / PivotPreset で読み書き。 Custom 以外を選ぶと selected frame に pivot 値が流し込まれる。",
+    "members": [
+      {
+        "sig": "Center = 0",
+        "desc": "Centerはpivotを(0.5, 0.5)に設定します。"
+      },
+      {
+        "sig": "TopLeft = 1",
+        "desc": "TopLeftはpivotを(0.0, 0.0)に設定します。"
+      },
+      {
+        "sig": "Custom = 2",
+        "desc": "inspector で pivot_x / pivot_y を slider で直接編集。"
+      }
+    ]
+  }
+}

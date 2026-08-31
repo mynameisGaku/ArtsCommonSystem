@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "世代付きhandleの配置trait",
+    "kind": "機能",
+    "header": "foundation/GenerationHandleLayoutTraits.h, foundation/LogSinkHandle.h, ecs/Entity.h, event/TimerHandle.h, event/SubscriptionHandle.h, memory/ObjectPool.h",
+    "summary": "世代付きハンドルの物理配置だけを公開する ABI 監査用 trait。 identity・generation の位置と幅、domain prefix、型全体の size/alignment を compile time で取得できる。",
+    "when": "異種ハンドルの serialize・ABI 検査・静的契約テストで、field 配置の意図しない変更を検出したい時。 無効値、生存判定、generation 更新規則の共通化には使わない。",
+    "sample": "static_assert(TGenerationHandleLayoutTraits<FEntityId>::kAvailable);\nstatic_assert(TGenerationHandleLayoutTraits<FEntityId>::kGenerationOffset == offsetof(FEntityId, generation));",
+    "members": [
+      {
+        "sig": "static constexpr bool kAvailable",
+        "desc": "対象型の特殊化が物理配置情報を提供する場合は true。 未登録型の primary template は false。"
+      },
+      {
+        "sig": "static constexpr usize kIdentityOffset / kGenerationOffset",
+        "desc": "identity field と generation field の byte offset。"
+      },
+      {
+        "sig": "static constexpr usize kIdentityBytes / kGenerationBytes",
+        "desc": "identity field と generation field の byte 幅。"
+      },
+      {
+        "sig": "static constexpr usize kDomainPrefixBytes",
+        "desc": "identity より前に channel 等の domain field がある場合の byte 幅。 無い型は 0。"
+      },
+      {
+        "sig": "static constexpr usize kStorageBytes / kStorageAlignment",
+        "desc": "ハンドル型全体の size と alignment。"
+      }
+    ]
+  }
+}

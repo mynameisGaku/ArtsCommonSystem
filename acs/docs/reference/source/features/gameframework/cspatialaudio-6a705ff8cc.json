@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSpatialAudio",
+    "kind": "クラス",
+    "header": "gameframework/SpatialAudio.h",
+    "summary": "3D 音源 (FAudioSource3D) と聞き手 1 つ (FAudioListener) から、距離減衰と左右パンを計算する音の空間化レイヤ。 HRTF 本格化は IHrtfRenderer として差し替え可能。",
+    "when": "敵や環境音を「位置によって遠近・左右に聞こえる」ようにしたい時。 各フレームに音量とパンを取り出してミキサに渡す。",
+    "sample": "CSpatialAudio sp;\nsp.SetListener({{0,0,0}, {0,0,1}, {0,1,0}});\nu32 src = sp.RegisterSource({5,0,3}, 20.0f, EAttenuationCurve::Linear);\nsp.UpdateSource(src, enemy.WorldPos());\nf32 vol = sp.ComputeAttenuatedVolume(src);\nf32 pan = sp.ComputePan(src);",
+    "members": [
+      {
+        "sig": "void SetListener(const FAudioListener& l)",
+        "desc": "聞き手 (プレイヤーの耳) の位置と向きを設定する。"
+      },
+      {
+        "sig": "const FAudioListener& GetListener() const",
+        "desc": "現在の聞き手情報を返す。"
+      },
+      {
+        "sig": "u32 RegisterSource(FVec3 pos, f32 max_distance, EAttenuationCurve curve)",
+        "ret": "source_id",
+        "desc": "新しい音源を登録。 1 始まりの ID を返す。 max_distance <= 0 は 20m に補正。"
+      },
+      {
+        "sig": "void UpdateSource(u32 id, FVec3 pos, FVec3 vel = FVec3::Zero())",
+        "desc": "音源の位置 / 速度を更新する。 無効 ID は no-op。"
+      },
+      {
+        "sig": "void SetSourceVolume(u32 id, f32 v)",
+        "desc": "基準音量 [0,1] を変える (範囲外は clamp)。"
+      },
+      {
+        "sig": "void RemoveSource(u32 id)",
+        "desc": "音源を削除する (内部スロットは使い回さない)。"
+      },
+      {
+        "sig": "f32 ComputeAttenuatedVolume(u32 id) const",
+        "ret": "最終音量 [0,1]",
+        "desc": "距離とカーブから音量を算出。 範囲外 / 無効は 0。",
+        "when": "毎フレーム取り出してミキサ音量に掛ける。"
+      },
+      {
+        "sig": "f32 ComputePan(u32 id) const",
+        "ret": "パン [-1,+1]",
+        "desc": "-1=完全左 / 0=正面・真後ろ / +1=完全右。"
+      },
+      {
+        "sig": "u32 SourceCount() const",
+        "ret": "稼働音源数",
+        "desc": "有効な音源の数。"
+      },
+      {
+        "sig": "void Tick(f32 dt) / void Clear()",
+        "desc": "毎フレームの更新 / 全音源を空にする (聞き手は保持)。"
+      },
+      {
+        "sig": "using FSpatialAudio = CSpatialAudio",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSpatialAudio を使う。"
+      }
+    ]
+  }
+}

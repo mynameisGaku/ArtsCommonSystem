@@ -1,0 +1,135 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CEditorWorkspace",
+    "kind": "クラス(サービス hub)",
+    "header": "gameframework/tools/editor_core/EditorWorkspace.h",
+    "summary": "複数の AEditorPanel を統括するワークスペース。 panel 群の登録・探索、毎フレームの main loop(OnFrameBegin → DockSpace → MenuBar → DrawUI)、ImGui DockSpace / Window メニュー、.acslayout でのレイアウト永続化、選択 / asset 選択イベントの全 panel への broadcast を担う。 panel は raw pointer の非所有保持(caller 所有)で、登録順 = dispatch 順。 非コピー / 非ムーブ、全 noexcept。",
+    "when": "複数 panel を 1 つの editor アプリとしてまとめて配線する中央 hub が要る時。",
+    "sample": "CEditorWorkspace ws;\nws.Init();\nws.RegisterPanel(&inspector_panel);   // panel は caller 所有\nws.RegisterPanel(&model_viewer);\n// 毎フレーム:\nws.TickAllPanels(dt);\n// 終了時:\nws.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "panel list を空、selection service を nullptr、フラグを default に。 多重 Init 可(完全リセット)。 登録 panel に OnShutdown を呼ばず破棄するので Init 前に Shutdown すること。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "全 panel に OnShutdown を呼んでから list を解放。 selection service 参照も解除。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void RegisterPanel(AEditorPanel* panel) noexcept",
+        "ret": "—",
+        "desc": "panel を末尾追加し OnInit を呼ぶ。 所有は caller。 二重登録 / nullptr は no-op。 kMaxPanels 到達後も silent no-op。"
+      },
+      {
+        "sig": "void UnregisterPanel(AEditorPanel* panel) noexcept",
+        "ret": "—",
+        "desc": "登録解除して OnShutdown を呼ぶ。 順序保存削除(shift)。 未登録 / nullptr は no-op。"
+      },
+      {
+        "sig": "u32 PanelCount() const noexcept",
+        "ret": "件数",
+        "desc": "現在の登録 panel 数。"
+      },
+      {
+        "sig": "AEditorPanel* GetPanelByIndex(u32 i) const noexcept",
+        "ret": "panel または null",
+        "desc": "i 番目の panel。 範囲外は nullptr。"
+      },
+      {
+        "sig": "AEditorPanel* FindPanelByTitle(const char* title) const noexcept",
+        "ret": "panel または null",
+        "desc": "Title() が完全一致(strcmp)する panel。 なし / nullptr は nullptr。"
+      },
+      {
+        "sig": "void TogglePanelVisible(const char* title) noexcept",
+        "ret": "—",
+        "desc": "title 一致 panel の m_Visible を反転。 未発見 / null は no-op。"
+      },
+      {
+        "sig": "void TickAllPanels(f32 dt) noexcept",
+        "ret": "—",
+        "desc": "全 panel の 1 フレーム分を駆動: 各 OnFrameBegin(dt) → DockSpace 描画 → MenuBar 描画 → 各 DrawUI。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void DrawDockSpace() noexcept",
+        "ret": "—",
+        "desc": "ImGui::DockSpaceOverViewport で main viewport に dock 空間を出す。 IMGUI_HAS_DOCK 未定義時は no-op(各 panel は float window として並ぶ)。 TickAllPanels から自動呼出。"
+      },
+      {
+        "sig": "void DrawMenuBar() noexcept",
+        "ret": "—",
+        "desc": "MainMenuBar に \"Window\"(panel toggle) / \"Layout\"(Save / Load) メニューを追加。 SetEnableMenuBar(false) で抑制可。"
+      },
+      {
+        "sig": "void SaveLayout(const wchar_t* file_path) noexcept",
+        "ret": "—",
+        "desc": "ImGui ini + 各 panel の visible / dock_target を .acslayout テキストに書き出す。 失敗時は silent(ログのみ)。"
+      },
+      {
+        "sig": "void LoadLayout(const wchar_t* file_path) noexcept",
+        "ret": "—",
+        "desc": ".acslayout を復元。 version 不一致 / 構文エラー / 未登録 title は安全に skip。 失敗時も silent。"
+      },
+      {
+        "sig": "void SetSelectionService(inspector::CSelectionService* svc) noexcept",
+        "ret": "—",
+        "desc": "CSelectionService 参照を登録 / 解除(nullptr で解除)。 caller 所有。"
+      },
+      {
+        "sig": "inspector::CSelectionService* GetSelectionService() const noexcept",
+        "ret": "service*",
+        "desc": "登録中の selection service。 未注入時 nullptr。"
+      },
+      {
+        "sig": "void BroadcastSelectionChanged() noexcept",
+        "ret": "—",
+        "desc": "全 panel に OnSelectionChanged を fan-out。 selection service 未注入時は no-op。"
+      },
+      {
+        "sig": "void BroadcastAssetSelected(const char* asset_path) noexcept",
+        "ret": "—",
+        "desc": "全 panel に OnAssetSelected を fan-out。 asset_path は pass-through(workspace は保持しない)。 nullptr は選択解除。"
+      },
+      {
+        "sig": "void SetNoDockingInCentralNode(bool) / bool NoDockingInCentralNode() const",
+        "ret": "—",
+        "desc": "central node 内 docking を無効化(central を「メインビュー」専用にしたい時 true)。 既定 false。"
+      },
+      {
+        "sig": "void SetEnableDockSpace(bool) / bool IsDockSpaceEnabled() const",
+        "ret": "—",
+        "desc": "DockSpace 自動描画の on/off。 既定 true。"
+      },
+      {
+        "sig": "void SetEnableMenuBar(bool) / bool IsMenuBarEnabled() const",
+        "ret": "—",
+        "desc": "MainMenuBar 自動描画の on/off。 既定 true。"
+      },
+      {
+        "sig": "static constexpr const char* kLayoutMagic = \"ACS_EDLAYOUT\"",
+        "desc": ".acslayout ファイルの magic 文字列。"
+      },
+      {
+        "sig": "static constexpr u32 kLayoutVersion = 1u",
+        "desc": "レイアウトファイルの version。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxPanels = 32u",
+        "desc": "同時登録可能 panel 数の上限。 超過した RegisterPanel は silent no-op。"
+      },
+      {
+        "sig": "using FEditorWorkspace = CEditorWorkspace",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEditorWorkspace を使う。"
+      }
+    ]
+  }
+}

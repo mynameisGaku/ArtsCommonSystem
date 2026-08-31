@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "EConsentCategory",
+    "kind": "列挙(enum)",
+    "header": "gameframework/PrivacyDirector.h",
+    "summary": "同意カテゴリを表すビットフラグ。 Required (=0、同意不要の基本機能) / Analytics / Marketing / Personalization / ThirdPartySharing / Telemetry / CrashReports。 | / & 演算子で複合できる。",
+    "when": "「Analytics は ON だが Marketing は OFF」のようにカテゴリ別に同意を扱う時。",
+    "sample": "privacy.GrantConsent(EConsentCategory::Analytics | EConsentCategory::Telemetry);"
+  }
+}

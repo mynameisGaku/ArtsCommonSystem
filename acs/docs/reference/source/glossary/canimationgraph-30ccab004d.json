@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAnimationGraph",
+  "definition": "3D スケルトンアニメ向けのステートマシン型ブレンドグラフ。 どの clip をどの比率で再生するかを制御する。"
+}

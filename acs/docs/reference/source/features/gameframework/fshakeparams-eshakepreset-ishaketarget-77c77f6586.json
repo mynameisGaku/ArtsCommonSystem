@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FShakeParams / EShakePreset / IShakeTarget",
+    "kind": "構造体・列挙(enum)・インターフェース",
+    "header": "gameframework/CameraShakePresets.h",
+    "summary": "FShakeParams=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。 EShakePreset=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。 IShakeTarget=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。",
+    "when": "preset の値を組み立てたり、自前の振動対象を CCameraShakePresets に渡せるようにする時。",
+    "sample": "FShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};\nFCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "self-contained",
+  "definition": "自分が動くのに必要なデータを全部自分で持っていて、外部の状態に依存しないこと。"
+}

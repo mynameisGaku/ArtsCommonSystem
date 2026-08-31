@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "IBackendClient",
+    "kind": "インターフェース",
+    "header": "gameframework/BackendClient.h",
+    "summary": "サーバ側 (テレメトリ送信・設定取得など) への汎用バックエンド窓口のシーム。 具体的な通信スタック (HTTP/gRPC/Steam) は抱えず interface だけ提供し、実装はプロジェクト側で差し込む。 失敗は Result で返す。",
+    "when": "プレイ統計をサーバに送る等の通信が要る時。 オフラインビルドでもリンクが通るよう抽象越しに使う。",
+    "sample": "IBackendClient& be = GetDefaultBackendClient();\nif (be.Connect(\"game-backend\").IsOk()) {\n    be.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\");\n}\n// 毎フレーム:\nbe.Tick(dt);",
+    "members": [
+      {
+        "sig": "TResult<void> Connect(const char* server_url)",
+        "desc": "指定 URL のサーバに接続する。 完了/失敗を Result で返す。"
+      },
+      {
+        "sig": "void Disconnect()",
+        "desc": "接続を切る (多重/未接続呼び出しは安全に no-op)。"
+      },
+      {
+        "sig": "bool IsConnected() const",
+        "desc": "現在接続中かを返す。"
+      },
+      {
+        "sig": "TResult<void> SendTelemetry(const char* event_name, const char* json_payload)",
+        "desc": "テレメトリイベントを送信する (内部キュー + 非同期 flush は実装次第)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "非同期 RPC の応答をメインスレッドに引き上げる pump。 毎フレーム呼ぶ。"
+      }
+    ]
+  }
+}

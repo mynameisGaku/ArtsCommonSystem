@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "IContentModerator",
+    "kind": "インターフェース",
+    "header": "gameframework/ContentModerator.h",
+    "summary": "UGC (ユーザー生成コンテンツ = チャット文 / 画像 / ユーザー名) を「公開可 / 警告付き / ブロック」の 3 値で判定するseam。",
+    "when": "オンライン要素でユーザーが入力したテキストや画像を公開前にチェックしたい時。",
+    "sample": "IContentModerator* mod = &acs::game::GetModeratorStub();\nauto r = mod->ModerateText(userId, text);\nif (r && r.Value().verdict == EModerationVerdict::Block)\n    ShowBlockedUi(r.Value().reason);",
+    "members": [
+      {
+        "sig": "virtual TResult<FModerationResult> ModerateText(const char* user_id, const char* text)",
+        "ret": "判定結果",
+        "desc": "チャット / プロフィール文等をモデレーションする。",
+        "when": "テキスト投稿前。"
+      },
+      {
+        "sig": "virtual TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size)",
+        "desc": "投稿画像 (PNG/JPEG 等の生バイト列) をモデレーションする。 size==0 / nullptr は BadArgument。"
+      },
+      {
+        "sig": "virtual TResult<FModerationResult> ModerateUserName(const char* name)",
+        "desc": "ユーザー名をモデレーションする (通常 text より厳しめ)。"
+      },
+      {
+        "sig": "virtual void Tick(f32 dt)",
+        "desc": "非同期処理 (REST 結果ポーリング等) のポンプ。 毎フレーム呼ぶ。 Stub は no-op。"
+      },
+      {
+        "sig": "virtual bool IsAvailable() const",
+        "desc": "API を発火できる状態か。 Stub は常に true。"
+      }
+    ]
+  }
+}

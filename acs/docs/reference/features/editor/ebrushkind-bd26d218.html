@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ALevelEditorPanel のペイントブラシ種別。 tilemap 上のマウス操作の意味を切り替える。 E-prefix は ACS 規約。">
+  <title>EBrushKind — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/editor.html">editor モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/editor.html">editor</a><span>/</span><span aria-current="page">EBrushKind</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / editor</div><h1 class="identifier">EBrushKind</h1>
+<p class="lead">ALevelEditorPanel のペイントブラシ種別。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23741">tilemap</button><span class="term-tooltip" id="term-tip-23741" role="tooltip">タイルを格子状に敷き詰めて作る 2D マップ。 FTilemap は複数レイヤのタイル ID 配列を持つ。</span></span> 上のマウス操作の意味を切り替える。 E-prefix は ACS 規約。</p></div><div class="badges"><span class="badge">列挙(enum class : u8)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/ebrushkind-e1b7dcaa.html"><code>acs::game::leveledit::EBrushKind</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>LevelEditor のツールバーで現在ブラシを選ぶ時。 SetCurrentBrush / CurrentBrush で読み書き。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>editor</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum class : u8)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/tools/leveledit/LevelEditorPanel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-208b6b1b6a3688017880"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/paint-e72faf8f.html">Paint</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>塗り。 current_tile_id を SetTile (drag 対応)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/paint-e72faf8f.html"><code>acs::game::leveledit::EBrushKind::Paint</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-ab33fbe8ba4040e5915e"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/erase-23867c63.html">Erase</a> = 1</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>消し。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23739">FTileId</button><span class="term-tooltip" id="term-tip-23739" role="tooltip">タイル 1 セルの ID(u16)。 0 を「空(タイル無し)」として予約し、描画側がアトラスの index などとして解釈する。</span></span>{0} を SetTile (drag 対応)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/erase-23867c63.html"><code>acs::game::leveledit::EBrushKind::Erase</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-e5fd1143312943d78137"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/fill-d8ca2d4e.html">Fill</a> = 2</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>flood-fill。 クリック位置の連結成分を current_tile_id で塗替 (click 単発)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/fill-d8ca2d4e.html"><code>acs::game::leveledit::EBrushKind::Fill</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-5378e080ce53208cab58"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/pick-be0ff52c.html">Pick</a> = 3</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>スポイト。 クリック位置の tile id を current_tile_id に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23740">コピー</button><span class="term-tooltip" id="term-tip-23740" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span> (click 単発)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ebrushkind-e1b7dcaa/pick-be0ff52c.html"><code>acs::game::leveledit::EBrushKind::Pick</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FPipelineDesc / IRhiPipeline / CreateRhiPipeline",
+    "kind": "構造体 / インターフェース / ファクトリ",
+    "header": "render/IRhiPipeline.h",
+    "summary": "グラフィックスパイプライン(PSO)。 VS+PS・頂点入力レイアウト・出力フォーマット・カリング・ブレンド・深度/ステンシルテストなど「1 回の描画方式」を丸ごと固めたもの。",
+    "when": "描画方式(どのシェーダで、どんな頂点を、どうブレンドして描くか)を 1 つ定義するとき。 SetPipeline で切り替える。",
+    "sample": "FPipelineDesc pd;\npd.vs = vs.Get(); pd.ps = ps.Get();\npd.rt_format = EFormat::B8G8R8A8_UNorm;\npd.depth_format = EFormat::D32_Float;\npd.depth_test = true;\npd.cull_mode = ECullMode::Back;\npd.layout[0] = { \"POSITION\", 0, EFormat::R32G32B32_Float, 0 };\npd.layout_count = 1; pd.vertex_stride = 12;\nauto pipe = CreateRhiPipeline(*dev, pd).Value();",
+    "members": [
+      {
+        "sig": "IRhiShader* vs / ps",
+        "desc": "頂点 / ピクセルシェーダ。"
+      },
+      {
+        "sig": "EPrimitiveTopology topology",
+        "desc": "プリミティブ種別(既定 TriangleList)。"
+      },
+      {
+        "sig": "EFormat rt_format / rt_formats[8] / u32 rt_count / EFormat depth_format",
+        "desc": "出力 RT のフォーマット。 rt_count>0 で MRT。 depth_format=Unknown で深度なし。"
+      },
+      {
+        "sig": "FInputElement layout[8] / u32 layout_count / u32 vertex_stride",
+        "desc": "頂点入力レイアウトと 1 頂点のバイト数。"
+      },
+      {
+        "sig": "u32 cbuffer_slots / texture_slots",
+        "desc": "公開する定数バッファ数 / テクスチャ数。 Draw 前に SetConstantBuffer / SetTexture で割り当てる。"
+      },
+      {
+        "sig": "FSamplerDesc static_samplers[16] / u32 static_sampler_count",
+        "desc": "パイプラインに焼き込む静的サンプラ(最大 16)。"
+      },
+      {
+        "sig": "const char* cbuffer_names[16] / texture_names[16]",
+        "desc": "Diligent が名前で SRB を引くための HLSL リソース名(DX12 raw は無視)。"
+      },
+      {
+        "sig": "ECullMode cull_mode / EBlendMode blend_mode / bool depth_test / depth_write",
+        "desc": "カリング・ブレンド・深度テスト/書込み。"
+      },
+      {
+        "sig": "FStencilDesc stencil",
+        "desc": "ステンシル設定(既定 disable)。"
+      },
+      {
+        "sig": "TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice&, const FPipelineDesc&)",
+        "ret": "パイプライン",
+        "desc": "パイプラインを作る。"
+      }
+    ]
+  }
+}

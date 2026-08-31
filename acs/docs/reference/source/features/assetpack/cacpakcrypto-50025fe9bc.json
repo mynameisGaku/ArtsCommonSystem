@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakCrypto",
+    "kind": "クラス(static 関数群)",
+    "header": "assetpack/AcpakCrypto.h",
+    "summary": "AES-256-GCM 暗号化と PBKDF2 による鍵導出をまとめた薄いラッパ。 中身は Windows 標準の CNG(BCrypt)で、外部ライブラリに依存しない。 インスタンス化はせず静的関数だけを使う。",
+    "when": "通常は CAcpakWriter/CAcpakReader が内部で使うので直接触る必要は少ない。 パスワードから鍵を作る時だけ DeriveKey を呼ぶ。",
+    "sample": "// パスワードから鍵を作る\nconst u8 pw[] = \"my-secret\";\nconst u8 salt[] = \"acs-salt\";\nauto key = CAcpakCrypto::DeriveKey(pw, 9, salt, 8);\nwriter.SetKey(key.Value());",
+    "members": [
+      {
+        "sig": "TResult<FAcpakKey> DeriveKey(const u8* password, u32 password_len, const u8* salt, u32 salt_len)",
+        "ret": "32 バイトの鍵",
+        "desc": "パスワードと salt から AES-256 鍵を作る(PBKDF2-HMAC-SHA256、10000 回)。 ポインタは即時消費され、戻り後は参照されない。",
+        "when": "ユーザー入力のパスワードを直接 32 バイト鍵に変換したい時。"
+      },
+      {
+        "sig": "TResult<void> Encrypt(const FAcpakKey& key, const u8 nonce[12], const u8* plaintext, u64 size, u8* ciphertext, u8 tag_out[16])",
+        "desc": "平文を暗号化し、暗号文と認証タグ(16 バイト)を出力する。 nonce は per-entry に必ず一意であること(同じ (key, nonce) の再利用は致命的)。 in-place(plaintext==ciphertext)可。"
+      },
+      {
+        "sig": "TResult<void> Decrypt(const FAcpakKey& key, const u8 nonce[12], const u8 tag[16], const u8* ciphertext, u64 size, u8* plaintext)",
+        "desc": "暗号文とタグから平文を復号する。 タグ検証に失敗すると(=少しでも改竄/破損していると)全データを弾く。 in-place 可。"
+      },
+      {
+        "sig": "TResult<void> GenerateRandomNonce(u8 nonce_out[12])",
+        "ret": "ランダムな nonce",
+        "desc": "CSPRNG で 12 バイトの一意な nonce を作る。 失敗時は決して成功を返さず 0 クリア+エラー(予測可能な nonce での暗号化は禁止のため)。",
+        "when": "Encrypt のたびに新しい nonce を用意する時。"
+      },
+      {
+        "sig": "using FAcpakCrypto = CAcpakCrypto",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakCrypto を使う。"
+      }
+    ]
+  }
+}

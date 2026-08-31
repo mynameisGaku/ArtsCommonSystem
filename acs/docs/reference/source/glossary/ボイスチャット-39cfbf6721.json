@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ボイスチャット",
+  "definition": "マイク音声を圧縮して送受信する仕組み(Steam VOIP)。"
+}

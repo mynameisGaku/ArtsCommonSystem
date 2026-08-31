@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "EWeatherKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/WeatherSystem.h",
+    "summary": "天候種別を表す 8 値の列挙(晴れ / 曇り / 雨 / 豪雨 / 雪 / 嵐 / 霧 / 砂嵐)。 値はセーブに書ける安定値です。",
+    "when": "SetWeather で天候を指定する / 現在天候で分岐する時。",
+    "sample": "weather.SetWeather(EWeatherKind::Snow);",
+    "members": [
+      {
+        "sig": "Clear / Cloudy / Rain / HeavyRain",
+        "desc": "快晴 / 曇り / 雨 / 豪雨。"
+      },
+      {
+        "sig": "Snow / Storm / Fog / Sandstorm",
+        "desc": "雪 / 嵐(強風+豪雨) / 霧 / 砂嵐(強風+視界不良)。"
+      }
+    ]
+  }
+}

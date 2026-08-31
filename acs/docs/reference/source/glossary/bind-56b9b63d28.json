@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Bind",
+  "definition": "Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "ComponentKindOf<T> / ACS_GAME_COMPONENT_KIND",
+    "kind": "関数テンプレート / マクロ",
+    "header": "gameframework/AComponent.h",
+    "summary": "RTTI を使わずにコンポーネント型を一意識別する仕組み。 型 T ごとに別アドレスの static 変数を持ち、そのアドレスを型 ID にする。 派生クラスは ACS_GAME_COMPONENT_KIND(T) マクロで Kind() を 1 行 override する。",
+    "when": "コンポーネントを自作する時、クラス内に 1 行書くだけ。",
+    "sample": "class AMyComp : public AComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(AMyComp)  // Kind() を生成\n};"
+  }
+}

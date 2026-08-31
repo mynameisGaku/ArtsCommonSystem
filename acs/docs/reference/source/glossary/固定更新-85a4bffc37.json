@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "固定更新",
+  "definition": "描画frameの長さに左右されず、一定の秒数ずつsimulationを進める方法。"
+}

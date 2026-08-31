@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FFlowTransition",
+    "kind": "構造体",
+    "header": "gameframework/GameFlow.h",
+    "summary": "遷移メタデータ。 遷移元 from・遷移先 to・fade-in / fade-out 秒数を持つ。 CGameFlow が内部で保持し Tick で進行させる。",
+    "when": "遷移の進行情報を参照する場面 (主に内部用)。"
+  }
+}

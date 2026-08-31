@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TTypedPoolAllocator<T, Capacity>",
+    "kind": "クラステンプレート",
+    "header": "memory/TypedPoolAllocator.h",
+    "summary": "型と件数から block size、alignment、容量をコンパイル時に固定する pool allocator。",
+    "when": "同じ型を高頻度に確保・返却し、runtime layout 計算を除きたい時。"
+  }
+}

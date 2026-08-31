@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "FStringHasher",
+    "kind": "構造体",
+    "header": "container/StringHasher.h",
+    "summary": "FString と FStringView を同じ byte hash へ写す関数オブジェクト。",
+    "when": "文字列 map の所有キーと非所有キーを相互検索する時。"
+  }
+}

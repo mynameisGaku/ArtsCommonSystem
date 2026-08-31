@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FOrbitCameraInputActionSet3D",
+  "definition": "6個の名前付き action を、固定 tick や replay から評価できる3D orbit camera入力へ変換する。"
+}

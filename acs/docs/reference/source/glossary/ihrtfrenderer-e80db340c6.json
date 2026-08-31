@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IHrtfRenderer",
+  "definition": "モノラルをステレオへ空間化する処理の抽象インターフェース。"
+}

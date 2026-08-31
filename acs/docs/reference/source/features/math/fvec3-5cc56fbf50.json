@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FVec3",
+    "kind": "構造体",
+    "header": "math/Vec.h",
+    "summary": "3 次元ベクトル（x, y, z）。 16 バイト整列でSIMD演算に最適。 3D の位置・方向・色などに使う最重要型。",
+    "when": "3D 空間の座標・速度・法線・カメラ方向など、立体的な量を扱うほぼ全ての場面。",
+    "sample": "FVec3 a{1,0,0}, b{0,1,0};\nFVec3 c = Cross(a, b);       // 外積 → {0,0,1}\nf32  d = Dot(a, b);          // 内積 → 0\nFVec3 mid = Lerp(a, b, 0.5f); // 中間点\nFVec3 up = FVec3::Up();      // {0,1,0}",
+    "members": [
+      {
+        "sig": "FVec3(f32 x, f32 y, f32 z)",
+        "desc": "x, y, z を指定して作る。"
+      },
+      {
+        "sig": "static FVec3 Zero() / One() / UnitX() / UnitY() / UnitZ()",
+        "ret": "定数ベクトル",
+        "desc": "ゼロ・全 1・各軸の単位ベクトルを返す。"
+      },
+      {
+        "sig": "static FVec3 Up() / Forward() / Right()",
+        "ret": "向きベクトル",
+        "desc": "上 {0,1,0} / 前 {0,0,1} / 右 {1,0,0}。 カメラやキャラの向き計算に便利。"
+      },
+      {
+        "sig": "operator+ - * += -= *= (単項 -)",
+        "desc": "ベクトル加減・スカラ倍と単項マイナス。 内部でSIMD計算される。 除算演算子は無い(operator/ も /= も未定義。 FVec2 だけが /= を持つ)。 スカラ除算は v * (1/s) で書く。"
+      },
+      {
+        "sig": "operator== !=",
+        "desc": "x,y,z 成分が完全一致するか比較する。"
+      }
+    ]
+  }
+}

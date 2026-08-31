@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FConsentStatus",
+    "kind": "構造体",
+    "header": "gameframework/PrivacyDirector.h",
+    "summary": "永続化単位の POD。 granted_mask (同意 mask) / consent_timestamp (同意時刻) / policy_version (同意時のポリシー版)。 SaveConsent / LoadConsent で書き出される最小構造体。",
+    "when": "同意情報をファイルに保存 / 復元する時の中身。 基本は CPrivacyDirector 越しに扱う。",
+    "sample": "// SaveConsent/LoadConsent が内部で読み書きする POD。\n// 直接組み立てる必要はほぼない。"
+  }
+}

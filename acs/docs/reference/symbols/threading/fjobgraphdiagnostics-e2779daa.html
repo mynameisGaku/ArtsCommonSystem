@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="JobGraph の構築・再実行経路を観測する決定的な診断値。">
+  <title>acs::FJobGraphDiagnostics — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/threading.html">threading モジュール</a><a href="fjobgraphdiagnostics-e2779daa.html" aria-current="page">FJobGraphDiagnostics</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/heap-callable-count-52667512.html">heap_callable_count</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/heap-job-count-c3a9c7b1.html">heap_job_count</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/inline-callable-count-a7f52ecb.html">inline_callable_count</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/inline-job-count-0d4eb248.html">inline_job_count</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/reset-job-visits-710a422d.html">reset_job_visits</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/submit-full-graph-scans-33b1e87d.html">submit_full_graph_scans</a><a class="tree-child" href="fjobgraphdiagnostics-e2779daa/topology-compilations-bcdcf2b7.html">topology_compilations</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/threading.html">threading</a><span>/</span><span aria-current="page">FJobGraphDiagnostics</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / threading</div>
+<h1 class="identifier">acs::FJobGraphDiagnostics</h1>
+<p class="lead">JobGraph の構築・再実行経路を観測する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21492">決定的</button><span class="term-tooltip" id="term-tip-21492" role="tooltip">同じ入力なら必ず同じ結果になる性質。 乱数や時刻に依存せず、テストや再現がしやすい。</span></span>な診断値。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FJobGraphDiagnosticsの宣言"><code>struct <a href="fjobgraphdiagnostics-e2779daa.html" aria-current="page">FJobGraphDiagnostics</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/threading.html">threading</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/threading/JobGraphDiagnostics.h:9</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fjobgraphdiagnostics-e2779daa/heap-callable-count-52667512.html"><span><span class="identifier">u32 heap_callable_count = 0;</span><span class="summary">サイズまたは alignment 超過で個別確保した callable 数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/heap-job-count-c3a9c7b1.html"><span><span class="identifier">u32 heap_job_count = 0;</span><span class="summary">inline slot を超えて個別確保した job 数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/inline-callable-count-a7f52ecb.html"><span><span class="identifier">u32 inline_callable_count = 0;</span><span class="summary">job 内部の inline 領域に置かれた所有 callable 数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/inline-job-count-0d4eb248.html"><span><span class="identifier">u32 inline_job_count = 0;</span><span class="summary">graph 内部の inline slot に置かれた job 数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/reset-job-visits-710a422d.html"><span><span class="identifier">u64 reset_job_visits = 0;</span><span class="summary">Reset が依存カウンタ復元のために参照した job 数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/submit-full-graph-scans-33b1e87d.html"><span><span class="identifier">u64 submit_full_graph_scans = 0;</span><span class="summary">Submit で entry 探索のために全 job を走査した回数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fjobgraphdiagnostics-e2779daa/topology-compilations-bcdcf2b7.html"><span><span class="identifier">u64 topology_compilations = 0;</span><span class="summary">依存 topology を構築した回数。</span></span><span class="kind-label">メンバー変数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

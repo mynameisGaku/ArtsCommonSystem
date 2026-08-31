@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "状態",
+  "definition": "オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。"
+}

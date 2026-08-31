@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "EWeaponKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/WeaponSystem.h",
+    "summary": "武器のジャンルを表す列挙。 UI 表示 / アニメ分岐 / ダメージ種別判定などの参考情報で、機械的な発射挙動は FWeaponDef のパラメータで決まります。",
+    "when": "武器アイコンやアニメを種別で切り替える時。",
+    "sample": "if (ws.CurrentDef()->kind == EWeaponKind::Shotgun) ShowSpreadReticle();",
+    "members": [
+      {
+        "sig": "Pistol / Rifle / Shotgun / Sniper",
+        "desc": "単発ハンドガン / 長銃 / ペレット拡散 / 高ダメージ低 fire-rate。"
+      },
+      {
+        "sig": "RocketLauncher / Sword / Bow / Custom",
+        "desc": "爆発物 / 近接斬撃 / 弓 / それ以外。"
+      }
+    ]
+  }
+}

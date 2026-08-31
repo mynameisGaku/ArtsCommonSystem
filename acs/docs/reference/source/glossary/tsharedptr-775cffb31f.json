@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TSharedPtr",
+  "definition": "複数で共有するスマートポインタ。 参照カウントが 0 で自動解放。"
+}

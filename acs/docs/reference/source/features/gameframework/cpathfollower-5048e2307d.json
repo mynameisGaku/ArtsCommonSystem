@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPathFollower",
+    "kind": "クラス",
+    "header": "gameframework/Steering2D.h",
+    "summary": "2D path上の位置と進行を更新する。",
+    "when": "objectをwaypoint列に沿って移動させる時。",
+    "members": [
+      {
+        "sig": "using FPathFollower = CPathFollower",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPathFollower を使う。"
+      }
+    ]
+  }
+}

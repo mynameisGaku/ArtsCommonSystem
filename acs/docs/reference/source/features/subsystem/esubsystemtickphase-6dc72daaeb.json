@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "ESubsystemTickPhase",
+    "kind": "列挙",
+    "header": "subsystem/SubsystemTickPhase.h",
+    "summary": "subsystemを呼び出すframe更新段階。",
+    "when": "factoryごとに自動更新の有無と順序を指定する時。",
+    "members": [
+      {
+        "sig": "None",
+        "desc": "自動更新しない。"
+      },
+      {
+        "sig": "PreUpdate",
+        "desc": "利用側の通常更新より前に呼ぶ。"
+      },
+      {
+        "sig": "PostUpdate",
+        "desc": "利用側の通常更新より後に呼ぶ。"
+      }
+    ]
+  }
+}

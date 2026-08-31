@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "payload",
+  "definition": "ImGui のドラッグ & ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では \"ASSET_PATH\" id で wchar_t* を渡す。"
+}

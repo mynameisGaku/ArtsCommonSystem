@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Present",
+  "definition": "描き終えたバックバッファを実際の画面に表示する操作。"
+}

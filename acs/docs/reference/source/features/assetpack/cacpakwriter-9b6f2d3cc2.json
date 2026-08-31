@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakWriter",
+    "kind": "クラス",
+    "header": "assetpack/AcpakWriter.h",
+    "summary": "バラバラのファイル(バイト列)を 1 つの .acpak アーカイブにまとめて書き出す梱包係。 入力は内部へコピーして所有し、完成品は同一ディレクトリの一時ファイルから出力先へ原子的に置換するため、途中失敗で既存 pak を壊さない。",
+    "when": "ゲームの全アセットを 1 ファイルに固めたい時。 圧縮や暗号化を有効にして「中身を覗かれにくく」したい時。",
+    "sample": "acs::assetpack::CAcpakWriter w;\nw.Open(L\"out/game.acpak\", acs::assetpack::AcpakFlagNone);\nfor (auto& a : assets)\n    w.AddFile(a.path, a.bytes, a.size);  // この場では貯めるだけ\nw.Finalize();   // ここで一気に書き出す\nw.Close();",
+    "members": [
+      {
+        "sig": "TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags)",
+        "ret": "成否(Result)",
+        "desc": "出力先と同じディレクトリに一意な一時ファイルを作る。 出力先はまだ変更しない。 flags で圧縮/暗号化を選び、未知 bit と二重 Open はエラー。 暗号化する場合は Finalize より前に SetKey を呼ぶ。"
+      },
+      {
+        "sig": "void SetKey(const FAcpakKey& key)",
+        "desc": "暗号化に使う鍵を設定する。 AcpakFlagEncrypted を立てた時に Finalize で使われる。 Open の前後どちらでも呼べる。",
+        "when": "暗号化付きの pak を作る時(鍵未設定だと Finalize でエラー)。"
+      },
+      {
+        "sig": "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)",
+        "desc": "1 ファイルを追加する。 / 区切りの正規形仮想パスと全バイトを内部配列へコピーし、path hash を一度保持する。 重複確認は hash 一致候補だけを完全比較し、同名パスや不正な ./.. segment は拒否する。 成功後は呼び出し側が入力を直ちに再利用・解放してよい。",
+        "when": "梱包したいファイルを 1 つずつ登録していく時。",
+        "sample": "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);"
+      },
+      {
+        "sig": "TResult<void> Finalize()",
+        "desc": "一時ファイルへヘッダ→全データ→ファイルテーブルの順で書き出し、元バイトの CRC32 を記録する。 ヘッダ確定後に FlushFileBuffers し、出力先へ原子的に置換する。 置換が成功するまでは既存の出力先を保ち、書込み・flush・置換の失敗時は Close またはデストラクタが一時ファイルを削除する。",
+        "when": "全ファイルの AddFile が済んだ後、最後に 1 度だけ。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "ハンドルと内部入力コピーを解放し、鍵を 0 クリアする。 まだ原子的置換していない一時ファイルは削除し、既存の出力先を残す。 多重 Close は安全。"
+      },
+      {
+        "sig": "using FAcpakWriter = CAcpakWriter",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakWriter を使う。"
+      }
+    ]
+  }
+}

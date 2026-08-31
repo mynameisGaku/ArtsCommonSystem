@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "イージング",
+  "definition": "トゥイーンの加減速カーブ。 Linear(等速)や InOutSine(ゆっくり始まりゆっくり終わる)など。"
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="順序やスピン待ちを細かく制御する低レベル関数群。 CompilerBarrier=コンパイラの命令並び替えだけ禁止(CPU 命令は出さない)。 HardwareFence=CPU レベルの完全フェンス。 SpinHint=忙しく待つループで CPU を一瞬譲るヒント命令。">
+  <title>CompilerBarrier / HardwareFence / SpinHint — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/threading.html">threading モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/threading.html">threading</a><span>/</span><span aria-current="page">CompilerBarrier / HardwareFence / SpinHint</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / threading</div><h1 class="identifier">CompilerBarrier / HardwareFence / SpinHint</h1>
+<p class="lead">順序やスピン待ちを細かく制御する低レベル関数群。 CompilerBarrier=コンパイラの命令並び替えだけ禁止(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29402">CPU</button><span class="term-tooltip" id="term-tip-29402" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> 命令は出さない)。 HardwareFence=<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29403">CPU</button><span class="term-tooltip" id="term-tip-29403" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> レベルの完全<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29404">フェンス</button><span class="term-tooltip" id="term-tip-29404" role="tooltip">メモリ操作の順序を区切る境界。 これを跨いで読み書きが並び替えられないよう保証する。</span></span>。 SpinHint=忙しく待つループで <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29405">CPU</button><span class="term-tooltip" id="term-tip-29405" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> を一瞬譲るヒント命令。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/threading/compilerbarrier-555b9f10.html"><code>acs::CompilerBarrier</code></a><span class="summary"><code>ACS_FORCEINLINE void CompilerBarrier() noexcept;</code></span></li><li><a href="../../symbols/threading/hardwarefence-0e91ae95.html"><code>acs::HardwareFence</code></a><span class="summary"><code>ACS_FORCEINLINE void HardwareFence() noexcept;</code></span></li><li><a href="../../symbols/threading/spinhint-1d047e80.html"><code>acs::SpinHint</code></a><span class="summary"><code>ACS_FORCEINLINE void SpinHint() noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29398">ロック</button><span class="term-tooltip" id="term-tip-29398" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>フリーな自作データ構造の最終調整など、めったに使わない上級用途。 普段は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29399">TAtomic</button><span class="term-tooltip" id="term-tip-29399" role="tooltip">ロックなしで安全に共有できる小さな値。</span></span> + EMemoryOrder で足りる。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>threading</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>threading/MemoryOrder.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-eb921a98aa9d1c3e8452"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/threading/compilerbarrier-555b9f10.html">CompilerBarrier</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>コンパイラの並び替えのみを禁止する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/compilerbarrier-555b9f10.html"><code>acs::CompilerBarrier</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-0c53f0eb061d7989cd41"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>void <a href="../../symbols/threading/hardwarefence-0e91ae95.html">HardwareFence</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29400">CPU</button><span class="term-tooltip" id="term-tip-29400" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> + コンパイラ両方の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29401">フェンス</button><span class="term-tooltip" id="term-tip-29401" role="tooltip">メモリ操作の順序を区切る境界。 これを跨いで読み書きが並び替えられないよう保証する。</span></span>(x64 では mfence)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/hardwarefence-0e91ae95.html"><code>acs::HardwareFence</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-5e074e347ffd8df3a408"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/threading/spinhint-1d047e80.html">SpinHint</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>busy-wait ループ内に 1 回入れて消費電力と発熱を抑える(x86 PAUSE)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/spinhint-1d047e80.html"><code>acs::SpinHint</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CompilerBarrier / HardwareFence / SpinHintの使用例"><code>while (!flag.Load(EMemoryOrder::Acquire)) {
+    SpinHint();   // ハイパースレッディングの相方に CPU を譲る
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CEffectSystem",
+    "kind": "クラス",
+    "header": "gameframework/EffectSystem.h",
+    "summary": "画面演出の中央指揮塔。 Flash (全画面色被せ) / HitStop (一瞬の停止) / Camera Shake (画面揺れ) をまとめた純粋なstate holder。 自身は描画も停止もせず、描画側・ゲームループ・カメラが「pull する」だけのバスとして働く。",
+    "when": "被弾時の「白フラッシュ + 一瞬停止 + 画面揺れ」のような手応え演出をまとめて出したい時。",
+    "sample": "CEffectSystem fx;\n// 被弾時:\nfx.Flash({1,1,1}, 0.8f, 0.15f);  // 白フラッシュ 150ms\nfx.HitStop(0.08f);               // 80ms 停止\nfx.TriggerShake(0.5f);           // 画面揺れ trauma 0.5\n// 毎フレーム:\nconst f32 ts = fx.IsHitStop() ? 0.0f : 1.0f;  // 停止中は time_scale 0\nfx.Tick(dt);                     // fx は実時間で進む\nif (fx.PendingShakeTrauma() > 0) { cam.AddShake(fx.PendingShakeTrauma()); fx.ConsumeShake(); }",
+    "members": [
+      {
+        "sig": "void Flash(FVec3 color, f32 intensity, f32 duration)",
+        "desc": "画面全体に色を被せて線形に減衰させる。 再呼出で常に上書き (累積しない)。"
+      },
+      {
+        "sig": "void HitStop(f32 duration)",
+        "desc": "duration 秒の間 IsHitStop() を true に。 重ねがけは長い方を採用。",
+        "when": "ヒット時の「タメ」を作る時。"
+      },
+      {
+        "sig": "void TriggerShake(f32 trauma, f32 duration_hint = 0.0f)",
+        "desc": "画面揺れの trauma 値を pending に積む。 同フレーム複数呼出は最大値を保持。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "実時間 dt で全エフェクトのタイマを進める (hit stop 中も止めない)。"
+      },
+      {
+        "sig": "f32 FlashIntensity() / FVec3 FlashColor()",
+        "desc": "描画側が overlay を被せるための現在の強度と色。"
+      },
+      {
+        "sig": "bool IsHitStop() / f32 HitStopRemain()",
+        "desc": "停止中か / 残り停止時間。 ゲームループが time_scale=0 を選ぶのに使う。"
+      },
+      {
+        "sig": "f32 PendingShakeTrauma() / void ConsumeShake()",
+        "desc": "カメラが読む揺れ値 / 読み終えたら 0 に戻す。"
+      },
+      {
+        "sig": "using FEffectSystem = CEffectSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEffectSystem を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "FAcpakKey",
+    "kind": "構造体",
+    "header": "assetpack/AcpakCrypto.h",
+    "summary": "AES-256 用の 256bit(32 バイト)の鍵を表す単純な POD。 1 つの .acpak は 1 鍵で全エントリを暗号化する。",
+    "when": "CAcpakWriter::SetKey / CAcpakReader::SetKey に渡す。 普通は CAcpakCrypto::DeriveKey で作る。",
+    "sample": "FAcpakKey key{};               // 0 埋め\nauto k = CAcpakCrypto::DeriveKey(pw, pwLen, salt, saltLen);\nreader.SetKey(k.Value());",
+    "members": [
+      {
+        "sig": "u8 bytes[32]",
+        "desc": "32 バイトの鍵データ。"
+      }
+    ]
+  }
+}

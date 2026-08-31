@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ローカル頂点列を owner の world transform で変換して塗りつぶす凸ポリゴン描画コンポーネント。">
+  <title>acs::game::APolygonRenderer2D — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="apolygonrenderer2d-f831c5b8.html" aria-current="page">APolygonRenderer2D</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/kmaxverts-85d6edb9.html">kMaxVerts</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/m-color-88de5729.html">m_Color</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/m-count-dd66d7bd.html">m_Count</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/m-verts-1072746f.html">m_Verts</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/ondraw-0dce0e82.html">OnDraw</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/setcolor-daa86cd5.html">SetColor</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/setverts-345fffbc.html">SetVerts</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/vert-b2a23f05.html">Vert</a><a class="tree-child" href="apolygonrenderer2d-f831c5b8/vertcount-07876e56.html">VertCount</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">APolygonRenderer2D</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::APolygonRenderer2D</h1>
+<p class="lead">ローカル<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3793">頂点</button><span class="term-tooltip" id="term-tip-3793" role="tooltip">メッシュを構成する点。 位置・法線・UV などの属性を持つ。</span></span>列を owner の world <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3794">transform</button><span class="term-tooltip" id="term-tip-3794" role="tooltip">位置・回転・拡縮をまとめた座標変換。 親子で合成すると階層的な配置になる。</span></span> で変換して塗りつぶす凸ポリゴン<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3795">描画</button><span class="term-tooltip" id="term-tip-3795" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3796">コンポーネント</button><span class="term-tooltip" id="term-tip-3796" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::APolygonRenderer2Dの宣言"><code>class <a href="apolygonrenderer2d-f831c5b8.html" aria-current="page">APolygonRenderer2D</a> : public AComponent;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/PolygonRenderer2D.h:23</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="apolygonrenderer2d-f831c5b8/kmaxverts-85d6edb9.html"><span><span class="identifier">static constexpr u32 kMaxVerts = 64u;</span><span class="summary">保持できる頂点数の上限。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/m-color-88de5729.html"><span><span class="identifier">FVec4 m_Color{ 0.6f, 0.7f, 0.9f, 1.0f };</span><span class="summary">塗り色。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/m-count-dd66d7bd.html"><span><span class="identifier">u32 m_Count = 0u;</span><span class="summary">頂点数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/m-verts-1072746f.html"><span><span class="identifier">FVec2 m_Verts[kMaxVerts]{};</span><span class="summary">ローカル頂点 (node 原点基準)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/ondraw-0dce0e82.html"><span><span class="identifier">void OnDraw(FRenderContext&amp; rc) noexcept override;</span><span class="summary">owner の world transform でローカル頂点を変換し、三角形ファンで塗る。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/setcolor-daa86cd5.html"><span><span class="identifier">void SetColor(FVec4 c) noexcept;</span><span class="summary">塗り色を設定する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/setverts-345fffbc.html"><span><span class="identifier">void SetVerts(const FVec2* v, u32 count) noexcept;</span><span class="summary">ローカル頂点列 (node 原点基準) を設定する。 v: 頂点配列。 count: 頂点数 (kMaxVerts で頭打ち)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/vert-b2a23f05.html"><span><span class="identifier">FVec2 Vert(u32 i) const noexcept;</span><span class="summary">指定インデックスのローカル頂点 (境界外は原点)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="apolygonrenderer2d-f831c5b8/vertcount-07876e56.html"><span><span class="identifier">u32 VertCount() const noexcept;</span><span class="summary">頂点数。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

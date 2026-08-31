@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Observable",
+  "definition": "監視できる 1 個の値。 Set で変えると購読者へ通知が飛ぶ。 MVVM の中核。"
+}

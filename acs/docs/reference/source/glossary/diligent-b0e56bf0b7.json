@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Diligent",
+  "definition": "Diligent Engine。 1 つの API で D3D12 / Vulkan 等を扱えるクロスバックエンド層。 ACS の Diligent* 系が利用する。"
+}

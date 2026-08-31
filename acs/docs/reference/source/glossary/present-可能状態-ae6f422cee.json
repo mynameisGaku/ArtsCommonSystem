@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Present 可能状態",
+  "definition": "描き終えたバックバッファを画面に提示(Present)できるよう遷移させた状態。 EndRenderToSwapchain 後にこの状態になる。"
+}

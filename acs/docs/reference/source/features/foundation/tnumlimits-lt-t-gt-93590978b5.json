@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "TNumLimits<T>",
+    "kind": "クラステンプレート",
+    "header": "foundation/Limits.h",
+    "summary": "すべて constexpr。",
+    "when": "「ありえない大きな初期値」を入れたい、桁あふれを避けたい、浮動小数の比較許容差が欲しい時など。",
+    "sample": "u32 best = TNumLimits<u32>::Max();   // 最大で初期化\nfor (auto v : xs) best = Min(best, v);\nf32 eps = TNumLimits<f32>::Epsilon();\nif (Abs(a - b) < eps) { /* ほぼ等しい */ }",
+    "members": [
+      {
+        "sig": "static constexpr T Min() / Max()",
+        "desc": "その型の最小値 / 最大値。 整数は表現可能な範囲、浮動小数は最小正規化数 / 最大有限値。"
+      },
+      {
+        "sig": "static constexpr T Epsilon() // f32/f64 のみ",
+        "desc": "1.0 と次に表現できる値の差。 浮動小数の「ほぼ等しい」比較に使う。"
+      },
+      {
+        "sig": "static constexpr T Infinity() // f32/f64 のみ",
+        "desc": "正の無限大。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCraftingSystem",
+    "kind": "クラス",
+    "header": "gameframework/CraftingSystem.h",
+    "summary": "サバイバル / クラフト系のレシピ + 素材消費 + 時間経過で成果物生成を扱う production マネージャ。 レシピを登録し、StartCraft で素材を消費して Tick で進行、完了すると成果物を付与する。 在庫操作はadapter callback 経由なので在庫表現に依存しない。",
+    "when": "「木3個 + 鉄2個を4秒かけて斧にする」のようなクラフトを作る時。 同時クラフトは 1 件なので、複数同時なら instance を複数持つ。",
+    "sample": "CCraftingSystem cs;\ncs.RegisterRecipe({ \\\"craft.axe\\\", \\\"Iron Axe\\\", \\\"tool.axe\\\", 1, 2, ingredients, 4.0f, \\\"workbench\\\", 3 });\ncs.SetInventoryAdapter(&Query, &Consume, &Grant, &inv);\nif (cs.CanCraft(\\\"craft.axe\\\", \\\"workbench\\\", level))\n    cs.StartCraft(\\\"craft.axe\\\", \\\"workbench\\\", level);\n// 毎フレーム: cs.Tick(dt);",
+    "members": [
+      {
+        "sig": "void RegisterRecipe(const FCraftRecipe& recipe)",
+        "desc": "レシピを登録する。 同 id の 2 重登録は no-op (WARN)。",
+        "when": "起動時に全レシピをまとめて登録。"
+      },
+      {
+        "sig": "void SetInventoryAdapter(InventoryQueryFn query, InventoryConsumeFn consume, InventoryGrantFn grant, void* user)",
+        "desc": "在庫の問い合わせ / 消費 / 付与を担う関数を差し込む。 全 nullptr なら在庫無制限 (デバッグ用)。",
+        "when": "在庫システムと繋ぐ時。"
+      },
+      {
+        "sig": "bool CanCraft(const char* recipe_id, const char* current_workbench = nullptr, u32 player_level = 999) const",
+        "ret": "作れるか",
+        "desc": "素材・ワークベンチ・レベルを副作用なしで事前判定する。 true なら StartCraft も成功する。",
+        "when": "ボタンの有効/無効を決める時。"
+      },
+      {
+        "sig": "bool StartCraft(const char* recipe_id, const char* current_workbench, u32 player_level)",
+        "ret": "開始できたか",
+        "desc": "素材を一括消費して Crafting 状態に遷移する。 途中失敗時は巻き戻す。",
+        "when": "プレイヤーがクラフト開始した時。"
+      },
+      {
+        "sig": "void CancelCraft()",
+        "desc": "Crafting 中だけ動作。 消費した素材を全量返却して Cancelled に。"
+      },
+      {
+        "sig": "ECraftStatus Status() const",
+        "desc": "現在の状態 (Idle / Crafting / Completed / Cancelled)。"
+      },
+      {
+        "sig": "f32 CraftProgress() const",
+        "ret": "[0,1]",
+        "desc": "進行率。 Crafting 時のみ意味を持つ。 プログレスバー表示に。"
+      },
+      {
+        "sig": "f32 CraftRemainingSec() const",
+        "desc": "残り秒数。"
+      },
+      {
+        "sig": "const char* CurrentRecipeId() const",
+        "desc": "今クラフト中のレシピ id (Idle / 未開始は nullptr)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "Crafting 中なら残り時間を減らし、0 で成果物 grant + CompleteCallback 発火 + Completed に。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetOnCompleteCallback(CompleteCallback cb, void* user)",
+        "desc": "クラフト完了フレームに呼ばれる callback (SE / トースト用)。"
+      },
+      {
+        "sig": "const FCraftRecipe* FindRecipe(const char* recipe_id) const",
+        "desc": "レシピ定義を取得する (未登録は nullptr)。"
+      },
+      {
+        "sig": "using FCraftingSystem = CCraftingSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCraftingSystem を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "ACS_LOG / ACS_LOG_* マクロ",
+    "kind": "マクロ",
+    "header": "foundation/Log.h",
+    "summary": "CLogger に 1 行書くための入口。 レベル別のショートカットがあり、無効レベルなら書式評価ごと省くので軽い。 発生位置は自動で付く。",
+    "when": "コードのあちこちでログを出す時。 普段はこのマクロだけ使えばよい。",
+    "sample": "ACS_LOG_TRACE(\"x=%f\", x);\nACS_LOG_INFO(\"loaded %u assets\", n);\nACS_LOG_ERROR(\"open failed: %s\", path);",
+    "members": [
+      {
+        "sig": "ACS_LOG_TRACE / DEBUG / INFO",
+        "desc": "詳細トレース / デバッグ情報 / 通常情報。"
+      },
+      {
+        "sig": "ACS_LOG_WARN / ERROR / FATAL",
+        "desc": "警告 / エラー / 致命エラー。"
+      },
+      {
+        "sig": "ACS_LOG(sev, fmt, ...)",
+        "desc": "レベルを直接指定する基底マクロ。"
+      }
+    ]
+  }
+}

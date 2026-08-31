@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="アセットローダのインターフェイス。 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとに実装し、CAssetRegistry に登録する。 レジストリは Extension() でパスの拡張子からローダを選び、LoadFromBytes() を呼ぶ。 非同期ロードはレジストリ側が CThreadPool で LoadFromBytes() を呼ぶ形で実現するため、 実装は同期ロードだけを考えればよい。">
+  <title>acs::IAssetLoader — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/asset.html">asset モジュール</a><a href="iassetloader-0f4adf5f.html" aria-current="page">IAssetLoader</a><a class="tree-child" href="iassetloader-0f4adf5f/extension-10cf899b.html">Extension</a><a class="tree-child" href="iassetloader-0f4adf5f/loadfrombytes-15ea569c.html">LoadFromBytes</a><a class="tree-child" href="iassetloader-0f4adf5f/typeid-57de7fcf.html">TypeId</a><a class="tree-child" href="iassetloader-0f4adf5f/iassetloader-72b701c2.html">~IAssetLoader</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/asset.html">asset</a><span>/</span><span aria-current="page">IAssetLoader</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / asset</div>
+<h1 class="identifier">acs::IAssetLoader</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-698">アセット</button><span class="term-tooltip" id="term-tip-698" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-699">ローダ</button><span class="term-tooltip" id="term-tip-699" role="tooltip">特定のファイル形式を解析してアセットを作る部品。 IAssetLoader を実装しレジストリへ登録する。</span></span>のインターフェイス。 各<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-700">アセット</button><span class="term-tooltip" id="term-tip-700" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span>型 (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-701">AImageAsset</button><span class="term-tooltip" id="term-tip-701" role="tooltip">画像 1 枚分の CPU 側ピクセルデータを持つアセット。</span></span>, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-702">AMeshAsset</button><span class="term-tooltip" id="term-tip-702" role="tooltip">頂点+インデックス+サブメッシュからなる単一メッシュのアセット。</span></span>, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-703">AAudioAsset</button><span class="term-tooltip" id="term-tip-703" role="tooltip">wav/mp3/flac/ogg を統一 PCM として読み込んだ音声アセット(asset モジュール)。 CAudioEngine に渡して再生する。</span></span> など) ごとに実装し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-704">CAssetRegistry</button><span class="term-tooltip" id="term-tip-704" role="tooltip">パスからアセットを読み込み、TSharedPtr でキャッシュ共有する中心クラス。</span></span> に登録する。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-705">レジストリ</button><span class="term-tooltip" id="term-tip-705" role="tooltip">読み込んだアセットをキー(FAssetId)で保持・共有し、再利用する管理表。 ACS では CAssetRegistry。</span></span>は Extension() でパスの拡張子から<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-706">ローダ</button><span class="term-tooltip" id="term-tip-706" role="tooltip">特定のファイル形式を解析してアセットを作る部品。 IAssetLoader を実装しレジストリへ登録する。</span></span>を選び、LoadFromBytes() を呼ぶ。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-707">非同期</button><span class="term-tooltip" id="term-tip-707" role="tooltip">処理の完了を待たずに先へ進み、結果は後で受け取るやり方。 重い読み込みなどで画面を止めない。</span></span>ロードは<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-708">レジストリ</button><span class="term-tooltip" id="term-tip-708" role="tooltip">読み込んだアセットをキー(FAssetId)で保持・共有し、再利用する管理表。 ACS では CAssetRegistry。</span></span>側が <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-709">CThreadPool</button><span class="term-tooltip" id="term-tip-709" role="tooltip">タスクを並列実行するスレッドプール(ワークスチール方式)。</span></span> で LoadFromBytes() を呼ぶ形で実現するため、 実装は<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-710">同期</button><span class="term-tooltip" id="term-tip-710" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>ロードだけを考えればよい。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::IAssetLoaderの宣言"><code>class <a href="iassetloader-0f4adf5f.html" aria-current="page">IAssetLoader</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/asset.html">asset</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/asset/IAssetLoader.h:26</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="iassetloader-0f4adf5f/extension-10cf899b.html"><span><span class="identifier">virtual const char* Extension() const noexcept = 0;</span><span class="summary">このローダが担当する拡張子を返す (&quot;dds&quot;, &quot;png&quot;, &quot;mesh&quot; など)。 レジストリがこの文字列でパスの拡張子とマッチングする (&quot;*&quot; は全拡張子フォールバック)。 戻り値: 小文字 ASCII の拡張子文字列。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iassetloader-0f4adf5f/loadfrombytes-15ea569c.html"><span><span class="identifier">virtual TResult&lt;TSharedPtr&lt;AAsset&gt;&gt; LoadFromBytes(FAssetId id, const TArray&lt;byte&gt;&amp; bytes) noexcept = 0;</span><span class="summary">バイト列からアセットを同期生成する。 id: 生成したアセットに割り当てる ID。 bytes: ファイル全体のバイト列。 戻り値: 成功なら生成したアセット、失敗ならエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iassetloader-0f4adf5f/typeid-57de7fcf.html"><span><span class="identifier">virtual AssetType TypeId() const noexcept = 0;</span><span class="summary">このローダが生成するアセット型 ID を返す。 戻り値: 担当アセット型の AssetType。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iassetloader-0f4adf5f/iassetloader-72b701c2.html"><span><span class="identifier">virtual ~IAssetLoader() noexcept = default;</span><span class="summary">派生ローダを正しく破棄するための仮想デストラクタ。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

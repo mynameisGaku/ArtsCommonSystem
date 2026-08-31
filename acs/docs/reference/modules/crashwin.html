@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのcrashwinモジュールに含まれる機能とAPIです。">
+  <title>crashwin モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="crashwin.html">crashwin モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="crashwin.html">crashwin モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="crashwin.html">crashwin モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">crashwin</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">crashwin</h1>
+<p class="lead">crashwin モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 4</span><span class="badge">API 5</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/crashwin/cwindowscrashreporter-a2a18cbb.html"><span class="card-title">CWindowsCrashReporter</span><span class="card-description">Windows 専用のクラッシュ報告 backend。 gameframework の ICrashReporterBackend を実装し、DbgHelp の MiniDumpWriteDump でミニダンプを、合わせて人間が読めるテキスト報告書を書き出します。 直前の パンくず（breadcrumb）も最大 32 件まで添付します。 コピー／ムーブは禁止。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/crashwin/fwindowscrashreporterconfig-a1a76d15.html"><span class="card-title">FWindowsCrashReporterConfig</span><span class="card-description">CWindowsCrashReporter の初期設定。 今はダンプ／報告書の出力先フォルダを 1 つ指定するだけのシンプルな設定です。</span><span class="card-meta">構造体</span></a><a class="card" href="../features/crashwin/getdefaultwindowscrashreporter-7575d95d.html"><span class="card-title">GetDefaultWindowsCrashReporter()</span><span class="card-description">プロセス全体で共有される既定の CWindowsCrashReporter singletonを返す。 これが provider として登録される実体。</span><span class="card-meta">関数</span></a><a class="card" href="../features/crashwin/installwindowscrashreporterasdefault-2e9f47df.html"><span class="card-title">InstallWindowsCrashReporterAsDefault()</span><span class="card-description">gameframework の CrashReporter provider に本 Windows backend を登録する結線ヘルパ。 これを起動時に一度だけ呼ぶと、以降 acs::game::GetDefaultCrashReporter() が stub でなく本物の Windows backend を返すようになる。</span><span class="card-meta">関数</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/crashwin/cwindowscrashreporter-a75f1024.html"><span><span class="identifier">acs::crashwin::CWindowsCrashReporter</span><span class="summary">Windows DbgHelp を使う ICrashReporterBackend の実装。 クラッシュ / 非致命的エラー発生時に、ダンプディレクトリ配下へテキストレポート (.txt) と MiniDumpWriteDump によるプロセス minidump (.dmp) を書き出す自己完結型の backend。 breadcrumb は固定長リングバッファで保持し、レポート出力時にまとめて添付する。 文字列は 全て固定長メンババッファへコピーして保持する (非所有ポインタに依存しない)。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/crashwin/fwindowscrashreporter-450eab79.html"><span><span class="identifier">acs::crashwin::FWindowsCrashReporter</span><span class="summary">ACS の crashwin モジュールで FWindowsCrashReporter を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/crashwin/fwindowscrashreporterconfig-10d980f7.html"><span><span class="identifier">acs::crashwin::FWindowsCrashReporterConfig</span><span class="summary">CWindowsCrashReporter の生成時設定。 コンストラクタ経由で minidump / テキストレポートの出力先ディレクトリを指定する。</span></span><span class="kind-label">構造体 →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/crashwin/getdefaultwindowscrashreporter-4569d314.html"><span><span class="identifier">acs::crashwin::GetDefaultWindowsCrashReporter</span><span class="summary">プロセス共有の既定 CWindowsCrashReporter singleton を返す (provider の実体)。 初回アクセス時に ACS 既定のプレースホルダ product id / version で Init() を 1 回走らせ、 すぐ使える状態の Windows DbgHelp backend を返す。 戻り値: プロセス共有の既定 backend への参照。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/crashwin/installwindowscrashreporterasdefault-a715661d.html"><span><span class="identifier">acs::crashwin::InstallWindowsCrashReporterAsDefault</span><span class="summary">gameframework の CrashReporter provider に本 backend を登録する。 以降 acs::game::GetDefaultCrashReporter() が GetDefaultWindowsCrashReporter() の実 backend を返すようになる。 アプリ起動時に一度だけ呼ぶ。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

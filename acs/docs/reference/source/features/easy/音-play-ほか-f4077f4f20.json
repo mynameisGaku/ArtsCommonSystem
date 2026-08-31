@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "音（Play ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "効果音の 1 回再生・BGM のループ再生・停止・音量制御。 音量はすべて 0.0〜1.0。",
+    "when": "ジャンプ音や爆発音は Play、BGM は PlayLoop。 設定画面の音量スライダーには SetMasterVolume。",
+    "sample": "Play(jumpSe);                 // 効果音 1 回\nPlay(hitSe, 0.5f);            // 音量半分\nPlayLoop(bgm, 0.8f);          // BGM ループ\nStopSound(bgm);               // その音を止める\nSetMasterVolume(0.3f);        // 全体音量",
+    "members": [
+      {
+        "sig": "void Play(FSound s) / void Play(FSound s, f32 volume)",
+        "desc": "効果音を 1 回鳴らす。 音量は 0.0〜1.0。"
+      },
+      {
+        "sig": "void PlayLoop(FSound s) / void PlayLoop(FSound s, f32 volume)",
+        "desc": "ループ再生（BGM 向け）。"
+      },
+      {
+        "sig": "void StopSound(FSound s)",
+        "desc": "その音のループを止める。"
+      },
+      {
+        "sig": "void StopAllSounds()",
+        "desc": "鳴っている音を全部止める。"
+      },
+      {
+        "sig": "void SetMasterVolume(f32 volume)",
+        "desc": "全体音量（0.0〜1.0）。 音量スライダー用。"
+      },
+      {
+        "sig": "void PauseAllSounds() / void ResumeAllSounds()",
+        "desc": "全音を一時停止／再開（位置は保たれる）。 ポーズ画面に。"
+      }
+    ]
+  }
+}

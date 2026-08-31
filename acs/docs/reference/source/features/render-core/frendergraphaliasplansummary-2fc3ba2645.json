@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FRenderGraphAliasPlanSummary",
+    "kind": "構造体",
+    "header": "render/RenderGraphAliasPlanSummary.h",
+    "summary": "論理資源数、物理 slot 数、alias で節約した byte 数をまとめた計画診断値。",
+    "when": "render graph aliasing の効果を profiler やテストへ出す時。"
+  }
+}

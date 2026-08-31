@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "EAssetState",
+    "kind": "列挙(enum)",
+    "header": "asset/Asset.h",
+    "summary": "アセットのロード状態。 Unloaded(未ロード) / Loading(非同期ロード中) / Ready(利用可) / Failed(失敗)。",
+    "when": "アセットがいま使える状態かを確認したい時。",
+    "sample": "if (asset->State() == EAssetState::Ready) {\n    // 安全に中身へアクセスできる\n}"
+  }
+}

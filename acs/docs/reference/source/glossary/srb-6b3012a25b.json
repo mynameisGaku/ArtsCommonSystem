@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SRB",
+  "definition": "Shader Resource Binding。 Diligent でシェーダにリソースを結び付ける仕組み。 名前ベースで lookup する。"
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "CUiInput",
+    "kind": "クラス",
+    "header": "ui/UiRenderer.h",
+    "summary": "FWindow のマウス/キーイベントを取り出して、ヒットテストで当たったウィジェットの On* メソッドへ配信する入力ディスパッチャ。 hover / 押下 / フォーカスは非所有ポインタではなく比較専用 address token + 構築時に保存した module token + 非0 module generation の3要素 identity で追跡する。 別 DLL が同じ widget address / generation を同時または逐次使っても、両 module が load 中なら module token で分離する。 コピー/ムーブ不可。 この identity とクラスレイアウトは永続 handle / 安定 plugin ABI ではなく、更新時は関連 DLL を同じ revision からフル rebuild する。",
+    "when": "UI に入力を効かせたい時。 毎フレーム Dispatch(root) を呼ぶだけで、クリックやドラッグが各ウィジェットに届く。",
+    "sample": "CUiInput ui_input;\n// 毎フレーム:\nui_input.Dispatch(root);  // マウス/キー → 該当 widget の On* へ",
+    "members": [
+      {
+        "sig": "void Dispatch(AWidget& root) noexcept",
+        "desc": "現在のマウス位置・クリック・キー押下/解放を Input から取得し、ルートをヒットテストして該当ウィジェットへ届ける。 編集キーには左右 Shift / Ctrl / Alt / Super の押下中状態を FUiKeyModifiers として付与し、Ctrl+A も選択コマンドとして配信する。 保存した複合 identity は毎回現在の生存 subtree から解決するため、各 On* callback は current/other child を同期除去できる。 呼び出し中は root 自身を破棄してはならない。",
+        "when": "毎フレーム 1 回呼ぶ。"
+      },
+      {
+        "sig": "void Reset() noexcept / void Reset(AWidget& live_root) noexcept",
+        "desc": "保存中の root / hover / pressed / focus / Ctrl+A 状態を破棄する。 引数なし版は widget を参照しないので root 破棄直前にも安全で、同じ live root を次に Dispatch すると新規採用時に subtree の一時入力フラグも初期化する。 生存 root を渡す版は、その場で subtree の hovered / focused / pressed も再帰的に解除する。 DLL unload/reload では module address まで再利用され得るため、host は module 所有 root が生存中なら Reset(root) の後に破棄・unloadし、既に破棄済みなら reload / 次の Dispatch より前に Reset() を必ず呼ぶ。",
+        "when": "scene 切り替え、UI ツリー再構築、module root destruction / DLL unload 境界。 root 変更自体は通常 Dispatch でも自動検出するが、DLL reload 境界の Reset は必須。"
+      },
+      {
+        "sig": "using FUiInput = CUiInput",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CUiInput を使う。"
+      }
+    ]
+  }
+}

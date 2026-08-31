@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FParallelForDiagnostics",
+    "kind": "構造体",
+    "header": "threading/ParallelForDiagnostics.h",
+    "summary": "CThreadPool::ParallelFor が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 snapshot。",
+    "when": "分割数や同時 ParallelFor 数に対して固定 pool が足りているか、heap 退避が起きていないかを profiler や性能 test で確認する時。",
+    "members": [
+      {
+        "sig": "u64 inline_calls",
+        "desc": "32 分割以下で stack だけを使った呼び出し数。"
+      },
+      {
+        "sig": "u64 pool_blocks",
+        "desc": "固定 free-list から取得した block の累計数。"
+      },
+      {
+        "sig": "u64 pool_blocks_in_use",
+        "desc": "現在貸し出している block 数。"
+      },
+      {
+        "sig": "u64 pool_blocks_high_water",
+        "desc": "同時貸し出し block 数の最大値。"
+      },
+      {
+        "sig": "u64 heap_blocks",
+        "desc": "固定 pool 枯渇後に OS heap へ退避した block 数。"
+      }
+    ]
+  }
+}

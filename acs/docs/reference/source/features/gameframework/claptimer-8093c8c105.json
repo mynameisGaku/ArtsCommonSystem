@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CLapTimer",
+    "kind": "クラス",
+    "header": "gameframework/LapTimer.h",
+    "summary": "レースゲームのラップ計測 + 順位算出を一元管理するマネージャ。 チェックポイント順序検証・ベストラップ更新・フィニッシュ判定・リアルタイム順位ソートをまとめる。",
+    "when": "レーシング系を作る時。 トラックの collider から通過通知を投げ、UI は順位/統計を読むだけで成立する。 ショートカットや逆走は順序検証で弾く。",
+    "sample": "CLapTimer lt;\nlt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);\nFRacerId p = lt.AddRacer(\"Player\");\nlt.Start();\n\nlt.NotifyCheckpointPassed(p, cp_index);\nlt.NotifyLapCompleted(p);\n// 順位表示:\nu32 pos = lt.PositionOf(p); // 1 = 先頭",
+    "members": [
+      {
+        "sig": "void Init(u32 total_laps, u32 checkpoints_per_lap)",
+        "desc": "周回数 / 1 周の checkpoint 数を設定。 racer は維持して state を Stopped に。"
+      },
+      {
+        "sig": "FRacerId AddRacer(const char* display_name) / void RemoveRacer(FRacerId)",
+        "desc": "racer 追加 (名前は非所有) / 削除 (スロットは世代付きで再利用)。"
+      },
+      {
+        "sig": "void Start() / Stop() / Pause() / Resume()",
+        "desc": "レース開始 (stats リセット) / 終了確定 / 一時停止 / 再開。"
+      },
+      {
+        "sig": "bool IsRunning() const",
+        "desc": "Running 中なら true。"
+      },
+      {
+        "sig": "void NotifyCheckpointPassed(FRacerId id, u32 checkpoint_index)",
+        "desc": "checkpoint 通過。 expected_checkpoint 一致のみ受理 (ショートカット防止)。",
+        "when": "トラック中間の collider を踏んだ時。"
+      },
+      {
+        "sig": "void NotifyLapCompleted(FRacerId id)",
+        "desc": "フィニッシュライン通過。 全 checkpoint 踏破済みならラップ確定 + LapCallback、total_laps 到達で FinishCallback + 順位確定。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "Running 中、全 racer の累計時間を dt 加算。 Pause/Stop 中は no-op。"
+      },
+      {
+        "sig": "f32 RaceTimeSec() const",
+        "desc": "Start からの累計秒数 (レースクロック)。"
+      },
+      {
+        "sig": "const FRacerStats* GetStats(FRacerId id) const",
+        "desc": "racer 統計を const 参照。 invalid / gen 不一致は nullptr。"
+      },
+      {
+        "sig": "FRacerId GetLeader() const / u32 PositionOf(FRacerId) const",
+        "desc": "現在の 1 位 / 1-origin の現在順位。"
+      },
+      {
+        "sig": "u32 LapRecordCount(FRacerId) const / const FLapRecord* GetLapRecord(FRacerId, u32)",
+        "desc": "完了ラップ数 / n 番目のラップ記録。"
+      },
+      {
+        "sig": "void SetOnLapCallback / SetOnFinishCallback(cb, user)",
+        "desc": "ラップ完了 / レース完了のコールバック登録。"
+      },
+      {
+        "sig": "u32 RacerCount() const / void ClearAll()",
+        "desc": "登録 racer 数 / 全 racer 破棄 (Init 設定と callback は保持)。"
+      },
+      {
+        "sig": "using FLapTimer = CLapTimer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLapTimer を使う。"
+      }
+    ]
+  }
+}

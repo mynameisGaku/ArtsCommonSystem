@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "FAcpakHeader",
+    "kind": "構造体",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": ".acpak 先頭に書かれる固定長のヘッダ(POD)。 magic・version・flags・ファイル数・ファイルテーブルの位置を持つ。 ディスク上は 36 バイト。",
+    "when": "フォーマットを自前で読み書きする時の参照用。 普通は Reader/Writer が内部で扱うので直接触らない。",
+    "sample": "// ディスク上のレイアウト(参考):",
+    "members": [
+      {
+        "sig": "u8 magic[8]",
+        "desc": "\"ACPAK\\0\\0\\0\"。 pak 判定に使う 8 バイトのマジックナンバー。"
+      },
+      {
+        "sig": "u32 version",
+        "desc": "フォーマット版数(現在 1)。"
+      },
+      {
+        "sig": "u32 flags",
+        "desc": "暗号化/圧縮の有無を表す EAcpakFlags のビットフラグ。"
+      },
+      {
+        "sig": "u32 file_count",
+        "desc": "ファイルテーブル内のエントリ数。"
+      },
+      {
+        "sig": "u64 file_table_offset",
+        "desc": "アーカイブ先頭からファイルテーブルまでの絶対オフセット。"
+      }
+    ]
+  }
+}

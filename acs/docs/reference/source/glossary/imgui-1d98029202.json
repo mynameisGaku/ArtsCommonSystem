@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ImGui",
+  "definition": "Dear ImGui の略称・名前空間。 ImGui::Begin() のように呼び出す。"
+}

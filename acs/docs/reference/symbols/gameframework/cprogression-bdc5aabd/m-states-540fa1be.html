@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="マイルストーン実行時状態 (Def と同 index で 1:1 対応)。">
+  <title>acs::game::CProgression::m_States — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cprogression-bdc5aabd.html">CProgression の概要</a><a class="tree-child" href="achievedcount-58b78c4e.html">AchievedCount</a><a class="tree-child" href="allstates-b4f029a9.html">AllStates</a><a class="tree-child" href="awardxp-50b0f440.html">AwardXp</a><a class="tree-child" href="cprogression-02194aed.html">CProgression</a><a class="tree-child" href="cprogression-ac5fe869.html">CProgression</a><a class="tree-child" href="cprogression-e344d38f.html">CProgression</a><a class="tree-child" href="currentlevel-14fa3bea.html">CurrentLevel</a><a class="tree-child" href="currentxp-7706bec7.html">CurrentXp</a><a class="tree-child" href="findindex-ab96d185.html">FindIndex</a><a class="tree-child" href="getstate-7e47b4aa.html">GetState</a><a class="tree-child" href="ismilestoneachieved-bceb88c4.html">IsMilestoneAchieved</a><a class="tree-child" href="kmaxpersistedmilestones-123e9984.html">kMaxPersistedMilestones</a><a class="tree-child" href="load-05e7628d.html">Load</a><a class="tree-child" href="m-defs-08dc24b3.html">m_Defs</a><a class="tree-child" href="m-onachieved-8aa0a9a2.html">m_OnAchieved</a><a class="tree-child" href="m-onachieveduser-2c4cfbc8.html">m_OnAchievedUser</a><a class="tree-child" href="m-states-540fa1be.html" aria-current="page">m_States</a><a class="tree-child" href="m-xp-44f31cb8.html">m_Xp</a><a class="tree-child" href="milestonecount-69dd1fab.html">MilestoneCount</a><a class="tree-child" href="operator-0c157d59.html">operator=</a><a class="tree-child" href="operator-5ceaec48.html">operator=</a><a class="tree-child" href="registermilestone-eb1b1c31.html">RegisterMilestone</a><a class="tree-child" href="resetprogress-aaf28345.html">ResetProgress</a><a class="tree-child" href="save-d6cf6901.html">Save</a><a class="tree-child" href="setonachievedcallback-953be67c.html">SetOnAchievedCallback</a><a class="tree-child" href="cprogression-26737938.html">~CProgression</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cprogression-bdc5aabd.html">CProgression</a><span>/</span><span aria-current="page">m_States</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / gameframework</div>
+<h1 class="identifier">acs::game::CProgression::m_States</h1>
+<p class="lead">マイルストーン実行時<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-7588">状態</button><span class="term-tooltip" id="term-tip-7588" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span> (Def と同 index で 1:1 対応)。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CProgression::m_Statesの宣言"><code>TArray&lt;<a href="../fmilestonestate-cb328774.html">FMilestoneState</a>&gt; <a href="m-states-540fa1be.html" aria-current="page">m_States</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cprogression-bdc5aabd.html"><code>acs::game::CProgression</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/Progression.h:318</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

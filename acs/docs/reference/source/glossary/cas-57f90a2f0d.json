@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAS",
+  "definition": "Compare-And-Swap。 『今の値が期待通りなら新しい値に書き換える』をアトミックに行う基本操作。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "デバイス",
+  "definition": "GPU とのやり取りを表す IRhiDevice のこと。"
+}

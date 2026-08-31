@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "IAssetLockingBackend / IBuildFarmBackend",
+    "kind": "インターフェース",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "チーム開発 / CI のための 2 つの抽象シーム。 stub に加え外部 SDK 不要のローカル本実装も同梱する。",
+    "when": "エディタ / ツールから「アセットをロックして編集」「ビルドジョブ投入」を扱いたい時。",
+    "sample": "IAssetLockingBackend* locks = &GetLocalFileAssetLocking();\n(void)locks->LockAsset(\"art/hero.fbx\", \"designer_a\");\nIBuildFarmBackend* farm = &GetBuildFarmStub();",
+    "members": [
+      {
+        "sig": "IAssetLockingBackend& GetAssetLockingStub()",
+        "ret": "stub",
+        "desc": "常に NotImplemented を返す依存ゼロのロック stub。"
+      },
+      {
+        "sig": "IBuildFarmBackend& GetBuildFarmStub()",
+        "ret": "stub",
+        "desc": "常に NotImplemented を返すビルドファーム stub。"
+      },
+      {
+        "sig": "CLocalFileAssetLocking& GetLocalFileAssetLocking()",
+        "ret": "実ロック",
+        "desc": "オンディスクの lock ファイルで本当に排他ロックする本実装。"
+      },
+      {
+        "sig": "CLocalBuildRunner& GetLocalBuildRunner()",
+        "ret": "実ランナー",
+        "desc": "CreateProcessW でローカルビルドを実行する本実装。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CScoreSystem",
+    "kind": "クラス",
+    "header": "gameframework/ScoreSystem.h",
+    "summary": "スコア累積 + コンボ + 倍率 + マイルストン通知を 1 つにまとめたマネージャ。 NotifyHit でコンボが伸び、AddScore でコンボ由来の倍率を掛けて加算する。 一定時間ヒットが無いとコンボはリセット。",
+    "when": "アーケード/アクション系で『連鎖でスコア倍率が上がる』仕組みを作る時。",
+    "sample": "CScoreSystem ss;\nss.Init();\nss.RegisterMilestone(10000);\nss.SetOnMilestoneCallback(&OnMilestone, user);\n// 敵撃破時:\nss.NotifyHit();\nss.AddScore(\"enemy.normal\", 100);  // 100 × 現在倍率\nss.Tick(dt);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "スコア/コンボ/履歴/マイルストン状態をクリアする (ハイスコアは保持)。"
+      },
+      {
+        "sig": "void AddScore(const char* category, u64 base_value)",
+        "desc": "base × 現在倍率 を加算し、履歴に記録する。 マイルストン通過もここで判定。",
+        "when": "得点が入るたびに呼ぶ。"
+      },
+      {
+        "sig": "void NotifyHit()",
+        "desc": "ヒット成功。 コンボを 1 増やしてコンボ時間をリセットする。"
+      },
+      {
+        "sig": "void NotifyMiss()",
+        "desc": "ミス/被弾。 コンボと倍率を 0/1.0x に戻す。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 コンボ時間を減らし、0 でコンボをリセットする。"
+      },
+      {
+        "sig": "u64 CurrentScore() const / u64 HighScore() const",
+        "desc": "現在スコアとベスト記録。"
+      },
+      {
+        "sig": "u32 ComboCount() const / f32 ComboTimeRemaining() const / f32 ComboMultiplier() const",
+        "desc": "コンボ数・残り時間・現在の倍率。 UI 表示に。"
+      },
+      {
+        "sig": "void SetComboDuration(f32 sec)",
+        "desc": "コンボが切れるまでの秒数を設定する。"
+      },
+      {
+        "sig": "void SetMultiplierFn(MultiplierFn fn)",
+        "desc": "コンボ→倍率の計算を差し替える。 nullptr で既定 (1.0 + combo×0.1, 上限 10x) に戻す。"
+      },
+      {
+        "sig": "void RegisterMilestone(u64 milestone_score)",
+        "desc": "そのスコアを初めて超えた時に通知するマイルストンを登録する。"
+      },
+      {
+        "sig": "void SetOnMilestoneCallback(MilestoneCallback cb, void* user)",
+        "desc": "マイルストン通過時のコールバックを登録する。"
+      },
+      {
+        "sig": "void SetHighScore(u64 score)",
+        "desc": "ハイスコアを外部から注入する (セーブからの復元用)。"
+      },
+      {
+        "sig": "void Reset() / void ClearAll()",
+        "desc": "Reset はスコア/コンボを消すがベスト記録は残す。 ClearAll は全部消す。"
+      },
+      {
+        "sig": "using FScoreSystem = CScoreSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CScoreSystem を使う。"
+      }
+    ]
+  }
+}

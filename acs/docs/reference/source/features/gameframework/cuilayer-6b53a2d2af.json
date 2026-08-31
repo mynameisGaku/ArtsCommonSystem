@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CUiLayer",
+    "kind": "クラス",
+    "header": "gameframework/UiLayer.h",
+    "summary": "シーンに数個の UI 部品(ボタン / テキスト)を貼り付けるための薄い層。 Init / Tick / HandleInput / Draw / Shutdown というシーンのライフサイクルに合わせて呼ぶだけで、タイトル画面や HUD の最小 UI が作れます。",
+    "when": "本格的な UI ツリーを組むほどではないが、Play ボタンや簡単な HUD を手早く出したい時。",
+    "sample": "CUiLayer ui;\nui.Init();\nu32 playBtn = ui.AddButton(\"Play\", {100,200}, {200,48});\nui.AddText(\"ACS Demo\", {100,100});\n// 毎フレーム:\nui.Tick(dt);\nif (ui.IsButtonPressed(playBtn)) { /* 開始 */ }",
+    "members": [
+      {
+        "sig": "void Init() / void Shutdown()",
+        "desc": "UI 層を初期化 / 後始末する。 どちらも冪等で再呼び出し安全。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "AScene::OnUpdate から呼ぶ。 押下フラグの伝搬などを処理する。"
+      },
+      {
+        "sig": "void HandleInput(const acs::FEvent& event)",
+        "desc": "AScene::OnEvent から呼ぶ。 マウス移動 / 押下 / 離しを処理し、クリック成立で押下フラグを立てる。"
+      },
+      {
+        "sig": "void Draw(FRenderContext& rc) const",
+        "desc": "AScene2D::OnDrawHud から呼ぶ。 登録 widget を描画する(ボタンは hover / 押下で色変化)。"
+      },
+      {
+        "sig": "u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size)",
+        "ret": "ハンドル(非 0)",
+        "desc": "ボタンを追加する。 label は非所有。",
+        "when": "クリックで反応する短形ボタンを置く時。"
+      },
+      {
+        "sig": "u32 AddText(const char* text, acs::FVec2 pos)",
+        "ret": "ハンドル",
+        "desc": "静的テキストを追加する。 text は非所有。"
+      },
+      {
+        "sig": "bool IsButtonPressed(u32 handle) const",
+        "ret": "押されたか",
+        "desc": "そのボタンが直前フレームで押されたかを返す。",
+        "when": "ボタンクリックを毎フレーム拾う時。"
+      },
+      {
+        "sig": "void SetVisible(u32 handle, bool visible)",
+        "desc": "widget の可視性を切り替える(無効ハンドルは無視)。"
+      },
+      {
+        "sig": "void Remove(u32 handle) / void Clear()",
+        "desc": "1 つ削除 / 全削除する。 Clear は root を残すので続けて追加可能。"
+      },
+      {
+        "sig": "u32 WidgetCount() const",
+        "desc": "登録 widget 数を返す。"
+      },
+      {
+        "sig": "using FUiLayer = CUiLayer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CUiLayer を使う。"
+      }
+    ]
+  }
+}

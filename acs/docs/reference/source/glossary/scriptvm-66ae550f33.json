@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ScriptVm",
+  "definition": "スクリプト(Lua など)を読み込んで実行する仮想マシン。 IScriptVm 越しに backend を差し替えられる。"
+}

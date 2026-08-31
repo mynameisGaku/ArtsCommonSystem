@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "network",
+    "title": "network — ネットワーク基盤",
+    "description": "PC 同士を通信でつなぐための土台。 TCP(確実に届ける接続)と UDP(速いが届く保証なし)のソケットを、Windows の WinSock をくるんだ薄いAPIとして提供します。 マルチプレイや簡単なサーバ通信の入口です。"
+  },
+  "feature": {
+    "name": "CNetwork",
+    "kind": "クラス",
+    "header": "network/Network.h",
+    "summary": "ネットワーク機能全体の初期化／終了をまとめる入口(WinSock の WSAStartup ラッパ)。 ソケットを使う前に一度 Init() を呼ぶ必要がある。",
+    "when": "アプリ起動時に一度 CNetwork::Init()。 CApplication はネットワークを自動初期化しないので、自分で明示的に呼ぶこと。 終了時に Shutdown()。",
+    "sample": "if (acs::CNetwork::Init().IsErr()) {\n    // 初期化失敗。以降の通信はできない\n    return;\n}\n// ...ソケットを使った通信...\nacs::CNetwork::Shutdown();",
+    "members": [
+      {
+        "sig": "static TResult<void> Init()",
+        "ret": "成功 または エラー",
+        "desc": "WinSock を初期化する。 多重に呼んでも安全(内部で参照カウント)。",
+        "when": "ソケット系の型を作る前に必ず。"
+      },
+      {
+        "sig": "static void Shutdown()",
+        "desc": "ネットワークを解放する。 Init() と対で呼ぶ。"
+      },
+      {
+        "sig": "static bool IsInitialized()",
+        "ret": "初期化済みか",
+        "desc": "すでに Init() 済みなら true。"
+      },
+      {
+        "sig": "using FNetwork = CNetwork",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CNetwork を使う。"
+      }
+    ]
+  }
+}

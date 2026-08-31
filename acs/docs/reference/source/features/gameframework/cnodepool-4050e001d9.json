@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CNodePool",
+    "kind": "クラス",
+    "header": "gameframework/NodePool.h",
+    "summary": "シーン内の ANode を登録して、安定した FNodeId を発行するレジストリ。 ANode 本体は親が TObjectPtr<ANode> で所有し続け、この pool は参照だけを持つ (非所有)。 発行済み ID のstale検出も担う。",
+    "when": "敵やアイテムなどを ID で安全に持ち回りたい時。 破棄された ANode を Get() しても nullptr が返るので、無効アクセスを防げる。",
+    "sample": "CNodePool pool;\npool.Init(512);\nFNodeId id = pool.RegisterExistingNode(enemy_ptr);\n// 後で stale 検査付きで取り出し\nif (ANode* p = pool.Get(id)) {\n    p->SetPosition2D(p->Position2D() + FVec2{1, 0});\n}\npool.Unregister(id);   // slot 解放 + gen++ で古い ID は無効化",
+    "members": [
+      {
+        "sig": "void Init(u32 initial_capacity = 256)",
+        "desc": "初期容量を予約 (再 alloc 回避)。 複数回呼べるが縮小はしない。"
+      },
+      {
+        "sig": "FNodeId RegisterExistingNode(ANode* node)",
+        "ret": "新しい ID (失敗時 invalid)",
+        "desc": "既存の ANode を登録して新 ID を発行し、node->_SetId する。 nullptr や 16M slot 到達時は invalid を返す。"
+      },
+      {
+        "sig": "void Unregister(FNodeId id)",
+        "desc": "slot を解放し、対応 ANode の Id を invalid に戻し、generation を進める。 二重 Unregister は安全 (no-op)。"
+      },
+      {
+        "sig": "bool IsValid(FNodeId id) const",
+        "desc": "id の slot が active かつ generation 一致なら true。"
+      },
+      {
+        "sig": "ANode* Get(FNodeId id) const",
+        "ret": "ANode または nullptr",
+        "desc": "id 経由で ANode を取り出す。 stale / invalid なら nullptr。"
+      },
+      {
+        "sig": "FNodeId IdOf(ANode* node) const",
+        "ret": "ID (無ければ invalid)",
+        "desc": "ポインタから ID を逆引き (線形探索 O(N))。 基本は登録時の戻り値を保持して使う。"
+      },
+      {
+        "sig": "u32 ActiveCount() const",
+        "desc": "現在 active な slot 数。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全 slot を一括解放。 各 ANode の Id は invalid に戻すが、ANode 自体は削除しない (非所有なので)。"
+      },
+      {
+        "sig": "using FNodePool = CNodePool",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CNodePool を使う。"
+      }
+    ]
+  }
+}

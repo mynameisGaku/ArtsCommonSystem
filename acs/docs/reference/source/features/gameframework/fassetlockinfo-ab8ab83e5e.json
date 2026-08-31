@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FAssetLockInfo",
+    "kind": "構造体",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "文字列は backend が所有せず、寿命は「次の Backend 呼び出しまで」を保証する。",
+    "when": "あるアセットが誰にいつロックされているかを問い合わせた結果を読む時。",
+    "sample": "auto r = locks.QueryLock(\"assets/hero.fbx\");\nif (r.IsOk()) {\n    const FAssetLockInfo& i = r.Value();\n    Log(\"%s locked by %s\", i.asset_path, i.locker_user);\n}",
+    "members": [
+      {
+        "sig": "const char* asset_path = nullptr",
+        "desc": "ロック対象パス (例 //depot/game/foo.fbx)。"
+      },
+      {
+        "sig": "const char* locker_user = nullptr",
+        "desc": "ロック保持ユーザー (例 designer_a)。"
+      },
+      {
+        "sig": "u64 lock_time = 0",
+        "desc": "ロック取得時刻 (実装依存; UNIX epoch 推奨)。"
+      }
+    ]
+  }
+}

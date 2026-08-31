@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "network",
+    "title": "network — ネットワーク基盤",
+    "description": "PC 同士を通信でつなぐための土台。 TCP(確実に届ける接続)と UDP(速いが届く保証なし)のソケットを、Windows の WinSock をくるんだ薄いAPIとして提供します。 マルチプレイや簡単なサーバ通信の入口です。"
+  },
+  "feature": {
+    "name": "FUdpSocket",
+    "kind": "クラス",
+    "header": "network/UdpSocket.h",
+    "summary": "UDP のソケット。 接続を張らずに、宛先を指定して1 通ずつデータ(データグラム)を送受信する。 速いが、到達・順序は保証されない。 コピー不可・ムーブのみ。",
+    "when": "多少の取りこぼしより速さを優先したい時(対戦中の位置同期、簡易ブロードキャストなど)。 確実さが要るなら FTcpConnection を選ぶ。",
+    "sample": "auto sr = FUdpSocket::Bind(FIpAddress::Any(), 8080);\nif (sr.IsErr()) return;\nFUdpSocket& s = sr.Value();\nFIpAddress from{};\nisize n = s.RecvFrom(buf, sizeof(buf), from);  // from に送信元が入る\ns.SendTo(FIpAddress::FromString(\\\"192.168.0.1\\\"), 8080, data, size);",
+    "members": [
+      {
+        "sig": "static TResult<FUdpSocket> Bind(FIpAddress addr, u16 port)",
+        "ret": "ソケット または エラー",
+        "desc": "指定アドレス/ポートにバインドする。 受信するなら port を指定、送信専用なら port=0 で OS 任せ。 addr=Any() で全インターフェイス。",
+        "when": "UDP 通信を始める最初の一歩。"
+      },
+      {
+        "sig": "isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size)",
+        "ret": "送れたバイト数",
+        "desc": "宛先へ 1 通送る。 size>0 で null、WinSock 上限超過、失敗時は -1。 size=0 も空データグラムとして送る。",
+        "sample": "s.SendTo(FIpAddress::FromString(\\\"10.0.0.2\\\"), 9000, data, size);"
+      },
+      {
+        "sig": "isize RecvFrom(void* buf, usize size, FIpAddress& from)",
+        "ret": "受信バイト数",
+        "desc": "1 通受け取り、成功時だけ from に送信元を書き込む。 size>0 で null、WinSock 上限超過、OS 失敗時は -1 で from を変えない。 空データグラムも受信する。",
+        "when": "誰から届いたかを知って返信したい時。"
+      },
+      {
+        "sig": "TResult<void> SetNonBlocking(bool enable)",
+        "ret": "成功 または エラー",
+        "desc": "ノンブロッキングに切り替える。 true なら受信が無い時 RecvFrom が待たずに即返る。"
+      },
+      {
+        "sig": "TResult<FIpAddress> LocalAddress() const",
+        "ret": "バインド先 または エラー",
+        "desc": "OS が割り当てたローカル IPv4 アドレスとポートを返す。 Bind(..., 0) の実ポート確認にも使える。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "ソケットを閉じる。 デストラクタでも呼ばれる。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "ソケットが生きていれば true。"
+      }
+    ]
+  }
+}

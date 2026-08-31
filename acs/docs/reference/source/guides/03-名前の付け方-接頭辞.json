@@ -1,0 +1,24 @@
+{
+  "schema": 2,
+  "title": "名前の付け方(接頭辞)",
+  "blocks": [
+    {
+      "h2": "名前の付け方(接頭辞)"
+    },
+    {
+      "p": "型名の頭文字でだいたいの種類が分かります。"
+    },
+    {
+      "ul": [
+        "T… … テンプレート(型を後から指定する部品)。 例: TArray<int>, TSharedPtr<Mesh>",
+        "F… … データ、値、handleを表す型。 例: FVec3, FEventTypeId",
+        "C… … 処理や振る舞いを持つ通常のクラス。 例: CAudioEngine, CMessageBroker",
+        "A… … ownerまたはregistryに所有され、多態的に扱われるobject。 現waveでは AObject の推移派生、または実際の登録macro使用を機械的な根拠にします。 例: AObject, ANode, AComponent。 既存の AAsset familyは、所有と多態性、registry、ABIを確認して A / C を後続waveで決める未判定の移行対象です。",
+        "E… … 列挙(enum、選択肢の集合)。 例: EKey, EMemoryOrder",
+        "I… … インターフェース(実装を差し替えられる約束事)。 例: IAssetLoader",
+        "型 alias … namespace公開の意味付きscalar/value aliasは F で始めます。 delegate / callback / 関数ポインタは頭文字を指定せず、template aliasは今回のscalar監査対象外です。 新規宣言は using を使い、AssetType は後続移行まで登録済み例外として維持します。",
+        "m_… … メンバ変数(クラスが内部に持つ変数)。"
+      ]
+    }
+  ]
+}

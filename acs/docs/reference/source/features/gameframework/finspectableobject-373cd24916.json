@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInspectableObject",
+    "kind": "構造体",
+    "header": "gameframework/InspectorSeam.h",
+    "summary": "provider が公開する 1 オブジェクト。 型名 + インスタンス名 + フィールド配列 + 件数。",
+    "when": "GetObject() の戻り値として組み立てる時。 fields 配列の寿命は provider 所有。",
+    "members": [
+      {
+        "sig": "const char* type_name / instance_name",
+        "desc": "クラス名相当 (\"Player\") とインスタンス名 (\"P1\" / \"Boss\")。"
+      },
+      {
+        "sig": "FInspectableField* fields / u32 field_count",
+        "desc": "公開フィールド配列とその件数。"
+      }
+    ]
+  }
+}

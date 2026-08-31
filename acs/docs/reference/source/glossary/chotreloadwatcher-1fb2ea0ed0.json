@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CHotReloadWatcher",
+  "definition": "Windows 開発ビルドの非同期 directory watcher と bounded event queue。 再 import や MessageBroker publish は上位側で接続する。"
+}

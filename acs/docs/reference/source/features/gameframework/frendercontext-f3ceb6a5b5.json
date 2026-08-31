@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FRenderContext",
+    "kind": "クラス",
+    "header": "gameframework/RenderContext.h",
+    "summary": "全シーン共有の描画コンテキスト。 今フレームの描画コマンドリスト・画面サイズ・共有スプライトバッチ・UI フォントなどをまとめて持ち、AScene::OnRender に渡される。",
+    "when": "シーンの描画関数の中で、画面に絵や文字を出す入口として受け取る。",
+    "sample": "void OnRender(FRenderContext& rc) noexcept override {\n    if (rc.HasSprites()) {\n        rc.Sprites().DrawString(rc.GetFont(), \"SCORE\", x, y);\n    }\n    u32 w = rc.Width(), h = rc.Height();\n}",
+    "members": [
+      {
+        "sig": "IRhiCommandList& Cmd() const",
+        "ret": "コマンドリスト",
+        "desc": "今フレームの描画コマンド発行先。 素の RHI を直接叩く時に。"
+      },
+      {
+        "sig": "CRenderer& GetRenderer() const",
+        "ret": "レンダラ",
+        "desc": "描画システム本体への参照。"
+      },
+      {
+        "sig": "u32 Width() const / u32 Height() const",
+        "desc": "描画対象の画面サイズ (ピクセル)。"
+      },
+      {
+        "sig": "bool IsFrameActive() const",
+        "desc": "今フレームの描画中かどうか。"
+      },
+      {
+        "sig": "bool HasSprites() const / CSpriteBatch& Sprites() const",
+        "desc": "CGame が共有し AScene が現在の描画パスへ配線したスプライトバッチを取得する。"
+      },
+      {
+        "sig": "bool HasFont() const / FFont& GetFont() const",
+        "desc": "共有 UI フォントを取得する。 読めなかった環境では HasFont()==false。"
+      },
+      {
+        "sig": "bool HasReflection() const / IRhiTexture& Reflection() const",
+        "desc": "水面などの平面反射に使うシーンテクスチャを取得する。"
+      },
+      {
+        "sig": "FVec2 ViewCenter() const / f32 ViewScale() const",
+        "desc": "2D の world→screen 変換パラメータ。 画面投影に使う。"
+      },
+      {
+        "sig": "bool StencilMaskActive() const",
+        "desc": "ステンシルマスクが有効なパスかどうか。 クリップ系コンポーネントが判定に使う。"
+      }
+    ]
+  }
+}

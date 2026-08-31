@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakGameWriter",
+    "kind": "クラス",
+    "header": "assetpack/AcpakGameBridge.h",
+    "summary": "CAcpakWriter を acs::game::IAssetPackWriter インターフェースに適合させた橋渡しクラス。 パスを char*(UTF-8)で扱える。",
+    "when": "ゲーム側の汎用パッキング API(IAssetPackWriter)経由で .acpak を作りたい時。",
+    "sample": "acs::assetpack::CAcpakGameWriter w;\nw.BeginPack(\"out/game.acpak\");\nw.AddFile(\"data/level1.bin\", bytes, size);\nw.FinishPack();",
+    "members": [
+      {
+        "sig": "TResult<void> BeginPack(const char* OutputPath)",
+        "desc": "出力 pak を開く(Open 相当)。"
+      },
+      {
+        "sig": "TResult<void> AddFile(const char* VirtualName, const u8* Data, u64 Size)",
+        "desc": "ファイルを 1 つ追加する。"
+      },
+      {
+        "sig": "TResult<void> FinishPack()",
+        "desc": "pak を確定して書き出す(Finalize 相当)。"
+      },
+      {
+        "sig": "using FAcpakGameWriter = CAcpakGameWriter",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakGameWriter を使う。"
+      }
+    ]
+  }
+}

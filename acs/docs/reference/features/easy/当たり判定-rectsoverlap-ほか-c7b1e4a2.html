@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="矩形どうし・円どうしの重なり、点が矩形/円の中にあるかを判定する。 重なっていれば true。">
+  <title>当たり判定（RectsOverlap ほか） — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">当たり判定（RectsOverlap ほか）</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">当たり判定（RectsOverlap ほか）</h1>
+<p class="lead">矩形どうし・円どうしの重なり、点が矩形/円の中にあるかを判定する。 重なっていれば true。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/easy/rectsoverlap-cf4232bf.html"><code>acs::easy::RectsOverlap</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>敵と弾の衝突、プ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22914">レイヤ</button><span class="term-tooltip" id="term-tip-22914" role="tooltip">当たり判定や描画の対象を分類するための札。 player/enemy/wall のように仲間分けする。</span></span>ーとアイテムの接触、ボタンのクリック判定（点 vs 矩形）。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-e887e5fc812438bc1101"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/easy/rectsoverlap-cf4232bf.html">RectsOverlap</a>(f32 x1,f32 y1,f32 w1,f32 h1, f32 x2,f32 y2,f32 w2,f32 h2)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>2 つの矩形が重なっていれば true。 (x,y) は各左上。</dd></div><div class="fact"><dt>戻り値</dt><dd>重なるか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/rectsoverlap-cf4232bf.html"><code>acs::easy::RectsOverlap</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-30ff57cf02e3b5f8f9a1"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/easy/circlesoverlap-3b063510.html">CirclesOverlap</a>(f32 x1,f32 y1,f32 r1, f32 x2,f32 y2,f32 r2)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>2 つの円が重なっていれば true。 (x,y) は各中心。</dd></div><div class="fact"><dt>戻り値</dt><dd>重なるか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/circlesoverlap-3b063510.html"><code>acs::easy::CirclesOverlap</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-5a80aacbbb133c679562"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/easy/pointinrect-d3bed49c.html">PointInRect</a>(f32 px,f32 py, f32 x,f32 y,f32 w,f32 h)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>点が矩形の中にあれば true。 クリック判定に。</dd></div><div class="fact"><dt>戻り値</dt><dd>中にあるか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/pointinrect-d3bed49c.html"><code>acs::easy::PointInRect</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-2f196926a8e725c6d320"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>bool <a href="../../symbols/easy/pointincircle-18f28e51.html">PointInCircle</a>(f32 px,f32 py, f32 cx,f32 cy,f32 <a href="../../symbols/easy/fcolor-22e56d9d/r-52d6eb3f.html">r</a>)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>点が円の中にあれば true。</dd></div><div class="fact"><dt>戻り値</dt><dd>中にあるか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/pointincircle-18f28e51.html"><code>acs::easy::PointInCircle</code></a> <span class="kind-label">関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/fcolor-22e56d9d/r-52d6eb3f.html"><code>acs::easy::FColor::r</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="当たり判定（RectsOverlap ほか）の使用例"><code>if (RectsOverlap(px,py,pw,ph, ex,ey,ew,eh)) Damage();
+if (CirclesOverlap(bx,by,br, ex,ey,er)) Hit();
+if (PointInRect(MouseX(), MouseY(), bx,by,bw,bh)) /* ボタン上 */;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

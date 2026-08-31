@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "FSubsystemFactory",
+    "kind": "構造体",
+    "header": "subsystem/SubsystemFactory.h",
+    "summary": "subsystem型の生成条件と決定順序をまとめる登録値。",
+    "when": "subsystem registryへ生成関数、scope、更新段階を登録する時。",
+    "members": [
+      {
+        "sig": "const void* kind",
+        "desc": "同一link image内で型を識別するID。"
+      },
+      {
+        "sig": "ESubsystemScope scope",
+        "desc": "生成先ownerの寿命範囲。"
+      },
+      {
+        "sig": "const char* name",
+        "desc": "決定順序と診断に使う非所有のNUL終端名。"
+      },
+      {
+        "sig": "FSubsystemCreateFn create",
+        "desc": "一体を生成し、失敗時は空を返す関数。"
+      },
+      {
+        "sig": "ESubsystemTickPhase phase",
+        "desc": "自動更新する段階。"
+      },
+      {
+        "sig": "i32 order",
+        "desc": "小さい値から初期化、更新する決定順序。"
+      },
+      {
+        "sig": "bool IsValidSubsystemScope(ESubsystemScope)",
+        "desc": "scopeが公開列挙値かを検査する。"
+      },
+      {
+        "sig": "bool IsValidSubsystemTickPhase(ESubsystemTickPhase)",
+        "desc": "更新段階が公開列挙値かを検査する。"
+      },
+      {
+        "sig": "bool IsValidSubsystemFactory(const FSubsystemFactory&)",
+        "desc": "登録に必要な全項目が有効かを検査する。"
+      }
+    ]
+  }
+}

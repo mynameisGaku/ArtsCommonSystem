@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="カードがプレイされたときに呼ばれる callback の型。 user: SetOnPlayCallback で渡したコンテキスト (Manager は所有しない)。 card_id: プレイされたカードの id (リテラル参照、非所有)。 hand_index: PlayCard 呼び出し時点での元の手札 index。">
+  <title>acs::game::CDeckSystem::PlayCallback — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cdecksystem-64b61c3f.html">CDeckSystem の概要</a><a class="tree-child" href="addtodeck-b5c051f5.html">AddToDeck</a><a class="tree-child" href="cdecksystem-ae6fcce4.html">CDeckSystem</a><a class="tree-child" href="cdecksystem-c9678d6c.html">CDeckSystem</a><a class="tree-child" href="cdecksystem-cadf89b9.html">CDeckSystem</a><a class="tree-child" href="clearall-36d96d26.html">ClearAll</a><a class="tree-child" href="cleardeck-7e3bb12d.html">ClearDeck</a><a class="tree-child" href="decksize-1af96fed.html">DeckSize</a><a class="tree-child" href="discardallhand-e3982920.html">DiscardAllHand</a><a class="tree-child" href="discardfromhand-27c8fc28.html">DiscardFromHand</a><a class="tree-child" href="discardsize-3cbf0435.html">DiscardSize</a><a class="tree-child" href="draw-5646aab9.html">Draw</a><a class="tree-child" href="drawn-0ca122a6.html">DrawN</a><a class="tree-child" href="exilefromhand-62dab660.html">ExileFromHand</a><a class="tree-child" href="exilesize-6f7745e8.html">ExileSize</a><a class="tree-child" href="findcarddef-6734b705.html">FindCardDef</a><a class="tree-child" href="findcardslot-1df6a2f1.html">FindCardSlot</a><a class="tree-child" href="handcardat-0440295c.html">HandCardAt</a><a class="tree-child" href="handsize-1af26b97.html">HandSize</a><a class="tree-child" href="m-cards-2fac9f3e.html">m_Cards</a><a class="tree-child" href="m-deck-5f376eb6.html">m_Deck</a><a class="tree-child" href="m-discard-2974bdf9.html">m_Discard</a><a class="tree-child" href="m-exile-e59964db.html">m_Exile</a><a class="tree-child" href="m-hand-f9a4761e.html">m_Hand</a><a class="tree-child" href="m-onplay-211815f1.html">m_OnPlay</a><a class="tree-child" href="m-onplayuser-16dfaff5.html">m_OnPlayUser</a><a class="tree-child" href="operator-8dea9287.html">operator=</a><a class="tree-child" href="operator-d350b14b.html">operator=</a><a class="tree-child" href="playcallback-a8c18147.html" aria-current="page">PlayCallback</a><a class="tree-child" href="playcard-3a42f3a8.html">PlayCard</a><a class="tree-child" href="registercard-b4b46251.html">RegisterCard</a><a class="tree-child" href="setonplaycallback-42e290fa.html">SetOnPlayCallback</a><a class="tree-child" href="shuffle-87aa3549.html">Shuffle</a><a class="tree-child" href="cdecksystem-6fe886ec.html">~CDeckSystem</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cdecksystem-64b61c3f.html">CDeckSystem</a><span>/</span><span aria-current="page">PlayCallback</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">型alias / gameframework</div>
+<h1 class="identifier">acs::game::CDeckSystem::PlayCallback</h1>
+<p class="lead">カードがプレイされたときに呼ばれる <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5730">callback</button><span class="term-tooltip" id="term-tip-5730" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> の型。 user: SetOnPlayCallback で渡したコンテキスト (Manager は所有しない)。 card_id: プレイされたカードの id (リテラル参照、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5731">非所有</button><span class="term-tooltip" id="term-tip-5731" role="tooltip">そのポインタ/参照は対象を所有しておらず、寿命管理 (解放) は別の誰かが行うこと。 non-owning。</span></span>)。 hand_index: PlayCard 呼び出し時点での元の手札 index。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">型alias</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CDeckSystem::PlayCallbackの宣言"><code>using <a href="playcallback-a8c18147.html" aria-current="page">PlayCallback</a> = void(*)(void* user, const char* card_id, <a href="../../foundation/u32-4ce4a209.html">u32</a> hand_index) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>型alias</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cdecksystem-64b61c3f.html"><code>acs::game::CDeckSystem</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/DeckSystem.h:204</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

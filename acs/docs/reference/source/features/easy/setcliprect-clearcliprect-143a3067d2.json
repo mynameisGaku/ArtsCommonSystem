@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "SetClipRect / ClearClipRect",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "描画をある矩形の中だけに制限するクリップ。 座標は画面座標（カメラの影響を受けない）。",
+    "when": "ミニマップ枠やメニューパネルの中だけに描きたい時。 終わったら必ず解除する。",
+    "sample": "SetClipRect(0, 0, 200, 200);   // 左上 200x200 の中だけに\nDrawSprite(minimap, 0, 0);\nClearClipRect();               // 全体に描けるよう戻す",
+    "members": [
+      {
+        "sig": "void SetClipRect(f32 x, f32 y, f32 w, f32 h)",
+        "desc": "この矩形の外には描かれなくなる。"
+      },
+      {
+        "sig": "void ClearClipRect()",
+        "desc": "クリップを解除して画面全体に描けるようにする。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="3D ノードの位置/回転/スケールを表す値型 transform (FTransform2D の 3D 版)。 FMat4 を直接保持するより小さく合成が速く、分解が可逆 (親の rotation/scale を取り 出せる)。 回転は FQuat。 合成は `world = parent.Compose(local)` の規約で、scale は component-wise 積、rotation は quat 合成 (先に local・次に parent)、position は親 scale でスケール後に親 rotation で回して親 position を加算する。">
+  <title>acs::game::FTransform3D — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="ftransform3d-8d576299.html" aria-current="page">FTransform3D</a><a class="tree-child" href="ftransform3d-8d576299/compose-538db973.html">Compose</a><a class="tree-child" href="ftransform3d-8d576299/eulerdeg-af516393.html">EulerDeg</a><a class="tree-child" href="ftransform3d-8d576299/ftransform3d-21dfd280.html">FTransform3D</a><a class="tree-child" href="ftransform3d-8d576299/ftransform3d-585e01a2.html">FTransform3D</a><a class="tree-child" href="ftransform3d-8d576299/identity-1f699c35.html">Identity</a><a class="tree-child" href="ftransform3d-8d576299/position-52336986.html">position</a><a class="tree-child" href="ftransform3d-8d576299/rotation-35c77711.html">rotation</a><a class="tree-child" href="ftransform3d-8d576299/scale-20e201b8.html">scale</a><a class="tree-child" href="ftransform3d-8d576299/seteulerdeg-85846e61.html">SetEulerDeg</a><a class="tree-child" href="ftransform3d-8d576299/tomat4-13209005.html">ToMat4</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FTransform3D</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / gameframework</div>
+<h1 class="identifier">acs::game::FTransform3D</h1>
+<p class="lead">3D <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12224">ノード</button><span class="term-tooltip" id="term-tip-12224" role="tooltip">ゲーム世界に置く部品の単位。 位置やコンポーネントを持ち、親子のツリーで並ぶ。</span></span>の位置/回転/スケールを表す値型 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12225">transform</button><span class="term-tooltip" id="term-tip-12225" role="tooltip">位置・回転・拡縮をまとめた座標変換。 親子で合成すると階層的な配置になる。</span></span> (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12226">FTransform2D</button><span class="term-tooltip" id="term-tip-12226" role="tooltip">2D の位置 / 回転 / スケールを表す値型。</span></span> の 3D 版)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12227">FMat4</button><span class="term-tooltip" id="term-tip-12227" role="tooltip">4x4 行列。 平行移動・回転・拡大縮小、ビュー変換、投影変換を 1 つにまとめて表せる。 3D 描画の心臓部。</span></span> を直接保持するより小さく合成が速く、分解が可逆 (親の rotation/scale を取り 出せる)。 回転は FQuat。 合成は `world = parent.Compose(local)` の規約で、scale は component-wise 積、rotation は quat 合成 (先に local・次に parent)、position は親 scale でスケール後に親 rotation で回して親 position を加算する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::FTransform3Dの宣言"><code>struct <a href="ftransform3d-8d576299.html" aria-current="page">FTransform3D</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/Transform3D.h:35</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="ftransform3d-8d576299/compose-538db973.html"><span><span class="identifier">FTransform3D Compose(const FTransform3D&amp; local) const noexcept;</span><span class="summary">親の座標系に local を載せた world transform を合成して返す。 `world = parent.Compose(local)` の規約。 子 position を親 scale で component-wise スケール → 親 rotation で回転 → 親 position を加算する。 rotation は `parent.rotation * local.rotation` (先に local・次に parent)、scale は component-wise 積。 local: 親 (this) の座標系に載せるローカル transform。 戻り値: 合成後の world transform。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/eulerdeg-af516393.html"><span><span class="identifier">FVec3 EulerDeg() const noexcept;</span><span class="summary">現在の rotation をオイラー角 (度、XYZ 順) に分解して返す。 `Rx * Ry * Rz` 分解 (SetEulerDeg の逆)。 回転行列 (row-major) から β=asin(-m02)、α=atan2(m12,m22)、γ=atan2(m01,m00) を取り出す。 Y が ±90° 近傍 (ジンバルロック) では γ=0 に縮退させ α に寄せる。 |Y|&lt;90° では SetEulerDeg と往復一致。 戻り値: X/Y/Z 各軸のオイラー角 (度)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/ftransform3d-21dfd280.html"><span><span class="identifier">FTransform3D(FVec3 pos, FQuat rot, FVec3 sca) noexcept;</span><span class="summary">位置・回転・スケールを指定して構築する。 pos: 位置。 rot: 回転 (クォータニオン)。 sca: スケール (X/Y/Z)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/ftransform3d-585e01a2.html"><span><span class="identifier">FTransform3D() noexcept = default;</span><span class="summary">単位 transform を構築する (位置 0、回転 恒等、スケール 1)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/identity-1f699c35.html"><span><span class="identifier">static FTransform3D Identity() noexcept;</span><span class="summary">単位 transform を返す (位置 0、回転 恒等、スケール 1)。 戻り値: 単位 transform。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/position-52336986.html"><span><span class="identifier">FVec3 position{0.0f, 0.0f, 0.0f};</span><span class="summary">位置 (親座標系での平行移動)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ftransform3d-8d576299/rotation-35c77711.html"><span><span class="identifier">FQuat rotation{};</span><span class="summary">回転 (クォータニオン、既定は恒等)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ftransform3d-8d576299/scale-20e201b8.html"><span><span class="identifier">FVec3 scale{1.0f, 1.0f, 1.0f};</span><span class="summary">スケール (X/Y/Z 個別)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ftransform3d-8d576299/seteulerdeg-85846e61.html"><span><span class="identifier">void SetEulerDeg(FVec3 deg) noexcept;</span><span class="summary">オイラー角 (度、XYZ 順) から rotation を設定する。 editor_abi の Node3DModel と同じ合成順 `Rx * Ry * Rz` (row-vector で点に X→Y→Z の順で 適用) になるよう quaternion を組む: `rotation = qx * qy * qz` (codebase の `a*b` は a を 先に適用するため、ToMatrix が Rx*Ry*Rz と一致する)。 エディタの度数オイラー編集を クォータニオン保持の transform に橋渡しする。 deg: X/Y/Z 各軸のオイラー角 (度)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ftransform3d-8d576299/tomat4-13209005.html"><span><span class="identifier">FMat4 ToMat4() const noexcept;</span><span class="summary">4x4 行列に変換する (描画/カメラ等で 4x4 が必要なとき用)。 row-major (acs/Math 規約)、行ベクトル v*M 順で S * R * T を展開する。 基底ベクトル (rows 0-2) を scale で行ごとにスケールし、row 3 に position を置く。 合成内では誤差/ コストを避けるため使わない。 戻り値: この transform を表す 4x4 行列。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

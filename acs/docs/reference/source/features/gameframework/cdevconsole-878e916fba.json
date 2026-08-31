@@ -1,0 +1,66 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CDevConsole",
+    "kind": "クラス",
+    "header": "gameframework/DevConsole.h",
+    "summary": "~ で開く開発用コマンドコンソールの state コンテナ。 コマンド名→関数ポインタの登録 / 検索 / 実行、入力履歴、ログバッファ、開閉状態を持つ。 描画 / 入力 UI は上位レイヤの責務。 履歴・ログは内部バッファに複製保持する。",
+    "when": "デバッグ用に「quit」「spawn enemy」のようなコマンドを打てるコンソールを作る時。 Ship build では丸ごと除外する想定。",
+    "sample": "CDevConsole con;\ncon.RegisterCommand(\\\"quit\\\", &App::QuitCmd, this, \\\"exit\\\");\nif (tildePressed) con.Toggle();\nif (con.IsOpen() && enter) {\n    con.PushHistory(input);\n    con.Execute(input);  // \\\"spawn 3\\\" を tokenize して dispatch\n}",
+    "members": [
+      {
+        "sig": "void RegisterCommand(const char* name, CommandFn fn, void* user, const char* help_text)",
+        "desc": "コマンドを登録する。 重複は警告して後勝ち上書き。",
+        "when": "起動時に各コマンドを登録。"
+      },
+      {
+        "sig": "void Execute(const char* command_line)",
+        "desc": "入力行を空白で tokenize → 先頭をコマンド名に照合 → dispatch する。 該当無し / 空行は警告ログ。 最大 8 引数。",
+        "when": "Enter が押された時。"
+      },
+      {
+        "sig": "void PushHistory(const char* line)",
+        "desc": "入力行を内部バッファにコピーして履歴に追加する (上限 100、最古を drop)。",
+        "when": "上下キーで再呼び出しできるようにする時。"
+      },
+      {
+        "sig": "const char* History(u32 i) const",
+        "desc": "履歴 i 番目 (0=最古)。 範囲外は nullptr。"
+      },
+      {
+        "sig": "void Log(const char* msg)",
+        "desc": "コマンド出力 / エラーを内部バッファにコピーして追加する (上限 100)。"
+      },
+      {
+        "sig": "const char* LogLine(u32 i) const",
+        "desc": "ログ i 行目 (0=最古)。 描画側がスクロールバックに表示する。"
+      },
+      {
+        "sig": "void Open() / Close() / Toggle()",
+        "desc": "コンソールの開閉。",
+        "sample": "if (tilde) con.Toggle();"
+      },
+      {
+        "sig": "bool IsOpen() const",
+        "desc": "今開いているか。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "履歴とログを破棄する (コマンド登録は保持)。"
+      },
+      {
+        "sig": "u32 CommandCount() const",
+        "desc": "登録済みコマンド数。"
+      },
+      {
+        "sig": "using FDevConsole = CDevConsole",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDevConsole を使う。"
+      }
+    ]
+  }
+}

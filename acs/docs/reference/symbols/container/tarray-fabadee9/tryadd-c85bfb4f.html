@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ムーブ追加を試み、失敗時は配列と引数を変更しない。 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ 先にムーブしてから既存要素を移送する。">
+  <title>acs::TArray::TryAdd — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/container.html">container モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/container.html">container モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/container.html">container モジュール</a><a href="../tarray-fabadee9.html">TArray の概要</a><a class="tree-child" href="add-798b2180.html">Add</a><a class="tree-child" href="add-bf71d8dd.html">Add</a><a class="tree-child" href="asspan-7edcd7ae.html">AsSpan</a><a class="tree-child" href="asspan-dbfdbdaf.html">AsSpan</a><a class="tree-child" href="begin-2117ea1e.html">begin</a><a class="tree-child" href="begin-3158efdc.html">begin</a><a class="tree-child" href="clone-d538b991.html">Clone</a><a class="tree-child" href="contains-3a169941.html">Contains</a><a class="tree-child" href="emplace-df45b4cc.html">Emplace</a><a class="tree-child" href="empty-fcc79849.html">Empty</a><a class="tree-child" href="end-5d05ebaf.html">end</a><a class="tree-child" href="end-82ea8f0a.html">end</a><a class="tree-child" href="findbykey-403762f5.html">FindByKey</a><a class="tree-child" href="findbykey-443d4ab6.html">FindByKey</a><a class="tree-child" href="findbypredicate-3877f23c.html">FindByPredicate</a><a class="tree-child" href="findbypredicate-dbdc8aba.html">FindByPredicate</a><a class="tree-child" href="free-f005dfb7.html">Free</a><a class="tree-child" href="front-97dc23e9.html">Front</a><a class="tree-child" href="front-c2dd6e67.html">Front</a><a class="tree-child" href="getallocator-ec97c3cf.html">GetAllocator</a><a class="tree-child" href="getdata-1103ddb4.html">GetData</a><a class="tree-child" href="getdata-7a9da50c.html">GetData</a><a class="tree-child" href="grow-c0f26ad8.html">Grow</a><a class="tree-child" href="indexofbykey-fef78438.html">IndexOfByKey</a><a class="tree-child" href="indexofbypredicate-d77f2cec.html">IndexOfByPredicate</a><a class="tree-child" href="isempty-639c9cc5.html">IsEmpty</a><a class="tree-child" href="knpos-8d453ff6.html">kNpos</a><a class="tree-child" href="last-0dd35564.html">Last</a><a class="tree-child" href="last-1a3e5d1d.html">Last</a><a class="tree-child" href="m-alloc-7bf36fe7.html">m_Alloc</a><a class="tree-child" href="m-capacity-7e2f684b.html">m_Capacity</a><a class="tree-child" href="m-data-6c78475e.html">m_Data</a><a class="tree-child" href="m-size-c357bc06.html">m_Size</a><a class="tree-child" href="max-82b16477.html">Max</a><a class="tree-child" href="num-55643da3.html">Num</a><a class="tree-child" href="operator-7a558ac1.html">operator=</a><a class="tree-child" href="operator-a5022fac.html">operator=</a><a class="tree-child" href="operator-01ed660f.html">operator[]</a><a class="tree-child" href="operator-e6728a59.html">operator[]</a><a class="tree-child" href="pop-b9fa4678.html">Pop</a><a class="tree-child" href="remove-ea426f6a.html">Remove</a><a class="tree-child" href="removeat-69ec37de.html">RemoveAt</a><a class="tree-child" href="removeatswap-238c0e84.html">RemoveAtSwap</a><a class="tree-child" href="removesingleswap-a5218027.html">RemoveSingleSwap</a><a class="tree-child" href="reserve-5e21807a.html">Reserve</a><a class="tree-child" href="reset-9a23b55d.html">Reset</a><a class="tree-child" href="setnum-48d64d64.html">SetNum</a><a class="tree-child" href="shrink-31a9d9c3.html">Shrink</a><a class="tree-child" href="tarray-0b0934e6.html">TArray</a><a class="tree-child" href="tarray-21c69cf4.html">TArray</a><a class="tree-child" href="tarray-283cb6ee.html">TArray</a><a class="tree-child" href="tarray-5ef4a943.html">TArray</a><a class="tree-child" href="tarray-6b896044.html">TArray</a><a class="tree-child" href="tryadd-36339f91.html">TryAdd</a><a class="tree-child" href="tryadd-c85bfb4f.html" aria-current="page">TryAdd</a><a class="tree-child" href="trycalculatenextgrowth-0ff035ad.html">TryCalculateNextGrowth</a><a class="tree-child" href="tryemplace-b0b8f291.html">TryEmplace</a><a class="tree-child" href="trygrowandemplaceback-90c24735.html">TryGrowAndEmplaceBack</a><a class="tree-child" href="trypushbacktrivial-c1986a83.html">TryPushBackTrivial</a><a class="tree-child" href="tryreserve-3155e961.html">TryReserve</a><a class="tree-child" href="trysetnum-3d348514.html">TrySetNum</a><a class="tree-child" href="tarray-db792d88.html">~TArray</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/container.html">container</a><span>/</span><a href="../tarray-fabadee9.html">TArray</a><span>/</span><span aria-current="page">TryAdd</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / container</div>
+<h1 class="identifier">acs::TArray::TryAdd</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1498">ムーブ</button><span class="term-tooltip" id="term-tip-1498" role="tooltip">中身をコピーせず所有権ごと移すこと。 大きなデータを安く引き渡せる。</span></span>追加を試み、失敗時は配列と引数を変更しない。 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ 先に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1499">ムーブ</button><span class="term-tooltip" id="term-tip-1499" role="tooltip">中身をコピーせず所有権ごと移すこと。 大きなデータを安く引き渡せる。</span></span>してから既存要素を移送する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TArray::TryAddの宣言"><code>bool <a href="tryadd-c85bfb4f.html" aria-current="page">TryAdd</a>(T&amp;&amp; Value) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/container.html">container</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../tarray-fabadee9.html"><code>acs::TArray</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/container/Array.h:341</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

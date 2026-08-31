@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "IRhiDevice",
+    "kind": "インターフェース",
+    "header": "render/IRhiDevice.h",
+    "summary": "GPU そのものとの対話を表す抽象(RHI の中心)。 バックエンド(DX12 / Diligent)はこれを実装し、各種リソースはこのデバイスから作る。",
+    "when": "テクスチャ・バッファ・シェーダ・パイプラインなど、あらゆる GPU リソース作成の第一引数に渡す。 普通は CRenderer::Device() から得る。",
+    "sample": "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;          // Debug ビルドで\nauto dev = CreateRhiDevice(cfg).Value();\nprintf(\"%s / %s\\n\", dev->BackendName(), dev->AdapterName());",
+    "members": [
+      {
+        "sig": "const char* BackendName() const",
+        "ret": "\"DX12\" 等",
+        "desc": "バックエンド名。"
+      },
+      {
+        "sig": "const char* AdapterName() const",
+        "ret": "GPU 名",
+        "desc": "GPU の表示名(デバッグ用)。"
+      },
+      {
+        "sig": "void WaitIdle()",
+        "desc": "GPU の処理が完了するまで待つ。 Shutdown 前やリソース作り直しの前に必要。"
+      }
+    ]
+  }
+}

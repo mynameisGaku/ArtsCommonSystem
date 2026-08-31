@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "ABinaryAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/BinaryAsset.h",
+    "summary": "バイト列をそのまま保持する最小アセット。 専用ローダがない拡張子のフォールバックや、テストデータ用。",
+    "when": "形式不問で生バイトを読みたい時。 専用型がない拡張子はこれで読まれる。",
+    "sample": "auto r = reg.Load(L\"data/save.bin\");\nauto* b = static_cast<ABinaryAsset*>(r.Value().Get());\nconst TArray<byte>& raw = b->Bytes();",
+    "members": [
+      {
+        "sig": "const TArray<byte>& Bytes()",
+        "ret": "バイト配列",
+        "desc": "保持している生バイト列。 非 const 版で編集も可。"
+      },
+      {
+        "sig": "using FBinaryAsset = ABinaryAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABinaryAsset を使う。"
+      }
+    ]
+  }
+}

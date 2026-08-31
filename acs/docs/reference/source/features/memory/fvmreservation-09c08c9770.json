@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FVmReservation",
+    "kind": "クラス",
+    "header": "memory/VirtualMemory.h",
+    "summary": "巨大な仮想アドレス空間を予約(Reserve)し、必要なページだけ物理コミット(Commit)する低レベル RAII ハンドル(VirtualAlloc ラッパ)。 Decommit したページは内部 LRU キャッシュ(16 エントリ、既定の総量上限 64 MiB)に保持し、再 Commit がヒットすればシステムコールを省く。 コピー不可・ムーブ可。",
+    "when": "CTlsfAllocator 等の土台として、上限の決まった広大なアリーナを予約だけ先に取り、使う分だけ後からコミットしたい時。 通常は直接使わずアロケータ越しに使う。",
+    "sample": "auto r = FVmReservation::Reserve(256u << 20);   // 256MB 予約(物理はまだ)\nif (r.IsOk()) {\n    FVmReservation vm = static_cast<FVmReservation&&>(r.Value());\n    vm.Commit(0, 8u << 20);                    // 先頭 8MB を物理割り当て\n    void* base = vm.Base();\n    vm.Decommit(0, 8u << 20);                  // 返却(実 VirtualFree は LRU エビクト時)\n}                                                 // スコープ脱出で Release",
+    "members": [
+      {
+        "sig": "static TResult<FVmReservation> Reserve(usize capacity_bytes) noexcept",
+        "ret": "予約 または エラー",
+        "desc": "capacity_bytes の仮想範囲を予約する(MEM_RESERVE)。 物理はまだ割り当てない。",
+        "when": "アリーナの上限を先に押さえる時。"
+      },
+      {
+        "sig": "TResult<void> Release() noexcept",
+        "ret": "成否",
+        "desc": "予約全体を解放する。 失敗時は所有状態を保持して再試行可能にし、機械可読ログを出す。 デストラクタからも呼ばれる。"
+      },
+      {
+        "sig": "TResult<void> Commit(usize offset, usize size) noexcept",
+        "ret": "成否",
+        "desc": "[offset, offset+size) の物理ページを割り当てる。 LRU ヒット時はシステムコールを省く。"
+      },
+      {
+        "sig": "TResult<void> Decommit(usize offset, usize size) noexcept",
+        "ret": "成否",
+        "desc": "物理ページを返却する。 実際の VirtualFree は LRU からエビクトされる時まで遅延する。"
+      },
+      {
+        "sig": "void* Base() const noexcept",
+        "ret": "先頭",
+        "desc": "予約範囲の先頭アドレス。 未予約なら null。"
+      },
+      {
+        "sig": "usize Capacity() const noexcept",
+        "ret": "予約量",
+        "desc": "予約した総バイト数。"
+      },
+      {
+        "sig": "usize Committed() const noexcept",
+        "ret": "利用中コミット量",
+        "desc": "現在利用中のコミット済みバイト数。 遅延デコミットキャッシュ分は含まない。"
+      },
+      {
+        "sig": "usize CachedCommittedBytes() const / usize ActualCommittedBytes() const",
+        "ret": "保持量",
+        "desc": "遅延デコミットキャッシュと OS 上の実コミット合計を区別して返す。"
+      },
+      {
+        "sig": "TResult<void> SetMaximumCachedDecommitBytes(usize maximum_cached_decommit_bytes)",
+        "ret": "成否",
+        "desc": "遅延デコミットキャッシュの総量上限を変更する。 0 なら無効化し、超過分は LRU 末尾から即時返却する。"
+      },
+      {
+        "sig": "TResult<void> TrimDecommitCache(usize target_cached_bytes) / FlushDecommitCache()",
+        "ret": "成否",
+        "desc": "遅延デコミットキャッシュを上限まで縮小、または全解放する。"
+      },
+      {
+        "sig": "u32 LruHitCount() const / u32 LruMissCount() const noexcept",
+        "ret": "統計",
+        "desc": "再 Commit が LRU キャッシュにヒット/ミスした回数(プロファイラ用)。"
+      }
+    ]
+  }
+}

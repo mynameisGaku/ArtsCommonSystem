@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FWaveDef",
+    "kind": "構造体",
+    "header": "gameframework/WaveSpawner.h",
+    "summary": "1 つのウェーブの定義。 スポーンルール配列(呼び出し側所有)と、クリア後の小休止時間を持ちます。",
+    "when": "AddWave に渡す 1 波分を組み立てる時。",
+    "sample": "FSpawnRule rules[] = { r0, r1 };\nFWaveDef wave{ \"wave1\", 2, rules, /*intermission=*/3.0f };\nwaves.AddWave(wave);",
+    "members": [
+      {
+        "sig": "const char* wave_id",
+        "desc": "デバッグ / 表示用の識別子(nullable)。"
+      },
+      {
+        "sig": "u32 rule_count / const FSpawnRule* rules",
+        "desc": "ルール数 / ルール配列(呼び出し側所有、寿命を保証する責任あり)。 rule_count==0 は即クリアの空 wave。"
+      },
+      {
+        "sig": "f32 wave_intermission_sec",
+        "desc": "クリアから次 wave までの待機秒(最後の wave では全完了までの演出時間)。"
+      }
+    ]
+  }
+}

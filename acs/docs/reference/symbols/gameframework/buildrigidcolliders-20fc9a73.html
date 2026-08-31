@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="タイルマップの layer の非空タイルを world へ静的 AABB として登録する (行ごと greedy マージ)。 map: 元タイルマップ。 layer: 対象レイヤ。 world: 追加先の剛体ワールド。 restitution: 生成コライダの反発係数。 friction: 生成コライダの摩擦係数。 戻り値: 生成した静的 AABB コライダ数 (連続タイルはマージ済み)。">
+  <title>acs::game::BuildRigidColliders — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="buildrigidcolliders-20fc9a73.html" aria-current="page">BuildRigidColliders</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">BuildRigidColliders</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">関数 / gameframework</div>
+<h1 class="identifier">acs::game::BuildRigidColliders</h1>
+<p class="lead">タイルマップの layer の非空タイルを world へ静的 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-4616">AABB</button><span class="term-tooltip" id="term-tip-4616" role="tooltip">Axis-Aligned Bounding Box。 軸に平行な直方体の境界ボックス。 当たり判定の粗い包囲に使う。</span></span> として登録する (行ごと greedy マージ)。 map: 元タイルマップ。 layer: 対象<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-4617">レイヤ</button><span class="term-tooltip" id="term-tip-4617" role="tooltip">当たり判定や描画の対象を分類するための札。 player/enemy/wall のように仲間分けする。</span></span>。 world: 追加先の剛体ワールド。 restitution: 生成コライダの反発係数。 friction: 生成コライダの摩擦係数。 戻り値: 生成した静的 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-4618">AABB</button><span class="term-tooltip" id="term-tip-4618" role="tooltip">Axis-Aligned Bounding Box。 軸に平行な直方体の境界ボックス。 当たり判定の粗い包囲に使う。</span></span> コライダ数 (連続タイルはマージ済み)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::BuildRigidCollidersの宣言"><code><a href="../foundation/u32-4ce4a209.html">u32</a> <a href="buildrigidcolliders-20fc9a73.html" aria-current="page">BuildRigidColliders</a>(const FTilemap&amp; map, <a href="../foundation/u32-4ce4a209.html">u32</a> layer, CRigidWorld2D&amp; <a href="chierarchyworldtransformbatch-92dbe0ee/fpendingworld-dd70bb57/world-f2d49336.html">world</a>, <a href="../foundation/f32-87be3881.html">f32</a> restitution = 0.0f, <a href="../foundation/f32-87be3881.html">f32</a> friction = 0.5f) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>関数</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/TilemapPhysics.h:30</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

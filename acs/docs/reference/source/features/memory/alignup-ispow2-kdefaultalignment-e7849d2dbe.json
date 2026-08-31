@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "AlignUp / IsPow2 / kDefaultAlignment",
+    "kind": "関数 / 定数",
+    "header": "memory/Allocator.h",
+    "summary": "アロケータ実装で多用する整列ヘルパ。 AlignUp=値/ポインタを 2 のべき乗の倍数へ切り上げ。 IsPow2=2 のべき乗判定。 kDefaultAlignment=既定整列(SIMD 16B と一般 8B の妥協で 16)。",
+    "when": "独自アロケータやバッファ計算で整列を扱う時。 AlignUp の a は必ず 2 のべき乗(Debug で ACS_ASSERT)。",
+    "sample": "usize n = AlignUp(13, 16);        // 16\nvoid* q = AlignUp(p, 64);         // 64B 境界へ\nif (IsPow2(align)) { /* 妥当 */ }\nusize a = kDefaultAlignment;      // 16",
+    "members": [
+      {
+        "sig": "constexpr usize kDefaultAlignment",
+        "desc": "既定アライメント(alignof(void*) が 8 超ならそれ、でなければ 16)。 実質 16。"
+      },
+      {
+        "sig": "bool IsPow2(usize v) noexcept",
+        "ret": "2 のべき乗か",
+        "desc": "v != 0 && (v & (v - 1)) == 0のときtrueを返します。"
+      },
+      {
+        "sig": "usize AlignUp(usize n, usize a) noexcept",
+        "ret": "切り上げ値",
+        "desc": "n を a(2 のべき乗)の倍数へ切り上げる。"
+      },
+      {
+        "sig": "void* AlignUp(void* p, usize a) noexcept",
+        "ret": "切り上げポインタ",
+        "desc": "ポインタ版。 a 境界へ切り上げる。"
+      }
+    ]
+  }
+}

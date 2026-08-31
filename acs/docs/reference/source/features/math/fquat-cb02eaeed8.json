@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FQuat",
+    "kind": "構造体",
+    "header": "math/Quat.h",
+    "summary": "クォータニオン（x, y, z, w）。 3D の回転を表す。 ジンバルロックが起きず、回転同士の球面線形補間が滑らか。",
+    "when": "キャラやカメラの向きを保持・補間する時。 回転を貯めても破綻しにくいので、オイラー角より回転状態の保存に向く。",
+    "sample": "FQuat q = FQuat::AxisAngle(FVec3::Up(), kHalfPi); // Y 軸 90 度\nFVec3 v = Rotate(q, {1,0,0});      // ベクトルを回す → ほぼ {0,0,1}\nFQuat a = FQuat::Identity(), b = q;\nFQuat mid = Slerp(a, b, 0.5f);     // 滑らかに 45 度\nFMat4 m = ToMatrix(q);             // 行列に変換",
+    "members": [
+      {
+        "sig": "static FQuat Identity()",
+        "ret": "無回転",
+        "desc": "回転しないクォータニオン {0,0,0,1}。"
+      },
+      {
+        "sig": "static FQuat AxisAngle(FVec3 axis, f32 rad)",
+        "ret": "回転",
+        "desc": "軸 axis まわりに rad ラジアン回す回転を作る。"
+      },
+      {
+        "sig": "static FQuat Euler(f32 pitch, f32 yaw, f32 roll)",
+        "ret": "回転",
+        "desc": "オイラー角（ピッチ・ヨー・ロール、ラジアン）から作る。"
+      },
+      {
+        "sig": "static FQuat FromMatrix(const FMat4& m)",
+        "ret": "回転",
+        "desc": "回転行列からクォータニオンを取り出す。"
+      },
+      {
+        "sig": "FQuat operator*(FQuat a, FQuat b)",
+        "ret": "合成回転",
+        "desc": "回転の合成（まず b、次に a を適用）。"
+      },
+      {
+        "sig": "FQuat Slerp(FQuat a, FQuat b, f32 t)",
+        "ret": "補間回転",
+        "desc": "2 回転を t で球面線形補間。 一定速度で滑らかに回る。",
+        "when": "向きをアニメーションさせる時。"
+      },
+      {
+        "sig": "FVec3 Rotate(FQuat q, FVec3 v)",
+        "ret": "回転後ベクトル",
+        "desc": "ベクトル v を q で回す。"
+      },
+      {
+        "sig": "FQuat Conjugate(q) / Inverse(q) / Normalize(q)",
+        "desc": "共役（単位 quat なら逆回転）・逆元・正規化。"
+      },
+      {
+        "sig": "FMat4 ToMatrix(FQuat q)",
+        "ret": "回転行列",
+        "desc": "クォータニオンを 4x4 回転行列に変換。"
+      }
+    ]
+  }
+}

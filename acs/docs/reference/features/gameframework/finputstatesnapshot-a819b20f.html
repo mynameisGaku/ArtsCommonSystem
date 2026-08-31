@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一入力時点の物理入力を所有する値。 同じsnapshotとinput mapから同じaction結果を再現できる。 setterは範囲外値を拒否する。">
+  <title>FInputStateSnapshot — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FInputStateSnapshot</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FInputStateSnapshot</h1>
+<p class="lead">一<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26230">入力</button><span class="term-tooltip" id="term-tip-26230" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>時点の物理<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26231">入力</button><span class="term-tooltip" id="term-tip-26231" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>を所有する値。 同じ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26232">snapshot</button><span class="term-tooltip" id="term-tip-26232" role="tooltip">ある時刻の世界全体の状態を 1 つに固めたもの。 server がこれを配信し、client は受信した複数 snapshot を補間して表示する (FPS/MMO 系で標準)。</span></span>とinput mapから同じaction結果を再現できる。 setterは範囲外値を拒否する。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1.html"><code>acs::game::FInputStateSnapshot</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>deviceなしのtest、AI<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26225">入力</button><span class="term-tooltip" id="term-tip-26225" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>、replay、rollback用に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26226">入力</button><span class="term-tooltip" id="term-tip-26226" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26227">状態</button><span class="term-tooltip" id="term-tip-26227" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を明示して保持する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/InputStateSnapshot.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-a8d55099b228a6468cbb"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/clear-362a75f5.html">Clear</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26228">入力</button><span class="term-tooltip" id="term-tip-26228" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>を離された初期<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26229">状態</button><span class="term-tooltip" id="term-tip-26229" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>へ戻す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/clear-362a75f5.html"><code>acs::game::FInputStateSnapshot::Clear</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-e1e61a3c351a6b2a2501"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetkeystate-26a3cbd4.html">TrySetKeyState</a>(...) / <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetmousebuttonstate-4fd39c93.html">TrySetMouseButtonState</a>(...) / <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetgamepadbuttonstate-b9b94fda.html">TrySetGamepadButtonState</a>(...)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>保持と今回の押下・解放を検証して設定する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetkeystate-26a3cbd4.html"><code>acs::game::FInputStateSnapshot::TrySetKeyState</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetmousebuttonstate-4fd39c93.html"><code>acs::game::FInputStateSnapshot::TrySetMouseButtonState</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetgamepadbuttonstate-b9b94fda.html"><code>acs::game::FInputStateSnapshot::TrySetGamepadButtonState</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-284ef01a4407a19abd8c"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetgamepadaxis-3a7a56ac.html">TrySetGamepadAxis</a>(u32 player, EGamepadAxis axis, f32 value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>正規化済みaxisを設定する。 非有限値と範囲外値は拒否する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/finputstatesnapshot-d33ee1f1/trysetgamepadaxis-3a7a56ac.html"><code>acs::game::FInputStateSnapshot::TrySetGamepadAxis</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

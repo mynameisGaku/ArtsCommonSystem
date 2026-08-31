@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "orbit",
+  "definition": "3D カメラが注視点(target)を中心に yaw / pitch / distance で周回する操作モデル。"
+}

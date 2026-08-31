@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSourceLoc",
+  "definition": "ソース上の位置(ファイル名・関数名・行・列)を持つ軽い型。"
+}

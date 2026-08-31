@@ -1,0 +1,45 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FPropertyContext",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/editor_core/PropertyDrawer.h",
+    "summary": "drawer に渡す全パラメータをまとめた POD。 フィールドはどれも省略可で、drawer 側が必要なものだけ参照する。 data_ptr は型に応じて drawer がキャスト(F32Slider なら f32*、AssetPath なら char[])。 out_changed は drawer が「値を書き換えたか」を呼び出し側に返す出口(nullptr なら書き戻し不要)。 引数増減で DrawerFn シグネチャが変わらないよう構造体束ねを採用。",
+    "when": "カスタム drawer を呼ぶ / 実装する時に編集対象や表示情報を渡す入れ物として。",
+    "members": [
+      {
+        "sig": "void* data_ptr = nullptr",
+        "desc": "編集対象データへのポインタ(drawer がキャストする)。"
+      },
+      {
+        "sig": "const char* label = nullptr",
+        "desc": "ImGui widget の表示ラベル(nullptr 時は \"##unnamed\")。"
+      },
+      {
+        "sig": "const char* tooltip = nullptr",
+        "desc": "hover tooltip(nullptr 時は非表示)。"
+      },
+      {
+        "sig": "f32 min_value = 0.0f / f32 max_value = 1.0f",
+        "desc": "F32Slider 等で使う最小 / 最大値。"
+      },
+      {
+        "sig": "const char* enum_values = nullptr",
+        "desc": "EnumCombo 用ラベル(\"Item0\\0Item1\\0...\\0\" 終端、ImGui::Combo 形式)。"
+      },
+      {
+        "sig": "u32 enum_count = 0",
+        "desc": "EnumCombo の有効ラベル数。"
+      },
+      {
+        "sig": "bool* out_changed = nullptr",
+        "desc": "drawer が編集発生時に *out_changed = true を書く出口(nullptr 可)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "CViewModel",
+    "kind": "基底クラス",
+    "header": "mvvm/ViewModel.h",
+    "summary": "MVVM の中央 VM(ビューモデル) の基底。 中身はあえて空で、命名と意図だけを与える。 継承して TObservable<T> のプロパティを並べて公開する。",
+    "when": "UI に見せたいデータ群を 1 つの「画面の状態」としてまとめたい時。 これを継承して各値を TObservable で持つ。",
+    "sample": "class FPlayerViewModel : public CViewModel {\npublic:\n    TObservable<f32>  hp    { 100.0f };\n    TObservable<i32>  level { 1 };\n    TObservable<bool> invincible { false };\n};\nFPlayerViewModel vm;\nvm.hp.Set(vm.hp.Get() - 10.0f);   // View 側へ自動反映",
+    "members": [
+      {
+        "sig": "virtual ~CViewModel()",
+        "desc": "デストラクタは仮想。 派生 VM を基底ポインタで安全に破棄できる。"
+      },
+      {
+        "sig": "using FViewModel = CViewModel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CViewModel を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "title": "TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる",
+  "item": {
+    "q": "TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる",
+    "tags": [
+      "スマートポインタ",
+      "AObject"
+    ],
+    "a": "その対象が NewObject<T>() 経由で作られていないと、内部の制御ブロックが無く空になります。 AObject 派生は NewObject で生成してください(スタックや素の new ではダメ)。"
+  }
+}

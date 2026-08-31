@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "SetWindowTitle / SetBackground",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "ウィンドウのタイトル文字列と背景色を変える。 背景色の既定は濃い紺色。",
+    "when": "スコア表示をタイトルに出す、ステージごとに背景色を変える、など。",
+    "sample": "SetWindowTitle(\"Score: 1200\");\nSetBackground(Rgb(20, 20, 40));",
+    "members": [
+      {
+        "sig": "void SetWindowTitle(const char* title)",
+        "desc": "タイトルバーの文字列を変える。"
+      },
+      {
+        "sig": "void SetBackground(FColor color)",
+        "desc": "毎フレームの塗りつぶし背景色（次フレームから反映）。"
+      }
+    ]
+  }
+}

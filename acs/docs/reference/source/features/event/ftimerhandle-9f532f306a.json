@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FTimerHandle",
+    "kind": "構造体",
+    "header": "event/TimerHandle.h",
+    "summary": "CTimerManager が返すタイマーの控え。 Cancel に渡して止める。 世代付きなので、ID が再利用されても古いハンドルで別タイマを誤ってキャンセルすることはありません。",
+    "when": "登録したタイマを後で止めたい(特に周期タイマ)時に保持しておく値。",
+    "sample": "FTimerHandle h = timers.SetInterval(0.5f, &OnBlink, &st);\n// ... 点滅をやめる ...\ntimers.Cancel(h);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "id != 0 && generation != 0 なら true。"
+      },
+      {
+        "sig": "bool operator==(const FTimerHandle& o) const",
+        "desc": "id と世代が一致するか。"
+      },
+      {
+        "sig": "u32 id / u32 generation",
+        "desc": "タイマの番号(1 始まり)と再利用を見分ける世代。 通常は直接触らない。"
+      },
+      {
+        "sig": "kInvalidTimer",
+        "desc": "無効なタイマを表す定数(event/TimerHandle.h)。 未設定の控えや「まだ予約していない」状態の初期値に使う。"
+      }
+    ]
+  }
+}

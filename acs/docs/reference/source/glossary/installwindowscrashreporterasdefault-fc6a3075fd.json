@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "InstallWindowsCrashReporterAsDefault",
+  "definition": "Windows のクラッシュ報告 backend を既定の provider に登録する結線ヘルパ。 起動時に一度呼ぶと本物の backend が使われるようになる。"
+}

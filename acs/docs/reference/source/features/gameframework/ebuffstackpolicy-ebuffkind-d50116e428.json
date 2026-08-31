@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "EBuffStackPolicy / EBuffKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/BuffSystem.h",
+    "summary": "EBuffStackPolicy=既存バフへの再適用挙動 (Refresh=時間更新 / Stack=重ねがけ / Ignore=無視)。 EBuffKind=大分類タグ (AttackUp/DefenseUp/SpeedUp/Regen/Poison/Burn/Freeze/Stun/Shield/Custom)。 ロジック分岐は呼出側が kind を見て行う。",
+    "when": "バフ定義 (FBuffDef) を作る時に指定する。",
+    "sample": "FBuffDef d; d.kind = EBuffKind::Regen; d.stack_policy = EBuffStackPolicy::Refresh;"
+  }
+}

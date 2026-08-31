@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "基本型エイリアス (u8〜u64 / i8〜i64 / f32 / f64 / usize 等)",
+    "kind": "型エイリアス",
+    "header": "foundation/Types.h",
+    "summary": "ビット幅が一目で分かる短い数値型名。 unsigned int ではなく u32、float ではなく f32 と書く。 どのプラットフォームでも幅が固定（u32 は必ず 4 バイト）なので移植で困らない。",
+    "when": "ACS では int や long の代わりに常にこれらを使う。 サイズが重要な構造体やファイル I/O で特に効く。",
+    "sample": "acs::u32 count = 0;        // 32bit 符号なし\nacs::i64 offset = -100;    // 64bit 符号付き\nacs::f32 x = 1.5f;         // 単精度浮動小数\nacs::usize n = sizeof(T);  // サイズ・添字用(ポインタ幅と同一)\nacs::byte raw[16];         // 生バイト列",
+    "members": [
+      {
+        "sig": "u8 / u16 / u32 / u64",
+        "desc": "符号なし整数（8/16/32/64 ビット）。"
+      },
+      {
+        "sig": "i8 / i16 / i32 / i64",
+        "desc": "符号付き整数（8/16/32/64 ビット）。"
+      },
+      {
+        "sig": "f32 / f64",
+        "desc": "単精度 / 倍精度の浮動小数（IEEE 754）。"
+      },
+      {
+        "sig": "usize / isize",
+        "desc": "usize=サイズ・配列添字用（ポインタ幅と同一）。 isize=ポインタ差分用。"
+      },
+      {
+        "sig": "uptr / iptr",
+        "desc": "ポインタを整数として扱う時の符号なし / 符号付き型。"
+      },
+      {
+        "sig": "byte / c8 / c16 / c32",
+        "desc": "byte=生バイト。 c8/c16/c32=UTF-8/16/32 文字。"
+      }
+    ]
+  }
+}

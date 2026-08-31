@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FVmReservation",
+  "definition": "仮想アドレス空間を予約し、必要なページだけ物理コミットする RAII ハンドル。 Decommit は総量上限付き LRU キャッシュ経由で実 VirtualFree を遅延する。"
+}

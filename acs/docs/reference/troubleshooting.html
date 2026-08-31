@@ -3,13 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>トラブルシュート — ACS リファレンス</title>
-  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="description" content="ACSで発生する症状ごとの確認項目です。">
+  <title>問題を調べる — ACS リファレンス</title>
+  <link rel="stylesheet" href="assets/css/reference.css">
+  <script src="assets/js/reference.js" defer></script>
 </head>
-<body data-page="trouble">
-  <script>window.ACS_REF = { modules: [], glossary: {}, guide: [], troubleshooting: [] };</script>
-  <script src="data/_meta.js"></script>
-  <script src="assets/nav.js"></script>
-  <script src="assets/app.js"></script>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="index.html">リファレンス概要</a><a href="guide.html">はじめる</a><a href="search.html">機能とAPIを検索</a><a href="glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="index.html">リファレンス</a><span>/</span><span aria-current="page">問題を調べる</span></nav>
+<section class="hero"><div class="eyebrow">ACS / 問題を調べる</div><h1>症状から対処を探す</h1>
+<p class="lead">ビルド、起動、描画、入力、アセットなどの症状ごとに確認項目をまとめています。</p></section>
+<section class="section" id="cases"><h2>症状</h2><div class="plain-list"><a href="troubleshooting/ビルドはできたのに-ウィンドウが真っ黒-何も描画されない-db8c3003.html"><span>ビルドはできたのに、ウィンドウが真っ黒/何も描画されない</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/ジョブ-parallelfor-runasync-の中で描画したら落ちた-おかしくなった-5226a390.html"><span>ジョブ(ParallelFor / RunAsync)の中で描画したら落ちた/おかしくなった</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/tsharedptr-同士が互いを持ち合って-いつまでもメモリが解放されない-5cf60ddb.html"><span>TSharedPtr 同士が互いを持ち合って、いつまでもメモリが解放されない</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/tweakptr-lock-がいつも空-無効-になる-83f883e2.html"><span>TWeakPtr.Lock() がいつも空(無効)になる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/tobjectptr-tweakobjectptr-を生ポインタから作ったら空になる-c86171b7.html"><span>TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/result-を返す関数で-戻り値を確認せずに使ったら止まった-89c6324b.html"><span>Result を返す関数で、戻り値を確認せずに使ったら止まった</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/acsコンテナ型を選ぶ-3cf3c658.html"><span>ACSコンテナ型を選ぶ</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/generate-ps1-を実行してもプロジェクトが更新されない-文字化けする-e65d32cb.html"><span>generate.ps1 を実行してもプロジェクトが更新されない/文字化けする</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/新しく追加した-module-target-がビルド対象に出てこない-8771d8b7.html"><span>新しく追加した module target がビルド対象に出てこない</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/リンクエラー-未解決のシンボル-が出る-f93bf519.html"><span>リンクエラー(未解決のシンボル)が出る</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/実行ファイルが見つからない-どこに出る-a61e7381.html"><span>実行ファイルが見つからない / どこに出る</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/gui-target-が-たまにカクつく-b1ebfe77.html"><span>GUI target が『たまにカクつく』</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/毎フレーム-parallelfor-しているのに速くならない-7aace583.html"><span>毎フレーム ParallelFor しているのに速くならない</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/directx-12-デバイスの作成に失敗する-起動直後に落ちる-22cffb6d.html"><span>DirectX 12 デバイスの作成に失敗する/起動直後に落ちる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/2d-のスプライトが思った場所と上下逆-ずれる-a7dd8e00.html"><span>2D のスプライトが思った場所と上下逆/ずれる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/アロケータを差し替えたい-フレーム毎に大量確保して遅い-92bb8b7e.html"><span>アロケータを差し替えたい / フレーム毎に大量確保して遅い</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/マルチスレッドでカウンタや変数を更新したら値が壊れる-f894fe96.html"><span>マルチスレッドでカウンタや変数を更新したら値が壊れる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/音を鳴らしたいが鳴らない-7e42cbac.html"><span>音を鳴らしたいが鳴らない</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/デバッグだと動くが-release-で挙動が変わる-5f8a9fd7.html"><span>デバッグだと動くが Release で挙動が変わる</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/ヘッダを増やしたらコンパイルが急に遅くなった-65f1d370.html"><span>ヘッダを増やしたらコンパイルが急に遅くなった</span><span class="kind-label">対処を開く →</span></a><a href="troubleshooting/どの層の関数を使えばいいか-が分からない-463fa8e9.html"><span>『どの層の関数を使えばいいか』が分からない</span><span class="kind-label">対処を開く →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#cases">症状</a></nav></aside>
+  </div>
 </body>
 </html>

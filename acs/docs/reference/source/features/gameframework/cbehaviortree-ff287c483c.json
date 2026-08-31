@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CBehaviorTree",
+    "kind": "クラス",
+    "header": "gameframework/BehaviorTree.h",
+    "summary": "AI / 敵挙動 / 演出分岐のための最小構成のビヘイビアツリー。 root ノードを 1 つ持ち、毎フレーム Tick(blackboard, dt) で評価する。 状態は型を持たない void* の ブラックボードに置く。",
+    "when": "「敵が見えたら追跡、見えなければパトロール」のような条件分岐 AI を組みたい時。",
+    "sample": "auto root  = acs::MakeUnique<ABtSelector>();\nauto chase = acs::MakeUnique<ABtSequence>();\nchase->AddChild(acs::MakeUnique<ABtAction>(&SeesPlayer));\nchase->AddChild(acs::MakeUnique<ABtAction>(&MoveToPlayer));\nroot->AddChild(acs::Move(chase));\nroot->AddChild(acs::MakeUnique<ABtAction>(&Patrol));\nm_Bt.SetRoot(acs::Move(root));\n// 毎フレーム:\nm_Bt.Tick(&m_Bb, dt);",
+    "members": [
+      {
+        "sig": "void SetRoot(TUniquePtr<ABtNode> root)",
+        "desc": "root ノードを差し替える (古い root は破棄)。 nullptr で空にできる。"
+      },
+      {
+        "sig": "EBtStatus Tick(void* blackboard, f32 dt)",
+        "ret": "Running/Success/Failure",
+        "desc": "1 フレーム分ツリーを評価する。 root 未設定なら Failure。",
+        "when": "毎フレーム呼ぶ AI の駆動点。"
+      },
+      {
+        "sig": "bool HasRoot() const",
+        "desc": "root が設定済みかを返す。"
+      },
+      {
+        "sig": "using FBehaviorTree = CBehaviorTree",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBehaviorTree を使う。"
+      }
+    ]
+  }
+}

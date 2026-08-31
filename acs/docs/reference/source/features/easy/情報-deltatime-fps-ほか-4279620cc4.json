@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "情報（DeltaTime / Fps ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "フレーム間隔・累積時間・FPS・画面サイズを得る。 DeltaTime を移動量に掛けると、フレームレートに依らず一定速度で動かせる。",
+    "when": "フレームレート非依存の移動（x += speed * DeltaTime()）、タイマー、画面端の判定、FPS 表示。",
+    "sample": "x += 200 * DeltaTime();              // 秒速 200px\nif (x > ScreenWidth()) x = 0;\nDrawString(10, 10, \"FPS\", FColor::White);\nf32 t = ElapsedTime();               // 開始からの秒",
+    "members": [
+      {
+        "sig": "f32 DeltaTime()",
+        "ret": "経過秒",
+        "desc": "前フレームからの経過秒。 移動量に掛けて速度を一定にする。"
+      },
+      {
+        "sig": "f32 ElapsedTime()",
+        "ret": "累積秒",
+        "desc": "OpenWindow からの累積秒。 アニメや揺れの時間入力に。"
+      },
+      {
+        "sig": "i32 Fps()",
+        "ret": "フレーム毎秒",
+        "desc": "おおよその 1 秒あたりフレーム数。"
+      },
+      {
+        "sig": "f32 ScreenWidth() / f32 ScreenHeight()",
+        "ret": "画面サイズ(px)",
+        "desc": "描画領域の幅と高さ。 配置や端判定に。"
+      }
+    ]
+  }
+}

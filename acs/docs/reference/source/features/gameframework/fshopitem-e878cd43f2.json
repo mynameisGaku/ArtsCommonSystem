@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FShopItem",
+    "kind": "構造体",
+    "header": "gameframework/EconomyDirector.h",
+    "summary": "ショップに並ぶ商品 1 件。 item_id・表示名・支払い通貨・価格・在庫数・コスメティック専用フラグを持つ。 在庫は ~0u で無制限、0 で売り切れ。",
+    "when": "RegisterItem に渡して商品を定義する時。"
+  }
+}

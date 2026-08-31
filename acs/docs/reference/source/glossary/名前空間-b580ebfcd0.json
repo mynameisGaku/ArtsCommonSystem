@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "名前空間",
+  "definition": "名前の衝突を防ぐ入れ物。 acs::easy::OpenWindow の acs::easy の部分。"
+}

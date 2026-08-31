@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FMeshVertex",
+  "definition": "ACS 標準の頂点(位置+法線+UV)。 FVec3 が 16B 整列のため sizeof=48 バイト。"
+}

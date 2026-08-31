@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "STL 不使用",
+  "definition": "ACSの基盤コードと公開APIでは、可変長配列、文字列、所有権管理に TArray、FString、TUniquePtr などのACS型を使用する方針です。"
+}

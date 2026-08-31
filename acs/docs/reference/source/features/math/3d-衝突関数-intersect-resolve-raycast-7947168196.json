@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "3D 衝突関数 (Intersect / Resolve / Raycast)",
+    "kind": "自由関数群",
+    "header": "math/Collision3D.h",
+    "summary": "3D 形状の重なり判定（Intersect）・押し戻し（Resolve）・レイキャスト（Raycast）。 三角形との交差（Möller–Trumbore）も含む。",
+    "when": "3D の当たり判定。 物体同士の衝突、めり込み解消、マウスピッキングや弾道のレイ、メッシュ三角形との交差を取る時。",
+    "sample": "if (Intersect(box, s)) { /* 重なり */ }\nFVec3 push;\nif (Resolve(ballA, ballB, push)) ballA.center += push;\nRayHit3 h = RaycastAabb(ray, box);\nRayHit3 t = RaycastTriangle(ray, v0, v1, v2); // メッシュ当たり\nRayHit3 g = RaycastPlane(ray, ground);",
+    "members": [
+      {
+        "sig": "bool Intersect(A, B)",
+        "ret": "重なるか",
+        "desc": "AABB・球の組合せで重なり判定。"
+      },
+      {
+        "sig": "bool Contains(FAabb3/FSphere, FVec3 p)",
+        "ret": "内側か",
+        "desc": "点 p が形状内部にあるか。"
+      },
+      {
+        "sig": "bool Resolve(const FSphere& sphere, const FSphere&/const FAabb3&, FVec3& push)",
+        "ret": "正の深さで貫通したか",
+        "desc": "球を球または AABB から離す最小分離移動量を求める。 AABB 内部では最寄り面を決定的に選ぶ。"
+      },
+      {
+        "sig": "FRayHit3 RaycastAabb/RaycastSphere/RaycastPlane(ray, shape, t_max)",
+        "ret": "命中情報",
+        "desc": "レイと AABB/球/平面の交差。"
+      },
+      {
+        "sig": "FRayHit3 RaycastTriangle(ray, FVec3 v0, FVec3 v1, FVec3 v2, t_max)",
+        "ret": "命中情報",
+        "desc": "三角形（両面）との交差をMöller–Trumbore法で計算。 メッシュの精密ピッキングに。"
+      }
+    ]
+  }
+}

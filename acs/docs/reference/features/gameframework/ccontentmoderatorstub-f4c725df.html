@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="IContentModerator の依存ゼロのデフォルト実装。 内部の小さな NG 単語リストに対し、生文字列と正規化文字列 (小文字化 + leet 置換 + 記号除去) の 2 経路で照合する。 GetModeratorStub() で共有 singleton を取れる。">
+  <title>CContentModeratorStub — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CContentModeratorStub</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CContentModeratorStub</h1>
+<p class="lead">IContentModerator の依存ゼロのデフォルト実装。 内部の小さな NG 単語リストに対し、生文字列と正規化文字列 (小文字化 + leet 置換 + 記号除去) の 2 経路で照合する。 GetModerator<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24708">Stub</button><span class="term-tooltip" id="term-tip-24708" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span>() で共有 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24709">singleton</button><span class="term-tooltip" id="term-tip-24709" role="tooltip">プロセス内に 1 個だけ存在するインスタンス。 XR ランタイムのように 1 接続前提のものに使う。</span></span> を取れる。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/ccontentmoderatorstub-56e37633.html"><code>acs::game::CContentModeratorStub</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>実 SDK を入れる前のローカルテキストフィルタとして、またはテスト用に。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ContentModerator.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-d5ba6ad2649312bd2ae5"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TResult&lt;<a href="../../symbols/gameframework/fmoderationresult-16d9d5d2.html">FModerationResult</a>&gt; <a href="../../symbols/gameframework/ccontentmoderatorstub-56e37633/moderateimagergba8-1200b903.html">ModerateImageRgba8</a>(const u8* rgba, u32 width, u32 height)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24704">デコード</button><span class="term-tooltip" id="term-tip-24704" role="tooltip">エンコードされたデータを元の形(ここでは int16 PCM)に戻すこと。</span></span>済み RGBA8 ピクセルを直接 NSFW 判定する。 肌色比率 heuristic で露出度を推定。</dd></div><div class="fact"><dt>使う場面</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24705">CPU</button><span class="term-tooltip" id="term-tip-24705" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> 側に既にテクスチャがあり再<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24706">デコード</button><span class="term-tooltip" id="term-tip-24706" role="tooltip">エンコードされたデータを元の形(ここでは int16 PCM)に戻すこと。</span></span>を避けたい時。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fmoderationresult-16d9d5d2.html"><code>acs::game::FModerationResult</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/ccontentmoderatorstub-56e37633/moderateimagergba8-1200b903.html"><code>acs::game::CContentModeratorStub::ModerateImageRgba8</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-a5b88e6378775953ce92"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>using <a href="../../symbols/gameframework/fcontentmoderatorstub-d0c2a6e0.html">FContentModeratorStub</a> = CContentModeratorStub</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CContentModerator<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24707">Stub</button><span class="term-tooltip" id="term-tip-24707" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fcontentmoderatorstub-d0c2a6e0.html"><code>acs::game::FContentModeratorStub</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CContentModeratorStub</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/ccontentmoderatorstub-56e37633.html"><code>acs::game::CContentModeratorStub</code></a><span class="summary"><code>class CContentModeratorStub final : public IContentModerator;</code></span></li><li><a href="../../symbols/gameframework/ccontentmoderatorstub-56e37633/ccontentmoderatorstub-668d576f.html"><code>acs::game::CContentModeratorStub::CContentModeratorStub</code></a><span class="summary"><code>CContentModeratorStub() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CContentModeratorStubの使用例"><code>IContentModerator&amp; mod = acs::game::GetModeratorStub();
+// f.u.c.k や sh1t のような変種も同じ辞書で捕捉</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

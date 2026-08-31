@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSsao",
+    "kind": "クラス",
+    "header": "render/Ssao.h",
+    "summary": "SSAO(Screen-Space Ambient Occlusion、GTAO ベース)。 深度 + 法線 G-buffer から各ピクセルの遮蔽量を求め、隙間や接地部を自然に暗くする。 コンタクトシャドウも出力。 深度対応のバイラテラルブラーでノイズを除去する。",
+    "when": "オブジェクトの隙間・接地・しわなどに陰影を足してリアル感を上げたいとき。 出力を CPbrShader::SetSsao に渡す。",
+    "sample": "CSsao ssao;\nssao.Init(*dev, w, h);\nssao.Render(*dev, *cl, scene_depth, mv.OutputNormalTexture(),\n            vp, inv_vp, view, eye, light_dir,\n            /*intensity=*/1.0f, /*radius=*/0.5f);\npbr.SetSsao(ssao.OutputTexture(), 1.0f, w, h);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, u32 width, u32 height) / Resize(...)",
+        "desc": "出力 RT と AO/blur パイプラインを作る。"
+      },
+      {
+        "sig": "void Render(IRhiDevice&, IRhiCommandList&, scene_depth, normal_gbuffer, view_proj, inv_view_proj, view, eye, light_dir, intensity = 1.0f, radius = 0.5f)",
+        "desc": "AO + コンタクトシャドウを計算しブラーまでかける。"
+      },
+      {
+        "sig": "IRhiTexture* OutputTexture() / RawTexture()",
+        "desc": "ブラー後(通常こちら) / ブラー前。"
+      },
+      {
+        "sig": "using FSsao = CSsao",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSsao を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CGltfAssetLoader / CGlbAssetLoader / CObjAssetLoader / CFbxAssetLoader",
+    "kind": "クラス(IAssetLoader 派生)",
+    "header": "asset/MeshAsset.h",
+    "summary": "メッシュ形式別のローダ。 gltf/glb は cgltf、obj は自前パーサ、fbx は ufbx で読み、いずれも AMeshAsset を作る。",
+    "when": "標準ローダ登録で自動使用。 特定形式だけ足したい時に個別登録。",
+    "sample": "CGltfAssetLoader gltf;\nFObjAssetLoader  obj;\nreg.RegisterLoader(&gltf);\nreg.RegisterLoader(&obj);",
+    "members": [
+      {
+        "sig": "const char* Extension()",
+        "desc": "各クラスが \"gltf\" / \"glb\" / \"obj\" / \"fbx\" を返す。"
+      },
+      {
+        "sig": "using FFbxAssetLoader = CFbxAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CFbxAssetLoader を使う。"
+      },
+      {
+        "sig": "using FGlbAssetLoader = CGlbAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CGlbAssetLoader を使う。"
+      },
+      {
+        "sig": "using FGltfAssetLoader = CGltfAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CGltfAssetLoader を使う。"
+      },
+      {
+        "sig": "using FObjAssetLoader = CObjAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CObjAssetLoader を使う。"
+      }
+    ]
+  }
+}

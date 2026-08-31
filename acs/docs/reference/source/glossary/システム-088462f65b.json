@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "システム",
+  "definition": "コンポーネントを持つエンティティ群を毎フレーム処理する関数(移動・AI など)。 CSystemScheduler で順に実行する。"
+}

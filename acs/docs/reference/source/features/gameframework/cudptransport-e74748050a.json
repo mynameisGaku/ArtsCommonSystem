@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CUdpTransport",
+    "kind": "クラス",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "INetTransport の実 Winsock2 UDP 実装。 1 Send = 1 sendto = 1 datagram、1 Receive = 1 recvfrom = 1 datagram でメッセージ境界保持の契約を満たす。",
+    "when": "実際に UDP で snapshot を送受信したい時。 loopback round-trip 検証済みの本実装 (stub ではない)。",
+    "sample": "CUdpTransport server, client;\nserver.SetLocalPort(50000);\nserver.Connect(\"127.0.0.1\", 50001); // 送り先=client\nclient.SetLocalPort(50001);\nclient.Connect(\"127.0.0.1\", 50000);\nserver.Send(frame, n);\nu8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));",
+    "members": [
+      {
+        "sig": "void SetLocalPort(u16 port) / u16 LocalPort() const",
+        "desc": "bind する local port を指定 (0=OS が ephemeral)。 Connect 前に呼ぶ。"
+      },
+      {
+        "sig": "TResult<void> Connect(const char* address, u16 port) noexcept override",
+        "desc": "WSAStartup → UDP socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。"
+      },
+      {
+        "sig": "TResult<void> Send / TResult<u32> Receive(...) noexcept override",
+        "desc": "sendto / recvfrom。 WSAEWOULDBLOCK は buffer 満杯 / 受信なしとして扱う。"
+      },
+      {
+        "sig": "using FUdpTransport = CUdpTransport",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CUdpTransport を使う。"
+      }
+    ]
+  }
+}

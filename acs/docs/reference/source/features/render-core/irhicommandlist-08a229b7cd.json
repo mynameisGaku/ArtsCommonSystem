@@ -1,0 +1,93 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "IRhiCommandList",
+    "kind": "インターフェース",
+    "header": "render/IRhiCommandList.h",
+    "summary": "GPU に送る命令を記録するバッファ(コマンドリスト)。 RT のバインド・パイプライン設定・バッファ/テクスチャの割当・描画命令をここに積み、最後に GPU へ投入する。",
+    "when": "実際の描画はすべてこれ経由。 CRenderer::CommandList() から得たものに命令を積む。",
+    "sample": "auto* cl = rdr.CommandList();\ncl->SetPipeline(*pipe);\ncl->SetConstantBuffer(0, *frame_cb);\ncl->SetTexture(0, *tex);\ncl->SetVertexBuffer(*vb, stride);\ncl->SetIndexBuffer(*ib);\ncl->DrawIndexed(index_count);",
+    "members": [
+      {
+        "sig": "void Begin() / End(); bool Submit()",
+        "desc": "記録開始 / 記録終了 / GPU へ投入。 投入と completion fence の発行に失敗すると false。"
+      },
+      {
+        "sig": "void ResetStatistics() / const FRhiCommandStatistics& Statistics() const",
+        "desc": "呼び出し側のframe境界で命令統計を初期化 / draw・dispatch・推定三角形数を取得する。 統計領域は無状態interfaceではなく各Raw/Diligent具象が所有する。"
+      },
+      {
+        "sig": "void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)",
+        "desc": "バックバッファを RT としてバインド+クリア。 depth を渡すと深度もバインド+クリア。",
+        "when": "画面への描画パスの最初。"
+      },
+      {
+        "sig": "void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index)",
+        "desc": "バックバッファ描画を終え、Present 可能状態にする。"
+      },
+      {
+        "sig": "void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)",
+        "desc": "オフスクリーン RT への描画開始(HDR RT / ポストプロセス用)。",
+        "when": "HDR パイプラインや反射の捕捉。"
+      },
+      {
+        "sig": "void EndRenderToTexture(IRhiTexture& rt)",
+        "desc": "RT 描画を終え、次パスで SRV としてサンプル可能な状態へ遷移する。"
+      },
+      {
+        "sig": "void BeginRenderToTextureLoad(IRhiTexture& rt, IRhiTexture* depth = nullptr)",
+        "desc": "クリアせずに RT を再 bind(opaque pass の上にさらに描く)。"
+      },
+      {
+        "sig": "void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip, const FClearColor& clear)",
+        "desc": "キューブマップ1 面 / 配列 1 スライス / 1 ミップに描く(per_slice_rtv 必須)。"
+      },
+      {
+        "sig": "bool BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)",
+        "desc": "最大 8 枚の RT を同時バインドする MRT 描画。 Raw DX12 / Diligent の双方で、全 color RT と任意 depth の view・寸法・sample count を bind 前に検証し、成功時だけ true を返す。 false では backend state は不変で、呼び出し側は Draw と EndRenderToTextureMrt を実行してはならない。"
+      },
+      {
+        "sig": "void BeginShadowPass(IRhiTexture& depth, f32 depth_clear = 1.0f) / EndShadowPass(IRhiTexture& depth)",
+        "desc": "depth-only のシャドウパス開始/終了。 終了時に深度を SRV 状態へ遷移し主パスでサンプル可能に。"
+      },
+      {
+        "sig": "void SetViewport(const FViewport&) / SetScissor(const FScissorRect&)",
+        "desc": "ビューポート / シザーを設定。"
+      },
+      {
+        "sig": "void SetStencilRef(u32 ref)",
+        "desc": "ステンシル参照値を設定(同じ PSO で ref だけ切替できる)。"
+      },
+      {
+        "sig": "void SetPipeline(IRhiPipeline&)",
+        "desc": "次の Draw で使うパイプライン(VS+PS+レイアウト等)を設定。"
+      },
+      {
+        "sig": "void SetVertexBuffer(IRhiBuffer& vb, u32 stride) / SetIndexBuffer(IRhiBuffer& ib)",
+        "desc": "頂点 / インデックスバッファをバインド。"
+      },
+      {
+        "sig": "void SetConstantBuffer(u32 slot, IRhiBuffer& cb) / SetTexture(u32 slot, IRhiTexture& tex)",
+        "desc": "定数バッファ / テクスチャを指定スロットにバインド。 共有upload pageの論理sliceは親bufferとoffset範囲へ解決する。"
+      },
+      {
+        "sig": "void Draw(u32 vertex_count, u32 first_vertex = 0)",
+        "desc": "非インデックス描画。"
+      },
+      {
+        "sig": "void DrawIndexed(u32 index_count, u32 first_index = 0, i32 base_vertex = 0)",
+        "desc": "インデックス描画(普通はこちら)。"
+      },
+      {
+        "sig": "void* NativeHandle()",
+        "ret": "ネイティブハンドル",
+        "desc": "ImGui 等の外部統合用に、バックエンド固有のハンドルを取り出す。"
+      }
+    ]
+  }
+}

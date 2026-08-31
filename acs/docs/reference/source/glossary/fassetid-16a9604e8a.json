@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAssetId",
+  "definition": "パス文字列をハッシュした 64-bit のアセット識別子。 同じパスなら必ず同じ ID。"
+}

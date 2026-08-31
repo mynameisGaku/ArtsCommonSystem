@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Result",
+  "definition": "成功なら値、失敗なら理由を入れて返す型 Result<T,E>。 例外の代わり。"
+}

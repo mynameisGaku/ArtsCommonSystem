@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "telemetryfile",
+    "title": "telemetryfile — テレメトリ記録",
+    "description": "ゲーム内で起きた出来事(テレメトリイベント)をサーバではなくローカルのファイルに書き出す、お手軽なログ記録の実装です。 gameframework の IBackendClient 窓口にそのまま差し込めるので、サーバが無くてもイベント計測のコードを動かせます。"
+  },
+  "feature": {
+    "name": "GetDefaultFileTelemetryBackendClient()",
+    "kind": "関数",
+    "header": "telemetryfile/FileTelemetryBackendClient.h",
+    "summary": "プロセス全体で共有される既定の CFileTelemetryBackendClient 1 個(シングルトン)への参照を返す。 自分でインスタンスを作らず、これ 1 つを使い回す入口。",
+    "when": "ファイルテレメトリの実体を 1 個だけ用意し、あちこちから同じ記録先を使いたい時。 多くは次の InstallFileTelemetryAsDefault() が内部で利用する。",
+    "sample": "auto& tel = acs::telemetryfile::GetDefaultFileTelemetryBackendClient();\ntel.Connect(\"file:Saved/telemetry.jsonl\");",
+    "members": [
+      {
+        "sig": "acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient()",
+        "ret": "共有の実体",
+        "desc": "共有 CFileTelemetryBackendClient を IBackendClient 参照で返す。"
+      }
+    ]
+  }
+}

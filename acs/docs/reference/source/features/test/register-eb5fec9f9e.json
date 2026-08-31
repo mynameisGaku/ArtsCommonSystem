@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "test",
+    "title": "test — テスト基盤(ACS_TEST / EXPECT)",
+    "description": "ACS_TEST でテストを書き、EXPECT_* マクロで結果を検証し、RunAll() でまとめて実行します。"
+  },
+  "feature": {
+    "name": "Register()",
+    "kind": "関数",
+    "header": "test/Test.h",
+    "summary": "テストケースを実行リストへ登録する。 ACS_TEST が起動時(main 開始前)に自動で呼ぶため、利用者が直接呼ぶことはまずない。",
+    "when": "テストランナーを自作する等の特殊用途のみ。 普段は ACS_TEST 経由で間接的に使われる。",
+    "sample": "// ACS_TEST 内部から自動で呼ばれる\n::acs::test::Register(&tc);",
+    "members": [
+      {
+        "sig": "void Register(FTestCase* tc) noexcept",
+        "desc": "渡された記述子をグローバルなテスト一覧の連結リストに繋ぐ。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ラップ完了 callback (nullptr で無効)。">
+  <title>acs::game::CLapTimer::m_OnLap — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../claptimer-d206e160.html">CLapTimer の概要</a><a class="tree-child" href="state-9c80ffc7.html">_state</a><a class="tree-child" href="acquireslot-fdc1b432.html">AcquireSlot</a><a class="tree-child" href="addracer-faedc188.html">AddRacer</a><a class="tree-child" href="claptimer-4c916c83.html">CLapTimer</a><a class="tree-child" href="claptimer-bb3576b1.html">CLapTimer</a><a class="tree-child" href="claptimer-fe01a4dc.html">CLapTimer</a><a class="tree-child" href="clearall-2ec0baaa.html">ClearAll</a><a class="tree-child" href="estate-ea5459f3.html">EState</a><a class="tree-child" href="findslot-53ef143e.html">FindSlot</a><a class="tree-child" href="findslot-9876658d.html">FindSlot</a><a class="tree-child" href="fslot-361143dd.html">FSlot</a><a class="tree-child" href="getlaprecord-ad612cdd.html">GetLapRecord</a><a class="tree-child" href="getleader-efd9fc1e.html">GetLeader</a><a class="tree-child" href="getstats-f2a25da6.html">GetStats</a><a class="tree-child" href="init-5e4c36ed.html">Init</a><a class="tree-child" href="isbetterrank-28badf4f.html">IsBetterRank</a><a class="tree-child" href="isrunning-7051b84d.html">IsRunning</a><a class="tree-child" href="laprecordcount-8285498d.html">LapRecordCount</a><a class="tree-child" href="m-checkpointsperlap-8ebb499f.html">m_CheckpointsPerLap</a><a class="tree-child" href="m-finishedcount-ed7b7eda.html">m_FinishedCount</a><a class="tree-child" href="m-onfinish-4e6c1602.html">m_OnFinish</a><a class="tree-child" href="m-onfinishuser-af00d8e5.html">m_OnFinishUser</a><a class="tree-child" href="m-onlap-931e0049.html" aria-current="page">m_OnLap</a><a class="tree-child" href="m-onlapuser-4074ddb9.html">m_OnLapUser</a><a class="tree-child" href="m-racercount-e451ea79.html">m_RacerCount</a><a class="tree-child" href="m-racetimesec-5ab5006e.html">m_RaceTimeSec</a><a class="tree-child" href="m-slots-46817542.html">m_Slots</a><a class="tree-child" href="m-totallaps-3614eda7.html">m_TotalLaps</a><a class="tree-child" href="notifycheckpointpassed-7623cc74.html">NotifyCheckpointPassed</a><a class="tree-child" href="notifylapcompleted-ec7f7eb6.html">NotifyLapCompleted</a><a class="tree-child" href="operator-13a9ea7b.html">operator=</a><a class="tree-child" href="operator-397597aa.html">operator=</a><a class="tree-child" href="pause-7ade9a8b.html">Pause</a><a class="tree-child" href="positionof-f10e7348.html">PositionOf</a><a class="tree-child" href="racercount-51e48157.html">RacerCount</a><a class="tree-child" href="racetimesec-baf0e5ba.html">RaceTimeSec</a><a class="tree-child" href="removeracer-b056f284.html">RemoveRacer</a><a class="tree-child" href="resume-c7777652.html">Resume</a><a class="tree-child" href="setonfinishcallback-2f5bfa63.html">SetOnFinishCallback</a><a class="tree-child" href="setonlapcallback-f62dbd67.html">SetOnLapCallback</a><a class="tree-child" href="start-a242bfc7.html">Start</a><a class="tree-child" href="stop-cf090276.html">Stop</a><a class="tree-child" href="tick-692b579b.html">Tick</a><a class="tree-child" href="claptimer-5348926e.html">~CLapTimer</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../claptimer-d206e160.html">CLapTimer</a><span>/</span><span aria-current="page">m_OnLap</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / gameframework</div>
+<h1 class="identifier">acs::game::CLapTimer::m_OnLap</h1>
+<p class="lead">ラップ完了 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6712">callback</button><span class="term-tooltip" id="term-tip-6712" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> (nullptr で無効)。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CLapTimer::m_OnLapの宣言"><code><a href="../lapcallback-19b13272.html">LapCallback</a> <a href="m-onlap-931e0049.html" aria-current="page">m_OnLap</a> = nullptr;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../claptimer-d206e160.html"><code>acs::game::CLapTimer</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/LapTimer.h:486</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

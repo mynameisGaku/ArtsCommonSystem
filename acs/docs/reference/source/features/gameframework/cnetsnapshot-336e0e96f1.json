@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CNetSnapshot",
+    "kind": "クラス",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "server-authoritative なsnapshotベースのネットコードシーム(seam)。 server は毎 tick の世界状態を 1 つの snapshot に固めて送信し、client は受信した snapshot を貯めて少し過去の時刻で補間表示する。",
+    "when": "FPS / TPS / MMORPG のように「結果」だけを配信したい時。 「入力」を配信する CLockstep と対になる、もう一つのネットコード流儀。 実 socket は INetTransport で差し替える。",
+    "sample": "CNetSnapshot snap;\nsnap.Init(cfg, ENetRole::Server, &transport);\n\nfor (auto& e : world) snap.AddEntitySnapshot(e.id, e.mask, &e.data, sizeof(e.data));\nsnap.CommitSnapshot(world.tick);\n\nsnap.Tick(dt);\nFEntitySnapshot view[256]; u32 n=0;\nif (snap.TryGetInterpolatedSnapshot(t, view, 256, n)) Draw(view, n);",
+    "members": [
+      {
+        "sig": "void Init(const FNetSnapshotConfig& cfg, ENetRole role, INetTransport* transport)",
+        "desc": "設定・役割・transport を結線。 Standalone は transport=nullptr 可、他は内部で stub に差し替え。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "ring buffer / pending / 統計をリセット (transport は触らない)。"
+      },
+      {
+        "sig": "ENetRole Role() / u32 BufferedSnapshotCount() / u32 LastReceivedTick() const",
+        "desc": "役割 / 貯まった snapshot 数 / 最後に受信した tick。"
+      },
+      {
+        "sig": "void AddEntitySnapshot(u32 entity_id, u32 mask, const void* data, u32 size)",
+        "desc": "[server] 1 entity の現在 state を pending に積む (data は内部コピー)。"
+      },
+      {
+        "sig": "void CommitSnapshot(u32 tick)",
+        "desc": "[server] pending を 1 payload に固め header を付けて Send。 pending はクリア。"
+      },
+      {
+        "sig": "bool TryGetInterpolatedSnapshot(f32 client_time, FEntitySnapshot* out, u32 max, u32& out_n)",
+        "ret": "補間できたか",
+        "desc": "[client] interpolation_delay 前の snapshot を 2 つ取り、線形補間して書き出す。 view の component_data は次の Tick まで有効。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "[client/listener] transport.Receive を pump し、受信 snapshot を ring buffer に積む。"
+      },
+      {
+        "sig": "u32 PacketsSent/PacketsReceived/BytesSent/BytesReceived() const",
+        "desc": "送受信統計。"
+      },
+      {
+        "sig": "static u32 EncodedSnapshotSize(u32 payload_size)",
+        "desc": "1 frame の総バイト数 = magic+version+header(24)+payload+crc32(4)。"
+      },
+      {
+        "sig": "static TResult<void> EncodeSnapshot(...) / DecodeSnapshot(...)",
+        "desc": "transport 非依存の wire codec。 header+payload を byte 列に直列化 / 検証復元 (magic 'ACSN' + CRC32、round-trip 可)。",
+        "when": "テスト / loopback / record-replay で再利用する時。"
+      },
+      {
+        "sig": "using FNetSnapshot = CNetSnapshot",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CNetSnapshot を使う。"
+      }
+    ]
+  }
+}

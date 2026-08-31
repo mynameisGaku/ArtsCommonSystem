@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "BSP",
+  "definition": "Binary Space Partitioning。 空間を再帰的に 2 分割していく手法。 ダンジョン生成では領域を割って各リーフに部屋を置く。"
+}

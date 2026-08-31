@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "GetDefaultSteamworksBridge / SetSteamworksBridgeProvider",
+    "kind": "関数",
+    "header": "gameframework/SteamworksBridge.h",
+    "summary": "実 backend モジュールへの結線点。 backend 側が provider を登録し、ゲームは GetDefaultSteamworksBridge() で backend 非依存に既定 Bridge を得る (未登録なら stub)。",
+    "when": "起動時に一度だけ実装を登録し、以降どこからでも既定 Bridge を取りたい時。",
+    "sample": "// 起動時 (backend リンク時のみ)\n\nISteamworksBridge& b = GetDefaultSteamworksBridge();",
+    "members": [
+      {
+        "sig": "void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider)",
+        "desc": "既定 Bridge を返す関数を登録する。 nullptr で stub に戻す (後勝ち)。"
+      },
+      {
+        "sig": "ISteamworksBridge& GetDefaultSteamworksBridge()",
+        "ret": "既定 Bridge",
+        "desc": "登録済みなら実 Bridge、未登録なら stub を返す。"
+      }
+    ]
+  }
+}

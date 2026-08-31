@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "TSparseSet<T>",
+    "kind": "クラステンプレート",
+    "header": "ecs/SparseSet.h",
+    "summary": "エンティティ番号 → コンポーネント値 T の高速対応表(Sparse Set)。 Add/Remove/Contains が O(1) で、全要素は密配列に並ぶため線形走査がキャッシュに優しい。 ASparseSetBase を継承。",
+    "when": "1 種類のコンポーネントを大量のエンティティに対して高速に出し入れ・全走査したい時。 CWorld がコンポーネント型ごとに 1 つ内部保有する。",
+    "sample": "TSparseSet<Position> positions;\npositions.Add(e.index, {1, 2, 3});\nif (Position* p = positions.Get(e.index)) p->x += 1;\npositions.Remove(e.index);",
+    "members": [
+      {
+        "sig": "void Add(u32 entity_index, T value)",
+        "desc": "そのエンティティに値を追加。 既にあれば上書き。",
+        "when": "コンポーネントを付ける時。"
+      },
+      {
+        "sig": "void Remove(u32 entity_index)",
+        "desc": "値を削除。 末尾要素と入れ替えて O(1) で詰める(順序は保たれない)。"
+      },
+      {
+        "sig": "T* Get(u32 entity_index)",
+        "ret": "値ポインタ または null",
+        "desc": "値へのポインタ。 未登録なら null。 const 版もある。"
+      },
+      {
+        "sig": "T* Data()",
+        "ret": "値の密配列",
+        "desc": "全コンポーネント値の生配列(dense 順)。 一括走査に使う。 const 版あり。"
+      },
+      {
+        "sig": "void RemoveErased(u32 entity_index)",
+        "desc": "基底経由で型を知らずに削除する実装(内部は Remove)。"
+      }
+    ]
+  }
+}

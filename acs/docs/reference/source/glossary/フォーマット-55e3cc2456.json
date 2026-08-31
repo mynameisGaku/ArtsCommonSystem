@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "フォーマット",
+  "definition": "1 ピクセル/要素のビット配置と型(RGBA8、HDR float、深度など)。 ACS では EFormat。"
+}

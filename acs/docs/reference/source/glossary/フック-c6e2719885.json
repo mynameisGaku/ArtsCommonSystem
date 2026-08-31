@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "フック",
+  "definition": "特定のタイミングで自動的に呼ばれる差し込み点となる関数 (OnSpawn / OnUpdate など)。 override して処理を書く。"
+}

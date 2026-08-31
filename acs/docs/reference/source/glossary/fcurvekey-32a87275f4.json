@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FCurveKey",
+  "definition": "FAnimationCurve の 1 key。 有限な time/value/tangent と入口・出口の補間方式を保持する。"
+}

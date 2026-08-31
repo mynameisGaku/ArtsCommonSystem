@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="子ウィジェットを縦または横に等間隔で並べるレイアウトパネル。 並べる向き・間隔・余白を指定できる。">
+  <title>AStackPanel — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ui.html">ui モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ui.html">ui</a><span>/</span><span aria-current="page">AStackPanel</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / ui</div><h1 class="identifier">AStackPanel</h1>
+<p class="lead">子<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29579">ウィジェット</button><span class="term-tooltip" id="term-tip-29579" role="tooltip">ボタンやラベルなど画面上の UI 部品 1 つ 1 つのこと。 AWidget を継承して作る。</span></span>を縦または横に等間隔で並べる<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29580">レイアウト</button><span class="term-tooltip" id="term-tip-29580" role="tooltip">各ウィジェットを画面のどこにどの大きさで置くかを決めて配置すること。 Layout で行う。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29581">パネル</button><span class="term-tooltip" id="term-tip-29581" role="tooltip">ImGui で作る、デバッグや編集用の小さな子ウィンドウ(調整画面)。</span></span>。 並べる向き・間隔・余白を指定できる。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/ui/astackpanel-f2891e55.html"><code>acs::AStackPanel</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>ボタンやラベルを上から順に積みたい/横一列に並べたい時。 UI の一番外側のルートとしてもよく使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>ui</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>ui/Widget.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-de532e127a2e9b33bec7"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/ui/estackdir-5d310a92.html">EStackDir</a> <a href="../../symbols/ui/astackpanel-f2891e55/dir-d29c3805.html">dir</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>並べる向き。 Vertical(縦) or Horizontal(横)。 既定は縦。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/estackdir-5d310a92.html"><code>acs::EStackDir</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/astackpanel-f2891e55/dir-d29c3805.html"><code>acs::AStackPanel::dir</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-109a90d57d4763979260"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/ui/astackpanel-f2891e55/spacing-4a1ba978.html">spacing</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>部品どうしの間隔(ピクセル)。 既定 4.0。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/astackpanel-f2891e55/spacing-4a1ba978.html"><code>acs::AStackPanel::spacing</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-6f1ceeb0ea2931930eee"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/ui/fuipadding-3346bf12.html">FUiPadding</a> <a href="../../symbols/ui/astackpanel-f2891e55/padding-13e06dda.html">padding</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29577">パネル</button><span class="term-tooltip" id="term-tip-29577" role="tooltip">ImGui で作る、デバッグや編集用の小さな子ウィンドウ(調整画面)。</span></span>内側の余白(左/上/右/下)。 既定は四辺 8。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/fuipadding-3346bf12.html"><code>acs::FUiPadding</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/astackpanel-f2891e55/padding-13e06dda.html"><code>acs::AStackPanel::padding</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-b8b6a9e8f8f1e0bee8b7"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>using <a href="../../symbols/ui/fstackpanel-82642c06.html">FStackPanel</a> = AStackPanel</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29578">AStackPanel</button><span class="term-tooltip" id="term-tip-29578" role="tooltip">子ウィジェットを縦または横へ spacing/padding 付きで並べる layout panel。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/fstackpanel-82642c06.html"><code>acs::FStackPanel</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>AStackPanel</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/ui/astackpanel-f2891e55.html"><code>acs::AStackPanel</code></a><span class="summary"><code>class AStackPanel : public AWidget;</code></span></li><li><a href="../../symbols/ui/astackpanel-f2891e55/astackpanel-f560666e.html"><code>acs::AStackPanel::AStackPanel</code></a><span class="summary"><code>AStackPanel() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="AStackPanelの使用例"><code>AStackPanel panel;
+panel.dir = EStackDir::Vertical;  // 縦積み
+panel.spacing = 6.0f;             // 部品の間隔
+panel.Add&lt;ALabel&gt;(&quot;設定&quot;);
+panel.Add&lt;AButton&gt;(&quot;閉じる&quot;);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

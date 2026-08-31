@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CProjectileSystem",
+    "kind": "クラス",
+    "header": "gameframework/ProjectileSystem.h",
+    "summary": "弾・矢・ロケット・魔法弾など『飛んでいって何かに当たる』ものを固定容量のプールで一括管理するシステム。 発射 → 飛翔 → 命中/寿命切れ までを毎フレームの Tick で進める。",
+    "when": "シューティングや弾幕、敵の攻撃弾など、大量の投射物を出したい時。 CWeaponSystem と組み合わせて使うのが定番。",
+    "sample": "CProjectileSystem ps;\nps.Init(256);                    // 同時 256 発まで\nFProjectileDef d{};\nd.id = \"bullet\"; d.speed = 800.0f; d.lifetime_sec = 1.5f;\nps.RegisterDef(d);               // 弾種を登録\nps.Spawn(\"bullet\", pos, FVec2{800,0}, ownerId, /*damage=*/15.0f);\nps.Tick(dt);                     // 毎フレーム進める",
+    "members": [
+      {
+        "sig": "void Init(u32 max_concurrent = 256)",
+        "desc": "プールの上限を確定する。 0 を渡すと既定 256。 再 Init は何もしない。",
+        "when": "システムを使い始める最初に 1 度だけ。"
+      },
+      {
+        "sig": "void RegisterDef(const FProjectileDef& def)",
+        "desc": "弾種 (FProjectileDef) を名前付きで登録する。 同じ id があれば上書き。",
+        "sample": "ps.RegisterDef(rocketDef);"
+      },
+      {
+        "sig": "FProjectileId Spawn(const char* def_id, FVec2 pos, FVec2 velocity, u32 owner_id, f32 damage)",
+        "ret": "発射した弾のハンドル",
+        "desc": "登録済みの弾種を 1 発撃つ。 プール満杯や未登録 id なら invalid を返す。"
+      },
+      {
+        "sig": "void Despawn(FProjectileId id)",
+        "desc": "弾を強制的に消す (寿命切れ callback は呼ばれない)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "dt 秒ぶん全弾を進める。 重力・ホーミング・移動・命中判定・寿命チェックをまとめて行う。",
+        "when": "ゲームループから毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetHitTestFn(HitTestFn fn, void* user)",
+        "desc": "命中判定を外部に委譲するコールバックを登録する。 どの衝突空間を使うかはこの関数で決める。",
+        "when": "弾が敵に当たったかどうかを自分の当たり判定で調べたい時。"
+      },
+      {
+        "sig": "void SetOnHitCallback(HitCallback cb, void* user)",
+        "desc": "命中した瞬間に呼ばれるコールバック。 ダメージ適用や VFX/SE をここで。"
+      },
+      {
+        "sig": "void SetOnExpireCallback(ExpireCallback cb, void* user)",
+        "desc": "寿命切れで消えた時に呼ばれるコールバック。"
+      },
+      {
+        "sig": "void SetHomingTarget(FProjectileId id, FVec2 target_pos)",
+        "desc": "ホーミング弾の追従先を指定する。 homing=false の弾には効かない。"
+      },
+      {
+        "sig": "u32 AliveCount() const",
+        "ret": "生存中の弾数",
+        "desc": "今飛んでいる弾の数。"
+      },
+      {
+        "sig": "const FProjectileInstance* AllAlive(u32& out_count) const",
+        "ret": "生存弾の連続配列",
+        "desc": "描画用に、生きている弾だけを連続バッファで取り出す。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全弾を即座に消す (callback は呼ばない)。 登録済み弾種やプール容量は維持。"
+      },
+      {
+        "sig": "using FProjectileSystem = CProjectileSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CProjectileSystem を使う。"
+      }
+    ]
+  }
+}

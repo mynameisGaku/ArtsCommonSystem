@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "VM",
+  "definition": "Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ASprite2DComponent",
+  "definition": "ノードにスプライト (1 枚絵) を描画する部品。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TDefaultConverter",
+  "definition": "Bind が使う組込みの型変換テーブル(数値・bool・文字列の主要ペア)。"
+}

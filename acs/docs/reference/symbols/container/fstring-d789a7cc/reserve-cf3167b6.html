@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="容量を予約する (必要なら SSO からヒープへ遷移)。 new_capacity: 確保する最小容量。">
+  <title>acs::FString::Reserve — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/container.html">container モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/container.html">container モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/container.html">container モジュール</a><a href="../fstring-d789a7cc.html">FString の概要</a><a class="tree-child" href="add-85186454.html">Add</a><a class="tree-child" href="append-8f3f2d64.html">Append</a><a class="tree-child" href="append-ef0ec7e7.html">Append</a><a class="tree-child" href="appendformat-4e80abe8.html">AppendFormat</a><a class="tree-child" href="capacity-93cb18d5.html">Capacity</a><a class="tree-child" href="clear-bcfdf1fc.html">Clear</a><a class="tree-child" href="contains-60ce88df.html">Contains</a><a class="tree-child" href="data-0433396e.html">Data</a><a class="tree-child" href="data-fca9657e.html">Data</a><a class="tree-child" href="endswith-a676b21a.html">EndsWith</a><a class="tree-child" href="find-02ff3921.html">Find</a><a class="tree-child" href="find-bc2f8bce.html">Find</a><a class="tree-child" href="findlast-82914e69.html">FindLast</a><a class="tree-child" href="fstring-0808782f.html">FString</a><a class="tree-child" href="fstring-0eeb3f37.html">FString</a><a class="tree-child" href="fstring-168bfcc0.html">FString</a><a class="tree-child" href="fstring-38d4c76a.html">FString</a><a class="tree-child" href="fstring-4fc27968.html">FString</a><a class="tree-child" href="fstring-61e65e6b.html">FString</a><a class="tree-child" href="getallocator-dbf9659f.html">GetAllocator</a><a class="tree-child" href="grow-c417e90b.html">Grow</a><a class="tree-child" href="isempty-d57e31fa.html">IsEmpty</a><a class="tree-child" href="isheap-5dfc4721.html">IsHeap</a><a class="tree-child" href="kheapflagbit-e447ee4f.html">kHeapFlagBit</a><a class="tree-child" href="knpos-3fd94df7.html">kNpos</a><a class="tree-child" href="kssocapacity-1099b891.html">kSsoCapacity</a><a class="tree-child" href="m-alloc-c6c4b2d6.html">m_Alloc</a><a class="tree-child" href="m-heap-bf7483d5.html">m_Heap</a><a class="tree-child" href="m-sso-fc0a898f.html">m_Sso</a><a class="tree-child" href="operator-fstringview-d7062c2b.html">operator FStringView</a><a class="tree-child" href="operator-909b268b.html">operator=</a><a class="tree-child" href="operator-f9d19a9d.html">operator=</a><a class="tree-child" href="operator-1727bc72.html">operator[]</a><a class="tree-child" href="operator-ae3fc068.html">operator[]</a><a class="tree-child" href="releasestorage-699bc491.html">ReleaseStorage</a><a class="tree-child" href="reserve-cf3167b6.html" aria-current="page">Reserve</a><a class="tree-child" href="setheap-5bf2861e.html">SetHeap</a><a class="tree-child" href="setinlinelen-3e54d157.html">SetInlineLen</a><a class="tree-child" href="size-f3538234.html">Size</a><a class="tree-child" href="startswith-a40f120a.html">StartsWith</a><a class="tree-child" href="tryappend-959cf3b1.html">TryAppend</a><a class="tree-child" href="tryappend-c2cf2128.html">TryAppend</a><a class="tree-child" href="trygrow-db4c47bf.html">TryGrow</a><a class="tree-child" href="tryreserve-5c45f43a.html">TryReserve</a><a class="tree-child" href="view-b51170b1.html">View</a><a class="tree-child" href="fstring-e4f857fa.html">~FString</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/container.html">container</a><span>/</span><a href="../fstring-d789a7cc.html">FString</a><span>/</span><span aria-current="page">Reserve</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / container</div>
+<h1 class="identifier">acs::FString::Reserve</h1>
+<p class="lead">容量を予約する (必要なら <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1337">SSO</button><span class="term-tooltip" id="term-tip-1337" role="tooltip">Small String Optimization。 短い文字列をヒープ確保せずオブジェクト内に直接埋め込み、確保コストを省く最適化。</span></span> から<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1338">ヒープ</button><span class="term-tooltip" id="term-tip-1338" role="tooltip">実行中に好きなサイズを確保できるメモリ領域。 確保/解放のコストがある。</span></span>へ遷移)。 new_capacity: 確保する最小容量。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FString::Reserveの宣言"><code>void <a href="reserve-cf3167b6.html" aria-current="page">Reserve</a>(<a href="../../foundation/usize-feec11dc.html">usize</a> new_capacity) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/container.html">container</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../fstring-d789a7cc.html"><code>acs::FString</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/container/String.h:224</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

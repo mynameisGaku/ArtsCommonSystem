@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "FDiligentShader",
+    "kind": "クラス",
+    "header": "render/Diligent/DiligentShader.h",
+    "summary": "Diligent のシェーダ(IRhiShader 派生)。 HLSL を Diligent 内部で SPIR-V/MSL/GLSL へ変換するため、Bytecode() は便宜上 nullptr を返し、パイプライン作成時に生 IShader* を直接使います。 HLSL ソースを parse して register(bN/tN) → 名前の対応も取得します。",
+    "when": "CreateRhiShader() が Diligent で生成する実体。 HLSL の渡し方は FDx12Shader と同じ。",
+    "sample": "FShaderDesc sd;\nsd.stage = EShaderStage::Pixel;\nsd.hlsl_source = psCode;\nauto ps = CreateRhiShader(*dev, sd).Value();",
+    "members": [
+      {
+        "sig": "EShaderStage Stage() const",
+        "desc": "ステージ。"
+      },
+      {
+        "sig": "const byte* Bytecode() const",
+        "ret": "nullptr",
+        "desc": "Diligent は内部変換するため常に nullptr。"
+      },
+      {
+        "sig": "usize BytecodeSize() const",
+        "ret": "0",
+        "desc": "常に 0。"
+      },
+      {
+        "sig": "Diligent::IShader* Native() const",
+        "ret": "生シェーダ",
+        "desc": "内部公開。 生の IShader。 パイプラインが直接参照する。"
+      },
+      {
+        "sig": "const char* CbufferNameAt(u32 slot) / TextureNameAt(u32 slot) const",
+        "ret": "HLSL 名 または null",
+        "desc": "内部用。 HLSL ソースから取得した register slot → 名前(最大 16 slot)。"
+      }
+    ]
+  }
+}

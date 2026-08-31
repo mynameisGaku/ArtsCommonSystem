@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FVec ベクトル関数",
+    "kind": "自由関数群",
+    "header": "math/Vec.h",
+    "summary": "FVec2/FVec3/FVec4 に共通する演算関数。 内積・外積・長さ・正規化・線形補間など。 型ごとにオーバーロードされている。",
+    "when": "方向の角度を測る（内積）、面の法線を作る（外積）、移動量を単位化する（正規化）などベクトル計算の定番処理。",
+    "sample": "FVec3 v{3, 4, 0};\nf32 len  = Length(v);     // 5\nf32 len2 = LengthSq(v);   // 25 (sqrt 不要で高速)\nFVec3 n  = Normalize(v);  // 長さ 1 に\nf32 dot  = Dot(a, b);     // 内積",
+    "members": [
+      {
+        "sig": "f32 Dot(a, b)",
+        "ret": "内積",
+        "desc": "2 ベクトルの内積。 同じ向きほど大きく、直角で 0。 角度判定に使う。"
+      },
+      {
+        "sig": "FVec3 Cross(FVec3 a, FVec3 b)",
+        "ret": "外積",
+        "desc": "両方に直交するベクトル。 面の法線や回転軸を作る。 FVec3 専用。"
+      },
+      {
+        "sig": "f32 Length(v) / f32 LengthSq(v)",
+        "ret": "長さ / 長さの 2 乗",
+        "desc": "ベクトルの長さ。 比較だけなら LengthSq（平方根を省けて速い）。"
+      },
+      {
+        "sig": "Vec Normalize(v)",
+        "ret": "単位ベクトル",
+        "desc": "長さを 1 にした方向だけのベクトル。 FVec2 は長さ 0 なら Zero を返す。"
+      },
+      {
+        "sig": "FVec3 Lerp(FVec3 a, FVec3 b, f32 t)",
+        "ret": "補間値",
+        "desc": "a と b を t（0〜1）で線形補間。 アニメーションや滑らかな移動に。"
+      }
+    ]
+  }
+}

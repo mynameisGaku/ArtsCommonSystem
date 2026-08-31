@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FDirLight / FPointLight",
+    "kind": "構造体",
+    "header": "render/StandardShader.h",
+    "summary": "ライトのパラメータ。 FDirLight=向きと色だけを持つ有向光源(太陽光のような無限遠の平行光)、FPointLight=位置と到達距離を持つ点光源。",
+    "when": "SetLights / SetPointLights に渡す配列の要素として。 CStandardShader / CPbrShader / CSkinnedShader で共通。",
+    "sample": "FDirLight lights[2];\nlights[0].direction = FVec3{0.5f,-1,0.3f}; lights[0].color = FVec3{1,0.9f,0.7f};\nlights[1].direction = FVec3{-0.4f,-0.6f,-0.8f}; lights[1].color = FVec3{0.3f,0.4f,0.6f};\nshd.SetLights(vp, eye, lights, 2, FVec3{0.1f,0.1f,0.15f});",
+    "members": [
+      {
+        "sig": "struct FDirLight{ FVec3 direction, FVec3 color }",
+        "desc": "光が向かう方向と色。"
+      },
+      {
+        "sig": "struct FPointLight{ FVec3 position, f32 range, FVec3 color }",
+        "desc": "位置・到達距離・色。 range を超えると影響ゼロ。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSpriteBatch",
+    "kind": "クラス",
+    "header": "render/SpriteBatch.h",
+    "summary": "2D スプライト描画のバッチ式ヘルパ。 ピクセル座標でスプライト・矩形・三角形・回転スプライト・テキストを描き、同じテクスチャの連続描画は自動でまとめて(バッチ)高速化する。 座標は左上原点・Y 下向き。",
+    "when": "HUD・2D ゲームの絵描き全般。 1 枚絵を貼る、図形を描く、文字を出す、2D カメラで世界をスクロールするなど。",
+    "sample": "CSpriteBatch sb;\nsb.Init(*rdr.Device(), rdr.ColorFormat(), /*max_sprites=*/4096);\nsb.Begin(*rdr.CommandList(), screen_w, screen_h);\nsb.Draw(tex, 100, 200, 64, 64);                    // 64x64 を (100,200) に\nsb.DrawRect(0, 0, screen_w, 32, FVec4{0,0,0,0.5f}); // 半透明バー\nsb.DrawString(font, \"スコア 1000\", 16, 16, FVec4{1,1,1,1});\nsb.End();",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, u32 max_sprites = 4096)",
+        "desc": "シェーダ・パイプライン・頂点/インデックスバッファを作る。"
+      },
+      {
+        "sig": "void Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) / void End()",
+        "desc": "描画開始 / 終了(残りバッチを GPU へ送る)。 screen サイズは NDC 変換に必要。"
+      },
+      {
+        "sig": "void Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint = {1,1,1,1})",
+        "desc": "テクスチャ全体を矩形に描く。"
+      },
+      {
+        "sig": "void DrawSub(IRhiTexture& tex, x, y, w, h, u0, v0, u1, v1, tint)",
+        "desc": "テクスチャの一部(UV 0..1)を描く。 アトラスやタイル抜き出しに。"
+      },
+      {
+        "sig": "void DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color)",
+        "desc": "テクスチャ無しの単色矩形。"
+      },
+      {
+        "sig": "void DrawString(const FFont& font, const char* utf8, f32 x, f32 y, FVec4 color)",
+        "desc": "UTF-8 テキスト描画。 \\n で改行。"
+      },
+      {
+        "sig": "void DrawRotated(...) / DrawRectRotated(...)",
+        "desc": "中心 (cx,cy) 回りに radians 回転して描く。 通常スプライトと同じバッチに乗る。"
+      },
+      {
+        "sig": "void DrawTriangle(...) / DrawTriangleVC(...) / DrawTriangleSub(...)",
+        "desc": "単色 / 頂点カラー(グラデーション) / テクスチャ付き三角形。 水面や泡の表現に。"
+      },
+      {
+        "sig": "void SetView(f32 cam_x, f32 cam_y, f32 zoom)",
+        "desc": "2D カメラ。 (cam_x,cam_y) を画面中心に映し zoom 倍で拡縮。 Begin でリセット。"
+      },
+      {
+        "sig": "void SetClipRect(i32 x, i32 y, i32 w, i32 h) / ClearClipRect()",
+        "desc": "以降の描画を矩形内(画面座標)に制限 / 解除。"
+      },
+      {
+        "sig": "void SetBlendMode(EBlendMode mode)",
+        "desc": "ブレンドモード切替。 Additive で光のきらめき等。 Off に戻すには AlphaBlend を渡す。"
+      },
+      {
+        "sig": "void SetStencilMode(EStencilMode mode, u8 ref = 1)",
+        "desc": "ステンシルマスクで描画範囲を制限。 WriteMask で形を焼き、KeepInside/Outside で通す。 stencil 付き深度パスでのみ。"
+      },
+      {
+        "sig": "using FSpriteBatch = CSpriteBatch",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSpriteBatch を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CHierarchyVisibilityBatch",
+    "kind": "クラス",
+    "header": "gameframework/HierarchyVisibilityBatch.h",
+    "summary": "親子階層の可視状態を親から子へ一括伝播し、変更対象だけを返す作業バッファ。",
+    "when": "多数 node の表示状態を再帰呼び出しと一件ごとの再確保なしで更新する時。",
+    "members": [
+      {
+        "sig": "using FHierarchyVisibilityBatch = CHierarchyVisibilityBatch",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CHierarchyVisibilityBatch を使う。"
+      }
+    ]
+  }
+}

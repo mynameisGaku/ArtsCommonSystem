@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "ESampleFormat",
+    "kind": "列挙(enum)",
+    "header": "asset/AudioAsset.h",
+    "summary": "音声サンプルの形式。 PCM_S16(16-bit 符号付き整数) / PCM_F32(32-bit 浮動小数)。",
+    "when": "音声データのバイト並びを正しく解釈する時。",
+    "sample": "if (au->Format() == ESampleFormat::PCM_F32) { /* float として読む */ }"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CTriggerWorld2D",
+    "kind": "クラス",
+    "header": "gameframework/TriggerWorld2D.h",
+    "summary": "重なりだけを監視するトリガ専用のワールド。 物理の押し戻しはせず、毎フレーム全トリガの重なりを調べ、前フレームと比べて enter(触れた) / stay(触れ続け) / exit(離れた) のイベントを発火します。",
+    "when": "ダメージ判定・センサー・ゾーン入退場など、押し戻し不要で「重なったか」だけ知りたい仕組みの土台。",
+    "sample": "CTriggerWorld2D world;\nworld.Init();\nFTriggerId player = world.AddCircle({ {0,0}, 16.0f }, 0);\nworld.SetOnEnter(+[](void* u, FTriggerId a, FTriggerId b) noexcept {\n    // a と b が今フレ初めて重なった\n}, nullptr);\n// 毎フレーム:\nworld.UpdateCircle(player, { pos, 16.0f });\nworld.Tick(dt);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "初期化する。"
+      },
+      {
+        "sig": "FTriggerId AddCircle(const FCircle& c, u32 layer = 0)",
+        "ret": "トリガ ID",
+        "desc": "円トリガを登録し、識別用のハンドルを返す。",
+        "when": "丸いセンサーを置きたい時。"
+      },
+      {
+        "sig": "FTriggerId AddAabb(const FAabb2& a, u32 layer = 0)",
+        "ret": "トリガ ID",
+        "desc": "四角(AABB)トリガを登録する。"
+      },
+      {
+        "sig": "void UpdateCircle(FTriggerId id, const FCircle& c) / void UpdateAabb(FTriggerId id, const FAabb2& a)",
+        "desc": "トリガが動いた時に位置・形状を更新する。 種類が違う / 古いハンドルなら何もしない。"
+      },
+      {
+        "sig": "void Remove(FTriggerId id)",
+        "desc": "トリガを削除する。 スロットは再利用され、古いハンドルは無効になる。"
+      },
+      {
+        "sig": "void SetUserData(FTriggerId id, void* user) / void* UserData(FTriggerId id) const",
+        "desc": "トリガに任意のポインタを紐付け / 取得する。 ID から元オブジェクトを逆引きするのに使う。"
+      },
+      {
+        "sig": "void SetOnEnter(TriggerEventCallback cb, void* user)",
+        "desc": "重なり始めイベントのコールバックを登録する。",
+        "sample": "world.SetOnEnter(onEnter, this);"
+      },
+      {
+        "sig": "void SetOnStay(TriggerEventCallback cb, void* user) / void SetOnExit(TriggerEventCallback cb, void* user)",
+        "desc": "重なり継続中 / 離れた時のコールバックを登録する。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 全ペアの重なりを更新し、前フレと比べて enter / stay / exit を発火する。"
+      },
+      {
+        "sig": "u32 TriggerCount() const",
+        "ret": "登録数",
+        "desc": "有効なトリガの総数。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全トリガと重なり状態を破棄する。"
+      },
+      {
+        "sig": "using FTriggerWorld2D = CTriggerWorld2D",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTriggerWorld2D を使う。"
+      }
+    ]
+  }
+}

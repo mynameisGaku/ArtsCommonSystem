@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="マウス座標（ウィンドウ内ピクセル＝画面座標）・ボタン状態・ホイール。 ボタンは EMouseButton（省略時は左）。 Down/Pressed/Released の違いはキーボードと同じ。">
+  <title>マウス入力（MouseX ほか） — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">マウス入力（MouseX ほか）</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">マウス入力（MouseX ほか）</h1>
+<p class="lead">マウス座標（<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22898">ウィンドウ</button><span class="term-tooltip" id="term-tip-22898" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>内ピクセル＝画面座標）・ボタン<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22899">状態</button><span class="term-tooltip" id="term-tip-22899" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>・ホイール。 ボタンは EMouseButton（省略時は左）。 Down/Pressed/Released の違いはキーボードと同じ。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/easy/mousex-89381fd0.html"><code>acs::easy::MouseX</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>クリックで撃つ・ボタンを押す、ドラッグ、ホイールでズーム/スクロール。 ワールド上の対象を掴むなら MouseWorldX/Y（<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22896">カメラ</button><span class="term-tooltip" id="term-tip-22896" role="tooltip">視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。</span></span>節）。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-b72b66ba6b6ea16c7554"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>f32 <a href="../../symbols/easy/mousex-89381fd0.html">MouseX</a>() / f32 <a href="../../symbols/easy/mousey-51591989.html">MouseY</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22897">ウィンドウ</button><span class="term-tooltip" id="term-tip-22897" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>内のマウス位置（画面座標）。</dd></div><div class="fact"><dt>戻り値</dt><dd>マウス座標(px)</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/mousex-89381fd0.html"><code>acs::easy::MouseX</code></a> <span class="kind-label">関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/mousey-51591989.html"><code>acs::easy::MouseY</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-65ada26fa8f813c4ee88"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/easy/ismousedown-b40014fc.html">IsMouseDown</a>(EMouseButton button=Left)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ボタンが押されている間ずっと true。</dd></div><div class="fact"><dt>戻り値</dt><dd>押下中か</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/ismousedown-b40014fc.html"><code>acs::easy::IsMouseDown</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-aff142ec055b6d44d456"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/easy/ismousepressed-6ce2be9a.html">IsMousePressed</a>(EMouseButton button=Left)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>押した瞬間だけ true。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/ismousepressed-6ce2be9a.html"><code>acs::easy::IsMousePressed</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-4989344964be71f3904a"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>bool <a href="../../symbols/easy/ismousereleased-b005b24f.html">IsMouseReleased</a>(EMouseButton button=Left)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>離した瞬間だけ true。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/ismousereleased-b005b24f.html"><code>acs::easy::IsMouseReleased</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-ca011c4b632503c156bc"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>f32 <a href="../../symbols/easy/mousewheel-a4f81c36.html">MouseWheel</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ホイールの回転（奥が正、手前が負）。</dd></div><div class="fact"><dt>戻り値</dt><dd>回転量</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/mousewheel-a4f81c36.html"><code>acs::easy::MouseWheel</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="マウス入力（MouseX ほか）の使用例"><code>if (IsMousePressed()) Shoot(MouseX(), MouseY());
+if (IsMouseDown(EMouseButton::Right)) Pan();
+f32 wheel = MouseWheel();   // 奥+ / 手前-</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

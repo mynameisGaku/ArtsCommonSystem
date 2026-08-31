@@ -1,0 +1,69 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAnimationCurve",
+    "kind": "クラス",
+    "header": "gameframework/AnimationCurve.h",
+    "summary": "編集できる「時間 → 値」の補間曲線。 キーを打って、任意の f32 値を時間で滑らかに変化させる。 Step / Linear / Hermite 補間と前後の折り返し (Clamp/Loop/PingPong) に対応。",
+    "when": "FOV やフェード、体力バー演出など、固定の イージング式では表せない自由なカーブが欲しい時。",
+    "sample": "FAnimationCurve fade;\nfade.TryAddKey(0.0f, 0.0f);\nfade.TryAddKey(0.5f, 0.8f);\nfade.TryAddKey(1.0f, 1.0f, ECurveInterpolation::Hermite);\nfade.TrySetWrapModes(FAnimationCurve::EWrapMode::Clamp, FAnimationCurve::EWrapMode::Clamp);\nf32 alpha = 0.0f;\nfade.TryEvaluate(t, alpha);  // checked 評価",
+    "members": [
+      {
+        "sig": "void AddKey(f32 time, f32 value, ECurveInterpolation interp = ECurveInterpolation::Linear)",
+        "desc": "互換追加 API。 新規コードでは失敗を診断できる TryAddKey を推奨。"
+      },
+      {
+        "sig": "void AddKeyHermite(f32 time, f32 value, f32 in_tangent, f32 out_tangent)",
+        "desc": "Hermite 用に接線付きでキーを追加する。 接線は「1 秒あたりの傾き」。"
+      },
+      {
+        "sig": "void RemoveKey(u32 index) / void ClearKeys()",
+        "desc": "キーを削除する / 全消去する (範囲外は安全に無視)。"
+      },
+      {
+        "sig": "f32 Evaluate(f32 time) const",
+        "ret": "補間値",
+        "desc": "指定時刻の値を補間で求める。 定義域外は前後の FAnimationCurve::EWrapMode に従う。",
+        "when": "毎フレーム、現在時刻の値を取り出す主役メソッド。"
+      },
+      {
+        "sig": "f32 Duration() const",
+        "ret": "末尾キーの time",
+        "desc": "最後のキーの時刻を返す。 先頭キーとの差ではなく、末尾キーが持つ絶対時刻。"
+      },
+      {
+        "sig": "void SetPreWrap(EWrapMode m) / void SetPostWrap(EWrapMode m)",
+        "desc": "定義域の前/後に出たときの挙動 (Clamp/Loop/PingPong) を指定する互換 API。"
+      },
+      {
+        "sig": "FAnimationCurveResult TryAddKey(...) / TryAddKeyHermite(...)",
+        "desc": "入力と補間 enum を検証して key を追加する。 失敗時は既存曲線を変更しない。"
+      },
+      {
+        "sig": "FAnimationCurveResult TrySetKeys(const FCurveKey*, u32, EWrapMode, EWrapMode)",
+        "desc": "sort 済み key 列と wrap mode を全検証して一括置換する。"
+      },
+      {
+        "sig": "FAnimationCurveResult TrySetEasingPreset(Easing::EEasingType, u32 sample_count = 65)",
+        "desc": "33 種の型付き easing を線形 key 列へ sampling する。"
+      },
+      {
+        "sig": "FAnimationCurveResult TryEvaluate(f32 time, f32& out_value) const",
+        "desc": "非有限入力と補間 overflow を診断し、成功時だけ出力を更新する。"
+      },
+      {
+        "sig": "FAnimationCurveResult TrySetWrapModes(EWrapMode pre, EWrapMode post)",
+        "desc": "Clamp/Loop/PingPong を検証して同時に更新する。"
+      },
+      {
+        "sig": "u32 KeyCount() const / const FCurveKey* Key(u32 index) const",
+        "desc": "キー数 / index 番目のキーを取得する (範囲外は nullptr)。"
+      }
+    ]
+  }
+}

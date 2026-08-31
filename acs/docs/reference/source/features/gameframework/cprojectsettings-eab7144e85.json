@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CProjectSettings",
+    "kind": "クラス",
+    "header": "gameframework/ProjectSettings.h",
+    "summary": "game projectの設定値を読み書きし検証する。",
+    "when": "project設定を起動時に読み込む時。",
+    "members": [
+      {
+        "sig": "using FProjectSettings = CProjectSettings",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CProjectSettings を使う。"
+      }
+    ]
+  }
+}

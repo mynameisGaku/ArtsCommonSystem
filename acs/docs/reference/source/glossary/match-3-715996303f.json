@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "match-3",
+  "definition": "FMatchGrid が扱う、同じ種類の要素を縦または横に3個以上並べて消去するパズル規則。"
+}

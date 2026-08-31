@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCooldownState",
+    "kind": "構造体",
+    "header": "gameframework/CooldownTimer.h",
+    "summary": "UI / デバッグ表示用の cooldown スナップショット。 label・duration・remaining・charged を持つ。",
+    "when": "クールダウンの状態をまとめて表示したい時の読み取り用。"
+  }
+}

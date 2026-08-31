@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "ACS_GAME_REFLECT / ACS_GAME_FIELD",
+    "kind": "マクロ",
+    "header": "gameframework/TypeInfo.h",
+    "summary": "型をリフレクション対象として登録するマクロ。 ACS_GAME_FIELD で 1 フィールドを記述し、ACS_GAME_REFLECT でそれらをまとめて型に紐付けます。 グローバル空間で書きます。",
+    "when": "自作の構造体をセーブ / インスペクタ対象にしたい時。",
+    "sample": "ACS_GAME_REFLECT(PlayerState,\n    ACS_GAME_FIELD(PlayerState, x,  \"f32\"),\n    ACS_GAME_FIELD(PlayerState, y,  \"f32\"),\n    ACS_GAME_FIELD(PlayerState, hp, \"i32\"))",
+    "members": [
+      {
+        "sig": "ACS_GAME_FIELD(T, field, type_str)",
+        "desc": "FFieldInfo の初期化子を作る。 名前・型名文字列・offsetof・sizeof を埋める。"
+      },
+      {
+        "sig": "ACS_GAME_REFLECT(T, fields...)",
+        "desc": "TReflectedFields<T> と TTypeInfo<T> の特殊化を生成し、型 T を反射可能にする。"
+      }
+    ]
+  }
+}

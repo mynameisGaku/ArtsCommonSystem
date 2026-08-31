@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "kInvalidArrayObserver",
+    "kind": "定数",
+    "header": "mvvm/ObservableArray.h",
+    "summary": "無効な FArrayObserverHandle を表す定数。 TObservableArray::Subscribe が失敗した時にも返る。",
+    "when": "配列購読ハンドルが無効かを比較で判定したい時。",
+    "sample": "if (h == kInvalidArrayObserver) { /* 未登録 */ }"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CMethodRegistry",
+    "kind": "クラス",
+    "header": "gameframework/ReflectMethod.h",
+    "summary": "reflection methodの登録と検索を提供する。",
+    "when": "登録済みmethodを名前から呼び出す時。",
+    "members": [
+      {
+        "sig": "using FMethodRegistry = CMethodRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMethodRegistry を使う。"
+      }
+    ]
+  }
+}

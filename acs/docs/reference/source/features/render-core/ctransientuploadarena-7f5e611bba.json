@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CTransientUploadArena",
+    "kind": "クラス",
+    "header": "render/TransientUploadArena.h",
+    "summary": "同じ大きさの一時定数バッファを256 byte境界の論理sliceへ分け、少数の共有GPU pageで保持するframe arena。",
+    "when": "多数drawの定数をdrawごとに上書きせず保持しながら、GPU buffer生成数を減らすとき。 Standard/PBR shaderが内部で使用する。",
+    "sample": "CTransientUploadArena arena;\nif (arena.Init(*dev, sizeof(FObjectConstants), 64u).IsErr()) return;\nif (!arena.BeginFrame(expected_draws)) return;\nIRhiBuffer* object_cb = arena.Upload(&constants, sizeof(constants));\nif (!object_cb) return;\ncl->SetConstantBuffer(1u, *object_cb);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, usize allocation_size, u32 initial_capacity) / void Reset()",
+        "desc": "論理slice寸法と初期pageを作る / 全pageを解放する。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_allocations = 0) / bool Reserve(u32)",
+        "desc": "必要容量を確保してCPU cursorをO(1)で先頭へ戻す / pageを追加する。 既存slice addressは保持する。"
+      },
+      {
+        "sig": "IRhiBuffer* Upload(const void* data, usize size) / Get(u32)",
+        "desc": "次sliceへ書いてbind可能な論理bufferを返す / 指定sliceを返す。"
+      },
+      {
+        "sig": "u32 Capacity() / Used() / GpuBufferCount() / usize ReservedBytes()",
+        "desc": "論理容量、frame使用数、実GPU buffer数、RHI page記述へ要求した一frame分の論理byte数。"
+      },
+      {
+        "sig": "using FTransientUploadArena = CTransientUploadArena",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTransientUploadArena を使う。"
+      }
+    ]
+  }
+}

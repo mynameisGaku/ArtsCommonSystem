@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IOpenXrBridge",
+  "definition": "XR ランタイムや HMD を抽象化した共通インターフェース。 頭・手のポーズなどをこの型越しに叩き、具象 backend を差し替えて選ぶ。"
+}

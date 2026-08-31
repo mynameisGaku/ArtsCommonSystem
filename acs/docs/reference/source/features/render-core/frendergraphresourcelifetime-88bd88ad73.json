@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FRenderGraphResourceLifetime",
+    "kind": "構造体",
+    "header": "render/RenderGraphResourceLifetime.h",
+    "summary": "render graph 資源が最初と最後に使われる pass 位置、および alias 可否を保持する寿命区間。",
+    "when": "一時 GPU 資源の占有期間が重ならないか解析する時。"
+  }
+}

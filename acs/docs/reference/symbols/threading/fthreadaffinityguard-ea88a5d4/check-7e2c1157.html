@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="現在のスレッドが固定スレッドと一致するか検証する。 初回呼び出し時は現在のスレッドを固定対象として記録する。 以降の呼び出しで 別スレッドから来た場合は ACS_ASSERTF で panic する。">
+  <title>acs::detail::FThreadAffinityGuard::Check — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/threading.html">threading モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/threading.html">threading モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/threading.html">threading モジュール</a><a href="../fthreadaffinityguard-ea88a5d4.html">FThreadAffinityGuard の概要</a><a class="tree-child" href="check-7e2c1157.html" aria-current="page">Check</a><a class="tree-child" href="fthreadaffinityguard-5054519d.html">FThreadAffinityGuard</a><a class="tree-child" href="m-expectedthread-1854a1f3.html">m_ExpectedThread</a><a class="tree-child" href="reset-a1e7fd4c.html">Reset</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/threading.html">threading</a><span>/</span><a href="../fthreadaffinityguard-ea88a5d4.html">FThreadAffinityGuard</a><span>/</span><span aria-current="page">Check</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / threading</div>
+<h1 class="identifier">acs::detail::FThreadAffinityGuard::Check</h1>
+<p class="lead">現在の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21453">スレッド</button><span class="term-tooltip" id="term-tip-21453" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>が固定<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21454">スレッド</button><span class="term-tooltip" id="term-tip-21454" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>と一致するか検証する。 初回呼び出し時は現在の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21455">スレッド</button><span class="term-tooltip" id="term-tip-21455" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>を固定対象として記録する。 以降の呼び出しで 別<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21456">スレッド</button><span class="term-tooltip" id="term-tip-21456" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>から来た場合は ACS_A<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21457">SSE</button><span class="term-tooltip" id="term-tip-21457" role="tooltip">x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。</span></span>RTF で panic する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::detail::FThreadAffinityGuard::Checkの宣言"><code>void <a href="check-7e2c1157.html" aria-current="page">Check</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/threading.html">threading</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../fthreadaffinityguard-ea88a5d4.html"><code>acs::detail::FThreadAffinityGuard</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/threading/ThreadAffinity.h:48</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

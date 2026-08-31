@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "TInlineArray<T, InlineCapacity>",
+    "kind": "クラステンプレート",
+    "header": "container/InlineArray.h",
+    "summary": "少数要素を本体内へ保持し、容量超過時だけ allocator へ退避する可変長配列。",
+    "when": "通常件数が小さい一時配列で heap 確保を避けつつ、まれな増加も扱う時。",
+    "members": [
+      {
+        "sig": "bool Remove(const T& value)",
+        "ret": "削除できれば true",
+        "desc": "最初に一致した 1 件を順序を保って削除する。 動的領域へ移行済みなら、削除後もその領域を再利用する。"
+      }
+    ]
+  }
+}

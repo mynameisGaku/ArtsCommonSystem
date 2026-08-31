@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TResult",
+  "definition": "成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。"
+}

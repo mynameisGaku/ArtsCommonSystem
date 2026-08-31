@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "Ease / TryEase / EEasingType",
+    "kind": "関数・列挙",
+    "header": "easy/Easy.h",
+    "summary": "GameFramework と同じイージング catalog の評価可能な全 33 曲線を easy から型付きで利用する入口。 EEasingType は Linear、Quad/Cubic/Quart/Quint/Sine/Expo/Circ/Back/Elastic/Bounce の In/Out/InOut と SmoothStep/SmootherStep を列挙する。 Count = 33 は末尾 sentinel で、評価可能な曲線ではない。 Easy は GameFramework へ一方向に依存し、曲線の数式を重複実装しない。",
+    "when": "移動・UI・フェードの進行度を等速以外にしたい時。 保存した canonical 名から曲線を復元したい時や、プレビューを一括生成したい時、非有限入力・無効 enum を診断したい時は checked API を使う。",
+    "sample": "EEasingType type = EEasingType::SmootherStep;\nf32 progress = Ease(raw_time, type, 0.0f);\nf32 checked = previous;\nFEasingResult result = TryEase(raw_time, EEasingType::OutElastic, checked);\nif (!result.Succeeded()) { /* checked は変更されない */ }\nf32 preview[33]{};\nTrySampleEasing(type, preview, 33);\nconst char* name = nullptr;\nif (TryGetEasingName(type, name).Succeeded()) {\n    TryParseEasingNameChecked(name, type);\n}",
+    "members": [
+      {
+        "sig": "using EEasingType / EEasingError / FEasingResult",
+        "desc": "GameFramework の型付き Easing catalog・エラー・checked 結果を easy 名前空間へ再公開する alias。"
+      },
+      {
+        "sig": "f32 Ease(f32 t, EEasingType type, f32 fallback = 0)",
+        "desc": "全 33 種を型付き評価。 無効 type または非有限 t では fallback を返し、finite t は [0,1] に clamp。"
+      },
+      {
+        "sig": "FEasingResult TryEase(f32 t, EEasingType type, f32& out)",
+        "desc": "checked 評価。 無効 type、非有限入力・結果を拒否し、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "FEasingResult TrySampleEasing(EEasingType type, f32* out, usize sample_count)",
+        "desc": "GameFramework の上限付き一括サンプリングへ転送する。 2〜65536点、確保なし。 失敗時は配列全体を変更しない。"
+      },
+      {
+        "sig": "const char* EasingName(EEasingType type)",
+        "desc": "canonical 名を返す。 無効 type では \"Invalid\"。"
+      },
+      {
+        "sig": "FEasingResult TryGetEasingName(EEasingType type, const char*& out)",
+        "desc": "canonical 名の checked 取得。 無効 type は InvalidType で拒否し、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "bool TryParseEasingName(const char* name, EEasingType& out)",
+        "desc": "canonical 名を parse。 null・空・未知名では false で out を変更しない。"
+      },
+      {
+        "sig": "FEasingResult TryParseEasingNameChecked(const char* name, EEasingType& out)",
+        "desc": "canonical 名を大文字小文字を区別して解析する checked API。 null は NullName、空・未知名は UnknownName で拒否し、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "f32 EaseIn/EaseOut/EaseInOut(f32 t)",
+        "desc": "InQuad / OutQuad / InOutQuad へ委譲する既存互換 shortcut。"
+      },
+      {
+        "sig": "f32 EaseOutBack/EaseOutBounce/EaseOutElastic(f32 t)",
+        "desc": "OutBack / OutBounce / OutElastic へ委譲する既存互換 shortcut。"
+      }
+    ]
+  }
+}

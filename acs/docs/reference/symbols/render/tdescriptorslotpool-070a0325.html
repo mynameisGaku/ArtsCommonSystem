@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="固定容量のディスクリプタ番号を再利用する、確保を伴わないスロットプール。 同期とバッチ確保の契約を次に示す。 外側で同期することを前提とする。 バッチ確保は全件成功または全件失敗であり、 途中失敗による返却処理を呼び出し側へ要求しない。">
+  <title>acs::TDescriptorSlotPool — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render.html">render モジュール</a><a href="tdescriptorslotpool-070a0325.html" aria-current="page">TDescriptorSlotPool</a><a class="tree-child" href="tdescriptorslotpool-070a0325/allocate-62989f62.html">Allocate</a><a class="tree-child" href="tdescriptorslotpool-070a0325/allocatebatch-eb6d8c7a.html">AllocateBatch</a><a class="tree-child" href="tdescriptorslotpool-070a0325/availablecount-10417710.html">AvailableCount</a><a class="tree-child" href="tdescriptorslotpool-070a0325/free-372beb6e.html">Free</a><a class="tree-child" href="tdescriptorslotpool-070a0325/freebatch-9c0c0cfe.html">FreeBatch</a><a class="tree-child" href="tdescriptorslotpool-070a0325/freecount-b298f237.html">FreeCount</a><a class="tree-child" href="tdescriptorslotpool-070a0325/highwater-e07c146c.html">HighWater</a><a class="tree-child" href="tdescriptorslotpool-070a0325/m-freecount-76ec5296.html">m_FreeCount</a><a class="tree-child" href="tdescriptorslotpool-070a0325/m-freelist-ae53c922.html">m_FreeList</a><a class="tree-child" href="tdescriptorslotpool-070a0325/m-highwater-095c3137.html">m_HighWater</a><a class="tree-child" href="tdescriptorslotpool-070a0325/reset-37b33065.html">Reset</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render.html">render</a><span>/</span><span aria-current="page">TDescriptorSlotPool</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / render</div>
+<h1 class="identifier">acs::TDescriptorSlotPool</h1>
+<p class="lead">固定容量の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20962">ディスクリプタ</button><span class="term-tooltip" id="term-tip-20962" role="tooltip">テクスチャやバッファを GPU から参照するための小さな「住所メモ」。 ディスクリプタヒープに並べて使う。</span></span>番号を再利用する、確保を伴わないスロット<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20963">プール</button><span class="term-tooltip" id="term-tip-20963" role="tooltip">あらかじめ確保した固定数の枠を使い回す仕組み。 確保/解放のコストとフレーム落ちを避けられる。</span></span>。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20964">同期</button><span class="term-tooltip" id="term-tip-20964" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20965">バッチ</button><span class="term-tooltip" id="term-tip-20965" role="tooltip">同じ設定の描画をまとめて 1 回の命令で送り、描画回数を減らして高速化すること。</span></span>確保の契約を次に示す。 外側で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20966">同期</button><span class="term-tooltip" id="term-tip-20966" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>することを前提とする。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20967">バッチ</button><span class="term-tooltip" id="term-tip-20967" role="tooltip">同じ設定の描画をまとめて 1 回の命令で送り、描画回数を減らして高速化すること。</span></span>確保は全件成功または全件失敗であり、 途中失敗による返却処理を呼び出し側へ要求しない。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TDescriptorSlotPoolの宣言"><code>template&lt;<a href="../foundation/u32-4ce4a209.html">u32</a> Capacity&gt; class <a href="tdescriptorslotpool-070a0325.html" aria-current="page">TDescriptorSlotPool</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/render/DescriptorSlotPool.h:16</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="tdescriptorslotpool-070a0325/allocate-62989f62.html"><span><span class="identifier">i32 Allocate() noexcept;</span><span class="summary">一つのスロットを確保し、空きがなければ -1 を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/allocatebatch-eb6d8c7a.html"><span><span class="identifier">bool AllocateBatch(i32* output, u32 count) noexcept;</span><span class="summary">指定数のスロットをまとめて確保する。 output: 確保した番号を書き込む配列。 count: 確保するスロット数。 戻り値: 全件を確保できれば true。 出力先不正または空き不足では false。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/availablecount-10417710.html"><span><span class="identifier">u32 AvailableCount() const noexcept;</span><span class="summary">現在確保できるスロット数を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/free-372beb6e.html"><span><span class="identifier">void Free(i32 slot) noexcept;</span><span class="summary">一つのスロットを再利用待ちへ戻す。 slot: 返却するスロット番号。 範囲外または返却済みなら変更しない。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/freebatch-9c0c0cfe.html"><span><span class="identifier">void FreeBatch(const i32* slots, u32 count) noexcept;</span><span class="summary">指定されたスロット群を再利用待ちへ戻す。 slots: 返却するスロット番号の配列。 count: 配列要素数。 slots が空なら変更しない。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/freecount-b298f237.html"><span><span class="identifier">u32 FreeCount() const noexcept;</span><span class="summary">再利用待ちのスロット数を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/highwater-e07c146c.html"><span><span class="identifier">u32 HighWater() const noexcept;</span><span class="summary">新規に発行済みの最大位置を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/m-freecount-76ec5296.html"><span><span class="identifier">u32 m_FreeCount = 0u;</span><span class="summary">再利用待ちスロット数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/m-freelist-ae53c922.html"><span><span class="identifier">i32 m_FreeList[Capacity]{};</span><span class="summary">再利用待ちスロットを保持するスタック。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/m-highwater-095c3137.html"><span><span class="identifier">u32 m_HighWater = 0u;</span><span class="summary">連続領域から次に発行する位置。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="tdescriptorslotpool-070a0325/reset-37b33065.html"><span><span class="identifier">void Reset() noexcept;</span><span class="summary">全スロットを未発行状態へ戻す。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

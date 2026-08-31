@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AMeshAsset",
+  "definition": "頂点+インデックス+サブメッシュからなる単一メッシュのアセット。"
+}

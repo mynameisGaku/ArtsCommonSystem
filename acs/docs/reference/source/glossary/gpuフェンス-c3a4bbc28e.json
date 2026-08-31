@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "GPUフェンス",
+  "definition": "CPUとGPUの処理完了位置を数値で追跡する同期情報です。"
+}

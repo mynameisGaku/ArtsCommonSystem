@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Pimpl",
+  "definition": "実装詳細を前方宣言した型のポインタ先に隠し、公開 header の依存を減らす構成です。FLuaVm は lua_State をこの構成で隠します。"
+}

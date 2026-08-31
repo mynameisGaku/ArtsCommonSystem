@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CHiZ",
+    "kind": "クラス",
+    "header": "render/HiZ.h",
+    "summary": "Hi-Z(Hierarchical-Z)粗い min-depth バッファ。 シーン深度から 1/8 解像度の「ブロック内最近接 NDC depth」を一発で焼く。 SSR のレイマーチが空中の texel を一気にスキップ(skip-ahead)するのに使い、4〜6 倍高速化する。",
+    "when": "CSsr の高速化に。 毎フレーム主パス深度の完成後・SSR の前に Build して Texture() を渡す。",
+    "sample": "CHiZ hiz;\nhiz.Init(*dev, w, h);\nhiz.Build(*dev, *cl, scene_depth);\nssr.Render(..., hiz.Texture());",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, u32 src_width, u32 src_height) / Resize(...)",
+        "desc": "scene depth 解像度を渡す。 Hi-Z は ceil(src/8) サイズで確保される。"
+      },
+      {
+        "sig": "void Build(IRhiDevice&, IRhiCommandList&, IRhiTexture& scene_depth)",
+        "desc": "shader-visible な D32 深度から coarse min を焼く。"
+      },
+      {
+        "sig": "IRhiTexture* Texture()",
+        "desc": "1/8 解像度の min-depth RT(.r=min depth)。 SSR に渡す。"
+      },
+      {
+        "sig": "u32 SrcWidth() / SrcHeight() / Width() / Height() / static constexpr u32 kBlockSize = 8",
+        "desc": "元/縮約後の解像度とブロックサイズ。"
+      },
+      {
+        "sig": "using FHiZ = CHiZ",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CHiZ を使う。"
+      }
+    ]
+  }
+}

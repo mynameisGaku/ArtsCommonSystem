@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSoundHandle",
+  "definition": "再生中の 1 つの音を識別する世代付きのハンドル。 止めた後の取り違えを防ぐ。"
+}

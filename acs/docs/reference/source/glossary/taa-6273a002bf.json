@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TAA",
+  "definition": "Temporal Anti-Aliasing。 前フレームの結果と混ぜてジャギーを時間方向に均すアンチエイリアス。"
+}

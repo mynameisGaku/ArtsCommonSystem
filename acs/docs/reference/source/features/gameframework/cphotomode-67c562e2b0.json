@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPhotoMode",
+    "kind": "クラス",
+    "header": "gameframework/PhotoMode.h",
+    "summary": "プレイヤーが任意の瞬間に時間を止めて景色を撮影する「フォトモード」の状態 holder。 active フラグ、カメラの自由操作 (パン / ズーム / 回転) のオフセット、色フィルタ種別、撮影リクエストを保持する。 実際の時間停止や描画は呼び出し側が行う。",
+    "when": "時間を止め、カメラを自由に動かし、セピアやモノクロのフィルタをかけて 1 枚保存する、という流れを組み立てる。",
+    "sample": "CPhotoMode photo;\nphoto.Enter(game.TimeScale());          // 現在の time_scale を保存\ngame.SetTimeScale(0.0f);                 // 時間停止 (呼び出し側)\nphoto.MoveCamera({dx, dy});\nphoto.ZoomCamera(0.1f);                  // +10%\nphoto.SetFilter(CPhotoMode::Sepia);\nif (input.shutter) photo.RequestCapture();\nif (photo.ConsumeCaptureRequest()) SaveScreenshot();\nphoto.Exit();\ngame.SetTimeScale(photo.SavedTimeScale());",
+    "members": [
+      {
+        "sig": "void Enter(f32 current_time_scale = 1.0f)",
+        "desc": "現在の time_scale を保存して active=true、カメラオフセットを初期化。 実際の SetTimeScale(0) は呼び出し側。"
+      },
+      {
+        "sig": "void Exit()",
+        "desc": "active=false に戻す。 呼び出し側が SavedTimeScale() を見て復元する。"
+      },
+      {
+        "sig": "void MoveCamera(FVec2 delta)",
+        "desc": "パン (入力 delta を累積)。 world units 想定。"
+      },
+      {
+        "sig": "void ZoomCamera(f32 zoom_delta)",
+        "desc": "ズーム倍率を乗算的に変更。 結果は [0.1, 10.0] に clamp。"
+      },
+      {
+        "sig": "void RotateCamera(f32 rad_delta)",
+        "desc": "回転を累積 (ラジアン)。 元カメラの rotation に加算する用途。"
+      },
+      {
+        "sig": "void SetFilter(EFilterKind f)",
+        "desc": "色フィルタ種別を設定。 GetFilter() で取得。"
+      },
+      {
+        "sig": "void RequestCapture()",
+        "desc": "シャッターを押した時に呼ぶ。 撮影 flag を立てるだけ。"
+      },
+      {
+        "sig": "bool ConsumeCaptureRequest()",
+        "ret": "立っていれば true",
+        "desc": "描画側が 1 フレーム末尾で呼ぶ。 立っていれば true を返して同時に flag を落とす (poll-and-consume)。"
+      },
+      {
+        "sig": "f32 SavedTimeScale() const",
+        "desc": "Enter() 時に保存した time_scale。 Exit() 後の復元に使う。"
+      },
+      {
+        "sig": "using FPhotoMode = CPhotoMode",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPhotoMode を使う。"
+      }
+    ]
+  }
+}

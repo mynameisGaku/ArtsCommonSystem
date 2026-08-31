@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FTimelineKeyframe",
+    "kind": "構造体",
+    "header": "gameframework/CinematicsDirector.h",
+    "summary": "タイムライン上の 1 つのキーフレーム。 発火時刻 (time_sec) + 種別 (kind) + 種別ごとの payload (union) を持つ。 kind に対応する payload フィールドだけが意味を持つ。",
+    "when": "AddKeyframe() に渡す時。",
+    "sample": "FTimelineKeyframe kf;\nkf.time_sec = 3.0f;\nkf.kind = ETimelineTrackKind::ShowDialogue;\nkf.payload.dialogue = { \\\"line_intro_001\\\" };"
+  }
+}

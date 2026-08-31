@@ -3,13 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>はじめに — ACS リファレンス</title>
-  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="description" content="ACSの基本的な使い方と共通規約です。">
+  <title>はじめる — ACS リファレンス</title>
+  <link rel="stylesheet" href="assets/css/reference.css">
+  <script src="assets/js/reference.js" defer></script>
 </head>
-<body data-page="guide">
-  <script>window.ACS_REF = { modules: [], glossary: {}, guide: [], troubleshooting: [] };</script>
-  <script src="data/_meta.js"></script>
-  <script src="assets/nav.js"></script>
-  <script src="assets/app.js"></script>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="index.html">リファレンス概要</a><a href="guide.html">はじめる</a><a href="search.html">機能とAPIを検索</a><a href="glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="index.html">リファレンス</a><span>/</span><span aria-current="page">はじめる</span></nav>
+<section class="hero"><div class="eyebrow">ACS / はじめる</div><h1>ACSの基本を確認する</h1>
+<p class="lead">名前付け、エラー処理、モジュール、所有関係など、ACSを読むための共通事項を説明します。</p></section>
+<section class="section" id="guides"><h2>ガイド</h2><div class="card-grid"><a class="card" href="guides/acs-とは-fe758d76.html"><span class="card-title">ACS とは</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/3-つの名前空間-4dcd4629.html"><span class="card-title">3 つの名前空間</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/名前の付け方-接頭辞-5a01f2e0.html"><span class="card-title">名前の付け方(接頭辞)</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/エラーは-result-で返す-例外を使わない-f336662c.html"><span class="card-title">エラーは Result で返す(例外を使わない)</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/acsのコンテナと所有権管理-632aec57.html"><span class="card-title">ACSのコンテナと所有権管理</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/所有権とメモリ-baba0da2.html"><span class="card-title">所有権とメモリ</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/2d-world-と-screen-の座標-ba196fc4.html"><span class="card-title">2D world と screen の座標</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a><a class="card" href="guides/ビルドと実行-1d7b98c2.html"><span class="card-title">ビルドと実行</span><span class="card-description">ACSを使うための基本事項を説明します。</span><span class="card-meta">ガイドを開く →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#guides">ガイド</a></nav></aside>
+  </div>
 </body>
 </html>

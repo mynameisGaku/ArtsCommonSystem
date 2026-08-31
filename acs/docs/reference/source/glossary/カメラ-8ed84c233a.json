@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "カメラ",
+  "definition": "視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。"
+}

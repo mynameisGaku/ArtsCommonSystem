@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "quaternion",
+  "definition": "回転を 4 要素で表す数学表現。 オイラー角の弱点(gimbal lock)が無く、補間にも強い。"
+}

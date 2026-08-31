@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "CFileSystem",
+    "kind": "クラス（静的）",
+    "header": "platform/FileSystem.h",
+    "summary": "ファイルの読み書きとパス操作をまとめた静的クラス。 ファイル全体をまるごと読む / 書く、存在確認、ディレクトリ作成などができる。 結果は Result で返るので成否を必ず確認する。",
+    "when": "アセットの読み込み、ログやセーブのバイト書き出しなど、生のファイル操作が必要な時。 設定/セーブの key-value 永続化なら FStorage が便利。",
+    "sample": "auto r = CFileSystem::ReadAllBytes(L\"data/map.bin\");\nif (r.IsErr()) return;\nTArray<byte> bytes = static_cast<TArray<byte>&&>(r.Value());\n// ...\nFFileSystem::WriteAllBytes(L\"data/out.bin\", bytes.Data(), bytes.Size());",
+    "members": [
+      {
+        "sig": "static TResult<TArray<byte>> ReadAllBytes(const wchar_t* path)",
+        "ret": "バイト列 または エラー",
+        "desc": "ファイル全体をバイト配列として読み込む。",
+        "when": "バイナリアセットやセーブデータを丸ごと読む時。"
+      },
+      {
+        "sig": "static TResult<TArray<char>> ReadAllText(const wchar_t* path)",
+        "ret": "文字列 または エラー",
+        "desc": "ファイル全体を文字列として読み込む（末尾に NUL を付与）。",
+        "when": "テキスト設定や JSON を読む時。"
+      },
+      {
+        "sig": "static TResult<void> WriteAllBytes(const wchar_t* path, const byte* data, usize size)",
+        "desc": "バイト列をファイルに書き出す（既存は上書き）。"
+      },
+      {
+        "sig": "static TResult<void> WriteAllText(const wchar_t* path, const char* text)",
+        "desc": "文字列をファイルに書き出す（NUL は書き込まない）。"
+      },
+      {
+        "sig": "static TResult<u64> FileSize(const wchar_t* path)",
+        "ret": "バイト数 または エラー",
+        "desc": "ファイルサイズを取得する。"
+      },
+      {
+        "sig": "static bool Exists(const wchar_t* path)",
+        "ret": "存在するか",
+        "desc": "ファイルが存在すれば true。"
+      },
+      {
+        "sig": "static bool DirectoryExists(const wchar_t* path)",
+        "ret": "存在するか",
+        "desc": "ディレクトリが存在すれば true。"
+      },
+      {
+        "sig": "static TResult<void> CreateDirectory(const wchar_t* path)",
+        "desc": "親を含めてディレクトリを作る。 null/空はOS呼び出し前にIO:131で拒否し、既存対象は実ディレクトリだけ成功扱いにするため、同名の通常ファイルは変更せずエラーを返す。 既存のドライブrootとUNC share rootも成功扱いを維持する。"
+      },
+      {
+        "sig": "static TResult<void> Delete(const wchar_t* path)",
+        "desc": "ファイルを削除する。"
+      },
+      {
+        "sig": "using FFileSystem = CFileSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CFileSystem を使う。"
+      }
+    ]
+  }
+}

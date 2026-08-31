@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "GetEventTypeId<E>()",
+    "kind": "関数テンプレート",
+    "header": "event/MessageBroker.h",
+    "summary": "イベント型 E に対して一意な番号(FEventTypeId)を割り当てて返す。 同じ型なら常に同じ番号になり、CMessageBroker が型ごとのチャンネルを区別するのに使います。",
+    "when": "通常は Subscribe/Publish が内部で呼ぶので、直接使うことは稀。 チャンネル番号が欲しい時だけ。",
+    "sample": "FEventTypeId id = GetEventTypeId<FDamageEvent>();\nu32 n = bus.SubscriberCount(id);   // この型の購読者数"
+  }
+}

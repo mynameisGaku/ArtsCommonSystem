@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FWaterVolumeInfo",
+    "kind": "構造体",
+    "header": "gameframework/WaterVolume.h",
+    "summary": "水域 1 つの幾何 + パラメータ。 中心 / 半サイズ・浮力強度・抗力・水面 y・水色を持ち、AddVolume / UpdateVolume に値渡しします。",
+    "when": "水域を 1 つ定義する時。",
+    "sample": "FWaterVolumeInfo info{\n    /*center=*/{0,50}, /*half=*/{200,50},\n    /*buoyancy=*/9.8f, /*drag=*/2.0f,\n    /*surface_y=*/0.0f, /*color=*/{0.1f,0.3f,0.6f} };",
+    "members": [
+      {
+        "sig": "FVec2 center / FVec2 half_size",
+        "desc": "AABB の中心 / 半サイズ(world)。"
+      },
+      {
+        "sig": "f32 buoyancy_strength / f32 drag",
+        "desc": "浮力強度(重力相当) / 水中抗力係数。"
+      },
+      {
+        "sig": "f32 surface_y",
+        "desc": "水面 y 座標(+Y=画面下なので水面が最小 y)。 center.y - half_size.y が自然値。"
+      },
+      {
+        "sig": "FVec3 water_color",
+        "desc": "レンダラが水面描画に使う色(linear RGB)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAudioListener",
+  "definition": "音を聞く側 (プレイヤーの耳) の位置と向き。"
+}

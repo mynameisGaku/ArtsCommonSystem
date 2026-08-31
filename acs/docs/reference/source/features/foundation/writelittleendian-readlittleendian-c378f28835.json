@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "WriteLittleEndian / ReadLittleEndian",
+    "kind": "関数テンプレート",
+    "header": "foundation/EndianSerialization.h",
+    "summary": "1/2/4/8 byte の整数・浮動小数・列挙値を、host CPU に依存しない little endian byte 列へ書き出し・読み戻す。 無効表現を持つ bool は compile-time に拒否する。",
+    "when": "AssetPack や保存データなど、CPU endian に左右されない固定 wire 形式を実装する時。",
+    "sample": "u8 bytes[8]{};\nWriteLittleEndian(bytes, u32{0x12345678});\nu32 value = ReadLittleEndian<u32>(bytes);",
+    "members": [
+      {
+        "sig": "template<typename T> void WriteLittleEndian(u8* destination, T value)",
+        "desc": "sizeof(T) byte を little endian 順で書く。"
+      },
+      {
+        "sig": "template<typename T> T ReadLittleEndian(const u8* source)",
+        "ret": "復元した値",
+        "desc": "little endian byte 列から同じ固定幅型を復元する。"
+      }
+    ]
+  }
+}

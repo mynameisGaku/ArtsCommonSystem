@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "generate.ps1 を実行してもプロジェクトが更新されない/文字化けする",
+  "item": {
+    "q": "generate.ps1 を実行してもプロジェクトが更新されない/文字化けする",
+    "tags": [
+      "ビルド",
+      "generate",
+      "BOM"
+    ],
+    "a": "source・文書・build設定は UTF-8 (BOMなし)が前提です。 改行は通常 LF、Windows shell (.bat、.cmd、.ps1、.psm1、.psd1)だけ CRLF です。 エディタの保存形式を確認し、sourceやtargetを追加したら cmake -S engine -B Intermediate/vs で再構成してください。"
+  }
+}

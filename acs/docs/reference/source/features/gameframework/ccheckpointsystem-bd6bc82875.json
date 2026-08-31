@@ -1,0 +1,76 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCheckpointSystem",
+    "kind": "クラス",
+    "header": "gameframework/CheckpointSystem.h",
+    "summary": "プラットフォーマー等のチェックポイント (復活ポイント) を管理するマネージャ。 配置済み checkpoint を id で識別し、現在 active な 1 つを保持。 死亡時に TriggerRespawn() で復活先の座標と level index を引き出す。",
+    "when": "「死んだら直近のチェックポイントに戻る」を実装する時。 HP システムの死亡 callback から TriggerRespawn を叩くのが定番。",
+    "sample": "CCheckpointSystem cps;\nFCheckpointInfo cp{}; cp.id = \\\"cp.start\\\"; cp.spawn_pos = {100, 200};\ncps.Register(cp);\ncps.ActivateCheckpoint(\\\"cp.start\\\");  // チェックポイントに触れた\nFVec2 pos; u32 lv;\nif (cps.TriggerRespawn(pos, lv)) { /* pos へ復活 */ }",
+    "members": [
+      {
+        "sig": "FCheckpointId Register(const FCheckpointInfo& info)",
+        "ret": "新しい handle",
+        "desc": "checkpoint を 1 つ配置登録する。 同 id の 2 重登録 / id==nullptr は invalid を返す。",
+        "when": "レベルロード時に全 checkpoint をまとめて登録。"
+      },
+      {
+        "sig": "void Unregister(FCheckpointId id)",
+        "desc": "checkpoint を解除する。 slot は再利用され generation が進む。 active を消すと active は invalid 化。"
+      },
+      {
+        "sig": "bool ActivateCheckpoint(const char* checkpoint_id)",
+        "ret": "切替できたか",
+        "desc": "指定 checkpoint を「現在地点」にする。 one_way 違反 / 未 unlock / 未登録は false。 同 id が既に active なら true (再発火なし)。",
+        "when": "プレイヤーがチェックポイントトリガに触れた時。",
+        "sample": "cps.ActivateCheckpoint(\\\"cp.mid\\\");"
+      },
+      {
+        "sig": "void UnlockCheckpoint(const char* checkpoint_id)",
+        "desc": "requires_unlock な隠し checkpoint を解放する。",
+        "when": "隠しスイッチを踏んだ時や DLC アンロック時。"
+      },
+      {
+        "sig": "bool IsUnlocked(const char* checkpoint_id) const",
+        "desc": "その checkpoint が利用可能か。 requires_unlock=false な定義は常に true。"
+      },
+      {
+        "sig": "bool TriggerRespawn(FVec2& out_pos, u32& out_level_index) const",
+        "ret": "active があったか",
+        "desc": "死亡時の復活先座標と level index を書き出す。 active が無ければ false。 成功時に RespawnCallback 発火。",
+        "when": "プレイヤー死亡時。",
+        "sample": "FVec2 p; u32 lv;\nif (cps.TriggerRespawn(p, lv)) MovePlayer(p);"
+      },
+      {
+        "sig": "FCheckpointId CurrentCheckpoint() const",
+        "ret": "現 active handle",
+        "desc": "今 active な checkpoint。 一度も Activate されていなければ invalid。"
+      },
+      {
+        "sig": "u32 LastSpawnLevelIndex() const",
+        "desc": "直近に active 化された checkpoint の level index。"
+      },
+      {
+        "sig": "void SetOnActivateCallback(ActivateCallback cb, void* user)",
+        "desc": "Activate 成功時に呼ばれる callback (UI トースト / SE 用)。"
+      },
+      {
+        "sig": "void SetOnRespawnCallback(RespawnCallback cb, void* user)",
+        "desc": "TriggerRespawn 成功時に呼ばれる callback。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全 checkpoint / unlock / active 状態を消去。 callback 設定は維持。"
+      },
+      {
+        "sig": "using FCheckpointSystem = CCheckpointSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCheckpointSystem を使う。"
+      }
+    ]
+  }
+}

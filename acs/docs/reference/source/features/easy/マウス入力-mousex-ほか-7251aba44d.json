@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "マウス入力（MouseX ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "マウス座標（ウィンドウ内ピクセル＝画面座標）・ボタン状態・ホイール。 ボタンは EMouseButton（省略時は左）。 Down/Pressed/Released の違いはキーボードと同じ。",
+    "when": "クリックで撃つ・ボタンを押す、ドラッグ、ホイールでズーム/スクロール。 ワールド上の対象を掴むなら MouseWorldX/Y（カメラ節）。",
+    "sample": "if (IsMousePressed()) Shoot(MouseX(), MouseY());\nif (IsMouseDown(EMouseButton::Right)) Pan();\nf32 wheel = MouseWheel();   // 奥+ / 手前-",
+    "members": [
+      {
+        "sig": "f32 MouseX() / f32 MouseY()",
+        "ret": "マウス座標(px)",
+        "desc": "ウィンドウ内のマウス位置（画面座標）。"
+      },
+      {
+        "sig": "bool IsMouseDown(EMouseButton button=Left)",
+        "ret": "押下中か",
+        "desc": "ボタンが押されている間ずっと true。"
+      },
+      {
+        "sig": "bool IsMousePressed(EMouseButton button=Left)",
+        "desc": "押した瞬間だけ true。"
+      },
+      {
+        "sig": "bool IsMouseReleased(EMouseButton button=Left)",
+        "desc": "離した瞬間だけ true。"
+      },
+      {
+        "sig": "f32 MouseWheel()",
+        "ret": "回転量",
+        "desc": "ホイールの回転（奥が正、手前が負）。"
+      }
+    ]
+  }
+}

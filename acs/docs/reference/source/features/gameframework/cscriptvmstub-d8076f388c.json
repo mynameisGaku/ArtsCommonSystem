@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CScriptVmStub",
+    "kind": "クラス",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "全 method が kSub_NotImplemented や no-op を返す防御的スタブ。 実 backend が未リンクでも、スクリプト経路が安全に『常に失敗』するよう振る舞う。",
+    "when": "Lua 等を組み込まないビルドや、fallback の検証用。 GetVmStub() で唯一の静的インスタンスを得る。",
+    "members": [
+      {
+        "sig": "using FScriptVmStub = CScriptVmStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CScriptVmStub を使う。"
+      }
+    ]
+  }
+}

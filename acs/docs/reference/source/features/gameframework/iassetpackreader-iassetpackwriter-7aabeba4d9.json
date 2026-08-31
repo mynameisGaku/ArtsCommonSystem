@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "IAssetPackReader / IAssetPackWriter",
+    "kind": "インターフェース",
+    "header": "gameframework/AssetPack.h",
+    "summary": ".acpak 暗号化アーカイブの読み書きシーム。 開発中はバラのファイル、出荷時は 1 つの不透明な pak、をゲームコードを変えずに切り替えられる。 実体 (AES 暗号 + LZ4 圧縮) は別 backend モジュールが実装する。",
+    "when": "Reader=ランタイムで pak からファイルを読む時。 Writer=パッキングツールで pak を作る時。",
+    "sample": "IAssetPackReader& pack = GetDefaultAssetPackReader();\nif (pack.Mount(\"game.acpak\").IsOk()) {\n    if (auto sz = pack.FileSize(\"hero.png\"); sz.IsOk()) {\n        pack.ReadFile(\"hero.png\", buf, sz.Value());\n    }\n}",
+    "members": [
+      {
+        "sig": "TResult<void> Mount(const char* pack_path)",
+        "desc": "[Reader] pak をマウントして以降の API を有効化する。"
+      },
+      {
+        "sig": "TResult<u64> FileSize(const char* name)",
+        "ret": "復号+解凍後のサイズ",
+        "desc": "[Reader] 仮想ファイルのオリジナルサイズを取得する (バッファ確保用)。"
+      },
+      {
+        "sig": "TResult<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size)",
+        "desc": "[Reader] 仮想ファイルを復号+解凍して out_buffer にコピーする。"
+      },
+      {
+        "sig": "TResult<u32> FileCount() / TResult<const char*> FileName(u32 index)",
+        "desc": "[Reader] 含まれるファイル数 / index 番目の仮想パスを取得する。"
+      },
+      {
+        "sig": "TResult<void> BeginPack(const char* output_path) / TResult<void> AddFile(...) / TResult<void> FinishPack()",
+        "desc": "[Writer] pak 作成を開始 → ファイル追加 → 確定の 3 段で書き出す。"
+      }
+    ]
+  }
+}

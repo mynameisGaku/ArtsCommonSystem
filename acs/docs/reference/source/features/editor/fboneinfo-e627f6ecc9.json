@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FBoneInfo",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelInspectorPanel.h",
+    "summary": "1 つの bone の情報(名前 + 親 index)。 parent_index < 0 は root bone を意味する。 Inspector は子リストを保持せず、描画時に parent_index から子を線形走査して TreeNode 階層を再構築する。",
+    "when": "Inspector のボーン階層ツリーを表示するため、bone ごとに 1 件作って配列で渡す。 配列内 index が親参照のキーになる。",
+    "sample": "FBoneInfo bones[2];\nbones[0].name = \"Hips\";  bones[0].parent_index = -1; // ルートボーン\nbones[1].name = \"Spine\"; bones[1].parent_index = 0;   // Hips の子",
+    "members": [
+      {
+        "sig": "const char* name = nullptr",
+        "desc": "bone 名(例: \"Hips\", \"Spine_01\")。 caller 所有のポインタ。"
+      },
+      {
+        "sig": "i32 parent_index = -1",
+        "desc": "同 bones 配列内の親 index。 root は -1。"
+      }
+    ]
+  }
+}

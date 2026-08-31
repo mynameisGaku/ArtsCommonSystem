@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "TSpan<T>",
+    "kind": "クラステンプレート",
+    "header": "container/Span.h",
+    "summary": "連続メモリ領域を指す非所有ビュー。 先頭ポインタと要素数だけを持ち、TArray、生配列、連続バッファを同じ引数形で受け取れる。",
+    "when": "関数の引数で『連続した要素列をまとめて見たい』時。 所有権を渡さず、配列か生配列かを問わず受けられる。 参照先の寿命には注意。",
+    "sample": "void Sum(TSpan<const int> xs) {\n    int s = 0; for (int v : xs) s += v;\n}\nint raw[3] = {1,2,3};\nSum(raw);          // C 配列から暗黙変換\nSum(myArray.AsSpan());",
+    "members": [
+      {
+        "sig": "constexpr TSpan(T* data, usize size)",
+        "desc": "先頭ポインタと長さからビューを作る。"
+      },
+      {
+        "sig": "template<usize N> TSpan(T (&arr)[N])",
+        "desc": "C 配列から長さ N を自動推論して作る(暗黙変換)。"
+      },
+      {
+        "sig": "T* GetData() / usize Num() / bool IsEmpty()",
+        "desc": "先頭ポインタ / 要素数 / 空かどうか。"
+      },
+      {
+        "sig": "T& operator[](usize i)",
+        "desc": "添字アクセス。 範囲外はアサート(Debug のみ)。"
+      },
+      {
+        "sig": "T* begin() / T* end()",
+        "desc": "イテレータ。 range-for に対応。"
+      },
+      {
+        "sig": "TSpan SubSpan(usize offset, usize count)",
+        "ret": "部分ビュー",
+        "desc": "一部分だけを切り出したビューを返す(コピーしない)。 範囲外はアサートで検出する。",
+        "sample": "auto mid = sp.SubSpan(1, 2);  // 1 番目から 2 個"
+      },
+      {
+        "sig": "bool TrySubSpan(usize offset, usize count, TSpan& out)",
+        "ret": "範囲が有効なら true",
+        "desc": "外部入力向けの fail-closed 版。 null と非 0 size の不正 view、範囲外、加算 overflow をアサートなしで拒否し、失敗時は out を変更しない。",
+        "when": "ファイルや通信など信頼できない長さから部分 view を切り出す時。",
+        "sample": "TSpan<const u8> part;\nif (!bytes.TrySubSpan(offset, count, part)) {\n    return InvalidRange();\n}"
+      }
+    ]
+  }
+}

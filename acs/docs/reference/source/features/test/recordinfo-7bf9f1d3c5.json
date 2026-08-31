@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "test",
+    "title": "test — テスト基盤(ACS_TEST / EXPECT)",
+    "description": "ACS_TEST でテストを書き、EXPECT_* マクロで結果を検証し、RunAll() でまとめて実行します。"
+  },
+  "feature": {
+    "name": "RecordInfo()",
+    "kind": "関数",
+    "header": "test/Test.h",
+    "summary": "テスト本体内から補助的な情報メッセージを出力する関数。 失敗扱いにはならず、ログとして残るだけ。 printf 風の書式が使える。",
+    "when": "テストの途中経過や、失敗時の手がかりになる値をログに残したいとき。",
+    "sample": "::acs::test::RecordInfo(::acs::FSourceLoc::Current(),\n    \"seed = %u\", rngSeed);",
+    "members": [
+      {
+        "sig": "void RecordInfo(FSourceLoc loc, const char* fmt, ...) noexcept",
+        "desc": "情報メッセージを出力する(失敗にはしない)。 loc=位置、fmt 以降=printf 風メッセージ。"
+      }
+    ]
+  }
+}

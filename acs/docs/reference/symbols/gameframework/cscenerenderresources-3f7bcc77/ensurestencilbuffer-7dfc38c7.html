@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="マスク用の stencil 付き深度バッファ (D24S8) を遅延作成する (サイズ変化時は再作成)。 Context: サイズ・デバイス取得用のレンダーコンテキスト。 戻り値: 利用可能なら true、作成失敗なら false。">
+  <title>acs::game::CSceneRenderResources::EnsureStencilBuffer — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cscenerenderresources-3f7bcc77.html">CSceneRenderResources の概要</a><a class="tree-child" href="cscenerenderresources-7b6699ea.html">CSceneRenderResources</a><a class="tree-child" href="cscenerenderresources-b5f4ce93.html">CSceneRenderResources</a><a class="tree-child" href="ensurescenert-753d9ffe.html">EnsureSceneRt</a><a class="tree-child" href="ensurescenesprites-e86b211d.html">EnsureSceneSprites</a><a class="tree-child" href="ensurespritebatch-4f93353c.html">EnsureSpriteBatch</a><a class="tree-child" href="ensurestencilbuffer-7dfc38c7.html" aria-current="page">EnsureStencilBuffer</a><a class="tree-child" href="ensurewaterdepthrt-718deb41.html">EnsureWaterDepthRt</a><a class="tree-child" href="ensurewaterdepthsprites-d8a12667.html">EnsureWaterDepthSprites</a><a class="tree-child" href="m-rth-87b94ec0.html">m_RtH</a><a class="tree-child" href="m-rtw-05cb7863.html">m_RtW</a><a class="tree-child" href="m-scenert-cb07b782.html">m_SceneRt</a><a class="tree-child" href="m-scenesprites-aa0257c8.html">m_SceneSprites</a><a class="tree-child" href="m-scenespritesready-1cbfe455.html">m_SceneSpritesReady</a><a class="tree-child" href="m-sprites-142c036d.html">m_Sprites</a><a class="tree-child" href="m-spritesready-2ce588d4.html">m_SpritesReady</a><a class="tree-child" href="m-stencilbuf-9e6746fe.html">m_StencilBuf</a><a class="tree-child" href="m-stencilh-a060d5cd.html">m_StencilH</a><a class="tree-child" href="m-stencilw-dc7e7c2e.html">m_StencilW</a><a class="tree-child" href="m-waterdepthh-5ce9975a.html">m_WaterDepthH</a><a class="tree-child" href="m-waterdepthrt-927d7888.html">m_WaterDepthRt</a><a class="tree-child" href="m-waterdepthsprites-d01edd4f.html">m_WaterDepthSprites</a><a class="tree-child" href="m-waterdepthspritesready-2ee85425.html">m_WaterDepthSpritesReady</a><a class="tree-child" href="m-waterdepthw-b66b3dc4.html">m_WaterDepthW</a><a class="tree-child" href="operator-39326718.html">operator=</a><a class="tree-child" href="scenert-9ca46fd0.html">SceneRt</a><a class="tree-child" href="scenesprites-cc779b16.html">SceneSprites</a><a class="tree-child" href="spritebatch-9d8a5f0e.html">SpriteBatch</a><a class="tree-child" href="stencilbuffer-c6f5e217.html">StencilBuffer</a><a class="tree-child" href="waterdepthrt-46df25e3.html">WaterDepthRt</a><a class="tree-child" href="waterdepthsprites-eca54718.html">WaterDepthSprites</a><a class="tree-child" href="cscenerenderresources-ed8dd45e.html">~CSceneRenderResources</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cscenerenderresources-3f7bcc77.html">CSceneRenderResources</a><span>/</span><span aria-current="page">EnsureStencilBuffer</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CSceneRenderResources::EnsureStencilBuffer</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-8144">マスク</button><span class="term-tooltip" id="term-tip-8144" role="tooltip">どのレイヤに反応するかをビットで指定する絞り込み。 立っているビットの相手だけが対象になる。</span></span>用の stencil 付き深度バッファ (D24S8) を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-8145">遅延</button><span class="term-tooltip" id="term-tip-8145" role="tooltip">必要になるまで計算を先延ばしにする方式(lazy)。 現行 TDerived は生成時と依存通知時に即時評価し、Get の再計算は dirty が残った場合の補完経路。</span></span>作成する (サイズ変化時は再作成)。 Context: サイズ・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-8146">デバイス</button><span class="term-tooltip" id="term-tip-8146" role="tooltip">GPU とのやり取りを表す IRhiDevice のこと。</span></span>取得用のレンダーコンテキスト。 戻り値: 利用可能なら true、作成失敗なら false。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CSceneRenderResources::EnsureStencilBufferの宣言"><code>bool <a href="ensurestencilbuffer-7dfc38c7.html" aria-current="page">EnsureStencilBuffer</a>(FRenderContext&amp; <a href="../../render/cdiligentdevice-c4ddb74d/context-fdf171be.html">Context</a>) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cscenerenderresources-3f7bcc77.html"><code>acs::game::CSceneRenderResources</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/SceneRenderResources.h:87</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

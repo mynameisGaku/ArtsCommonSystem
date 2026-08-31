@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "IInspectableProvider",
+    "kind": "インターフェース",
+    "header": "gameframework/InspectorSeam.h",
+    "summary": "自分 (または管理下のオブジェクト群) をインスペクタに公開する抽象インターフェース。 ゲーム側クラスが継承して実装する。",
+    "when": "Player や Camera を実行時に覗ける/編集できるようにしたい時。 1 provider が N オブジェクトを公開する Manager 型にもできる。",
+    "sample": "class FPlayer : public IInspectableProvider {\n    u32 ObjectCount() noexcept override { return 1; }\n    FInspectableObject GetObject(u32) noexcept override {\n        static FInspectableField f[] = {\n            { \"hp\", EFieldKind::I32, &m_Hp, 0, nullptr } };\n        return { \"Player\", \"P1\", f, 1 };\n    }\n    void OnFieldChanged(u32, u32) noexcept override {}\n};",
+    "members": [
+      {
+        "sig": "virtual u32 ObjectCount() noexcept = 0",
+        "desc": "公開するオブジェクト数。 0 なら何も描かれない。"
+      },
+      {
+        "sig": "virtual FInspectableObject GetObject(u32 index) noexcept = 0",
+        "desc": "index 番目のオブジェクト記述を返す。 fields 配列は provider 所有。"
+      },
+      {
+        "sig": "virtual void OnFieldChanged(u32 obj_index, u32 field_index) noexcept = 0",
+        "desc": "UI が値を書き換えた直後に呼ばれる。 clamp / 再計算 / dirty フラグをここで。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="world 座標を tile インデックスに変換する。 成功時のみ out_x / out_y を書き込む。 world: 変換元の world 座標。 out_x: 列インデックスの出力先。 out_y: 行インデックスの出力先。 戻り値: グリッド内なら true、範囲外 (グリッド外 / 負値) なら false。">
+  <title>acs::game::FTilemap::WorldToTile — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ftilemap-830e7604.html">FTilemap の概要</a><a class="tree-child" href="clear-88255751.html">Clear</a><a class="tree-child" href="fill-649b6f77.html">Fill</a><a class="tree-child" href="fillrect-a9b6bb69.html">FillRect</a><a class="tree-child" href="ftilemap-0319a463.html">FTilemap</a><a class="tree-child" href="ftilemap-21bb23ee.html">FTilemap</a><a class="tree-child" href="ftilemap-9ba80a02.html">FTilemap</a><a class="tree-child" href="ftilemap-b789dcd7.html">FTilemap</a><a class="tree-child" href="gettile-c30c930b.html">GetTile</a><a class="tree-child" href="height-e609dbab.html">Height</a><a class="tree-child" href="init-09fa8edc.html">Init</a><a class="tree-child" href="kmaxcellsperlayer-452abf82.html">kMaxCellsPerLayer</a><a class="tree-child" href="kmaxjsondepth-ecef20e8.html">kMaxJsonDepth</a><a class="tree-child" href="kmaxjsonnodes-d90bd1fb.html">kMaxJsonNodes</a><a class="tree-child" href="kmaxjsonobjectmembers-6159d1a8.html">kMaxJsonObjectMembers</a><a class="tree-child" href="kmaxjsonstringbytes-92913cb5.html">kMaxJsonStringBytes</a><a class="tree-child" href="kmaxlayerrecords-f8937eb7.html">kMaxLayerRecords</a><a class="tree-child" href="kmaxmapdimension-98d9482c.html">kMaxMapDimension</a><a class="tree-child" href="kmaxtiledjsonbytes-b5dcdd74.html">kMaxTiledJsonBytes</a><a class="tree-child" href="kmaxtilelayers-2adc8a47.html">kMaxTileLayers</a><a class="tree-child" href="kmaxtotalcells-c02f0964.html">kMaxTotalCells</a><a class="tree-child" href="layercount-b30a0317.html">LayerCount</a><a class="tree-child" href="layerdata-8ea4e946.html">LayerData</a><a class="tree-child" href="loadtiledjson-739bc354.html">LoadTiledJson</a><a class="tree-child" href="m-height-3202d20d.html">m_Height</a><a class="tree-child" href="m-layers-6cb61dd8.html">m_Layers</a><a class="tree-child" href="m-tilesize-4e31fd99.html">m_TileSize</a><a class="tree-child" href="m-width-fb243c4d.html">m_Width</a><a class="tree-child" href="operator-50eb40f0.html">operator=</a><a class="tree-child" href="operator-7e0dfe04.html">operator=</a><a class="tree-child" href="settile-3df3405c.html">SetTile</a><a class="tree-child" href="tilesize-801a0851.html">TileSize</a><a class="tree-child" href="tiletoworld-9b86df20.html">TileToWorld</a><a class="tree-child" href="tryinit-bddb5a7e.html">TryInit</a><a class="tree-child" href="tryloadtiledjson-9018f0c4.html">TryLoadTiledJson</a><a class="tree-child" href="width-8f4575f6.html">Width</a><a class="tree-child" href="worldtotile-8e294d91.html" aria-current="page">WorldToTile</a><a class="tree-child" href="ftilemap-3c0a5f62.html">~FTilemap</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ftilemap-830e7604.html">FTilemap</a><span>/</span><span aria-current="page">WorldToTile</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::FTilemap::WorldToTile</h1>
+<p class="lead">world 座標を tile <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12174">インデックス</button><span class="term-tooltip" id="term-tip-12174" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>に変換する。 成功時のみ out_x / out_y を書き込む。 world: 変換元の world 座標。 out_x: 列<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12175">インデックス</button><span class="term-tooltip" id="term-tip-12175" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>の出力先。 out_y: 行<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12176">インデックス</button><span class="term-tooltip" id="term-tip-12176" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>の出力先。 戻り値: グリッド内なら true、範囲外 (グリッド外 / 負値) なら false。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::FTilemap::WorldToTileの宣言"><code>bool <a href="worldtotile-8e294d91.html" aria-current="page">WorldToTile</a>(FVec2 <a href="../chierarchyworldtransformbatch-92dbe0ee/fpendingworld-dd70bb57/world-f2d49336.html">world</a>, <a href="../../foundation/u32-4ce4a209.html">u32</a>&amp; out_x, <a href="../../foundation/u32-4ce4a209.html">u32</a>&amp; out_y) const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ftilemap-830e7604.html"><code>acs::game::FTilemap</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/Tilemap.h:331</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

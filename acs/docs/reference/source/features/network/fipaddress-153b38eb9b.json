@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "network",
+    "title": "network — ネットワーク基盤",
+    "description": "PC 同士を通信でつなぐための土台。 TCP(確実に届ける接続)と UDP(速いが届く保証なし)のソケットを、Windows の WinSock をくるんだ薄いAPIとして提供します。 マルチプレイや簡単なサーバ通信の入口です。"
+  },
+  "feature": {
+    "name": "FIpAddress",
+    "kind": "構造体",
+    "header": "network/IpAddress.h",
+    "summary": "IPv4 アドレス(4 個の数値)とポート番号をまとめた小さな値。 通信相手や自分の待ち受け先を指すのに使う。 v1 では IPv6 は未対応。",
+    "when": "接続先・待ち受け先を指定するあらゆる場面。 文字列 \\\"127.0.0.1\\\" から作るか、定型の Any() / Loopback() を使う。",
+    "sample": "FIpAddress addr = FIpAddress::FromString(\\\"192.168.0.10\\\");\naddr.port = 8080;             // ポートはフィールドで直接設定\nFIpAddress any = FIpAddress::Any();      // 0.0.0.0 (全インターフェイス)\nFIpAddress lo  = FIpAddress::Loopback(); // 127.0.0.1 (自分自身)",
+    "members": [
+      {
+        "sig": "u8 octets[4]",
+        "desc": "アドレスの 4 数値。 例 192.168.0.1 なら {192,168,0,1}。"
+      },
+      {
+        "sig": "u16 port",
+        "desc": "ポート番号。 0 は『OS 任せ/未指定』を意味する。"
+      },
+      {
+        "sig": "static FIpAddress Any()",
+        "ret": "0.0.0.0",
+        "desc": "全ネットワークインターフェイスを表す。 サーバが待ち受ける時に使う。"
+      },
+      {
+        "sig": "static FIpAddress Loopback()",
+        "ret": "127.0.0.1",
+        "desc": "同じ PC 内(自分自身)を指す。 ローカルテストに便利。"
+      },
+      {
+        "sig": "static FIpAddress FromString(const char* dotted)",
+        "ret": "アドレス",
+        "desc": "\\\"192.168.0.1\\\" のような文字列から作る。 書式が不正なら 0.0.0.0 を返す。",
+        "sample": "FIpAddress a = FIpAddress::FromString(\\\"10.0.0.5\\\");"
+      }
+    ]
+  }
+}

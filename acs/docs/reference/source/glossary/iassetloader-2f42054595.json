@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IAssetLoader",
+  "definition": "ファイル形式ごとのローダ共通インターフェース。"
+}

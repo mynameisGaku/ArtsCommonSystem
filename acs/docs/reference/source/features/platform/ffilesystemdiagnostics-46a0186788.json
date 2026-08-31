@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FFileSystemDiagnostics",
+    "kind": "構造体",
+    "header": "platform/FileSystemDiagnostics.h",
+    "summary": "ReadFile、WriteFile、中間コピーの回数と byte 数を保持する I/O 診断 snapshot。",
+    "when": "全体読み込みと原子的保存の syscall・copy 退行を確認する時。"
+  }
+}

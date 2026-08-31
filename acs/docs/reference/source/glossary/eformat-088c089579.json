@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "EFormat",
+  "definition": "ピクセルフォーマット(1 ピクセルのビット配置)を表す論理的なenum。 DX12 / Vulkan で共通の名前で扱える。"
+}

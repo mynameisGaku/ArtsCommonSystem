@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ONNX Runtime",
+  "definition": "Microsoft 製の、ONNX モデルを実際に実行する推論エンジン。 mlonnx が裏で使う backend。"
+}

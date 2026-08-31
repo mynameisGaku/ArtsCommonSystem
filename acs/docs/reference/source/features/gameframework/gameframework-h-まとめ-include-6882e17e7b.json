@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "GameFramework.h (まとめ include)",
+    "kind": "ヘッダ",
+    "header": "gameframework/GameFramework.h",
+    "summary": "GameFramework の主要ヘッダを 1 行でまとめて取り込むための集約ヘッダ。 CGame / AScene / Easing / Tween / 統一済みの ANode・AComponent / 各種コンポーネント・ディレクタ等を一括 include する。",
+    "when": "個別 include を書かずに gameframework をまとめて使い始めたい時。",
+    "sample": "#include \"gameframework/GameFramework.h\"\nusing namespace acs::game;"
+  }
+}

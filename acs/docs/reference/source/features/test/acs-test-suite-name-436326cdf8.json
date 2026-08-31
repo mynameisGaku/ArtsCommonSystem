@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "test",
+    "title": "test — テスト基盤(ACS_TEST / EXPECT)",
+    "description": "ACS_TEST でテストを書き、EXPECT_* マクロで結果を検証し、RunAll() でまとめて実行します。"
+  },
+  "feature": {
+    "name": "ACS_TEST(Suite, Name)",
+    "kind": "マクロ",
+    "header": "test/Test.h",
+    "summary": "テストケースを 1 つ宣言するマクロ。 直後に { ... } でテスト本体を書く。 プログラム起動時に自動でテスト一覧へ登録され、RunAll() で実行される。 Suite はグループ名、Name はその中の個別テスト名。",
+    "when": "新しいテストを 1 つ書くとき。 関数を自分で main から呼ぶ必要はなく、書いただけで実行対象になる。",
+    "sample": "ACS_TEST(MathVec3, Add) {\n    EXPECT_EQ(FVec3(1,2,3) + FVec3(4,5,6), FVec3(5,7,9));\n}\n\nACS_TEST(MathVec3, Length) {\n    EXPECT_NEAR(Length(FVec3(3,4,0)), 5.0f, 0.001f);\n}"
+  }
+}

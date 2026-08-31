@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "EErrCategory",
+    "kind": "列挙(enum)",
+    "header": "foundation/Error.h",
+    "summary": "エラーの大分類を表す enum class（基底は u16）。 ロガーでのフィルタや、原因の大まかな切り分けに使う。",
+    "when": "ACS_ERR の第 1 引数に渡す。 受け取り側はこの値で switch したり ToString でログに出したりする。",
+    "sample": "switch (e.category) {\n    case EErrCategory::IO:     /* 入出力 */ break;\n    case EErrCategory::Memory: /* 確保失敗 */ break;\n    default: break;\n}\nconst char* name = ToString(e.category);  // \"IO\" 等",
+    "members": [
+      {
+        "sig": "None = 0",
+        "desc": "成功（エラー無し）。"
+      },
+      {
+        "sig": "Generic / Memory / OS / IO",
+        "desc": "一般 / メモリ確保失敗 / OS コール失敗 / ファイル・ネットワーク I/O。"
+      },
+      {
+        "sig": "Container / Threading / Math",
+        "desc": "範囲外・容量超過 / 排他制御・スレッド / 数学領域（NaN・0 除算）。"
+      },
+      {
+        "sig": "Render / Asset / UserCancel",
+        "desc": "描画バックエンド失敗 / アセット読み込み失敗 / ユーザーキャンセル。"
+      },
+      {
+        "sig": "const char* ToString(EErrCategory)",
+        "desc": "カテゴリを文字列化する（ログ出力用）。"
+      }
+    ]
+  }
+}

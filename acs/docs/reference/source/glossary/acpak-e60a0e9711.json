@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "acpak",
+  "definition": "ACS のアセットアーカイブ形式(.acpak)。 出荷時に複数ファイルを 1 つにまとめる。"
+}

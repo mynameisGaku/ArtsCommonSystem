@@ -1,0 +1,82 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CDeckSystem",
+    "kind": "クラス",
+    "header": "gameframework/DeckSystem.h",
+    "summary": "1 プレイヤー分のカードゲーム状態をデッキ / 手札 / 捨札 / 除外 (exile) の 4 ゾーンで保持する小型マネージャ。 カード定義 (FCardDef) を登録し、シャッフル・ドロー・プレイ・捨札をメソッドで明示的に行う。 シャッフルは seed 指定で決定論再現できる。",
+    "when": "対戦相手がいれば instance を人数分持つ。",
+    "sample": "CDeckSystem deck;\ndeck.RegisterCard({ \\\"card.bolt\\\", \\\"Lightning Bolt\\\", 1, 2, \\\"spell\\\", \\\"Deal 3.\\\", \\\"ui/bolt.png\\\" });\ndeck.AddToDeck(\\\"card.bolt\\\", 4);\ndeck.SetOnPlayCallback(&OnPlayed, &game);\ndeck.Shuffle();\ndeck.DrawN(7);\ndeck.PlayCard(2);  // 手札 index 2 を場へ → callback → 捨札",
+    "members": [
+      {
+        "sig": "void RegisterCard(const FCardDef& def)",
+        "desc": "カード定義を 1 種類登録する。 同 id の 2 重登録は no-op (WARN)。",
+        "when": "起動時に全カードを登録。"
+      },
+      {
+        "sig": "void AddToDeck(const char* card_id, u32 count = 1)",
+        "desc": "指定カードを山札に count 枚積む。 未登録 / count==0 は no-op。",
+        "when": "デッキ構築時。"
+      },
+      {
+        "sig": "void Shuffle(u32 seed = 0)",
+        "desc": "デッキを Fisher-Yates でシャッフルする。 seed==0 はランダム、seed!=0 は決定論再現。",
+        "when": "試合開始時やリプレイ再現時。"
+      },
+      {
+        "sig": "bool Draw()",
+        "ret": "引けたか",
+        "desc": "デッキトップから 1 枚引いて手札へ。 デッキが空なら捨札をシャッフルして戻し再ドロー。 両方空なら false。",
+        "when": "1 枚引く時。"
+      },
+      {
+        "sig": "bool DrawN(u32 n)",
+        "desc": "n 枚引く。 途中で尽きたら引けた分だけ保持して終了 (その場合 false)。",
+        "when": "初手 7 枚などまとめて引く時。"
+      },
+      {
+        "sig": "bool PlayCard(u32 hand_index)",
+        "ret": "出せたか",
+        "desc": "手札のカードをプレイする: PlayCallback 発火 → 捨札へ。 範囲外は false。",
+        "when": "プレイヤーがカードを場に出した時。"
+      },
+      {
+        "sig": "bool DiscardFromHand(u32 hand_index)",
+        "desc": "手札 index のカードを捨札へ移す。 範囲外は false。"
+      },
+      {
+        "sig": "bool ExileFromHand(u32 hand_index)",
+        "desc": "手札 index のカードを exile (完全除外、戻らない) へ移す。"
+      },
+      {
+        "sig": "bool DiscardAllHand()",
+        "desc": "手札を全部捨札にする (ターン終了等)。"
+      },
+      {
+        "sig": "u32 DeckSize() / HandSize() / DiscardSize() / ExileSize() const",
+        "desc": "各ゾーンの枚数。 UI 表示に使う。"
+      },
+      {
+        "sig": "const char* HandCardAt(u32 index) const",
+        "desc": "手札 index のカード id。 範囲外は nullptr。"
+      },
+      {
+        "sig": "void SetOnPlayCallback(PlayCallback cb, void* user)",
+        "desc": "PlayCard 時に呼ばれる callback (アニメ / 効果発動 / SE 用)。"
+      },
+      {
+        "sig": "const FCardDef* FindCardDef(const char* card_id) const",
+        "desc": "カード定義を取得する (未登録は nullptr)。"
+      },
+      {
+        "sig": "using FDeckSystem = CDeckSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDeckSystem を使う。"
+      }
+    ]
+  }
+}

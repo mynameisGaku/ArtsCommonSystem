@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "kAcpakMagic / kAcpakVersion",
+    "kind": "定数",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": ".acpak ファイル先頭のマジックナンバーとフォーマット版数。 kAcpakMagic は 8 バイト \"ACPAK\\0\\0\\0\"、kAcpakVersion は現行 1。 Reader は Open 直後にこの 2 つを検査し、不一致なら kAcpakSubBadMagic / kAcpakSubBadVersion を返す。",
+    "when": "フォーマットを自前で読み書きする時の検査値。 暗号化と圧縮は version 1 の flags で表し、互換を破る形式変更時だけ version を上げる。",
+    "sample": "// 先頭 8 バイトを memcmp で照合(reinterpret_cast 比較は禁止)\nif (memcmp(head, kAcpakMagic, 8) != 0) return badMagic;\nif (header.version != kAcpakVersion) return badVersion;",
+    "members": [
+      {
+        "sig": "inline constexpr u8 kAcpakMagic[8] = {'A','C','P','A','K',0,0,0}",
+        "desc": "pak 判定用 8 バイト signature。 必ず memcmp / バイト列比較で検査する(strict-aliasing 回避)。"
+      },
+      {
+        "sig": "inline constexpr u32 kAcpakVersion = 1u",
+        "desc": "現行フォーマット版数。 未知 flags は version ではなく kAcpakSubBadFlags で弾く。"
+      }
+    ]
+  }
+}

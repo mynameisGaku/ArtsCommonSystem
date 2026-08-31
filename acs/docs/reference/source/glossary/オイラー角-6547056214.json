@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "オイラー角",
+  "definition": "向きを pitch/yaw/roll の 3 つの回転角で表す方式。 直感的だが gimbal lock の弱点がある。"
+}

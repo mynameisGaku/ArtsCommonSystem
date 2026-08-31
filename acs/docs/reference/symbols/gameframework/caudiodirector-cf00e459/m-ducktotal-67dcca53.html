@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ダッキングの全体長 (= duration + 2 * kDuckFadeWindow)。">
+  <title>acs::game::CAudioDirector::m_DuckTotal — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../caudiodirector-cf00e459.html">CAudioDirector の概要</a><a class="tree-child" href="caudiodirector-2841e63f.html">CAudioDirector</a><a class="tree-child" href="caudiodirector-92a71e40.html">CAudioDirector</a><a class="tree-child" href="clamp01-0d31acb3.html">Clamp01</a><a class="tree-child" href="computeduckenvelope-70ed5c34.html">ComputeDuckEnvelope</a><a class="tree-child" href="currentbgmname-33557a0a.html">CurrentBgmName</a><a class="tree-child" href="duck-aa5937bc.html">Duck</a><a class="tree-child" href="effectivebgmvolume-06d85e9f.html">EffectiveBgmVolume</a><a class="tree-child" href="effectivesfxvolume-ddf7240f.html">EffectiveSfxVolume</a><a class="tree-child" href="fbgmslot-f45f4db0.html">FBgmSlot</a><a class="tree-child" href="fsfxentry-59f42655.html">FSfxEntry</a><a class="tree-child" href="getassetregistry-6d310da6.html">GetAssetRegistry</a><a class="tree-child" href="getbackend-4cb61e7f.html">GetBackend</a><a class="tree-child" href="getbgmvolume-297311af.html">GetBgmVolume</a><a class="tree-child" href="getmastervolume-4425181f.html">GetMasterVolume</a><a class="tree-child" href="getsfxvolume-94c07135.html">GetSfxVolume</a><a class="tree-child" href="ispaused-5240b841.html">IsPaused</a><a class="tree-child" href="kduckfadewindow-b7fd5b92.html">kDuckFadeWindow</a><a class="tree-child" href="kmaxsfxvoices-93e56e57.html">kMaxSfxVoices</a><a class="tree-child" href="m-backend-48f26c2b.html">m_Backend</a><a class="tree-child" href="m-bduckactive-ae55f01a.html">m_bDuckActive</a><a class="tree-child" href="m-bgm-3de2bfac.html">m_Bgm</a><a class="tree-child" href="m-bgmvolume-17ac4613.html">m_BgmVolume</a><a class="tree-child" href="m-duckdepth-1bc12f01.html">m_DuckDepth</a><a class="tree-child" href="m-duckremaining-7b48cb49.html">m_DuckRemaining</a><a class="tree-child" href="m-ducktotal-67dcca53.html" aria-current="page">m_DuckTotal</a><a class="tree-child" href="m-mastervolume-e1b8d85c.html">m_MasterVolume</a><a class="tree-child" href="m-paused-1a8a550e.html">m_Paused</a><a class="tree-child" href="m-registry-8040821a.html">m_Registry</a><a class="tree-child" href="m-sfx-48513d0f.html">m_Sfx</a><a class="tree-child" href="m-sfxhead-ba1d6dc4.html">m_SfxHead</a><a class="tree-child" href="m-sfxvolume-b714f772.html">m_SfxVolume</a><a class="tree-child" href="operator-581b5f97.html">operator=</a><a class="tree-child" href="pause-e753105a.html">Pause</a><a class="tree-child" href="playbgm-7e8cde8f.html">PlayBgm</a><a class="tree-child" href="playbgmclip-d685e0e0.html">PlayBgmClip</a><a class="tree-child" href="playsfx-12fb82f1.html">PlaySfx</a><a class="tree-child" href="playsfxclip-dcf195f3.html">PlaySfxClip</a><a class="tree-child" href="resume-0cb43cbe.html">Resume</a><a class="tree-child" href="setassetregistry-68f348ae.html">SetAssetRegistry</a><a class="tree-child" href="setbackend-a842fa68.html">SetBackend</a><a class="tree-child" href="setbgmvolume-0c251f98.html">SetBgmVolume</a><a class="tree-child" href="setmastervolume-c991f0d6.html">SetMasterVolume</a><a class="tree-child" href="setsfxvolume-a214237f.html">SetSfxVolume</a><a class="tree-child" href="stopall-4d3ae646.html">StopAll</a><a class="tree-child" href="stopbgm-fc7d19ed.html">StopBgm</a><a class="tree-child" href="tick-81bd304d.html">Tick</a><a class="tree-child" href="caudiodirector-53c5999a.html">~CAudioDirector</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../caudiodirector-cf00e459.html">CAudioDirector</a><span>/</span><span aria-current="page">m_DuckTotal</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / gameframework</div>
+<h1 class="identifier">acs::game::CAudioDirector::m_DuckTotal</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-4828">ダッキング</button><span class="term-tooltip" id="term-tip-4828" role="tooltip">ある音を目立たせるため、一時的に別の音 (主に BGM) の音量を下げる手法。</span></span>の全体長 (= duration + 2 * kDuckFadeWindow)。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CAudioDirector::m_DuckTotalの宣言"><code><a href="../../foundation/f32-87be3881.html">f32</a> <a href="m-ducktotal-67dcca53.html" aria-current="page">m_DuckTotal</a> = 0.0f;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../caudiodirector-cf00e459.html"><code>acs::game::CAudioDirector</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/AudioDirector.h:363</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

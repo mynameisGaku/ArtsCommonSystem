@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AContainer",
+  "definition": "親の矩形を全ての子へ渡す、描画を持たない重ね合わせ用 panel。"
+}

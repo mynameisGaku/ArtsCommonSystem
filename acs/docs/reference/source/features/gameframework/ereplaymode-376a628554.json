@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "EReplayMode",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ReplayDirector.h",
+    "summary": "リプレイの動作モード。 Idle (停止) / Recording (録画中) / Playback (再生中) / Paused (再生一時停止)。",
+    "when": "今録画中なのか再生中なのかで UI 表示を切り替えたい時。"
+  }
+}

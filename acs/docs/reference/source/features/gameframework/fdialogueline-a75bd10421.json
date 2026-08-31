@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FDialogueLine",
+    "kind": "構造体",
+    "header": "gameframework/DialogueSystem.h",
+    "summary": "会話 1 行のデータ。 発話者名・本文・タイプ速度を持つ。 文字列は所有しない (リテラルや外部バンドルを参照)。",
+    "when": "CDialogueSystem::AddLine に渡す 1 行を組み立てる時。",
+    "sample": "FDialogueLine l;\nl.speaker        = \"アリス\";   // nullptr 可\nl.text           = \"やあ！\";    // nullptr は空行扱い\nl.type_speed_cps = 30.0f;        // 1 秒あたり 30 文字、<=0 で瞬時表示",
+    "members": [
+      {
+        "sig": "const char* speaker",
+        "desc": "発話者名 (nullptr 可)。"
+      },
+      {
+        "sig": "const char* text",
+        "desc": "本文 (nullptr は空行)。"
+      },
+      {
+        "sig": "f32 type_speed_cps",
+        "desc": "タイプ速度 (chars per second)。 <=0 で瞬時表示。"
+      }
+    ]
+  }
+}

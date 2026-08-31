@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FRenderGraphAliasAssignment",
+    "kind": "構造体",
+    "header": "render/RenderGraphAliasAssignment.h",
+    "summary": "論理資源を再利用可能な物理 slot へ割り当てた結果。",
+    "when": "transient 資源の実割り当てと peak 使用量を確認する時。"
+  }
+}

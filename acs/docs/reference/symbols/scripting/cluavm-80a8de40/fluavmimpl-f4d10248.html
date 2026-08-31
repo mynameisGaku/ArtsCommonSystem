@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CLuaVmが所有するLua状態と登録関数を保持する。">
+  <title>acs::scripting::CLuaVm::FLuaVmImpl — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/scripting.html">scripting モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/scripting.html">scripting モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/scripting.html">scripting モジュール</a><a href="../cluavm-80a8de40.html">CLuaVm の概要</a><a class="tree-child" href="callfunction-139ca686.html">CallFunction</a><a class="tree-child" href="cluavm-03a2086b.html">CLuaVm</a><a class="tree-child" href="cluavm-4a711e52.html">CLuaVm</a><a class="tree-child" href="cluavm-4cb01f1f.html">CLuaVm</a><a class="tree-child" href="cluavm-d61d7a23.html">CLuaVm</a><a class="tree-child" href="collectgarbage-83d017eb.html">CollectGarbage</a><a class="tree-child" href="fluavmimpl-f4d10248.html" aria-current="page">FLuaVmImpl</a><a class="tree-child" href="getglobalnumber-79ff7b6c.html">GetGlobalNumber</a><a class="tree-child" href="init-446104ec.html">Init</a><a class="tree-child" href="language-6bc0f9c9.html">Language</a><a class="tree-child" href="loadscript-cb8b4b0a.html">LoadScript</a><a class="tree-child" href="m-impl-3ddc05f5.html">m_Impl</a><a class="tree-child" href="memoryusagebytes-f9fcab6f.html">MemoryUsageBytes</a><a class="tree-child" href="operator-1a9fd885.html">operator=</a><a class="tree-child" href="operator-fc3a3133.html">operator=</a><a class="tree-child" href="registernativefunction-9d4f3616.html">RegisterNativeFunction</a><a class="tree-child" href="setglobalnumber-272174e9.html">SetGlobalNumber</a><a class="tree-child" href="shutdown-e4ee9438.html">Shutdown</a><a class="tree-child" href="cluavm-f0c3678d.html">~CLuaVm</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/scripting.html">scripting</a><span>/</span><a href="../cluavm-80a8de40.html">CLuaVm</a><span>/</span><span aria-current="page">FLuaVmImpl</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / scripting</div>
+<h1 class="identifier">acs::scripting::CLuaVm::FLuaVmImpl</h1>
+<p class="lead">C<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21031">Lua</button><span class="term-tooltip" id="term-tip-21031" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span>Vmが所有する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21032">Lua</button><span class="term-tooltip" id="term-tip-21032" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21033">状態</button><span class="term-tooltip" id="term-tip-21033" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>と登録関数を保持する。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::scripting::CLuaVm::FLuaVmImplの宣言"><code>class <a href="../cluavm-80a8de40.html">CLuaVm</a>::<a href="fluavmimpl-f4d10248.html" aria-current="page">FLuaVmImpl</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/scripting.html">scripting</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cluavm-80a8de40.html"><code>acs::scripting::CLuaVm</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/scripting/LuaVmImpl.h:42</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fluavmimpl-f4d10248/fluavmimpl-e622ec6b.html"><span><span class="identifier">explicit FLuaVmImpl(acs::IAllocator&amp; allocator) noexcept;</span><span class="summary">登録情報の保存先を指定して構築する。 allocator: 登録情報の保存領域を確保する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/fnativereg-b8de2aaf.html"><span><span class="identifier">struct FNativeReg;</span><span class="summary">登録したC++関数一件分の情報。</span></span><span class="kind-label">構造体 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-l-68d56395.html"><span><span class="identifier">lua_State* m_L = nullptr;</span><span class="summary">Initで生成するLua状態。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-laststringref-34be9427.html"><span><span class="identifier">int m_LastStringRef = LUA_NOREF;</span><span class="summary">直前に保持した戻り文字列の登録番号。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-nativeregistrationinprogress-7e57a552.html"><span><span class="identifier">bool m_NativeRegistrationInProgress = false;</span><span class="summary">同じ実行環境へのC++関数登録再入を拒否する状態。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-natives-90758d04.html"><span><span class="identifier">acs::TArray&lt;FNativeReg&gt; m_Natives;</span><span class="summary">登録したC++関数の一覧。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-nextnativeregistrationid-6ea8932d.html"><span><span class="identifier">lua_Integer m_NextNativeRegistrationId = 1;</span><span class="summary">Lua関数へ埋め込む次の登録番号。 公開開始後は失敗しても消費し、0は番号枯渇を示す。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/m-owner-c2fdf624.html"><span><span class="identifier">CLuaVm* m_Owner = nullptr;</span><span class="summary">この実装を所有するLua実行環境。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/nativetrampoline-f205e95d.html"><span><span class="identifier">static int NativeTrampoline(lua_State* state) noexcept;</span><span class="summary">Luaから登録済みC++関数を呼び出す。 state: 呼び出し元のLua状態。 戻り値: Luaへ返す値の個数。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fluavmimpl-f4d10248/releaselaststring-c9159194.html"><span><span class="identifier">void ReleaseLastString() noexcept;</span><span class="summary">直前に保持した戻り文字列を解放する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

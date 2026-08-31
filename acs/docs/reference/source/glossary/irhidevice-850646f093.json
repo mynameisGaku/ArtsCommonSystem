@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IRhiDevice",
+  "definition": "GPU そのものを表す RHI の中心インターフェース。 あらゆる GPU リソースをここから作る。"
+}

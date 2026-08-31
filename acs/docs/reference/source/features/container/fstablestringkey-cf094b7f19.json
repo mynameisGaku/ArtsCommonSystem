@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "FStableStringKey",
+    "kind": "構造体",
+    "header": "container/StableStringKey.h",
+    "summary": "文字列 view と事前計算済み hash を組にした非所有キー。",
+    "when": "同じ文字列キーを繰り返し検索し、毎回の hash 計算を省く時。"
+  }
+}

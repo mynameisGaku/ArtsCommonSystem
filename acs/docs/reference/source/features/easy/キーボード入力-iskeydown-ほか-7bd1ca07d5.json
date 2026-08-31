@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "キーボード入力（IsKeyDown ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "キーの状態を読む。 Down=押されている間ずっと、Pressed=押した瞬間だけ、Released=離した瞬間だけ true。 TextInput() はIME確定後の入力文字（名前入力用）。 キーの種類は EKey 列挙。",
+    "when": "移動は IsKeyDown（押しっぱなしで動く）、ジャンプや決定は IsKeyPressed（1 回だけ反応）。 名前入力には TextInput。",
+    "sample": "if (IsKeyDown(EKey::Right)) x += 5;       // 押している間\nif (IsKeyPressed(EKey::Space)) Jump();    // 押した瞬間だけ\nconst char* t = TextInput();              // 入力文字（無ければ \"\"）\nif (IsKeyPressed(EKey::Backspace)) /* 一文字消す */;",
+    "members": [
+      {
+        "sig": "bool IsKeyDown(EKey key)",
+        "ret": "押下中か",
+        "desc": "押されている間ずっと true。 移動などに。"
+      },
+      {
+        "sig": "bool IsKeyPressed(EKey key)",
+        "ret": "押した瞬間か",
+        "desc": "押した瞬間のフレームだけ true。 1 回限りの操作に。"
+      },
+      {
+        "sig": "bool IsKeyReleased(EKey key)",
+        "ret": "離した瞬間か",
+        "desc": "離した瞬間のフレームだけ true。"
+      },
+      {
+        "sig": "const char* TextInput()",
+        "ret": "入力文字 または \"\"",
+        "desc": "このフレームに入力された文字（UTF-8、IME 確定後）。 無ければ空文字列。",
+        "when": "プレイヤー名やチャットの入力欄に。"
+      }
+    ]
+  }
+}

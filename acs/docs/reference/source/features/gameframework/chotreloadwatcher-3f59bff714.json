@@ -1,0 +1,76 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CHotReloadWatcher",
+    "kind": "クラス",
+    "header": "gameframework/HotReload.h",
+    "summary": "Windows 開発ビルドで ReadDirectoryChangesW を非同期駆動し、変更を bounded FIFO と安定 snapshot のコールバックへ配る single-thread-affine watcher/queue seam。 path は UTF-8 の所有コピーで、同一 path の burst を debounce できる。 アセット再 import や CMessageBroker publish は上位利用側の責務。",
+    "when": "ゲームを動かしたまま asset directory の変更を検出する時。 出荷ビルド (ACS_GAME_SHIPPING) では互換 API を残した no-op shell となる。 TryWatchFile は path 登録だけで native handle を作らないため、単一 file の実監視には親 directory も登録する。",
+    "sample": "CHotReloadWatcher w;\nw.Init();\nif (w.TryWatchDirectory(\"Assets/Textures\", true) != EHotReloadResult::Success) return;\nw.TrySetDebounceSeconds(0.05f);\nw.TryRegisterCallback(&OnReload, this);\n// 毎フレーム:\nw.TryTick(dt);\nconst FHotReloadDiagnostics d = w.CaptureDiagnostics();\nif (d.authoritative_rescan_required) {\n    RescanAssets();\n    w.ClearDiagnostics();\n}",
+    "members": [
+      {
+        "sig": "void Init() / void Shutdown()",
+        "desc": "初期化 / 後始末。 Shutdown は監視パス・コールバック・未処理イベントを全クリア。 どちらも多重呼び出し可。"
+      },
+      {
+        "sig": "EHotReloadResult TryWatchDirectory(const char* dir, bool recursive = true)",
+        "desc": "UTF-8 path 検証・所有コピー・OS handle・初回 async read が全て成功した時だけ監視を登録する。"
+      },
+      {
+        "sig": "EHotReloadResult TryWatchFile(const char* file_path)",
+        "desc": "bounded な単一 file path 登録。 native watcher は作らないので、OS 変更を得るには親 directory の登録が必要。"
+      },
+      {
+        "sig": "void Unwatch(const char* path)",
+        "desc": "監視対象から外す (完全一致のみ)。"
+      },
+      {
+        "sig": "EHotReloadResult TryRegisterCallback(FHotReloadCallback cb, void* user) / UnregisterCallback(...)",
+        "desc": "最大 64 組の callback を checked 登録/解除する。 dispatch は stable snapshot で、callback からの解除・ClearEvents・Shutdown を許す。 ClearEvents 後に enqueue した event は次の TryTick まで延期する。"
+      },
+      {
+        "sig": "EHotReloadResult TrySetDebounceSeconds(f32 seconds) / f32 DebounceSeconds() const",
+        "desc": "同一 path の event coalescing を有限な 0〜60 秒で設定/取得する。"
+      },
+      {
+        "sig": "EHotReloadResult TryEnqueueEvent(const char* path, u64 timestamp, bool removed = false)",
+        "desc": "独自 change source から native event と同じ検証・上限・debounce を通して enqueue する。"
+      },
+      {
+        "sig": "EHotReloadResult TryTick(f32 dt)",
+        "desc": "Windows async watcher を非 blocking poll し、FIFO event を callback へ配る。 無効 dt と再入を拒否する。 native overflow、poll・parser・再 arm error、native event の queue/OOM loss は診断 snapshot に authoritative rescan 要求を残す。"
+      },
+      {
+        "sig": "bool ConsumeNextEvent(FHotReloadEvent& out)",
+        "ret": "取り出せたか",
+        "desc": "溜まった未処理イベントを 1 件 FIFO で取り出す。 path は次の Consume/Clear/Shutdown まで watcher が所有する。"
+      },
+      {
+        "sig": "u32 WatchedCount() / u32 PendingEventCount()",
+        "desc": "監視中の path 数 / 未処理イベント数。"
+      },
+      {
+        "sig": "FHotReloadDiagnostics CaptureDiagnostics() const",
+        "ret": "診断値の snapshot",
+        "desc": "enqueue・coalesce・dispatch・拒否・loss の飽和 counter、直近失敗、全量 rescan 要求を allocation-free で値コピーする。 成功操作では sticky な失敗状態を消さない。"
+      },
+      {
+        "sig": "void ClearDiagnostics()",
+        "desc": "診断 counter・直近失敗・rescan 要求だけを明示 clear する。 監視登録、callback、pending event は維持する。"
+      },
+      {
+        "sig": "void ClearEvents()",
+        "desc": "未処理イベントを全クリア。 callback 中は現在 event の残り callback を完走してから外側 drain を止め、後から enqueue した event を同じ tick に配信しない。"
+      },
+      {
+        "sig": "using FHotReloadWatcher = CHotReloadWatcher",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CHotReloadWatcher を使う。"
+      }
+    ]
+  }
+}

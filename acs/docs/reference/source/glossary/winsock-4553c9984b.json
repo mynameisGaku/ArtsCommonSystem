@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "WinSock",
+  "definition": "Windows のソケット通信ライブラリ。 ACS の CNetwork はこれを薄くくるんでいる。"
+}

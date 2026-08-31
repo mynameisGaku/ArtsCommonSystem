@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "GC",
+  "definition": "Garbage Collection(ガベージコレクション)。 不要になったメモリを自動回収する仕組み。 Lua が内部で行う。"
+}

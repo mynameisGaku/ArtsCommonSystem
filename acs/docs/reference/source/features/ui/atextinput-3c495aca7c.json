@@ -1,0 +1,68 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "ATextInput",
+    "kind": "クラス",
+    "header": "ui/Widgets.h",
+    "summary": "1 行の UTF-8 テキスト入力欄。 コードポイント境界を保つカーソル移動・選択・置換・Backspace/Delete・Home/End、Shift による選択拡張、Ctrl+A と、確保量を制限する byte 上限を持つ。 クリック時のカーソルは現行 pointer API の制約から末尾へ移動する。",
+    "when": "プレイヤー名やチャットなど、短い文字をキーボードで入力させたい時。 プログラム側から UTF-8 byte 範囲を選択して置換・削除する用途にも使える。",
+    "sample": "ATextInput* in = root.Add<ATextInput>();\nin->TrySetMaxTextBytes(64);\nin->text.Subscribe([](const FString& s, void*){\n    SetPlayerName(s);\n}, nullptr);\n// UTF-8 境界の byte 範囲だけを選択できる\nif (in->TrySetSelection(0, in->text.Get().Size())) {\n    in->TryInsertCodepoint('A'); // 選択範囲を置換\n}",
+    "members": [
+      {
+        "sig": "TObservable<FString> text",
+        "desc": "入力中の UTF-8 文字列。 編集成功時に更新され、Subscribe / Bind で受け取れる。"
+      },
+      {
+        "sig": "bool TryInsertCodepoint(u32 codepoint)",
+        "ret": "挿入できたか",
+        "desc": "Unicode scalar value を現在の cursor へ挿入する。 選択中は範囲を置換する。 無効値・上限超過・確保失敗では文字列、cursor、選択 anchor、末尾追従状態を変更せず、text の通知も発生させない。"
+      },
+      {
+        "sig": "bool TryEraseBeforeCursor() / bool TryEraseAtCursor()",
+        "desc": "選択中は選択範囲を優先して削除し、それ以外は cursor の前または位置上の 1 コードポイントを UTF-8 境界単位で削除する。 確保失敗時は編集状態と通知回数を維持する。"
+      },
+      {
+        "sig": "void MoveCursorLeft/Right/ToStart/ToEnd()",
+        "desc": "コードポイント境界を保って cursor を移動する。 選択中の Left/Right は選択の先頭/末尾へ折り畳む。"
+      },
+      {
+        "sig": "void OnKey(i32 key, bool pressed, const FUiKeyModifiers& modifiers) noexcept",
+        "desc": "Shift+Left/Right/Home/End で anchor を固定した選択拡張・縮小・方向反転を行い、Ctrl+A で全体を選択する。 Ctrl+Alt の AltGr は全選択と誤認しない。 3引数版は modifier snapshot を保持して仮想2引数版へ転送するため、2引数版だけを override した既存 ATextInput 派生にも実 Dispatch の押下/解放が届く。"
+      },
+      {
+        "sig": "usize CursorByteOffset() / bool TrySetCursorByteOffset(usize)",
+        "desc": "cursor の UTF-8 byte offset を取得/設定する。 コードポイント途中への設定は拒否し、成功時は選択を解除する。"
+      },
+      {
+        "sig": "bool HasSelection() / usize SelectionStart() / usize SelectionEnd()",
+        "desc": "空でない選択の有無と、正規化済みの選択範囲を UTF-8 byte offset で返す。 外部 binding で文字列が短縮されていても現在のコードポイント境界へ安全に補正する。"
+      },
+      {
+        "sig": "bool TrySetSelection(usize selection_start, usize selection_end)",
+        "ret": "設定できたか",
+        "desc": "両端が現在の UTF-8 コードポイント境界で、先頭が末尾以下の範囲だけを選択する。 成功時は cursor を選択末尾へ置く。 範囲外・境界途中では false を返し、cursor、anchor、末尾追従を含む全状態を維持する。"
+      },
+      {
+        "sig": "void ClearSelection() / void SelectAll()",
+        "desc": "選択を現在の cursor へ折り畳む、または文字列全体を選択して cursor を末尾へ置く。"
+      },
+      {
+        "sig": "void Render(CUiRenderer& r) noexcept",
+        "desc": "フォーカス中の選択範囲は input_selection 色で背景・枠の後、文字列・caret の前に描画する。 矩形は入力欄の左右 6 px の内容領域と上下 3 px の範囲へ clamp し、隣接 UI へはみ出させない。"
+      },
+      {
+        "sig": "bool TrySetMaxTextBytes(usize) / usize MaxTextBytes() const",
+        "desc": "入力上限を設定/取得する。 既定 4096 bytes、hard limit 1 MiB。 設定変更だけでは既存文字列を切り詰めない。"
+      },
+      {
+        "sig": "using FTextInput = ATextInput",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ATextInput を使う。"
+      }
+    ]
+  }
+}

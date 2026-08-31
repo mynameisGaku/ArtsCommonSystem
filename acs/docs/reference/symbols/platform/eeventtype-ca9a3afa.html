@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ウィンドウ・入力イベントの種別。">
+  <title>acs::EEventType — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/platform.html">platform モジュール</a><a href="eeventtype-ca9a3afa.html" aria-current="page">EEventType</a><a class="tree-child" href="eeventtype-ca9a3afa/charinput-08ee9ac9.html">CharInput</a><a class="tree-child" href="eeventtype-ca9a3afa/keypressed-ced11963.html">KeyPressed</a><a class="tree-child" href="eeventtype-ca9a3afa/keyreleased-239fd6c0.html">KeyReleased</a><a class="tree-child" href="eeventtype-ca9a3afa/keyrepeat-59f0f2d7.html">KeyRepeat</a><a class="tree-child" href="eeventtype-ca9a3afa/mousebuttonpressed-f3f22b0d.html">MouseButtonPressed</a><a class="tree-child" href="eeventtype-ca9a3afa/mousebuttonreleased-f531cfe9.html">MouseButtonReleased</a><a class="tree-child" href="eeventtype-ca9a3afa/mousemoved-9e6686a6.html">MouseMoved</a><a class="tree-child" href="eeventtype-ca9a3afa/mousescrolled-fa2d0b50.html">MouseScrolled</a><a class="tree-child" href="eeventtype-ca9a3afa/none-01366cc9.html">None</a><a class="tree-child" href="eeventtype-ca9a3afa/windowclose-0b1a9191.html">WindowClose</a><a class="tree-child" href="eeventtype-ca9a3afa/windowfocus-73f0c362.html">WindowFocus</a><a class="tree-child" href="eeventtype-ca9a3afa/windowlostfocus-dbc4802a.html">WindowLostFocus</a><a class="tree-child" href="eeventtype-ca9a3afa/windowresize-20ac2fc3.html">WindowResize</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/platform.html">platform</a><span>/</span><span aria-current="page">EEventType</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / platform</div>
+<h1 class="identifier">acs::EEventType</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16809">ウィンドウ</button><span class="term-tooltip" id="term-tip-16809" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16810">入力</button><span class="term-tooltip" id="term-tip-16810" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16811">イベント</button><span class="term-tooltip" id="term-tip-16811" role="tooltip">『× ボタンが押された』『キーが押された』のような、その瞬間に起きた出来事の通知。 ACS では FEvent として届く。</span></span>の種別。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::EEventTypeの宣言"><code>enum class <a href="eeventtype-ca9a3afa.html" aria-current="page">EEventType</a> : <a href="../foundation/u8-b0858e19.html">u8</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/platform.html">platform</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/platform/Event.h:11</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="eeventtype-ca9a3afa/charinput-08ee9ac9.html"><span><span class="identifier">CharInput</span><span class="summary">文字が入力された (IME 確定後の Unicode コードポイント。 char_input フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/keypressed-ced11963.html"><span><span class="identifier">KeyPressed</span><span class="summary">キーが押された (押下開始の 1 回。 key フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/keyreleased-239fd6c0.html"><span><span class="identifier">KeyReleased</span><span class="summary">キーが離された (key フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/keyrepeat-59f0f2d7.html"><span><span class="identifier">KeyRepeat</span><span class="summary">キーが押され続けて OS のオートリピートが発火した (key フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/mousebuttonpressed-f3f22b0d.html"><span><span class="identifier">MouseButtonPressed</span><span class="summary">マウスボタンが押された (mouse_button フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/mousebuttonreleased-f531cfe9.html"><span><span class="identifier">MouseButtonReleased</span><span class="summary">マウスボタンが離された (mouse_button フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/mousemoved-9e6686a6.html"><span><span class="identifier">MouseMoved</span><span class="summary">マウスカーソルが移動した (mouse_move フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/mousescrolled-fa2d0b50.html"><span><span class="identifier">MouseScrolled</span><span class="summary">マウスホイールが回転した (mouse_scroll フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/none-01366cc9.html"><span><span class="identifier">None = 0</span><span class="summary">無効値 (ゼロ初期化された FEvent の既定)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/windowclose-0b1a9191.html"><span><span class="identifier">WindowClose</span><span class="summary">ウィンドウの × ボタンや閉じる要求が来た。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/windowfocus-73f0c362.html"><span><span class="identifier">WindowFocus</span><span class="summary">ウィンドウがフォーカスを獲得した。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/windowlostfocus-dbc4802a.html"><span><span class="identifier">WindowLostFocus</span><span class="summary">ウィンドウがフォーカスを喪失した。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eeventtype-ca9a3afa/windowresize-20ac2fc3.html"><span><span class="identifier">WindowResize</span><span class="summary">ウィンドウのクライアント領域サイズが変わった (resize フィールド有効)。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

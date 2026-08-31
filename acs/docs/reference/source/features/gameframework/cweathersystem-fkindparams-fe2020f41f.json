@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CWeatherSystem::FKindParams",
+    "kind": "構造体",
+    "header": "gameframework/WeatherSystem.h",
+    "summary": "天候ごとの修飾パラメータ(環境光倍率 / 粒子密度 / 空色 / 風強さ / 霧密度)を 1 つにまとめた表。 各 getter が内部でこの表を参照します。",
+    "when": "天候パラメータの内部構造を理解する時(通常は getter 経由で十分)。",
+    "sample": "// 各天候の係数を LUT として .cpp に保持する",
+    "members": [
+      {
+        "sig": "f32 ambient_mult / f32 particle_density / f32 fog_density",
+        "desc": "環境光倍率 / 粒子密度 / 霧密度。"
+      },
+      {
+        "sig": "FVec3 sky_tint / f32 wind_strength",
+        "desc": "空色補正 / 風の強さ。"
+      }
+    ]
+  }
+}

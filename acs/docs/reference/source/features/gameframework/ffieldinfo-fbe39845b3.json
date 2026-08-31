@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FFieldInfo",
+    "kind": "構造体",
+    "header": "gameframework/TypeInfo.h",
+    "summary": "リフレクションされた1 フィールドの記述。 名前・型名・型先頭からのバイトオフセット・バイトサイズを持ちます。",
+    "when": "型情報を走査して、各フィールドのメモリ位置やサイズを使う時(汎用シリアライザなど)。",
+    "sample": "const FFieldInfo& f = ti.fields[0];",
+    "members": [
+      {
+        "sig": "const c8* name / const c8* type_name",
+        "desc": "フィールド名 / ユーザー指定の型名文字列。"
+      },
+      {
+        "sig": "usize offset / usize size",
+        "desc": "型先頭からのバイトオフセット(offsetof) / フィールドのバイトサイズ(sizeof)。"
+      }
+    ]
+  }
+}

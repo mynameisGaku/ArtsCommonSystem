@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CTelemetryDirector",
+    "kind": "クラス",
+    "header": "gameframework/TelemetryDirector.h",
+    "summary": "「level_completed」「player_died」などの解析イベントを集めてサーバへまとめ送りする director。 一定間隔または明示 Flush() で IBackendClient 経由送信。 GDPR 同意が無ければ全 no-op。",
+    "when": "ゲームのプレイ状況を解析したい時。 backend 未接続でもオフラインで貯めておける。",
+    "sample": "CTelemetryDirector td;\ntd.Init(&backend, &privacy);\ntd.TrackEvent(\"level_started\",\n              R\"({\\\"level\\\":3})\",\n              EEventPriority::Important, \"gameplay\");\ntd.Tick(dt); // 毎フレーム\ntd.Flush();",
+    "members": [
+      {
+        "sig": "void Init(IBackendClient* backend, CPrivacyDirector* privacy = nullptr)",
+        "desc": "送信先 backend (必須) と同意管理 (任意) を注入する。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "キューを空にし backend / privacy 参照を切る (送信はしない)。"
+      },
+      {
+        "sig": "void TrackEvent(const char* event_name, const char* json_payload = \"{}\", EEventPriority priority = EEventPriority::Info, const char* category = \"general\")",
+        "desc": "イベントを投入する。 nullptr / 同意なし / 無効カテゴリは no-op。 上限超過時は最古を捨てる。",
+        "when": "ゲーム進行の節目で呼ぶ。"
+      },
+      {
+        "sig": "void Flush()",
+        "desc": "貯まったイベントを backend へ送る。 失敗分はキューに残し次回再送。"
+      },
+      {
+        "sig": "u32 PendingCount() / SentCount() / FailedCount() const",
+        "desc": "未送信 / 送信成功 / 送信失敗の累計件数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "時間を蓄積し間隔超過で自動 Flush する。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetFlushInterval(f32 sec)",
+        "desc": "自動 Flush の間隔 (秒)。 0 以下は 5 秒既定に補正。"
+      },
+      {
+        "sig": "void EnableCategory(const char* category, bool enabled)",
+        "desc": "カテゴリ単位で送信可否を切り替える (既定は未登録 = 有効)。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "キュー / フィルタ / カウンタを初期化 (backend 参照は保持)。"
+      },
+      {
+        "sig": "using FTelemetryDirector = CTelemetryDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTelemetryDirector を使う。"
+      }
+    ]
+  }
+}

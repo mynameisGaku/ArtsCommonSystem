@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="1 つの bone の情報(名前 + 親 index)。 parent_index &lt; 0 は root bone を意味する。 Inspector は子リストを保持せず、描画時に parent_index から子を線形走査して TreeNode 階層を再構築する。">
+  <title>FBoneInfo — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/editor.html">editor モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/editor.html">editor</a><span>/</span><span aria-current="page">FBoneInfo</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / editor</div><h1 class="identifier">FBoneInfo</h1>
+<p class="lead">1 つの bone の情報(名前 + 親 index)。 parent_index &lt; 0 は root bone を意味する。 Inspector は子リストを保持せず、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23803">描画</button><span class="term-tooltip" id="term-tip-23803" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>時に parent_index から子を線形走査して TreeNode 階層を再構築する。</p></div><div class="badges"><span class="badge">構造体(POD)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fboneinfo-e6432b30.html"><code>acs::game::modelview::FBoneInfo</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Inspector の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23801">ボーン</button><span class="term-tooltip" id="term-tip-23801" role="tooltip">スキンメッシュを動かす骨。 階層を組み、頂点がこれに追従して変形する。</span></span>階層ツリーを表示するため、bone ごとに 1 件作って配列で渡す。 配列内 index が親参照のキーになる。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>editor</dd></div><div class="fact"><dt>分類</dt><dd>構造体(POD)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/tools/modelview/ModelInspectorPanel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-c496c8a8bf34813a6c03"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fboneinfo-e6432b30/name-b5010573.html">name</a> = nullptr</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>bone 名(例: &quot;Hips&quot;, &quot;Spine_01&quot;)。 caller 所有の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23802">ポインタ</button><span class="term-tooltip" id="term-tip-23802" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fboneinfo-e6432b30/name-b5010573.html"><code>acs::game::modelview::FBoneInfo::name</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-5d1adcb406dd5fdb003f"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>i32 <a href="../../symbols/gameframework/fboneinfo-e6432b30/parent-index-0c9a53a5.html">parent_index</a> = -1</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>同 bones 配列内の親 index。 root は -1。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fboneinfo-e6432b30/parent-index-0c9a53a5.html"><code>acs::game::modelview::FBoneInfo::parent_index</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FBoneInfoの使用例"><code>FBoneInfo bones[2];
+bones[0].name = &quot;Hips&quot;;  bones[0].parent_index = -1; // ルートボーン
+bones[1].name = &quot;Spine&quot;; bones[1].parent_index = 0;   // Hips の子</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

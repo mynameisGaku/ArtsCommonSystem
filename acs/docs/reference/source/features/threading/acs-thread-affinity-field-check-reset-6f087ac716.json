@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "ACS_THREAD_AFFINITY_FIELD / _CHECK / _RESET",
+    "kind": "マクロ",
+    "header": "threading/ThreadAffinity.h",
+    "summary": "あるクラスを『決まった 1 スレッドからしか触ってはいけない』とDebug ビルドで検証する仕掛け。 初回呼び出しのスレッドに固定し、別スレッドから呼ぶと panic。 Release では完全に消える(0 バイト・no-op)。",
+    "when": "UI ビューなど『メインスレッド専用』のクラスで、誤って別スレッドから触っていないかを開発中に自動検出したい時。",
+    "sample": "class FMyView {\n    ACS_THREAD_AFFINITY_FIELD();      // 検査用メンバを生やす\npublic:\n    void Set(int v) {\n        ACS_THREAD_AFFINITY_CHECK();  // 初回スレッドに固定、違反で panic\n        m_v = v;\n    }\n};",
+    "members": [
+      {
+        "sig": "ACS_THREAD_AFFINITY_FIELD()",
+        "desc": "クラス内に検査用メンバを宣言する(Debug のみ。 Release で 0 バイト)。"
+      },
+      {
+        "sig": "ACS_THREAD_AFFINITY_CHECK()",
+        "desc": "最初に呼ばれたスレッドに固定し、以後そのスレッド以外から呼ばれたら ACS_ASSERTF で停止。"
+      },
+      {
+        "sig": "ACS_THREAD_AFFINITY_RESET()",
+        "desc": "固定をリセットする(テストで別スレッドに付け替えたい時)。"
+      }
+    ]
+  }
+}

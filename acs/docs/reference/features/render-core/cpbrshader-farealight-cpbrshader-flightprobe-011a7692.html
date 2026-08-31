@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CPbrShader 専用の入力。 FAreaLight=矩形のエリアライト(中心 + 2 軸の半幅ベクトル + 色)、FLightProbe=静的光プローブ(位置 + 球面調和9 係数)。">
+  <title>CPbrShader::FAreaLight / CPbrShader::FLightProbe — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-core.html">render-core モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-core.html">render-core</a><span>/</span><span aria-current="page">CPbrShader::FAreaLight / CPbrShader::FLightProbe</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-core</div><h1 class="identifier">CPbrShader::FAreaLight / CPbrShader::FLightProbe</h1>
+<p class="lead">CPbrShader 専用の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28620">入力</button><span class="term-tooltip" id="term-tip-28620" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>。 FAreaLight=矩形の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28621">エリアライト</button><span class="term-tooltip" id="term-tip-28621" role="tooltip">面(矩形等)から放射される光。 点光源より柔らかい陰影になる。</span></span>(中心 + 2 軸の半幅<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28622">ベクトル</button><span class="term-tooltip" id="term-tip-28622" role="tooltip">向きと大きさを持つ量。 2D/3D の位置・速度・方向を FVec2/FVec3 で表す。</span></span> + 色)、FLightProbe=静的光プローブ(位置 + <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28623">球面調和</button><span class="term-tooltip" id="term-tip-28623" role="tooltip">方向ごとの光を少数の係数(SH)で表す近似。 間接光(irradiance)の圧縮表現に使う。</span></span>9 係数)。</p></div><div class="badges"><span class="badge">構造体(入れ子)</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/render/cpbrshader-5a093621.html"><code>acs::CPbrShader</code></a><span class="summary"><code>class CPbrShader;</code></span></li><li><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5.html"><code>acs::CPbrShader::FAreaLight</code></a><span class="summary"><code>struct FAreaLight;</code></span></li><li><a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a.html"><code>acs::CPbrShader::FLightProbe</code></a><span class="summary"><code>struct FLightProbe;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>面光源で柔らかい照明を作る / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28618">シーン</button><span class="term-tooltip" id="term-tip-28618" role="tooltip">タイトル・ゲーム本編・リザルトのような、画面の一場面とその進行をまとめた単位。</span></span>に事前計算の間接光プローブを置くとき。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-core</dd></div><div class="fact"><dt>分類</dt><dd>構造体(入れ子)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/PbrShader.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-a33da6e503b55b8f62b5"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>struct <a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5.html">FAreaLight</a>{ FVec3 <a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/center-b22e38eb.html">center</a>, <a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/axis-x-5d166f19.html">axis_x</a>, <a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/axis-y-c0d9095f.html">axis_y</a>, <a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/color-5681ed7a.html">color</a> }</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>矩形中心 + 半幅 2 軸 + 放射輝度。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28619">法線</button><span class="term-tooltip" id="term-tip-28619" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>方向の逆へ片面 emit。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5.html"><code>acs::CPbrShader::FAreaLight</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/center-b22e38eb.html"><code>acs::CPbrShader::FAreaLight::center</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/axis-x-5d166f19.html"><code>acs::CPbrShader::FAreaLight::axis_x</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/axis-y-c0d9095f.html"><code>acs::CPbrShader::FAreaLight::axis_y</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/farealight-6d6ce2d5/color-5681ed7a.html"><code>acs::CPbrShader::FAreaLight::color</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-307bef7f74b2b0e8d115"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>struct <a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a.html">FLightProbe</a>{ FVec3 <a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a/position-6223b238.html">position</a>, FVec4 <a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a/sh9-aafe915d.html">sh9</a>[9] }</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>world 位置と SH9 9 係数(xyz=RGB)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a.html"><code>acs::CPbrShader::FLightProbe</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a/position-6223b238.html"><code>acs::CPbrShader::FLightProbe::position</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cpbrshader-5a093621/flightprobe-e6b1854a/sh9-aafe915d.html"><code>acs::CPbrShader::FLightProbe::sh9</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CPbrShader::FAreaLight / CPbrShader::FLightProbeの使用例"><code>CPbrShader::FAreaLight a;
+a.center = FVec3{0,3,0};
+a.axis_x = FVec3{1,0,0}; a.axis_y = FVec3{0,0,1};
+a.color  = FVec3{8,8,8};
+shd.SetAreaLights(&amp;a, 1);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

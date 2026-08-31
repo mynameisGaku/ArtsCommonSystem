@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FSnapshotHeader",
+    "kind": "構造体",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "wire format 上の 1 snapshot ヘッダ (固定 24 byte, LE)。 tick・sequence・server timestamp・payload サイズ・CRC32。",
+    "when": "Encode/DecodeSnapshot で扱う 1 frame の先頭メタ情報。",
+    "members": [
+      {
+        "sig": "u32 tick / u32 sequence",
+        "desc": "server tick / モノトニック増加する送信通番 (loss/重複検知)。"
+      },
+      {
+        "sig": "u64 server_timestamp_us",
+        "desc": "server 計測時の Unix microseconds。"
+      },
+      {
+        "sig": "u32 payload_size / u32 crc32",
+        "desc": "後続 payload のバイト数 / frame footer の CRC32。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "ACS_ASSET_TYPE(name)",
+    "kind": "マクロ",
+    "header": "asset/Asset.h",
+    "summary": "派生アセットクラスに型 ID を一行で宣言するマクロ。 文字列リテラルからハッシュで StaticType() を作り、Type() を override する。",
+    "when": "自前のアセット型を AAsset から派生させる時、クラス先頭に置くだけ。",
+    "sample": "class FMyAsset : public AAsset {\npublic:\n    ACS_ASSET_TYPE(\"FMyAsset\")   // StaticType() と Type() を定義\n    // ...\n};\nif (a->Type() == FMyAsset::StaticType()) { /* これだ */ }"
+  }
+}

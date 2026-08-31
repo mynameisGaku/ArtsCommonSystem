@@ -1,0 +1,45 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSequence",
+    "kind": "クラス",
+    "header": "gameframework/Sequence.h",
+    "summary": "「待つ → 関数を呼ぶ → 値をなめらかに変える」を 1 行で連鎖記述するビルダー。 作った FSequence は CSequenceRunner に ムーブで渡して再生する。",
+    "when": "カットシーン・出現ウェーブ・タイトルのロゴ演出など、時間に沿った一連の動きを台本のように書きたい時。",
+    "sample": "FSequence s;\ns.Wait(0.3f)\n .Tween(&logoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)\n .Wait(1.0f)\n .Call(&ATitleScene::FadeOutBegin, this);\nrunner.Start(static_cast<FSequence&&>(s));",
+    "members": [
+      {
+        "sig": "FSequence& Wait(f32 seconds)",
+        "desc": "指定秒だけ何もせず待つ動作を 1 つ足す。",
+        "when": "次の動きまで間を空けたい時。"
+      },
+      {
+        "sig": "FSequence& Call(void(*fn)(void* user) noexcept, void* user = nullptr)",
+        "desc": "その時点で関数を 1 度だけ呼ぶ。",
+        "sample": "s.Call(&MyScene::OnDone, this);"
+      },
+      {
+        "sig": "FSequence& Tween(f32* target, f32 from, f32 to, f32 duration, Easing::EasingFn ease = Easing::Linear)",
+        "desc": "f32 変数を from から to へ duration 秒かけて補間する。 イージングで緩急を付けられる。",
+        "when": "透明度・音量・座標 1 軸などを滑らかに変えたい時。"
+      },
+      {
+        "sig": "FSequence& Tween(FVec2* / FVec3* target, from, to, duration, ease)",
+        "desc": "2D / 3D ベクトルを補間する版。 色や位置をまとめて動かせる。"
+      },
+      {
+        "sig": "FSequence& Loop(u32 count)",
+        "desc": "全体を何回繰り返すか。 0 で無限ループ、既定は 1 回。"
+      },
+      {
+        "sig": "const TArray<FSeqAction>& Actions() const",
+        "desc": "積んだ動作リストを参照する (主に Runner 内部用)。"
+      }
+    ]
+  }
+}

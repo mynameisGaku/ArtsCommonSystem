@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "2D のスプライトが思った場所と上下逆/ずれる",
+  "item": {
+    "q": "2D のスプライトが思った場所と上下逆/ずれる",
+    "tags": [
+      "2D",
+      "座標",
+      "Y-down"
+    ],
+    "a": "GameFramework の 2D world は scene/camera 中心で +Y が下向きです。 HUD / screen / easy の pixel 座標だけが左上原点です。 world の picking は AScene::ScreenToWorld を使ってください。"
+  }
+}

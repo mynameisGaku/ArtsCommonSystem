@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FMusicTrack",
+    "kind": "構造体",
+    "header": "gameframework/MusicDirector.h",
+    "summary": "適応 BGM の 1 トラック登録情報。 アセットパス・intensity 範囲・ループ可否。",
+    "when": "RegisterTrack に渡す。 現在の intensity が range 内のとき候補になる。",
+    "members": [
+      {
+        "sig": "const char* asset_path",
+        "desc": "曲のパス (非所有、リテラル前提)。"
+      },
+      {
+        "sig": "f32 intensity_min / intensity_max",
+        "desc": "再生候補になる激しさ範囲 [0,1]。 [0,1] にすれば常時候補。"
+      },
+      {
+        "sig": "bool loop",
+        "desc": "ループ再生か (Calm/Combat) / one-shot か (Victory)。"
+      }
+    ]
+  }
+}

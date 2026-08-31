@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="無効な FAssetId を表す定数(FAssetId{0})。 value == 0 は「無効」として予約されており、MakeAssetId は結果が 0 になった場合 1 に補正してこの値と衝突しないようにする。">
+  <title>kInvalidAssetId — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/asset.html">asset モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/asset.html">asset</a><span>/</span><span aria-current="page">kInvalidAssetId</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / asset</div><h1 class="identifier">kInvalidAssetId</h1>
+<p class="lead">無効な <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22292">FAssetId</button><span class="term-tooltip" id="term-tip-22292" role="tooltip">パス文字列をハッシュした 64-bit のアセット識別子。 同じパスなら必ず同じ ID。</span></span> を表す定数(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22293">FAssetId</button><span class="term-tooltip" id="term-tip-22293" role="tooltip">パス文字列をハッシュした 64-bit のアセット識別子。 同じパスなら必ず同じ ID。</span></span>{0})。 value == 0 は「無効」として予約されており、MakeAssetId は結果が 0 になった場合 1 に補正してこの値と衝突しないようにする。</p></div><div class="badges"><span class="badge">定数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/asset/kinvalidassetid-bc5d2b9d.html"><code>acs::kInvalidAssetId</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>未設定/失敗の ID を初期値として置く時や、id != kInvalidAssetId で有効性を判定したい時(id.IsValid() と同義)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>asset</dd></div><div class="fact"><dt>分類</dt><dd>定数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>asset/AssetId.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-16c7bbf8adafe4b876a2"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>inline constexpr <a href="../../symbols/asset/fassetid-e62efef7.html">FAssetId</a> <a href="../../symbols/asset/kinvalidassetid-bc5d2b9d.html">kInvalidAssetId</a> = <a href="../../symbols/asset/fassetid-e62efef7.html">FAssetId</a>{0}</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>value == 0 の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22291">FAssetId</button><span class="term-tooltip" id="term-tip-22291" role="tooltip">パス文字列をハッシュした 64-bit のアセット識別子。 同じパスなら必ず同じ ID。</span></span>。 無効値の唯一の表現。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fassetid-e62efef7.html"><code>acs::FAssetId</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/kinvalidassetid-bc5d2b9d.html"><code>acs::kInvalidAssetId</code></a> <span class="kind-label">定数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="kInvalidAssetIdの使用例"><code>FAssetId id = kInvalidAssetId;       // まだ無効
+id = MakeAssetId(&quot;textures/hero.png&quot;);
+if (id != kInvalidAssetId) { /* 有効 */ }</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

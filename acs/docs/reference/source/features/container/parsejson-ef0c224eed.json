@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "ParseJson",
+    "kind": "関数",
+    "header": "container/Json.h",
+    "summary": "JSON テキストを解析して FJsonValue のDOMを返す入口。 構文・深さ・入力サイズの失敗は行・列または subcode 付きの Result で返す。 DOM 追加時の allocator 枯渇は checked API が fail-fast で検出する。",
+    "when": "外部の JSON を読み込む全ての場面。 結果は IsOk() を確かめてから Value() で取り出す。",
+    "sample": "TResult<FJsonValue> r = acs::ParseJson(text, len);\nif (!r.IsOk()) { /* r.Error() に line/col 付きエラー */ }\nelse { const FJsonValue& root = r.Value(); /* ... */ }",
+    "members": [
+      {
+        "sig": "TResult<FJsonValue> ParseJson(const char* text, usize len)",
+        "ret": "DOM または エラー",
+        "desc": "長さ指定でパースする。"
+      },
+      {
+        "sig": "TResult<FJsonValue> ParseJson(FStringView s)",
+        "ret": "DOM または エラー",
+        "desc": "文字列ビューからパースする。"
+      },
+      {
+        "sig": "TResult<FJsonValue> ParseJson(const char* text, usize len, IAllocator& allocator)",
+        "ret": "DOM または エラー",
+        "desc": "root、子、key、文字列を指定 allocator で構築する。"
+      },
+      {
+        "sig": "TResult<FJsonValue> ParseJson(FStringView s, IAllocator& allocator)",
+        "ret": "DOM または エラー",
+        "desc": "文字列ビューを指定 allocator でパースする。"
+      }
+    ]
+  }
+}

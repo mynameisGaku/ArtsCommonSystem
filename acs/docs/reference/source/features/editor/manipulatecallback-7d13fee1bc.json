@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ManipulateCallback",
+    "kind": "型エイリアス(関数ポインタ)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "drag 終了時に外部へ delta を通知する callback 型。 drag 完了時に 1 度だけ呼ばれ、CUndoStack に AMoveNodeCommand 等を push する適切なタイミングになる。 delta はモード依存(Translate=移動量 / Rotate=euler 差分[radians] / Scale=倍率差分)。 user は SetOnManipulateCallback の第二引数がそのまま戻る。",
+    "when": "ギズモ操作完了を undo stack やエディタの dirty フラグに反映したい時。",
+    "members": [
+      {
+        "sig": "using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept",
+        "desc": "drag 終了通知。 mode で delta の解釈が変わる。"
+      }
+    ]
+  }
+}

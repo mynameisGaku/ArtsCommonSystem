@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "FColor",
+    "kind": "構造体",
+    "header": "easy/Easy.h",
+    "summary": "色を表す値。 各成分 r,g,b,a は 0.0〜1.0。 a は不透明度（0=透明, 1=不透明）。 FColor::Red などの定数を使うか、Rgb(255,0,0) で作ります。",
+    "when": "すべての描画関数に色として渡す。 半透明にしたい時は a を下げるか Fade() を使う。",
+    "sample": "DrawRect(0, 0, 100, 100, FColor::Red);\nFColor mine = Rgb(255, 128, 0);     // 0〜255 で指定\nDrawRect(0, 0, 50, 50, Fade(mine, 0.5f)); // 半透明",
+    "members": [
+      {
+        "sig": "f32 r, g, b, a",
+        "desc": "赤・緑・青・不透明度。 すべて 0.0〜1.0。 a の既定は 1（不透明）。"
+      },
+      {
+        "sig": "static const FColor Red, Green, Blue, Yellow, Cyan, Magenta",
+        "desc": "よく使う色の定数。"
+      },
+      {
+        "sig": "static const FColor White, Black, Gray, Orange, Sky, Clear",
+        "desc": "Clear は完全透明。 Sky は空色。"
+      }
+    ]
+  }
+}

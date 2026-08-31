@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FAssetFuture",
+    "kind": "クラス",
+    "header": "asset/AssetFuture.h",
+    "summary": "非同期ロードの結果ハンドル(フューチャ)。 LoadAsync が返す。 完了をノンブロッキングで確認したり、待って結果を取り出したりできる。",
+    "when": "CAssetRegistry::LoadAsync の戻り値を保持し、後で完了を確認・取得する時。",
+    "sample": "FAssetFuture fut = reg.LoadAsync(L\"big_mesh.glb\");\nwhile (!fut.IsReady()) { /* 他の処理を進める */ }\nauto r = fut.Get();\nif (r.IsOk()) TSharedPtr<AAsset> a = r.Value();",
+    "members": [
+      {
+        "sig": "bool IsReady() const",
+        "ret": "完了済みか",
+        "desc": "ノンブロッキングで完了を確認。 true なら Get() がすぐ返る。"
+      },
+      {
+        "sig": "bool Valid() const",
+        "ret": "有効か",
+        "desc": "中身のある future か(構築失敗なら false)。"
+      },
+      {
+        "sig": "TResult<TSharedPtr<AAsset>> Get()",
+        "ret": "アセット または エラー",
+        "desc": "完了を待って結果を取り出す。 呼び出しスレッドがワーカーなら読み込みを手伝う(ワークスチール)。",
+        "when": "結果が必要になったら呼ぶ。 完了済みなら待たずに返る。"
+      },
+      {
+        "sig": "TResult<TSharedPtr<AAsset>> Wait()",
+        "ret": "アセット または エラー",
+        "desc": "Get() の別名。 直感的に「待つ」と書きたい時に。"
+      }
+    ]
+  }
+}

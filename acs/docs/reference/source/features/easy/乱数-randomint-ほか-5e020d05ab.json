@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "乱数（RandomInt ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "整数・小数・真偽値の乱数。 RandomSeed で種を固定すると、毎回同じ並びになる（再現性が必要なテストやリプレイに）。",
+    "when": "敵の出現位置、ドロップ判定、ランダム挙動。 デバッグで毎回同じ展開にしたい時は種を固定。",
+    "sample": "i32 hp = RandomInt(1, 100);          // 1〜100\nf32 angle = RandomFloat(0, 360);     // 0〜360 未満\nif (RandomBool()) SpawnEnemy();\nRandomSeed(42);                      // 同じ種＝同じ並び",
+    "members": [
+      {
+        "sig": "i32 RandomInt(i32 min, i32 max)",
+        "ret": "整数",
+        "desc": "min 以上 max 以下の整数。"
+      },
+      {
+        "sig": "f32 RandomFloat(f32 min, f32 max)",
+        "ret": "小数",
+        "desc": "min 以上 max 未満の小数。"
+      },
+      {
+        "sig": "bool RandomBool()",
+        "ret": "true/false",
+        "desc": "半々で true か false。"
+      },
+      {
+        "sig": "void RandomSeed(u32 seed)",
+        "desc": "乱数の種を固定する。 同じ種なら同じ並びになる。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CUndoStack",
+    "kind": "クラス(サービス)",
+    "header": "gameframework/tools/editor_core/UndoStack.h",
+    "summary": "全エディタが共有する undo / redo の中央ハブ。 AEditorCommand 派生を所有し、Push で 1 操作を実行・登録、Undo / Redo で巻き戻し / やり直す。 Push 内で Execute も実行(Execute 忘れを構造防止)、Push は redo stack を破棄、連続 drag は CanMerge / MergeWith で 1 件にまとめる、上限超過時は最古を drop。 非コピー / 非ムーブ、全 noexcept、内部は TArray<TUniquePtr<AEditorCommand>>。",
+    "when": "エディタ操作の undo / redo を統一管理する時。",
+    "sample": "CUndoStack stack;\nstack.Init(64);\nstack.Push(cmd);   // 所有権を渡す + Execute 実行\nif (stack.CanUndo()) stack.Undo();",
+    "members": [
+      {
+        "sig": "void Init(u32 max_history = 64) noexcept",
+        "ret": "—",
+        "desc": "初期化(履歴を空にし上限を設定)。 多重 Init 可。 0 渡しは既定 64 にフォールバック。"
+      },
+      {
+        "sig": "void Push(AEditorCommand* cmd) noexcept",
+        "ret": "—",
+        "desc": "所有権を奪う。 cmd->Execute() を呼び、直前と merge 可なら merge して破棄、不可なら積む。 redo stack を Clear し、上限超過なら最古を drop、callback を発火。 nullptr は no-op(delete されない)。"
+      },
+      {
+        "sig": "bool Undo() noexcept",
+        "ret": "成否",
+        "desc": "undo を 1 件巻き戻す。 top の Undo() を呼び redo stack へ Move、callback 発火。 空なら false。"
+      },
+      {
+        "sig": "bool Redo() noexcept",
+        "ret": "成否",
+        "desc": "redo を 1 件やり直す。 Execute() を呼び undo stack へ Move、callback を is_redo=true で発火。 空なら false。"
+      },
+      {
+        "sig": "bool CanUndo() const noexcept / bool CanRedo() const noexcept",
+        "ret": "可否",
+        "desc": "undo / redo 可能か(ImGui MenuItem の enabled に渡す想定)。"
+      },
+      {
+        "sig": "u32 UndoCount() const noexcept / u32 RedoCount() const noexcept",
+        "ret": "件数",
+        "desc": "undo / redo stack の件数。"
+      },
+      {
+        "sig": "const char* UndoDescription() const noexcept / const char* RedoDescription() const noexcept",
+        "ret": "ラベル",
+        "desc": "top の Description()(UI 表示用)。 空のときは nullptr ではなく空文字列 \"\" を返す。"
+      },
+      {
+        "sig": "void Clear() noexcept",
+        "ret": "—",
+        "desc": "全 cmd 破棄(TUniquePtr の dtor で自動 delete)。"
+      },
+      {
+        "sig": "void SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "Push / Undo / Redo 後の副反応 callback を 1 個保持(単一購読)。 nullptr で解除。"
+      },
+      {
+        "sig": "using FUndoStack = CUndoStack",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CUndoStack を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "timing",
+    "title": "timing — 決定論的な時間変換",
+    "description": "利用側が値として所有する固定更新時計。 可変な経過秒を有界な更新回数と描画補間率へ変換し、ゲームループや共有サービスの寿命から切り離します。"
+  },
+  "feature": {
+    "name": "FFixedStepAdvanceResult",
+    "kind": "構造体",
+    "header": "timing/FixedStepAdvanceResult.h",
+    "summary": "一回の経過入力で確定した更新回数、補間率、破棄秒、受付状態を返す値。",
+    "when": "固定更新を指定回数だけ実行し、描画を残り時間で補間する時。"
+  }
+}

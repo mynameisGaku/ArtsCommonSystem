@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPhotoMode::EFilterKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/PhotoMode.h",
+    "summary": "フォトモードの色フィルタ種別。 None (素通し) / Sepia (セピア) / Grayscale (モノクロ) / Vivid (高彩度) / Vignette (周辺光量落とし)。 実 LUT / シェーダ解決はポストプロセスパスの責務で、本 enum は「どれが選ばれているか」だけを持つ。",
+    "when": "撮影画面で色味のプリセットを切り替えたい時。",
+    "sample": "photo.SetFilter(CPhotoMode::Grayscale);"
+  }
+}

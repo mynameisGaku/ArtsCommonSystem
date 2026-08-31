@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "ESeasonStatus",
+    "kind": "列挙(enum)",
+    "header": "gameframework/SeasonPass.h",
+    "summary": "時刻ベースのシーズン状態。 NotStarted (開始前) / Active (期間中) / Ended (終了後)。",
+    "when": "シーズン UI の表示や、XP/claim を許すかの判断に。"
+  }
+}

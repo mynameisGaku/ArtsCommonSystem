@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCollisionSweepHit3D",
+    "kind": "構造体",
+    "header": "gameframework/CollisionSweepHit3D.h",
+    "summary": "3D sphere sweep の結果。 命中 shape、ray parameter T、接触時 center、world 法線、開始時重なりを保持する。",
+    "when": "kinematic な 3D 移動を接触直前で止めたり、接触面に沿わせる上位処理を作る時。"
+  }
+}

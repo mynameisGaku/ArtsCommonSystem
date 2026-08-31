@@ -1,0 +1,69 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCharacterCustomizer",
+    "kind": "クラス",
+    "header": "gameframework/CharacterCustomizer.h",
+    "summary": "プレイヤーキャラの見た目 (cosmetic) だけを slot 単位で着せ替えするマネージャ。 帽子・服・武器などを ECosmeticSlot ごとに 1 つずつ装着する。 性能 (戦闘パラメータ) は一切いじらない設計で、pay-to-win を構造的に避ける。",
+    "when": "アバターの着せ替え / スキン選択 UI を作る時。 アンロック済みの cosmetic から装着を選ばせ、装着が変わったらcallbackでレンダラに通知する。",
+    "sample": "CCharacterCustomizer cc;\ncc.RegisterCosmetic({ \\\"hat.red\\\", \\\"Red Cap\\\", ECosmeticSlot::Head, \\\"art/hat.fbx\\\", false, \\\"common\\\" });\ncc.UnlockCosmetic(\\\"hat.red\\\");\ncc.SetOnEquipCallback(&OnEquip, &renderer);\ncc.EquipCosmetic(\\\"hat.red\\\");  // Head slot に装着 → callback 発火",
+    "members": [
+      {
+        "sig": "void RegisterCosmetic(const FCosmeticItem& item)",
+        "desc": "起動時に cosmetic 定義を 1 つ登録する。 同 id の 2 重登録 / nullptr は無視。",
+        "when": "ゲーム開始時にすべての見た目アイテムをまとめて登録する。"
+      },
+      {
+        "sig": "bool UnlockCosmetic(const char* id)",
+        "ret": "新規 unlock したか",
+        "desc": "指定 id を入手済みにする。 既に unlock 済 / 未登録なら false。",
+        "when": "ストア購入やクエスト報酬で見た目を解放した時 (検証は呼出側で済ませてから通知)。"
+      },
+      {
+        "sig": "bool IsUnlocked(const char* id) const",
+        "desc": "その cosmetic が入手済みかを返す。 UI のグレーアウト判定に使う。"
+      },
+      {
+        "sig": "bool EquipCosmetic(const char* id)",
+        "ret": "装着できたか",
+        "desc": "該当 slot に装着する。 同 slot の既存装着は自動で外れる。 未登録 / 未 unlock は false。",
+        "when": "プレイヤーが着せ替え UI で選んだ時。"
+      },
+      {
+        "sig": "void UnequipSlot(ECosmeticSlot slot)",
+        "desc": "指定 slot の装着を外す (item_id=nullptr で callback 発火)。 空なら何もしない。"
+      },
+      {
+        "sig": "const char* EquippedInSlot(ECosmeticSlot slot) const",
+        "ret": "装着中 id または null",
+        "desc": "今その slot に着けている cosmetic の id。 未装着なら nullptr。"
+      },
+      {
+        "sig": "u32 UnlockedCount() const",
+        "ret": "unlock 済み件数",
+        "desc": "\\\"23/120 unlocked\\\" のような進捗表示に使う。"
+      },
+      {
+        "sig": "u32 CountInSlot(ECosmeticSlot slot) const",
+        "desc": "指定 slot に登録されている選択肢の件数 (装着状態とは無関係)。"
+      },
+      {
+        "sig": "void SetOnEquipCallback(EquipCallback cb, void* user)",
+        "desc": "装着 / 解除のたびに呼ばれる callback を登録 (単一購読)。 レンダラ側の mesh 差し替え用。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "登録・unlock・装着をすべてリセット (Save/Load 復元前のクリーンスタート用)。 callback は呼ばない。"
+      },
+      {
+        "sig": "using FCharacterCustomizer = CCharacterCustomizer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCharacterCustomizer を使う。"
+      }
+    ]
+  }
+}

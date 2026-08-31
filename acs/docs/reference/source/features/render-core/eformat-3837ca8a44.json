@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "EFormat",
+    "kind": "列挙(enum)",
+    "header": "render/RhiTypes.h",
+    "summary": "ピクセルフォーマット(1 ピクセルのビット配置)を表す論理的な列挙。 DX12 / Vulkan で共通の名前で扱える。",
+    "when": "テクスチャ・レンダーターゲット・頂点要素のデータ形式を指定するとき。",
+    "sample": "FTextureDesc d;\nd.format = EFormat::R8G8B8A8_UNorm;   // 画像系の標準\n// HDR レンダーターゲットなら R16G16B16A16_Float\n// 深度のみなら D32_Float",
+    "members": [
+      {
+        "sig": "R8G8B8A8_UNorm / _sRGB / _UInt",
+        "desc": "8bit×4ch。 画像の標準。 sRGB は ガンマ解釈、UInt は整数(ボーン index 等)。"
+      },
+      {
+        "sig": "B8G8R8A8_UNorm",
+        "desc": "BGRA 配置。 Win32 ネイティブのバックバッファ既定。"
+      },
+      {
+        "sig": "R16G16B16A16_Float",
+        "desc": "HDR レンダーターゲット用の半精度 4ch。"
+      },
+      {
+        "sig": "R11G11B10_Float / R16G16_Float",
+        "desc": "32bit パックの省メモリ HDR(環境/IBL 向け)、2ch 半精度(BRDF LUT 等)。"
+      },
+      {
+        "sig": "R32G32_Float / R32G32B32_Float / R32G32B32A32_Float",
+        "desc": "2D/3D/4D の float 座標バッファ用。"
+      },
+      {
+        "sig": "D32_Float / D24_UNorm_S8_UInt",
+        "desc": "深度のみ / 深度+ステンシル。"
+      },
+      {
+        "sig": "Unknown",
+        "desc": "未指定。 深度なしパイプライン等で「無効」を意味する。"
+      }
+    ]
+  }
+}

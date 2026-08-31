@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CPropertyDrawerRegistry",
+    "kind": "クラス(サービス)",
+    "header": "gameframework/tools/editor_core/PropertyDrawer.h",
+    "summary": "type_name(const char* literal)→ DrawerFn の登録レジストリ。 AInspectorPanel の hardcode switch を超える「ゲーム固有 / エディタ拡張型」の field 表示を後付け登録できる拡張点。 Init() が bundled drawer 9 種(F32Slider / Vec2Drag / Vec3Drag / Vec4Drag / ColorRGB / ColorRGBA / AssetPath / EnumCombo / TextInput)を自動登録する。 同名は後勝ちで上書き。 内部は線形探索(少数想定)。 非コピー / 非ムーブ、全 noexcept。",
+    "when": "ゲーム固有型(Health / WeaponSlot 等)を inspector で美麗表示したい / field drawer を差し替えたい時。",
+    "sample": "CPropertyDrawerRegistry reg;\nreg.Init();   // bundled 9 種を自動登録\nreg.RegisterDrawer(\"Health\", &DrawHealth);\nFPropertyContext ctx{};\nif (!reg.DrawProperty(\"Health\", ctx)) {\n    // 未登録 → 既存 EFieldKind switch にフォールバック\n}",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "既存登録を全破棄したうえで bundled drawer 9 種を自動登録。 多重呼び出し可(state を完全再構築)。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "全 drawer 登録を破棄。 多重呼び出し可。"
+      },
+      {
+        "sig": "void RegisterDrawer(const char* type_name, DrawerFn fn) noexcept",
+        "ret": "—",
+        "desc": "drawer を登録 / 上書き。 同 type_name は後勝ち。 type_name が nullptr / 空、または fn が nullptr なら no-op。 type_name は呼び出し側が永続所有する文字列。"
+      },
+      {
+        "sig": "void UnregisterDrawer(const char* type_name) noexcept",
+        "ret": "—",
+        "desc": "type_name 一致の登録 1 件を解除(末尾 swap、順序非保持)。 未登録 / nullptr は no-op。"
+      },
+      {
+        "sig": "bool HasDrawer(const char* type_name) const noexcept",
+        "ret": "登録済か",
+        "desc": "対応 drawer が登録済みか。 nullptr / 空文字は false。"
+      },
+      {
+        "sig": "bool DrawProperty(const char* type_name, const FPropertyContext& ctx) const noexcept",
+        "ret": "描画した",
+        "desc": "該当 drawer を呼んで ctx で描画。 成功なら true、未登録 / nullptr なら false(呼び出し側はフォールバックする)。"
+      },
+      {
+        "sig": "u32 DrawerCount() const noexcept",
+        "ret": "件数",
+        "desc": "登録済み drawer 数(bundled 含む)。"
+      },
+      {
+        "sig": "const char* DrawerName(u32 index) const noexcept",
+        "ret": "name",
+        "desc": "index 番目の drawer name。 範囲外は nullptr(デバッグ / イントロスペクション用)。"
+      },
+      {
+        "sig": "void ClearAll() noexcept",
+        "ret": "—",
+        "desc": "全 drawer 登録を破棄(bundled も含め空に)。 bundled を戻したいなら Init() を呼ぶ。"
+      },
+      {
+        "sig": "static constexpr const char* kAssetPathPayloadId = \"ASSET_PATH\"",
+        "desc": "AssetPath drawer が AcceptDragDropPayload で受け取る payload id。"
+      },
+      {
+        "sig": "static constexpr u32 kTextInputBufferSize = 256u",
+        "desc": "TextInput drawer が使う固定長バッファサイズ。"
+      },
+      {
+        "sig": "using FPropertyDrawerRegistry = CPropertyDrawerRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPropertyDrawerRegistry を使う。"
+      }
+    ]
+  }
+}

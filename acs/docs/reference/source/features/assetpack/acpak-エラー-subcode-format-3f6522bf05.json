@@ -1,0 +1,90 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": ".acpak エラー subcode (format)",
+    "kind": "定数群",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": ".acpak の Reader/Writer が ACS_ERR(IO,...) / ACS_ERR(Asset,...) で返すエラーsubcode(1301〜1318)。 TSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・CAssetPackReaderStub/CAssetPackWriterStub(1200 番台)と重ならないよう 1300 番台を使う。",
+    "when": "Open / ReadFile / Finalize の戻り Result が失敗した時、error.subcode でどの段階の失敗かを判別する時。",
+    "sample": "auto r = reader.Open(L\"game.acpak\");\nif (r.IsErr() && r.Error().subcode == kAcpakSubBadMagic) {\n    // .acpak ではないファイル\n}",
+    "members": [
+      {
+        "sig": "kAcpakSubBadMagic = 1301",
+        "desc": "先頭 8 バイトが kAcpakMagic でない。"
+      },
+      {
+        "sig": "kAcpakSubBadVersion = 1302",
+        "desc": "version が kAcpakVersion でない。"
+      },
+      {
+        "sig": "kAcpakSubBadSize = 1303",
+        "desc": "ファイル長が想定外/範囲外(ヘッダより小さい等)。"
+      },
+      {
+        "sig": "kAcpakSubBadCrc = 1304",
+        "desc": "CRC32 不一致(破損または改竄)。"
+      },
+      {
+        "sig": "kAcpakSubBadFlags = 1305",
+        "desc": "未知の flags ビットが立っている。"
+      },
+      {
+        "sig": "kAcpakSubNotImplemented = 1306",
+        "desc": "現状未使用。 未対応機能を明示するため予約された値。"
+      },
+      {
+        "sig": "kAcpakSubNotOpen = 1307",
+        "desc": "Open() 前に API を呼んだ。"
+      },
+      {
+        "sig": "kAcpakSubNotFound = 1308",
+        "desc": "指定 path / index が pak 内に無い。"
+      },
+      {
+        "sig": "kAcpakSubBufferTooSmall = 1309",
+        "desc": "ReadFile の out_buffer が小さすぎる。"
+      },
+      {
+        "sig": "kAcpakSubAlreadyOpen = 1310",
+        "desc": "CAcpakWriter::Open の二重呼び出し。"
+      },
+      {
+        "sig": "kAcpakSubNotFinalized = 1311",
+        "desc": "Finalize 前に Close(内部用)。"
+      },
+      {
+        "sig": "kAcpakSubIOFailure = 1312",
+        "desc": "Win32 I/O 失敗(os_error 参照)。"
+      },
+      {
+        "sig": "kAcpakSubOutOfMemory = 1313",
+        "desc": "文字列 pool / entry 配列の確保失敗。"
+      },
+      {
+        "sig": "kAcpakSubBadPath = 1314",
+        "desc": "空パス、不正な区切り、./.. segment、長さ上限超過など。"
+      },
+      {
+        "sig": "kAcpakSubDuplicatePath = 1315",
+        "desc": "manifest または Writer の pending list 内で仮想パスが重複している。"
+      },
+      {
+        "sig": "kAcpakSubBadSchema = 1316",
+        "desc": "0 固定の padding/reserved が非 0、または manifest 末尾に未知データがある。"
+      },
+      {
+        "sig": "kAcpakSubFileChanged = 1317",
+        "desc": "Reader の Open 中にファイル identity・サイズ・更新時刻が変化した。"
+      },
+      {
+        "sig": "kAcpakSubAtomicReplace = 1318",
+        "desc": "完成した一時ファイルを出力先へ原子的に置換できなかった。"
+      }
+    ]
+  }
+}

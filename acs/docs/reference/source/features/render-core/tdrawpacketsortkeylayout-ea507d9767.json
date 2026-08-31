@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "TDrawPacketSortKeyLayout",
+    "kind": "テンプレート構造体",
+    "header": "render/DrawPacketSortKey.h",
+    "summary": "優先順に並べた整数fieldのbit幅から、64 bit描画sort keyのshiftとmaskをcompile time生成するlayout。",
+    "when": "pipeline、material、depthなど複数fieldのkey配置を型として固定し、手書きshiftの重複やbit超過を防ぐとき。",
+    "sample": "using FKey = TDrawPacketSortKeyLayout<12u, 20u, 32u>;\nu64 key = FKey::Insert<0u>(pipeline) |\n          FKey::Insert<1u>(material) |\n          FKey::Insert<2u>(depth);",
+    "members": [
+      {
+        "sig": "static constexpr u32 FieldCount() / TotalBits()",
+        "desc": "field数 / 全fieldの合計bit数。 合計64 bit超過はcompile error。"
+      },
+      {
+        "sig": "template<u32 I> static constexpr u32 FieldBits() / FieldShift()",
+        "desc": "指定fieldのbit幅 / key内の下位bit位置。"
+      },
+      {
+        "sig": "template<u32 I> static constexpr u64 Insert(u64 value)",
+        "desc": "値をfield幅でmaskし、優先順の位置へ配置する。"
+      }
+    ]
+  }
+}

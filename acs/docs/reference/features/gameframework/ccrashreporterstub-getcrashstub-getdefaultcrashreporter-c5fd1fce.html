@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CCrashReporterStub は全 API が NotImplemented を返すnull-object 実装。 GetCrashStub() で共有 stub を取得。 GetDefaultCrashReporter() は実 backend が登録済ならそれを、未登録なら stub を返す。 SetCrashReporterProvider() で実 backend を結線する。">
+  <title>CCrashReporterStub / GetCrashStub / GetDefaultCrashReporter — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CCrashReporterStub / GetCrashStub / GetDefaultCrashReporter</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CCrashReporterStub / GetCrashStub / GetDefaultCrashReporter</h1>
+<p class="lead">C<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24743">CrashReporter</button><span class="term-tooltip" id="term-tip-24743" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24744">Stub</button><span class="term-tooltip" id="term-tip-24744" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> は全 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24745">API</button><span class="term-tooltip" id="term-tip-24745" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> が NotImplemented を返す<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24746">null-object</button><span class="term-tooltip" id="term-tip-24746" role="tooltip">「何もしない」を正しく実装した置き換え用オブジェクト。 実装が無い時でも安全に呼べる (Stub がこの形)。</span></span> 実装。 GetCrash<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24747">Stub</button><span class="term-tooltip" id="term-tip-24747" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span>() で共有 stub を取得。 GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24748">CrashReporter</button><span class="term-tooltip" id="term-tip-24748" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span>() は実 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24749">backend</button><span class="term-tooltip" id="term-tip-24749" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> が登録済ならそれを、未登録なら stub を返す。 Set<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24750">CrashReporter</button><span class="term-tooltip" id="term-tip-24750" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span>Provider() で実 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24751">backend</button><span class="term-tooltip" id="term-tip-24751" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24752">結線</button><span class="term-tooltip" id="term-tip-24752" role="tooltip">部品同士をつなぎ込む(実装を既定の口に登録する)こと。 これで上位が下位に直接依存せず使える。</span></span>する。</p></div><div class="badges"><span class="badge">クラス / 関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/gameframework/ccrashreporterstub-6fdb12c9.html"><code>acs::game::CCrashReporterStub</code></a><span class="summary"><code>class CCrashReporterStub final : public ICrashReporterBackend;</code></span></li><li><a href="../../symbols/gameframework/getcrashstub-b54c4e4d.html"><code>acs::game::GetCrashStub</code></a><span class="summary"><code>ICrashReporterBackend&amp; GetCrashStub() noexcept;</code></span></li><li><a href="../../symbols/gameframework/getdefaultcrashreporter-863b4c82.html"><code>acs::game::GetDefaultCrashReporter</code></a><span class="summary"><code>ICrashReporterBackend&amp; GetDefaultCrashReporter() noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>実 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24739">backend</button><span class="term-tooltip" id="term-tip-24739" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> が無い環境でもリンクを通したい時、または <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24740">backend</button><span class="term-tooltip" id="term-tip-24740" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> 非依存に既定 reporter を取りたい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス / 関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/CrashReporter.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-476f4b1a95a784ab36c4"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>using <a href="../../symbols/gameframework/fcrashreporterstub-4192620d.html">FCrashReporterStub</a> = CCrashReporterStub</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは C<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24741">CrashReporter</button><span class="term-tooltip" id="term-tip-24741" role="tooltip">gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24742">Stub</button><span class="term-tooltip" id="term-tip-24742" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fcrashreporterstub-4192620d.html"><code>acs::game::FCrashReporterStub</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CCrashReporterStub</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/ccrashreporterstub-6fdb12c9.html"><code>acs::game::CCrashReporterStub</code></a><span class="summary"><code>class CCrashReporterStub final : public ICrashReporterBackend;</code></span></li><li><a href="../../symbols/gameframework/ccrashreporterstub-6fdb12c9/ccrashreporterstub-1c9940eb.html"><code>acs::game::CCrashReporterStub::CCrashReporterStub</code></a><span class="summary"><code>CCrashReporterStub() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CCrashReporterStub / GetCrashStub / GetDefaultCrashReporterの使用例"><code>// 起動時、実 backend がリンクされていれば:
+#if WITH_ACS_CRASH_REPORTER
+    acs::crashwin::InstallWindowsCrashReporterAsDefault();
+#endif
+auto&amp; cr = acs::game::GetDefaultCrashReporter();</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FIngredient",
+    "kind": "構造体",
+    "header": "gameframework/CraftingSystem.h",
+    "summary": "レシピの素材エントリ 1 つ。 item_id (素材アイテム id) と count (必要個数) を持つ。",
+    "when": "レシピの素材配列を組む時。",
+    "sample": "FIngredient i{ \\\"wood\\\", 3 };"
+  }
+}

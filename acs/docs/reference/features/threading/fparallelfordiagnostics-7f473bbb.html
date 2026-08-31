@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CThreadPool::ParallelFor が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 snapshot。">
+  <title>FParallelForDiagnostics — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/threading.html">threading モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/threading.html">threading</a><span>/</span><span aria-current="page">FParallelForDiagnostics</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / threading</div><h1 class="identifier">FParallelForDiagnostics</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29462">CThreadPool</button><span class="term-tooltip" id="term-tip-29462" role="tooltip">タスクを並列実行するスレッドプール(ワークスチール方式)。</span></span>::ParallelFor が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29463">snapshot</button><span class="term-tooltip" id="term-tip-29463" role="tooltip">ある時刻の世界全体の状態を 1 つに固めたもの。 server がこれを配信し、client は受信した複数 snapshot を補間して表示する (FPS/MMO 系で標準)。</span></span>。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/threading/fparallelfordiagnostics-ff367177.html"><code>acs::FParallelForDiagnostics</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>分割数や同時 ParallelFor 数に対して固定 pool が足りているか、heap 退避が起きていないかを profiler や性能 test で確認する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>threading</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>threading/ParallelForDiagnostics.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-d1ef3f78855f91efd5df"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>u64 <a href="../../symbols/threading/fparallelfordiagnostics-ff367177/inline-calls-994076dd.html">inline_calls</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>32 分割以下で stack だけを使った呼び出し数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/fparallelfordiagnostics-ff367177/inline-calls-994076dd.html"><code>acs::FParallelForDiagnostics::inline_calls</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-14a1458b8e6df0425f71"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u64 <a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-458de1fd.html">pool_blocks</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>固定 free-list から取得した block の累計数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-458de1fd.html"><code>acs::FParallelForDiagnostics::pool_blocks</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-8d34dad08de19482e5f4"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u64 <a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-in-use-f0a1b744.html">pool_blocks_in_use</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>現在貸し出している block 数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-in-use-f0a1b744.html"><code>acs::FParallelForDiagnostics::pool_blocks_in_use</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-f3759e71fcf2d945afa4"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>u64 <a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-high-water-f3e21937.html">pool_blocks_high_water</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>同時貸し出し block 数の最大値。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/fparallelfordiagnostics-ff367177/pool-blocks-high-water-f3e21937.html"><code>acs::FParallelForDiagnostics::pool_blocks_high_water</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-998bdc802e5b6443dfa1"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>u64 <a href="../../symbols/threading/fparallelfordiagnostics-ff367177/heap-blocks-f10c9433.html">heap_blocks</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>固定 pool 枯渇後に OS heap へ退避した block 数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/fparallelfordiagnostics-ff367177/heap-blocks-f10c9433.html"><code>acs::FParallelForDiagnostics::heap_blocks</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

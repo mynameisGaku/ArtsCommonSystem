@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "subcode",
+  "definition": "エラーコードの細目番号。 ACS の Result が持つ FErrorCode.subcode で、どの段階・原因の失敗かを区別する。 AssetPack は 1300 番台を使う。"
+}

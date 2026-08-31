@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "timing",
+    "title": "timing — 決定論的な時間変換",
+    "description": "利用側が値として所有する固定更新時計。 可変な経過秒を有界な更新回数と描画補間率へ変換し、ゲームループや共有サービスの寿命から切り離します。"
+  },
+  "feature": {
+    "name": "FFixedStepClockSnapshot",
+    "kind": "構造体",
+    "header": "timing/FixedStepClockSnapshot.h",
+    "summary": "時計の設定、持ち越し秒、累積破棄秒、累積更新回数をまとめた保存値。",
+    "when": "rollbackや再試行のために同じACS版の時計位置を一時保存する時。"
+  }
+}

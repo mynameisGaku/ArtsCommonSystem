@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "FLogConfig",
+    "kind": "構造体",
+    "header": "foundation/Log.h",
+    "summary": "CLogger の初期設定。 出力先（ファイル/コンソール/デバッグ出力）と最小レベル、内部リングの長さを指定する。",
+    "when": "CLogger::Init に渡す。 ゲーム起動時に一度だけ作る。",
+    "sample": "FLogConfig cfg;\ncfg.file_path = L\"game.log\";       // nullptr ならファイル無効\ncfg.min_severity = ELogSeverity::Info;\ncfg.console = true;\nFLogger::Init(cfg);",
+    "members": [
+      {
+        "sig": "const wchar_t* file_path",
+        "desc": "出力ファイルのパス。 nullptr ならファイル出力なし。"
+      },
+      {
+        "sig": "ELogSeverity min_severity",
+        "desc": "これ未満のレベルは出力しない（既定 Info）。"
+      },
+      {
+        "sig": "u32 ring_capacity",
+        "desc": "内部リングの長さ（2 のべき乗、最小 16）。 負荷時の取りこぼしに影響。"
+      },
+      {
+        "sig": "bool console / bool debug_output",
+        "desc": "標準出力に出すか / OutputDebugString に出すか。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakGameReader",
+    "kind": "クラス",
+    "header": "assetpack/AcpakGameBridge.h",
+    "summary": "CAcpakReader を GameFramework の acs::game::IAssetPackReader インターフェースに適合させた橋渡しクラス。 パスを char*(UTF-8)で扱える。",
+    "when": "ゲーム側の汎用アセット読み込み API(IAssetPackReader)経由で .acpak を使いたい時。",
+    "sample": "acs::assetpack::CAcpakGameReader r;\nr.Mount(\"game.acpak\");\nu64 sz = r.FileSize(\"textures/hero.png\").Value();\nr.ReadFile(\"textures/hero.png\", buf, sz);\nr.Unmount();",
+    "members": [
+      {
+        "sig": "TResult<void> Mount(const char* PackPath)",
+        "desc": "pak を開く(Open 相当)。"
+      },
+      {
+        "sig": "void Unmount()",
+        "desc": "pak を閉じる(Close 相当)。"
+      },
+      {
+        "sig": "bool IsMounted() const",
+        "desc": "マウント中なら true。"
+      },
+      {
+        "sig": "TResult<u32> FileCount()",
+        "ret": "ファイル数",
+        "desc": "含まれるファイル数。"
+      },
+      {
+        "sig": "TResult<const char*> FileName(u32 Index)",
+        "ret": "ファイル名(UTF-8)",
+        "desc": "Index 番目の仮想ファイル名。"
+      },
+      {
+        "sig": "TResult<u64> FileSize(const char* Name)",
+        "ret": "サイズ",
+        "desc": "名前指定でファイルの最終サイズを返す。"
+      },
+      {
+        "sig": "TResult<void> ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize)",
+        "desc": "名前指定でファイルを読み出す。"
+      },
+      {
+        "sig": "using FAcpakGameReader = CAcpakGameReader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakGameReader を使う。"
+      }
+    ]
+  }
+}

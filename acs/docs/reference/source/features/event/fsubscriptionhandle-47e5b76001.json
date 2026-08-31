@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FSubscriptionHandle",
+    "kind": "構造体",
+    "header": "event/SubscriptionHandle.h",
+    "summary": "CMessageBroker::Subscribe が返す購読の控え。 これを Unsubscribe に渡して解除する。 世代付きなので、解除済みの古いハンドルで誤って別の購読を消すことはありません。",
+    "when": "購読を後で解除するために保持しておく値。",
+    "sample": "FSubscriptionHandle h = bus.Subscribe<FDamageEvent>(&OnDamage, &state);\nif (h.IsValid()) {\n    // ... 必要なくなったら ...\n    bus.Unsubscribe(h);\n}",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "通路が範囲内で、購読番号と世代番号がともに0以外なら true。"
+      },
+      {
+        "sig": "bool operator==(const FSubscriptionHandle& o) const",
+        "desc": "チャンネル・id・世代がすべて一致するか。"
+      },
+      {
+        "sig": "FEventTypeId channel / u32 id / u32 generation",
+        "desc": "どのチャンネルの何番目の購読か(+再利用を見分ける世代)。 通常は直接触らない。"
+      },
+      {
+        "sig": "kInvalidSubscription",
+        "desc": "無効な購読を表す定数(event/SubscriptionHandle.h)。 未購読の控えや「まだ Subscribe していない」状態の初期値に使う。"
+      }
+    ]
+  }
+}

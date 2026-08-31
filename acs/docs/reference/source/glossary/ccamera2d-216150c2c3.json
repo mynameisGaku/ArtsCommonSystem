@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CCamera2D",
+  "definition": "2D カメラ。 位置/ズーム/回転、ターゲット追従、画面振動、world↔screen 座標変換を持つ。"
+}

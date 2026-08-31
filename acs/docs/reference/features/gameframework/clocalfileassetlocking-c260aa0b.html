@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="IAssetLockingBackend のローカル本実装。 外部 SCM を使わず、&lt;asset&gt;.lock サイドカーファイルを CreateFileW(CREATE_NEW) の原子性で作って協調ロックする (stub ではなく実動作)。">
+  <title>CLocalFileAssetLocking — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CLocalFileAssetLocking</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CLocalFileAssetLocking</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25138">IAssetLockingBackend</button><span class="term-tooltip" id="term-tip-25138" role="tooltip">アセット排他ロックの抽象シーム (Perforce 等)。</span></span> のローカル本実装。 外部 SCM を使わず、&lt;asset&gt;.lock サイドカーファイルを CreateFileW(CREATE_NEW) の原子性で作って協調<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25139">ロック</button><span class="term-tooltip" id="term-tip-25139" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>する (stub ではなく実動作)。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db.html"><code>acs::game::CLocalFileAssetLocking</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Perforce 等のサーバを立てずに、ローカル / 共有フォルダで簡易な<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25136">排他</button><span class="term-tooltip" id="term-tip-25136" role="tooltip">あるデータを一度に 1 スレッドだけが触れるように制限すること。 FMutex やロックで実現する。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25137">ロック</button><span class="term-tooltip" id="term-tip-25137" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>を使いたい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/StudioWorkflow.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-532e7737825241604411"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db/unlockassetas-03bc398f.html">UnlockAssetAs</a>(const char* <a href="../../symbols/gameframework/fassetlockinfo-d3739525/asset-path-da560273.html">asset_path</a>, const char* user)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>lock の owner が user と一致する時だけ解除する厳格版。 不一致は kSub_PermissionDenied。</dd></div><div class="fact"><dt>戻り値</dt><dd>成否</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db/unlockassetas-03bc398f.html"><code>acs::game::CLocalFileAssetLocking::UnlockAssetAs</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fassetlockinfo-d3739525/asset-path-da560273.html"><code>acs::game::FAssetLockInfo::asset_path</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-12c9f6849315348ea50c"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db/isconnected-4f702739.html">IsConnected</a>() const override</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ローカル FS は常に使えるので true。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db/isconnected-4f702739.html"><code>acs::game::CLocalFileAssetLocking::IsConnected</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-d53cd4f48f3d33ee23dc"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/gameframework/flocalfileassetlocking-fdeda71d.html">FLocalFileAssetLocking</a> = CLocalFileAssetLocking</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalFileAssetLocking を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/flocalfileassetlocking-fdeda71d.html"><code>acs::game::FLocalFileAssetLocking</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CLocalFileAssetLocking</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db.html"><code>acs::game::CLocalFileAssetLocking</code></a><span class="summary"><code>class CLocalFileAssetLocking final : public IAssetLockingBackend;</code></span></li><li><a href="../../symbols/gameframework/clocalfileassetlocking-8548c6db/clocalfileassetlocking-bbd7751e.html"><code>acs::game::CLocalFileAssetLocking::CLocalFileAssetLocking</code></a><span class="summary"><code>CLocalFileAssetLocking() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CLocalFileAssetLockingの使用例"><code>CLocalFileAssetLocking&amp; locks = GetLocalFileAssetLocking();
+(void)locks.LockAsset(&quot;assets/hero.fbx&quot;, &quot;alice&quot;);
+// 自分のロックだけ厳格に外す
+(void)locks.UnlockAssetAs(&quot;assets/hero.fbx&quot;, &quot;alice&quot;);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

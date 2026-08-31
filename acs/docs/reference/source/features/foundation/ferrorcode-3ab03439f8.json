@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "FErrorCode",
+    "kind": "構造体",
+    "header": "foundation/Error.h",
+    "summary": "TResult の既定エラー型。 カテゴリ + サブコード + OS エラー値 + メッセージ + 発生位置をまとめた軽い POD。 例外の代わりに「何がどこで失敗したか」を運ぶ。",
+    "when": "失敗を表現する時の標準の入れ物。 普段は手書きせず ACS_ERR マクロで作る。 受け取った側はカテゴリで分類したり message を出力したりする。",
+    "sample": "FErrorCode e = ACS_ERR(IO, 42, \"ファイルが見つかりません\");\nif (e) {                                  // bool 変換: エラーあり\n    ACS_LOG_ERROR(\"[%s] %s (%s:%u)\",\n        ToString(e.category), e.message,\n        e.loc.File(), e.loc.Line());\n}",
+    "members": [
+      {
+        "sig": "EErrCategory category",
+        "desc": "大分類（IO / Memory / Render 等）。 None は成功を意味する。"
+      },
+      {
+        "sig": "u16 subcode",
+        "desc": "モジュール固有の細分化コード。 カテゴリ内での区別に使う。"
+      },
+      {
+        "sig": "u32 os_error",
+        "desc": "GetLastError() や HRESULT など OS 由来のエラー値（任意）。"
+      },
+      {
+        "sig": "const char* message",
+        "desc": "人間向けメッセージ。 静的文字列リテラル推奨。"
+      },
+      {
+        "sig": "FSourceLoc loc",
+        "desc": "発生位置（ファイル/行/関数）。 ACS_ERR が自動で埋める。"
+      },
+      {
+        "sig": "bool IsOk() const",
+        "desc": "category == None なら true（＝成功状態）。"
+      },
+      {
+        "sig": "explicit operator bool() const",
+        "desc": "true なら「エラーあり」。 if (e) { ... } で失敗を判定する。"
+      }
+    ]
+  }
+}

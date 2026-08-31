@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "MakeBind / MakeTwoWayBind / MakeBindConvert",
+    "kind": "ファクトリ関数",
+    "header": "mvvm/Binder.h",
+    "summary": "バインダを TUniquePtr で返す版。 バインダ自体はコピー/ムーブ不可なので、クラスのメンバとして持ちたい時はこちらを使う。 デストラクタで自動的に Unsubscribe される。",
+    "when": "結合をオブジェクトの寿命に紐づけてメンバ変数に格納したい時(Bind の生の返り値はメンバに置けない)。",
+    "sample": "class FMyApp {\n    TUniquePtr<TOneWayBinder<f32>> m_Bind;\n    void OnStart() {\n        m_Bind = MakeBind(vm.hp, view.hp);\n    }\n};",
+    "members": [
+      {
+        "sig": "TUniquePtr<TOneWayBinder<T>> MakeBind(TObservable<T>& src, TObservable<T>& dst)",
+        "desc": "片方向バインダを TUniquePtr で作る。"
+      },
+      {
+        "sig": "TUniquePtr<TTwoWayBinder<T>> MakeTwoWayBind(TObservable<T>& a, TObservable<T>& b)",
+        "desc": "双方向バインダを TUniquePtr で作る。"
+      },
+      {
+        "sig": "TUniquePtr<TOneWayConvertBinder<Src,Dst>> MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst)",
+        "desc": "組込み変換つき片方向バインダを TUniquePtr で作る。"
+      },
+      {
+        "sig": "TUniquePtr<TOneWayConvertBinder<Src,Dst>> MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst, Dst (*fn)(const Src&, void*), void* user)",
+        "desc": "自前の変換関数 fn を指定する版。"
+      }
+    ]
+  }
+}

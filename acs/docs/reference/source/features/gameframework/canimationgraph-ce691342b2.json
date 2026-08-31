@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAnimationGraph",
+    "kind": "クラス",
+    "header": "gameframework/AnimationGraph.h",
+    "summary": "3D スケルトンアニメ向けのステートマシン型ブレンドグラフ。 「どの clip を / いつから / どの blend 比率で再生するか」を制御する。 実際のボーン計算や描画は呼出側に任せ、本クラスは clip index と blend alpha を提供する。",
+    "when": "Idle/Walk/Run/Jump などキャラの状態に応じてアニメを切り替え、状態間を滑らかにブレンドしたい時。",
+    "sample": "CAnimationGraph g;\ng.Init();\nu32 idle = g.AddClip({ \"Idle\", 2.0f, true, 1.0f });\nu32 walk = g.AddClip({ \"Walk\", 1.2f, true, 1.0f });\ng.AddStateNode({ \"Idle\", EAnimationGraphState::Idle, idle, 0.15f, 0.15f });\ng.AddStateNode({ \"Walk\", EAnimationGraphState::Walk, walk, 0.15f, 0.15f });\ng.AddTransition({ EAnimationGraphState::Idle, EAnimationGraphState::Walk, 0.1f, \"speed\", false });\n// 毎フレーム:\ng.SetParam(\"speed\", current_speed);\ng.Tick(dt);",
+    "members": [
+      {
+        "sig": "void Init() / void Shutdown()",
+        "desc": "全 state/clip/transition/param を初期化する / 解放する (多重呼び出し可)。"
+      },
+      {
+        "sig": "u32 AddClip(const FAnimationClipBinding& clip)",
+        "ret": "clip index を返します。",
+        "desc": "再生 clip のメタ情報を登録し、index を返す。"
+      },
+      {
+        "sig": "void AddStateNode(const FAnimationStateNode& node)",
+        "desc": "状態ノード (状態 ID + clip + blend 長) を追加する。 同 ID は後勝ち。"
+      },
+      {
+        "sig": "void AddTransition(const FAnimationTransition& trans)",
+        "desc": "from→to の遷移ルールを追加する。 条件は (param 名, しきい値)。"
+      },
+      {
+        "sig": "void SetParam(const char* name, f32 value)",
+        "desc": "遷移条件で参照される f32 パラメータ (speed 等) を設定する。"
+      },
+      {
+        "sig": "void TriggerTransition(EAnimationGraphState target_state)",
+        "desc": "条件を介さず明示的に遷移要求する (攻撃ボタン等を直接遷移に使う)。"
+      },
+      {
+        "sig": "EAnimationGraphState CurrentState() const / f32 CurrentBlendAlpha() const / u32 CurrentClipIndex() const",
+        "desc": "現在の状態・ブレンド比率 (0..1)・再生 clip index を取得する。 描画側へ渡す。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "clip 時刻とブレンドを進め、トリガー/遷移条件を評価する主処理。 dt<=0 は無視。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "実行時状態だけ初期化する (clip/state/transition 設定は維持)。"
+      },
+      {
+        "sig": "void SetOnStateEnterCallback(StateEnterCallback cb, void* user) / void SetOnClipEndCallback(ClipEndCallback cb, void* user)",
+        "desc": "状態遷移時 / clip 終端到達時に呼ぶコールバックを登録する。"
+      },
+      {
+        "sig": "using FAnimationGraph = CAnimationGraph",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAnimationGraph を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのマルチスレッドでカウンタや変数を更新したら値が壊れるに関する確認項目です。">
+  <title>マルチスレッドでカウンタや変数を更新したら値が壊れる — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><a href="../troubleshooting.html">問題を調べる</a><span>/</span><span aria-current="page">マルチスレッドでカウンタや変数を更新したら値が壊れる</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS トラブルシューティング</div><h1>マルチスレッドでカウンタや変数を更新したら値が壊れる</h1></div></header>
+<section class="section"><h2>症状</h2><p>マルチ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29838">スレッド</button><span class="term-tooltip" id="term-tip-29838" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>でカウンタや変数を更新したら値が壊れる</p></section><section class="section"><h2>tags</h2><ul><li><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29839">スレッド</button><span class="term-tooltip" id="term-tip-29839" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span></li><li><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29840">アトミック</button><span class="term-tooltip" id="term-tip-29840" role="tooltip">複数スレッドから同時に触っても途中状態が見えず、分割されずに完了する操作。 TAtomic が代表。</span></span></li><li>競合</li></ul></section><section class="section"><h2>対処</h2><p>複数<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29841">スレッド</button><span class="term-tooltip" id="term-tip-29841" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>が同じ変数を同時に書くと<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29842">データ競合</button><span class="term-tooltip" id="term-tip-29842" role="tooltip">複数スレッドが同じ変数を同時に読み書きして結果が壊れること。 アトミックや排他で防ぐ。</span></span>になります。 カウンタ類は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29843">TAtomic</button><span class="term-tooltip" id="term-tip-29843" role="tooltip">ロックなしで安全に共有できる小さな値。</span></span>&lt;T&gt; を使うか、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29844">FMutex</button><span class="term-tooltip" id="term-tip-29844" role="tooltip">一度に1つのスレッドだけが保護区間へ入れる、ACSの排他ロックです。</span></span> で囲ってください。 読むだけ/各自別の要素を書くだけなら競合しません。</p></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FStringView",
+  "definition": "文字列を所有せず参照だけする軽量ビュー。"
+}

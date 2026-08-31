@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ピクセルフォーマット (DX12 / Vulkan 等で共通の論理フォーマット)。">
+  <title>acs::EFormat — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render.html">render モジュール</a><a href="eformat-10ad11bf.html" aria-current="page">EFormat</a><a class="tree-child" href="eformat-10ad11bf/b8g8r8a8-unorm-be4c6c66.html">B8G8R8A8_UNorm</a><a class="tree-child" href="eformat-10ad11bf/count-b73f1442.html">Count</a><a class="tree-child" href="eformat-10ad11bf/d24-unorm-s8-uint-9aaa2b4b.html">D24_UNorm_S8_UInt</a><a class="tree-child" href="eformat-10ad11bf/d32-float-d19cb7ed.html">D32_Float</a><a class="tree-child" href="eformat-10ad11bf/r11g11b10-float-3ae3209a.html">R11G11B10_Float</a><a class="tree-child" href="eformat-10ad11bf/r16g16-float-55ab7826.html">R16G16_Float</a><a class="tree-child" href="eformat-10ad11bf/r16g16b16a16-float-964284d2.html">R16G16B16A16_Float</a><a class="tree-child" href="eformat-10ad11bf/r32g32-float-e93d2889.html">R32G32_Float</a><a class="tree-child" href="eformat-10ad11bf/r32g32b32-float-0e91c93e.html">R32G32B32_Float</a><a class="tree-child" href="eformat-10ad11bf/r32g32b32a32-float-5a50d4a0.html">R32G32B32A32_Float</a><a class="tree-child" href="eformat-10ad11bf/r8g8b8a8-uint-2e969a79.html">R8G8B8A8_UInt</a><a class="tree-child" href="eformat-10ad11bf/r8g8b8a8-unorm-db63f6fd.html">R8G8B8A8_UNorm</a><a class="tree-child" href="eformat-10ad11bf/r8g8b8a8-unorm-srgb-ed878894.html">R8G8B8A8_UNorm_sRGB</a><a class="tree-child" href="eformat-10ad11bf/unknown-c66b0fae.html">Unknown</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render.html">render</a><span>/</span><span aria-current="page">EFormat</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / render</div>
+<h1 class="identifier">acs::EFormat</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19513">ピクセルフォーマット</button><span class="term-tooltip" id="term-tip-19513" role="tooltip">テクスチャ 1 ピクセルのデータ形式。 フォーマット参照。</span></span> (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19514">DX12</button><span class="term-tooltip" id="term-tip-19514" role="tooltip">Direct3D 12。 Windows の低レベル GPU API。 ACS の Dx12* 系がネイティブ実装。</span></span> / Vulkan 等で共通の論理<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19515">フォーマット</button><span class="term-tooltip" id="term-tip-19515" role="tooltip">1 ピクセル/要素のビット配置と型(RGBA8、HDR float、深度など)。 ACS では EFormat。</span></span>)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::EFormatの宣言"><code>enum class <a href="eformat-10ad11bf.html" aria-current="page">EFormat</a> : <a href="../foundation/u8-b0858e19.html">u8</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/render/RhiTypes.h:13</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="eformat-10ad11bf/b8g8r8a8-unorm-be4c6c66.html"><span><span class="identifier">B8G8R8A8_UNorm</span><span class="summary">BGRA 配置 (Win32 ネイティブ)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/count-b73f1442.html"><span><span class="identifier">Count</span><span class="summary">列挙・表の網羅性を検証する終端値。 GPU 形式としては使用しない。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/d24-unorm-s8-uint-9aaa2b4b.html"><span><span class="identifier">D24_UNorm_S8_UInt</span><span class="summary">深度 24bit + ステンシル 8bit。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/d32-float-d19cb7ed.html"><span><span class="identifier">D32_Float</span><span class="summary">深度のみ (32bit float)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r11g11b10-float-3ae3209a.html"><span><span class="identifier">R11G11B10_Float</span><span class="summary">32bit にパック済みコンパクト HDR (環境/IBL prefilter 向け)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r16g16-float-55ab7826.html"><span><span class="identifier">R16G16_Float</span><span class="summary">2 ch 半精度 (BRDF LUT 等)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r16g16b16a16-float-964284d2.html"><span><span class="identifier">R16G16B16A16_Float</span><span class="summary">4 ch 半精度。 HDR レンダーターゲット用。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r32g32-float-e93d2889.html"><span><span class="identifier">R32G32_Float</span><span class="summary">2 ch 単精度。 2D 座標バッファ。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r32g32b32-float-0e91c93e.html"><span><span class="identifier">R32G32B32_Float</span><span class="summary">3 ch 単精度。 3D 座標バッファ。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r32g32b32a32-float-5a50d4a0.html"><span><span class="identifier">R32G32B32A32_Float</span><span class="summary">4 ch 単精度。 4D ベクトル。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r8g8b8a8-uint-2e969a79.html"><span><span class="identifier">R8G8B8A8_UInt</span><span class="summary">整数 4 ch (ボーン indices 等)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r8g8b8a8-unorm-db63f6fd.html"><span><span class="identifier">R8G8B8A8_UNorm</span><span class="summary">8bit × 4 チャンネル。 画像系の標準フォーマット。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/r8g8b8a8-unorm-srgb-ed878894.html"><span><span class="identifier">R8G8B8A8_UNorm_sRGB</span><span class="summary">R8G8B8A8 を sRGB として解釈する。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eformat-10ad11bf/unknown-c66b0fae.html"><span><span class="identifier">Unknown = 0</span><span class="summary">未指定 / 無効。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

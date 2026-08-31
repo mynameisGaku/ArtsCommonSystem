@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "FStackTrace / FStackFrame",
+    "kind": "クラス / 構造体",
+    "header": "foundation/StackTrace.h",
+    "summary": "呼び出し履歴（コールスタック）を取得し、関数名・ファイル・行に解決する。 パニック時の診断に使われる。 FStackFrame は 1 段分の情報。",
+    "when": "クラッシュやアサート失敗の原因を「どの関数から来たか」で追いたい時。 普通は FPanic が裏で使う。",
+    "sample": "FStackTrace st;\nst.Capture();    // 現在のスタックを取得\nst.Resolve();    // シンボル/ファイル/行に解決\nst.Print([](void*, const char* line, acs::usize) {\n    ACS_LOG_INFO(\"%s\", line);\n}, nullptr);",
+    "members": [
+      {
+        "sig": "void Capture(u32 skip = 1)",
+        "desc": "現在のスタックを取得する。 skip 段は除外（自身のフレーム等）。"
+      },
+      {
+        "sig": "void Resolve()",
+        "desc": "取得済みアドレスを関数名/ファイル/行に解決する（スレッドセーフ）。"
+      },
+      {
+        "sig": "u32 FrameCount() const / const FStackFrame& Frame(u32 i) const",
+        "desc": "フレーム数と各フレームの取得。"
+      },
+      {
+        "sig": "void Print(Sink sink, void* user) const",
+        "desc": "1 行ずつテキスト化して sink コールバックに渡す。"
+      },
+      {
+        "sig": "using Sink = void(*)(void* user, const char* line, usize len)",
+        "desc": "Print が 1 行ごとに呼ぶコールバック型。 user は呼び出し時に渡したポインタがそのまま渡る。"
+      },
+      {
+        "sig": "FStackFrame { void* address; u64 line; char symbol[256]; char file[256]; }",
+        "desc": "1 フレーム分の情報。 命令ポインタ・ソース行番号（失敗時 0）・関数名（失敗時 \"??? @ 0xADDR\"）・ファイルパス。"
+      },
+      {
+        "sig": "inline constexpr u32 kStackTraceMaxFrames = 64",
+        "desc": "取得する最大フレーム数（名前空間スコープ定数）。"
+      }
+    ]
+  }
+}

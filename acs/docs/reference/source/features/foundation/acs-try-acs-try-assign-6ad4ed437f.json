@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "ACS_TRY / ACS_TRY_ASSIGN",
+    "kind": "マクロ",
+    "header": "foundation/Result.h",
+    "summary": "TResult を返す処理を呼び、エラーならその場で関数から抜ける。 エラー処理の if 連打を消せる。",
+    "when": "ある関数の中で、失敗し得る別関数を次々呼びたい時。 途中で失敗したら呼び出し元へエラーを素通しできる。",
+    "sample": "TResult<void> Load() {\n    ACS_TRY(OpenFile());              // 失敗なら return Err(...)\n    ACS_TRY_ASSIGN(data, ReadAll()); // 成功なら data に束縛\n    Process(data);\n    return Ok();\n}",
+    "members": [
+      {
+        "sig": "ACS_TRY(expr)",
+        "desc": "expr を評価し、エラーなら Err(...) を return。 値は捨てる（TResult<void> 向け）。"
+      },
+      {
+        "sig": "ACS_TRY_ASSIGN(name, expr)",
+        "desc": "expr がエラーなら return、成功なら値を name という名前に束縛する。"
+      }
+    ]
+  }
+}

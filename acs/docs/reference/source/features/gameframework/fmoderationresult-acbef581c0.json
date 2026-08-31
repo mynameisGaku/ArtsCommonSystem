@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FModerationResult",
+    "kind": "構造体",
+    "header": "gameframework/ContentModerator.h",
+    "summary": "1 回のモデレーション結果。 verdict (Allow/Warn/Block) ・rating (Safe〜Explicit) ・reason 文字列を持つ。",
+    "when": "Moderate*() の戻り値を読む時。",
+    "sample": "if (r.Value().verdict == EModerationVerdict::Warn)\n    ShowWarnUi(r.Value().reason);  // 確認後に続行可"
+  }
+}

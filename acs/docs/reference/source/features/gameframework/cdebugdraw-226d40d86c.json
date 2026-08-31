@@ -1,0 +1,82 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CDebugDraw",
+    "kind": "クラス",
+    "header": "gameframework/DebugDraw.h",
+    "summary": "1 フレーム分の線分プリミティブを溜めるだけのimmediate-mode デバッグ図形バッファ。 実描画はしない。 ゲームロジックの任意の場所から線 / AABB / 円 / 十字を積み、描画側が Lines() を読んでまとめて描く。",
+    "when": "当たり判定や物理の様子をその場で線で可視化したい時。 テストでは溜まった線配列を直接検査できる。",
+    "sample": "CDebugDraw dd;\ndd.Clear();\ndd.DrawAabb(playerAabb, FVec4{1,0,0,1});\ndd.DrawCircle(enemyCircle, FVec4{1,1,0,1});\nfor (u32 i = 0; i < dd.LineCount(); ++i) {\n    const auto& ln = dd.Lines()[i];\n    batch.DrawLine(ln.a, ln.b, ln.color);\n}",
+    "members": [
+      {
+        "sig": "bool TryDrawLine(FVec2 a, FVec2 b, FVec4 color)",
+        "ret": "全線分を追加できたか",
+        "desc": "任意 2 点間の線分を一括追加する。 無効値・容量不足では蓄積を変更しない。"
+      },
+      {
+        "sig": "void DrawLine(FVec2 a, FVec2 b, FVec4 color)",
+        "desc": "TryDrawLine の既存 void 互換入口。 失敗時は蓄積を変更しない。"
+      },
+      {
+        "sig": "bool TryDrawAabb(const FAabb2& a, FVec4 color)",
+        "ret": "4 辺をすべて追加できたか",
+        "desc": "AABB の輪郭を一括追加する。 無効値・容量不足では蓄積を変更しない。",
+        "when": "矩形コライダーの可視化。"
+      },
+      {
+        "sig": "void DrawAabb(const FAabb2& a, FVec4 color)",
+        "desc": "TryDrawAabb の既存 void 互換入口。 失敗時は蓄積を変更しない。"
+      },
+      {
+        "sig": "bool TryDrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)",
+        "ret": "全線分を追加できたか",
+        "desc": "3 未満を 3 に丸めて円周線を一括追加する。 無効値・件数超過・容量不足では蓄積を変更しない。",
+        "when": "円コライダーや範囲の可視化。"
+      },
+      {
+        "sig": "void DrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)",
+        "desc": "TryDrawCircle の既存 void 互換入口。 失敗時は蓄積を変更しない。"
+      },
+      {
+        "sig": "void DrawCross(FVec2 pos, f32 size, FVec4 color)",
+        "desc": "中心 pos の \\\"+\\\" 記号を積む。 位置可視化に便利。"
+      },
+      {
+        "sig": "bool TryDrawCross(FVec2 pos, f32 size, FVec4 color)",
+        "ret": "2 本をすべて追加できたか",
+        "desc": "中心 pos の十字を一括追加する。 無効値・容量不足では蓄積を変更しない。"
+      },
+      {
+        "sig": "bool TryDrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f)",
+        "ret": "全線分を追加できたか",
+        "desc": "軸と矢じりを一括追加する。 同一点なら軸 1 本だけを追加し、無効値・容量不足では蓄積を変更しない。"
+      },
+      {
+        "sig": "void DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f)",
+        "desc": "TryDrawArrow の既存 void 互換入口。 失敗時は蓄積を変更しない。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "蓄積をクリアする (容量は保持)。 フレーム頭か描画消費後に呼ぶ。"
+      },
+      {
+        "sig": "u32 LineCount() const",
+        "desc": "蓄積した線の本数。"
+      },
+      {
+        "sig": "const FLine* Lines() const",
+        "ret": "生バッファ先頭",
+        "desc": "描画システムが読む連続メモリ。 空のとき nullptr なので LineCount() でガードする。"
+      },
+      {
+        "sig": "using FDebugDraw = CDebugDraw",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDebugDraw を使う。"
+      }
+    ]
+  }
+}

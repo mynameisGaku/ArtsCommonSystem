@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TTwoWayBinder<T>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Binder.h",
+    "summary": "2 つの TObservable<T> を双方向に同期させる。 片方を Set するともう片方も同じ値になり、再帰更新は内部フラグで防ぐ。 伝播先 Set の listener が binder を同期破棄しても stack lifetime guard が検出し、復帰後に破棄済みフラグへ書き込まない。 同じ storage への placement-new も旧 callback と寿命分離する。 生成時は a の値を b に初期反映する。",
+    "when": "View 側の値と Model 側の値を、どちらを変えても揃えたい時(スライダ↔データなど)。 破棄されると同期は自動で外れる。 伝播先 listener から binder の owner を破棄する場合、その破棄を callback の最後の操作にする。",
+    "sample": "TObservable<f32> view_hp;\nTObservable<f32> model_hp { 100.0f };\nTTwoWayBinder<f32> bind(view_hp, model_hp); // 双方向\nmodel_hp.Set(50.0f);   // → view_hp も 50\nview_hp.Set(0.0f);     // → model_hp も 0",
+    "members": [
+      {
+        "sig": "TTwoWayBinder(TObservable<T>& a, TObservable<T>& b)",
+        "desc": "2 つを双方向に結ぶ。 a の値を b へ初期コピーしてから両方を購読する。 伝播中に同期破棄された callback は guard だけを確認して直ちに終了する。"
+      }
+    ]
+  }
+}

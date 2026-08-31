@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AMoveNodeCommand",
+    "kind": "クラス",
+    "header": "gameframework/tools/editor_core/EditorCommand.h",
+    "summary": "ANode の 2D position を変更する AEditorCommand 派生の基本実装。 old / new 位置を保持し、Execute / Undo から SetPosition2D で new / old を設定する。 同一 target の連続 AMoveNodeCommand を 1 件にまとめる CanMerge / MergeWith を実装(Kind tag のポインタ一致 + target 一致で判定、new 値だけ更新し old 値は始点を保持)。",
+    "when": "ドラッグでノード位置を変えた操作を undo 可能にする時のひな形として。",
+    "sample": "const acs::FVec2 old_pos = node.Position2D();\nconst acs::FVec2 new_pos = old_pos + delta;\nauto command = acs::MakeUnique<acs::game::editor_core::AMoveNodeCommand>(\n    &node, old_pos, new_pos);\nundo_stack.Push(acs::Move(command));",
+    "members": [
+      {
+        "sig": "AMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept",
+        "ret": "—",
+        "desc": "対象ノードと変更前 / 後の位置で構築。"
+      },
+      {
+        "sig": "void Execute() noexcept override / void Undo() noexcept override",
+        "ret": "—",
+        "desc": "target != nullptr のとき SetPosition2D で new / old を設定する。"
+      },
+      {
+        "sig": "const char* Description() const noexcept override",
+        "ret": "\"Move Node\"",
+        "desc": "固定ラベル \"Move Node\" を返す。"
+      },
+      {
+        "sig": "const void* Kind() const noexcept override",
+        "ret": "型 tag",
+        "desc": "派生固有の静的アドレス(function-local static)を返し、同型判定 = ポインタ比較を可能にする。"
+      },
+      {
+        "sig": "bool CanMerge(const AEditorCommand& next) const noexcept override",
+        "ret": "merge 可否",
+        "desc": "next.Kind() が一致 かつ target ポインタが一致するときだけ true(連続 drag 用)。"
+      },
+      {
+        "sig": "void MergeWith(const AEditorCommand& next) noexcept override",
+        "ret": "—",
+        "desc": "m_NewPos を next の new 値で上書き(old 値 = drag 始点は保持)。"
+      },
+      {
+        "sig": "const ANode* Target() const / FVec2 OldPosition() const / FVec2 NewPosition() const",
+        "ret": "値",
+        "desc": "テスト / inspector 表示用アクセサ。"
+      },
+      {
+        "sig": "using FMoveNodeCommand = AMoveNodeCommand",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AMoveNodeCommand を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TWeakObjectPtr<T>",
+    "kind": "クラステンプレート",
+    "header": "memory/ObjectPtr.h",
+    "summary": "AObject 派生への弱参照。 対象が破棄されると自動的に無効になる。 生ポインタからも作れる。",
+    "when": "『さっき掴んだ敵がもう死んでいるかもしれない』ような、所有せず生死だけ追う参照。",
+    "sample": "TWeakObjectPtr<AEnemy> w = e;\nif (w.IsValid()) w.Get()->Hit();  // 生きていれば\nif (auto s = w.Pin()) s->Hit();    // 破棄と競合しても安全に強参照化",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "生存中か",
+        "desc": "対象がまだ生きていれば true。"
+      },
+      {
+        "sig": "bool IsStale() const",
+        "desc": "破棄済みなら true(!IsValid())。"
+      },
+      {
+        "sig": "T* Get() const",
+        "ret": "対象 または null",
+        "desc": "生きていれば対象、破棄済みなら null。 簡易アクセス用。",
+        "when": "単一スレッドで素早く触りたい時。 別スレッドが破棄し得るなら Pin()。"
+      },
+      {
+        "sig": "TObjectPtr<T> Pin() const",
+        "ret": "強参照(空かも)",
+        "desc": "生きていれば強参照に昇格して返す。 破棄と競合しても安全。"
+      }
+    ]
+  }
+}

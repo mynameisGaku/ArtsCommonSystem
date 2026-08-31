@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "ECombatState",
+    "kind": "列挙(enum)",
+    "header": "gameframework/CombatStateMachine.h",
+    "summary": "戦闘フェーズ。 Peaceful (平穏) / Alert (検出済・未交戦) / Engaged (交戦中) / BossFight / Victory / Retreat の 6 種。 値は安定なので save / replay に書ける。",
+    "when": "現在の戦況で分岐する時。",
+    "sample": "if (combat.CurrentState() == ECombatState::BossFight) PlayBossMusic();"
+  }
+}

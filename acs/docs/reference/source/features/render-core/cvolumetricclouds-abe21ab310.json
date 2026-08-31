@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CVolumetricClouds",
+    "kind": "クラス",
+    "header": "render/Sky.h",
+    "summary": "volumetric cloudの描画資源と更新処理を管理する。",
+    "when": "立体的な雲をsceneへ描画する時。",
+    "members": [
+      {
+        "sig": "using FVolumetricClouds = CVolumetricClouds",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CVolumetricClouds を使う。"
+      }
+    ]
+  }
+}

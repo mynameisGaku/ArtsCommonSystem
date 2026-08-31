@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "CMessageBroker",
+    "kind": "クラス",
+    "header": "event/MessageBroker.h",
+    "summary": "型ごとにイベントを配るpub/sub(出版/購読)バス。 イベント型 E を購読しておくと、誰かが Publish<E>() した瞬間に登録した関数が同期で(その場で)呼ばれます。 配信中の追加は次回から有効になり、配信中の解除と全解除も安全に処理します。",
+    "when": "ゲーム内で「ダメージが入った」「アイテムを拾った」等の出来事を、それを気にする複数の場所へ一斉に知らせたい時。 1 スレッド内でのみ使う。",
+    "sample": "struct FDamageEvent { FEntityId Target; f32 Amount; };\n\nstatic void OnDamage(const void* payload, void* user) {\n    const auto& e = *static_cast<const FDamageEvent*>(payload);\n    // ... user は登録時に渡した自分の状態 ...\n}\n\nCMessageBroker bus;\nauto h = bus.Subscribe<FDamageEvent>(&OnDamage, &state);\nbus.Publish<FDamageEvent>(FDamageEvent{ enemy, 25.0f }); // ここで OnDamage が呼ばれる\nbus.Unsubscribe(h);",
+    "members": [
+      {
+        "sig": "template<typename E> FSubscriptionHandle Subscribe(MessageCallback cb, void* user)",
+        "ret": "購読ハンドル",
+        "desc": "E 型イベントを購読する。 配信中に追加した購読は、空き枠の有無にかかわらず次回の配信から呼ばれる。 関数が空、型数が上限外、全解除中、世代番号の使い切り後、または保持領域を確保できない場合は無効なハンドルを返す。",
+        "when": "そのイベントに反応したい受信側で。 返ったハンドルは解除に使うので保持する。"
+      },
+      {
+        "sig": "template<typename E, auto Callback> FSubscriptionHandle SubscribeTyped(void* user)",
+        "ret": "購読ハンドル",
+        "desc": "void(const E&, void*) noexceptとして呼べる関数をコンパイル時に検証し、型消去された既存配信経路へ登録する。"
+      },
+      {
+        "sig": "template<typename E> void Publish(const E& payload)",
+        "desc": "E 型イベントを発行し、配信開始時点の購読者をその場で順に呼ぶ(同期配信)。 配信中に全解除された場合は残りを呼ばない。",
+        "when": "出来事が起きた瞬間に全員へ知らせたい時。",
+        "sample": "bus.Publish<FDamageEvent>(FDamageEvent{ enemy, 10.0f });"
+      },
+      {
+        "sig": "bool Unsubscribe(FSubscriptionHandle h)",
+        "ret": "解除できたか",
+        "desc": "購読を解除する。 配信(Publish)中でも直ちに無効になり、まだ呼ばれていない購読ならその回から呼ばれない。 購読枠の再利用だけを最外側の配信終了まで遅らせる。",
+        "when": "受信側が不要になった/破棄される時。 必ず解除する。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全購読を直ちに無効化する。 配信中は残りの処理を止め、新しい購読を拒否し、最外側の配信終了時に保持領域を解放する。"
+      },
+      {
+        "sig": "u32 SubscriberCount(FEventTypeId channel) const",
+        "ret": "購読者数",
+        "desc": "あるチャンネル(イベント型)の現在の購読者数。 主にデバッグ用。"
+      },
+      {
+        "sig": "using FMessageBroker = CMessageBroker",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMessageBroker を使う。"
+      }
+    ]
+  }
+}

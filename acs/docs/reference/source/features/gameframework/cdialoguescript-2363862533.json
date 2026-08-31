@@ -1,0 +1,68 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CDialogueScript",
+    "kind": "クラス",
+    "header": "gameframework/DialogueScript.h",
+    "summary": "ノベル / アドベンチャー向けのシーンスクリプト再生機。 「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」を命令列 (FScriptOp[]) とラベルで宣言的に組むステートマシン。 各命令はコールバックで外部へ通知し、実際の描画・音・入力は呼び出し側が行う。",
+    "when": "VN (ビジュアルノベル) やイベントシーンを、台本のように命令列で書きたい時。",
+    "sample": "FScriptOp ops[] = {\n  { EScriptOpKind::Background, \"bg_room\", nullptr },\n  { EScriptOpKind::Say,        \"アリス\", \"おかえり。\" },\n  { EScriptOpKind::EndScene },\n};\nscript.LoadScript(ops, 3, \"scene1\");\nscript.SetOnSayCallback(&OnSay, this);\nscript.Start();\n// 毎フレーム:\nscript.Tick(dt);\nif (clicked) script.Advance();   // Say 後の入力待ちを解除",
+    "members": [
+      {
+        "sig": "void LoadScript(const FScriptOp* ops, u32 op_count, const char* script_id)",
+        "desc": "命令列をロード (内部に複製するので caller が解放しても安全)。 State は Idle に。"
+      },
+      {
+        "sig": "void AddLabel(const char* label, u32 op_index)",
+        "desc": "ラベル名 → 命令 index を登録。 Jump や Start(label) の飛び先になる。 同名は最初の登録のみ有効。"
+      },
+      {
+        "sig": "void Start(const char* start_label = nullptr)",
+        "desc": "再生開始。 ラベル省略で先頭から。"
+      },
+      {
+        "sig": "void Advance()",
+        "desc": "Say 命令後の入力待ち (AwaitingInput) を解除して次へ。",
+        "when": "プレイヤーが「次へ」を押した時。"
+      },
+      {
+        "sig": "void SelectChoice(u32 choice_index)",
+        "desc": "選択肢を確定し、その jump_label へジャンプする。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "dt 秒進める。 Wait 命令のタイマや即進行する命令を消化する。"
+      },
+      {
+        "sig": "EDialogueScriptState State()",
+        "ret": "現在の状態",
+        "desc": "Idle、Playing、AwaitingInput、AwaitingChoice、Finishedのいずれかを返します。"
+      },
+      {
+        "sig": "const FScriptOp* CurrentOp()",
+        "desc": "今実行中の命令を返す。"
+      },
+      {
+        "sig": "u32 CurrentChoiceCount() / const FScriptChoice* CurrentChoice(u32 index)",
+        "desc": "選択待ち中に展開された選択肢の数と各要素。"
+      },
+      {
+        "sig": "void SetOnSayCallback(SayCallback cb, void* user)",
+        "desc": "セリフ命令の通知先を登録。 ほかに Show/Hide/Background/PlayBgm/StopBgm/PlaySe/ChoicePresent/End 用の Set*Callback がある。"
+      },
+      {
+        "sig": "void Stop() / void ClearAll()",
+        "desc": "完全停止 / 命令・ラベル・コールバック・状態を全破棄。"
+      },
+      {
+        "sig": "using FDialogueScript = CDialogueScript",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDialogueScript を使う。"
+      }
+    ]
+  }
+}

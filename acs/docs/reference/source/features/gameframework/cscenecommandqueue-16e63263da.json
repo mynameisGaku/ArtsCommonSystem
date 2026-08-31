@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneCommandQueue",
+    "kind": "クラス",
+    "header": "gameframework/SceneCommandQueue.h",
+    "summary": "遅延実行のコマンドキュー。 更新/描画の走査中に出された『ノード追加』『削除』などの要求を貯めておき、フレーム末の Flush でまとめて安全に実行する。 エディタ連携にも使う。",
+    "when": "ループ走査の途中で構造を変えたい時 (走査中の削除は危険なので遅延する)。 優先度や連打抑制も扱える。",
+    "sample": "// 走査中に削除要求しても安全 (Flush でまとめて実行)\nm_Cmds.Enqueue(\"DeleteSelected\", &DeleteSelected, this);\nm_Cmds.EnqueueIfAbsent(\"Refresh\", &RefreshUi, this, /*priority=*/50);\n// フレーム末:\nm_Cmds.Flush();",
+    "members": [
+      {
+        "sig": "void Enqueue(const char* label, SceneCommandFn fn, void* user, u32 priority = 100, bool one_shot = true)",
+        "desc": "コマンドを末尾に積む。 one_shot なら 1 回で消え、false なら毎 Flush 繰り返す。"
+      },
+      {
+        "sig": "void EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user, u32 priority = 100)",
+        "desc": "同 label が既にあれば何もしない (連打/重複の畳み込み)。"
+      },
+      {
+        "sig": "void Cancel(const char* label)",
+        "desc": "label に一致する全コマンドを削除する。"
+      },
+      {
+        "sig": "void Flush()",
+        "desc": "優先度の昇順 (同値は登録順) で全コマンドを実行する。",
+        "when": "フレーム末に 1 回呼ぶ。"
+      },
+      {
+        "sig": "u32 PendingCount() const / bool Contains(const char* label) const",
+        "desc": "待機中のコマンド数、特定 label が居るか。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全コマンドを破棄する (callback は呼ばない)。"
+      },
+      {
+        "sig": "using FSceneCommandQueue = CSceneCommandQueue",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneCommandQueue を使う。"
+      }
+    ]
+  }
+}

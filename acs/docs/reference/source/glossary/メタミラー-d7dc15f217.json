@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "メタミラー",
+  "definition": "実体オブジェクト (ここでは CBehaviorTree) を直接覗けない時に、ユーザが構造情報 (親 id / 種別 / 名前) を別途 push して作る描画用のミラー (写し)。 CBehaviorTree エディタが RTTI 無効下で tree を可視化するために使う。"
+}

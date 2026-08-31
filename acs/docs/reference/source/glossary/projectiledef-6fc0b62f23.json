@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ProjectileDef",
+  "definition": "弾種ごとの挙動パラメータ(速度・寿命・重力・貫通・追尾など)をまとめた構造体。 RegisterDef で『弾の設計図』として登録する。"
+}

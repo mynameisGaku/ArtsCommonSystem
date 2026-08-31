@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CTextAssetLoader",
+    "kind": "クラス(IAssetLoader 派生)",
+    "header": "asset/TextAsset.h",
+    "summary": "テキストファイルのローダ。 バイト列を ATextAsset にする。 主要拡張子は \"txt\"。",
+    "when": "標準ローダ登録で自動使用。",
+    "sample": "CTextAssetLoader txt;\nreg.RegisterLoader(&txt);",
+    "members": [
+      {
+        "sig": "using FTextAssetLoader = CTextAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTextAssetLoader を使う。"
+      }
+    ]
+  }
+}

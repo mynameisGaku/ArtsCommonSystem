@@ -1,0 +1,72 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CBeatGrid",
+    "kind": "クラス",
+    "header": "gameframework/BeatGrid.h",
+    "summary": "リズムゲームのタイミング判定 + 譜面再生。 1 譜面分の note 配列を持ち、再生時刻を進めながらプレイヤーの Tap を最近 note と突き合わせ、Perfect / Great / Good / Miss の 4 段階で判定する。 コンボや精度も集計する。",
+    "when": "音ゲー (DDR/太鼓系) の判定ロジックを組みたい時。 音の再生 (CAudioDirector) とは独立に動く軽量 state machine。",
+    "sample": "CBeatGrid grid;\ngrid.Init();\ngrid.TrySetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, true, 0.75f },\n};\nif (grid.TryLoadChart(notes, 2, 120.0f) == EBeatChartLoadResult::Success) grid.Start();\ngrid.Tick(dt);\ngrid.PressLane(EBeatLane::Down);\ngrid.ReleaseLane(EBeatLane::Down);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "統計/状態を初期化する (何度でも呼べる)。"
+      },
+      {
+        "sig": "EBeatChartLoadResult TryLoadChart(const FBeatNote* notes, u32 count, f32 bpm)",
+        "desc": "譜面・lane・有限 time/hold/BPM・上限を検証して transactional にコピーする。 失敗時は既存譜面を保持する。"
+      },
+      {
+        "sig": "void LoadChart(const FBeatNote* notes, u32 count, f32 bpm)",
+        "desc": "TryLoadChart の互換 wrapper。 失敗時は既存譜面を保持する。"
+      },
+      {
+        "sig": "bool TrySetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms)",
+        "desc": "有限・非負・上限内かつ perfect <= great <= good を満たす時だけ 3 判定窓を更新する。"
+      },
+      {
+        "sig": "void Start() / void Stop() / void Pause() / void Resume()",
+        "desc": "再生制御。 Start で時刻 0 から開始、Stop で即停止+リセット。"
+      },
+      {
+        "sig": "EJudgement PressLane(EBeatLane lane) / Tap(EBeatLane lane)",
+        "ret": "head 判定",
+        "desc": "通常 note は即時確定し、hold note は active state に入る。 Tap は互換 alias。"
+      },
+      {
+        "sig": "EJudgement ReleaseLane(EBeatLane lane)",
+        "ret": "tail/最終判定",
+        "desc": "active hold の tail を判定する。 早すぎる release は Miss。 head と tail の悪い方を最終判定として 1 回だけ集計する。"
+      },
+      {
+        "sig": "bool IsLaneHolding(EBeatLane lane) const / u32 ActiveHoldCount() const",
+        "desc": "lane または譜面全体の active hold 状態を問い合わせる。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "有限・非負で overflow しない時だけ時間を進め、未入力 note と hold timeout を 1 回だけ確定する。"
+      },
+      {
+        "sig": "f32 Accuracy() const / u32 MaxCombo() const / u32 CurrentCombo() const",
+        "desc": "精度 (0〜1)・最大コンボ・現在コンボを取得する。"
+      },
+      {
+        "sig": "u32 TotalNotes() const / u32 HitNotes() const / u32 MissedNotes() const",
+        "desc": "総 note 数・ヒット数・ミス数を取得する。"
+      },
+      {
+        "sig": "void SetOnJudgeCallback(FJudgeCallback cb, void* user) / void SetOnEndCallback(FBeatEndCallback cb, void* user)",
+        "desc": "判定ごと / 譜面終了時に呼ぶコールバックを登録する。"
+      },
+      {
+        "sig": "using FBeatGrid = CBeatGrid",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBeatGrid を使う。"
+      }
+    ]
+  }
+}

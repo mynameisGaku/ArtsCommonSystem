@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "EMusicState",
+    "kind": "列挙(enum)",
+    "header": "gameframework/MusicDirector.h",
+    "summary": "適応 BGM の状態。 Silent / Calm (平穏) / Tension (緊張) / Combat (戦闘) / Victory (勝利) / GameOver の 6 種。",
+    "when": "SetState や RegisterTrack で状況を指定する時。 値は save 互換のため安定 (追加は末尾)。"
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FAudioClipDesc が指す PCM バッファの形式。 Pcm16(16bit signed PCM) / Pcm32Float(32bit IEEE float) / Wav(RIFF ヘッダ込み)。">
+  <title>EAudioFormat — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">EAudioFormat</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">EAudioFormat</h1>
+<p class="lead">FAudioClipDesc が指す <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25894">PCM</button><span class="term-tooltip" id="term-tip-25894" role="tooltip">音声を一定間隔で数値化した生波形データ。 圧縮なしでそのまま再生できる形式。</span></span> バッファの形式。 Pcm16(16bit signed <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25895">PCM</button><span class="term-tooltip" id="term-tip-25895" role="tooltip">音声を一定間隔で数値化した生波形データ。 圧縮なしでそのまま再生できる形式。</span></span>) / Pcm32Float(32bit IEEE float) / Wav(RIFF ヘッダ込み)。</p></div><div class="badges"><span class="badge">列挙(enum)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/eaudioformat-3672bc51.html"><code>acs::game::EAudioFormat</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>再生する clip のサンプル形式を指定する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/audio_backend/IAudioBackend.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-d7d3338a826e766f063b"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/gameframework/eaudioformat-3672bc51/pcm16-75af2298.html">Pcm16</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>16bit signed <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25891">PCM</button><span class="term-tooltip" id="term-tip-25891" role="tooltip">音声を一定間隔で数値化した生波形データ。 圧縮なしでそのまま再生できる形式。</span></span> (典型的な WAV <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25892">PCM</button><span class="term-tooltip" id="term-tip-25892" role="tooltip">音声を一定間隔で数値化した生波形データ。 圧縮なしでそのまま再生できる形式。</span></span> の raw bytes)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/eaudioformat-3672bc51/pcm16-75af2298.html"><code>acs::game::EAudioFormat::Pcm16</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-d19904df4eabe82fa830"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/eaudioformat-3672bc51/pcm32float-16e8937a.html">Pcm32Float</a> = 1</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>32bit IEEE float <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25893">PCM</button><span class="term-tooltip" id="term-tip-25893" role="tooltip">音声を一定間隔で数値化した生波形データ。 圧縮なしでそのまま再生できる形式。</span></span> (高品質・DSP-friendly)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/eaudioformat-3672bc51/pcm32float-16e8937a.html"><code>acs::game::EAudioFormat::Pcm32Float</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-7e9a41dd404579c3f488"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/gameframework/eaudioformat-3672bc51/wav-31df30ce.html">Wav</a> = 2</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ファイルからロード済みの WAV 形式。 解析処理は呼び出し側が用意する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/eaudioformat-3672bc51/wav-31df30ce.html"><code>acs::game::EAudioFormat::Wav</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="EAudioFormatの使用例"><code>FAudioClipDesc d; d.format = EAudioFormat::Pcm16;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CNavGrid",
+    "kind": "クラス",
+    "header": "gameframework/Pathfinding.h",
+    "summary": "2D 格子の通行可否マップ + A* 経路探索。 マス目ごとに歩けるか否かを設定し、開始セルからゴールセルまでの最短経路を求める。 タワーディフェンス、敵の追跡、クリック移動 RPG などに使える。",
+    "when": "グリッドベースで「ここからあそこまでどう動くか」を計算したい時。 4 方向 (上下左右) のみか、対角も許可するか選べる。",
+    "sample": "CNavGrid nav;\nnav.Init(32, 24);\nnav.SetWalkable(5, 10, false);   // 壁を置く\nnav.SetAllowDiagonal(true);      // 8 方向許可\n\nTArray<CNavGrid::FPathPoint> path;\nif (nav.FindPath(0, 0, 20, 15, path)) {\n    // path[0]=start, path.Back()=goal の連続セル列\n}",
+    "members": [
+      {
+        "sig": "void Init(u32 width, u32 height)",
+        "desc": "全セル walkable でグリッドを初期化。 width / height が 0 ならサイズ 0 として以降のクエリは no-op。"
+      },
+      {
+        "sig": "void SetWalkable(u32 x, u32 y, bool walkable)",
+        "desc": "1 マスの通行可否を設定。 範囲外は静かに無視。"
+      },
+      {
+        "sig": "bool IsWalkable(u32 x, u32 y) const",
+        "desc": "通行可否を取得。 範囲外は false。"
+      },
+      {
+        "sig": "void SetAllowDiagonal(bool allow)",
+        "desc": "対角移動の許可。 既定 false (4 方向)。 true で 8 方向 + heuristic も Euclidean に切替。"
+      },
+      {
+        "sig": "bool FindPath(u32 sx, u32 sy, u32 gx, u32 gy, TArray<FPathPoint>& out)",
+        "ret": "見つかれば true",
+        "desc": "A* で start→goal の連続セルを out に書き込む。 範囲外 / 通行不可 / 到達不能は out を Clear して false。 start == goal は長さ 1 の成功。"
+      },
+      {
+        "sig": "void ClearWalls()",
+        "desc": "全セルを walkable に戻す (グリッドサイズは保持)。"
+      },
+      {
+        "sig": "using FNavGrid = CNavGrid",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CNavGrid を使う。"
+      }
+    ]
+  }
+}

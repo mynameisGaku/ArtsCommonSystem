@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FSamplerDesc / ESamplerFilter / ESamplerAddress",
+    "kind": "構造体 / 列挙(enum)",
+    "header": "render/IRhiSampler.h",
+    "summary": "テクスチャをシェーダで読むときのサンプラ設定。 フィルタ(拡大縮小時の補間)とアドレッシング(UV が範囲外のときの扱い)を決める。 本フレームワークでは静的サンプラとしてパイプラインに埋め込む。",
+    "when": "ドット絵をくっきり出したい(Point)・写真を滑らかに(Linear)・タイリングしたい(Wrap)など描き味を決めるとき。",
+    "sample": "FSamplerDesc s;\ns.filter = ESamplerFilter::Point;     // ドット絵向け\ns.address_u = ESamplerAddress::Clamp;\npd.static_samplers[0] = s;\npd.static_sampler_count = 1;",
+    "members": [
+      {
+        "sig": "struct FSamplerDesc{ filter, address_u/v/w, min_lod, max_lod, max_anisotropy }",
+        "desc": "フィルタ・3 軸のアドレッシング・LOD 範囲・異方性度合い。"
+      },
+      {
+        "sig": "enum ESamplerFilter: Point / Linear / Anisotropic",
+        "desc": "ニアレスト(ドット絵) / バイリニア(普通) / 異方性(高品質)。"
+      },
+      {
+        "sig": "enum ESamplerAddress: Wrap / Mirror / Clamp / Border",
+        "desc": "繰り返し / 鏡像 / 端で固定 / 境界色(黒)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "FXrPose",
+    "kind": "構造体",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "HMD やコントローラの位置と向き。 向きは quaternion ではなく オイラー角(pitch, yaw, roll)をラジアンで持つ簡素な表現。",
+    "when": "頭や手の姿勢を読むとき。 tracked が false の時は原点なので姿勢として使わない。",
+    "sample": "acs::game::FXrPose p = xr.HeadPose();\nif (p.tracked) {\n    acs::FVec3 pos = p.position;            // world 位置 (m)\n    float yaw = p.orientation_euler.y;      // 向き(ラジアン)\n}",
+    "members": [
+      {
+        "sig": "FVec3 position",
+        "desc": "world-space の位置(メートル)。 既定は原点。"
+      },
+      {
+        "sig": "FVec3 orientation_euler",
+        "desc": "向きを (pitch, yaw, roll) のラジアンで。 精密な計算が要るなら自分で quaternion/行列へ変換する。"
+      },
+      {
+        "sig": "bool tracked",
+        "ret": "有効か",
+        "desc": "このポーズがライブ追跡由来なら true。 false の時 position/orientation は原点で、有効な姿勢として使ってはならない。"
+      }
+    ]
+  }
+}

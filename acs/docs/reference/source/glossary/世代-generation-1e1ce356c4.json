@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "世代 (generation)",
+  "definition": "ハンドルに含める世代番号。 同じ index の slot が作り直されるたびに増やし、古いハンドルを無効と判定するために使う。"
+}

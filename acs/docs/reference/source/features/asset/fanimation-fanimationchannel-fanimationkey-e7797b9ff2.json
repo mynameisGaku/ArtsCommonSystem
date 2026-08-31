@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FAnimation / FAnimationChannel / FAnimationKey",
+    "kind": "構造体",
+    "header": "asset/SkinnedMesh.h",
+    "summary": "アニメーションのデータ構造。 FAnimation(名前+尺+チャネル群) → FAnimationChannel(対象ボーン+キー列) → FAnimationKey(時刻ごとの TRS)。",
+    "when": "ボーンアニメをプログラム的に作る時。",
+    "sample": "FAnimation anim;\nanim.name = \"walk\"; anim.duration = 1.0f;\nFAnimationChannel ch; ch.bone_index = 0;\nch.keys.Add(FAnimationKey{ /*time=*/0.0f  });\nanim.channels.Add(Move(ch));",
+    "members": [
+      {
+        "sig": "FAnimation: FString name; f32 duration; TArray<FAnimationChannel> channels",
+        "desc": "1 つのアニメ全体。"
+      },
+      {
+        "sig": "FAnimationChannel: i32 bone_index; TArray<FAnimationKey> keys",
+        "desc": "1 ボーン分の時刻昇順キー列。"
+      },
+      {
+        "sig": "FAnimationKey: f32 time; FVec3 translation; FQuat rotation; FVec3 scale",
+        "desc": "ある時刻の姿勢(TRS まとめて持つ)。"
+      }
+    ]
+  }
+}

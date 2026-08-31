@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CEditorTheme",
+    "kind": "クラス(サービス)",
+    "header": "gameframework/tools/editor_core/EditorTheme.h",
+    "summary": "全エディタ panel が共通参照する ImGui スタイル統一テーマ管理。 色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、Init() + ApplyPreset で全エディタが統一見た目になる。 acs::FVec4 ベースで ImVec4 変換は .cpp 内のみ(ヘッダから ImGui を漏らさない)。 .acstheme 人間可読テキストで永続化。 ImGui::CreateContext 後に呼ぶこと。 非コピー / 非ムーブ(global 副作用のため複製不可)、全 noexcept。",
+    "when": "エディタ起動時に配色 / DPI スケール / 角丸を統一したい時。",
+    "sample": "CEditorTheme theme;\ntheme.Init();                              // default Dark を適用\ntheme.ApplyPreset(EEditorThemePreset::DarkBlue);\ntheme.SetFontScale(1.25f);                 // 高 DPI\ntheme.SetRoundedCorners(4.0f);\ntheme.DrawThemeSettingsUI();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "default = Dark preset を ImGui::GetStyle() に流す。 多重呼び出し可。 ImGui::CreateContext 後に呼ぶこと(未生成だと GetStyle / GetIO が落ちる)。"
+      },
+      {
+        "sig": "void ApplyPreset(EEditorThemePreset preset) noexcept",
+        "ret": "—",
+        "desc": "preset 既定の色 / spacing / corner を m_Colors に書き、即時 ImGui に流す。 Custom は直前の Custom パレットを保持・再適用。"
+      },
+      {
+        "sig": "EEditorThemePreset CurrentPreset() const noexcept",
+        "ret": "preset",
+        "desc": "現在の preset 種別(SetCustomColors 後は自動で Custom)。"
+      },
+      {
+        "sig": "void SetCustomColors(const FEditorThemeColors& colors) noexcept",
+        "ret": "—",
+        "desc": "任意パレットを設定し preset を Custom に切替・即時適用。 各色は RGBA [0,1] 想定(clamp しない = HDR 許可)。"
+      },
+      {
+        "sig": "const FEditorThemeColors& Colors() const noexcept",
+        "ret": "colors&",
+        "desc": "現在のカラーパレットを const 参照で取得。"
+      },
+      {
+        "sig": "void SetFontScale(f32 scale) noexcept / f32 FontScale() const",
+        "ret": "—",
+        "desc": "global font scale(ImGuiIO::FontGlobalScale)の設定 / 取得。 <= 0 は無視、4.0 超は警告して 4.0 に clamp。"
+      },
+      {
+        "sig": "void SetRoundedCorners(f32 radius) noexcept / f32 RoundedCorners() const",
+        "ret": "—",
+        "desc": "全 corner radius(Window / Frame / Popup / Grab / Tab / Scrollbar)を統一 / 取得。 負値は 0 に clamp。"
+      },
+      {
+        "sig": "void SetSpacing(f32 item_spacing_y) noexcept / f32 Spacing() const",
+        "ret": "—",
+        "desc": "ItemSpacing.y(情報密度の主軸)の設定 / 取得。 x はこの 0.5 倍に連動。 負値は 0 に clamp。"
+      },
+      {
+        "sig": "void DrawThemeSettingsUI() noexcept",
+        "ret": "—",
+        "desc": "\"Theme Settings\" 独立 window を描画(preset combo + 全 ColorEdit4 + slider + Save/Load)。 毎フレーム 1 行で呼ぶ。"
+      },
+      {
+        "sig": "void SaveTheme(const wchar_t* file_path) noexcept",
+        "ret": "—",
+        "desc": "現在の preset / colors / font_scale / corner / spacing を .acstheme テキストに書き出す。 失敗時はログのみ。 nullptr は no-op。"
+      },
+      {
+        "sig": "void LoadTheme(const wchar_t* file_path) noexcept",
+        "ret": "—",
+        "desc": ".acstheme から読み込み即時適用。 失敗時(ファイル無 / magic mismatch / 解析失敗)は警告 + 現状維持。 nullptr は no-op。"
+      },
+      {
+        "sig": "static constexpr const char* kMagic = \"ACS_THEME\"",
+        "desc": ".acstheme ファイルの magic 文字列。"
+      },
+      {
+        "sig": "static constexpr u32 kCurrentVersion = 1u",
+        "desc": "テーマファイルの version。"
+      },
+      {
+        "sig": "using FEditorTheme = CEditorTheme",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEditorTheme を使う。"
+      }
+    ]
+  }
+}

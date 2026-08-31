@@ -1,0 +1,97 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "FJsonValue",
+    "kind": "クラス",
+    "header": "container/Json.h",
+    "summary": "JSON の値 1 ノードを表すDOM。 配列とオブジェクトの子を TArray で再帰所有し、型不一致時は既定値、空ビュー、静的 Null を返す。 コピー禁止・ムーブ専用。",
+    "when": "ACS の設定、保存データ、アセット情報を JSON 値として保持し、型確認付きで読み書きする時。",
+    "sample": "auto r = acs::ParseJson(text);\nif (r.IsOk()) {\n    const FJsonValue& root = r.Value();\n    FStringView img = root.Get(\"meta\").Get(\"image\").AsString();\n    u32 n = root.Get(\"frames\").Size();\n    for (u32 i = 0; i < n; ++i)\n        i32 x = root.Get(\"frames\").At(i).Get(\"x\").AsInt();\n}",
+    "members": [
+      {
+        "sig": "EJsonType Type() const",
+        "ret": "種別",
+        "desc": "この値が Null / Bool / Number / String / Array / Object のどれか。"
+      },
+      {
+        "sig": "bool IsNull() / IsBool() / IsNumber() / IsString() / IsArray() / IsObject()",
+        "desc": "種別判定のショートカット。"
+      },
+      {
+        "sig": "bool AsBool(bool def = false) const",
+        "ret": "真偽値",
+        "desc": "Bool ならその値、違えば def。"
+      },
+      {
+        "sig": "f64 AsNumber(f64 def = 0.0) const",
+        "ret": "数値",
+        "desc": "Number ならその値、違えば def。 JSON の数値は全て f64 で保持。"
+      },
+      {
+        "sig": "i64 AsInt(i64 def) / u32 AsU32(u32 def)",
+        "desc": "型不一致と NaN は def を返す。 AsInt は i64 範囲へ、AsU32 は負値を 0、上限超過を最大値へ clamp する。"
+      },
+      {
+        "sig": "f32 AsF32(f32 def)",
+        "desc": "Number を f32 へ単純変換し、型不一致なら def を返す。 非有限値と f32 範囲外の値は補正しない。"
+      },
+      {
+        "sig": "FStringView AsString() const",
+        "ret": "文字列ビュー",
+        "desc": "String ならその中身、違えば空ビュー。"
+      },
+      {
+        "sig": "u32 Size() const",
+        "ret": "要素数",
+        "desc": "Array / Object の子要素数。 スカラなら 0。"
+      },
+      {
+        "sig": "const FJsonValue& At(u32 i) const",
+        "ret": "i 番目の子",
+        "desc": "配列要素を index で取る。 範囲外 / 非配列なら静的 Null 値を返す(落ちない)。"
+      },
+      {
+        "sig": "const FJsonValue& Get(const char* key) const",
+        "ret": "メンバ値",
+        "desc": "オブジェクトメンバを key で取る。 無ければ静的 Null 値(連鎖が安全)。"
+      },
+      {
+        "sig": "const FJsonValue* Find(const char* key) const",
+        "ret": "値ポインタ または null",
+        "desc": "メンバを探す。 無ければ nullptr。"
+      },
+      {
+        "sig": "bool Has(const char* key) const",
+        "ret": "あるか",
+        "desc": "そのキーのメンバが存在するか。"
+      },
+      {
+        "sig": "u32 MemberCount() const / FStringView MemberKey(u32 i) const",
+        "desc": "オブジェクトのメンバ数 / i 番目メンバのキー名(値は At(i) で取る)。"
+      },
+      {
+        "sig": "void _SetNull() / _SetBool(bool) / _SetNumber(f64) / _SetString(FStringView)",
+        "desc": "ビルダ: この値をスカラ(Null/Bool/Number/String)に設定する。 パーサ内部用だがテストや手組みでも使える。"
+      },
+      {
+        "sig": "void _MakeArray() / _MakeObject()",
+        "desc": "ビルダ: この値を空の Array / Object に初期化する。"
+      },
+      {
+        "sig": "FJsonValue& _PushArrayElem()",
+        "ret": "追加した子の参照",
+        "desc": "ビルダ: Array に空要素を 1 つ追加し、その参照を返す。"
+      },
+      {
+        "sig": "FJsonValue& _AddMember(FStringView key)",
+        "ret": "追加した値の参照",
+        "desc": "ビルダ: Object に key を追加し、その value 参照を返す。"
+      }
+    ]
+  }
+}

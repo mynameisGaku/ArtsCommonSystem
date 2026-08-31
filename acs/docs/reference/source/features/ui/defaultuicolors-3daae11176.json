@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "DefaultUiColors()",
+    "kind": "関数",
+    "header": "ui/Widgets.h",
+    "summary": "プログラム共通の既定テーマ色(FUiColors)への参照を返す。",
+    "when": "個別の CUiRenderer を作る前に、アプリ全体の既定色を参照/調整したい時。",
+    "sample": "FUiColors& c = DefaultUiColors();\nc.text = { 0.9f, 0.9f, 0.9f, 1.0f };"
+  }
+}

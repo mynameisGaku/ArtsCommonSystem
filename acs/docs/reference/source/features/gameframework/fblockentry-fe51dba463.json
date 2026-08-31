@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FBlockEntry",
+    "kind": "構造体",
+    "header": "gameframework/SocialModeration.h",
+    "summary": "ブロックリスト 1 件分。 ブロック対象 ID とブロック時刻を持つ (blocked_user_id は非所有)。",
+    "when": "AllBlocked でブロック一覧を取り出して UI 表示する時。",
+    "sample": "u32 n; const FBlockEntry* list = mod.AllBlocked(n);\nfor (u32 i = 0; i < n; ++i) {  }"
+  }
+}

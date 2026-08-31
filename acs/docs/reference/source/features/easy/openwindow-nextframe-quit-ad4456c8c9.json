@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "OpenWindow / NextFrame / Quit",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "ゲームの開始・1 フレーム進行・終了。 OpenWindow を最初に 1 回だけ呼び、while (NextFrame()) でループします。",
+    "when": "すべての easy プログラムの骨格。 描画・入力の関数は必ず NextFrame() の後（ループの中）で呼ぶ。",
+    "sample": "OpenWindow(1280, 720, \"My Game\");\nwhile (NextFrame()) {\n    if (IsKeyPressed(EKey::Escape)) Quit();\n    DrawString(20, 20, \"Hello\", FColor::White);\n}",
+    "members": [
+      {
+        "sig": "void OpenWindow(i32 width=1280, i32 height=720, const char* title=\"ACS Game\")",
+        "desc": "ウィンドウを開いて初期化。 失敗時はコンソールにエラーを出し、最初の NextFrame() が false を返す（静かに終了）。"
+      },
+      {
+        "sig": "bool NextFrame()",
+        "ret": "続行するか",
+        "desc": "直前のフレームを画面に出し、次の準備をして true。 閉じられたら後始末して false。 while の条件に使う。"
+      },
+      {
+        "sig": "void Quit()",
+        "desc": "ゲームを終了する。 以後 NextFrame() が false を返すようになる。"
+      }
+    ]
+  }
+}

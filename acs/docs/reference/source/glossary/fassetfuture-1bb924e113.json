@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAssetFuture",
+  "definition": "非同期ロードの結果を後で受け取るためのハンドル(フューチャ)。"
+}

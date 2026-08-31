@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "リンクエラー(未解決のシンボル)が出る",
+  "item": {
+    "q": "リンクエラー(未解決のシンボル)が出る",
+    "tags": [
+      "ビルド",
+      "リンク",
+      "LNK"
+    ],
+    "a": "そのモジュールを target_link_libraries(... PRIVATE ACS::Xxx) でリンクしているか、ヘッダだけで実体(.cpp)をビルドに含め忘れていないか確認。 モジュールは src/<mod>/Module.cmake の SOURCES/HEADERS に列挙します。"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DX12 backend",
+  "definition": "ImGui の描画を DirectX 12 経由で画面に出すための連携部分。"
+}

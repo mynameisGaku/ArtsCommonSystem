@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FAnimationClipInfo",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelInspectorPanel.h",
+    "summary": "Inspector が表示する 1 つの animation clip のメタ情報(名前 / 長さ / サンプル数 / ループ可否)。 AModelAnimationPanel の FAnimationClipBinding とは別物(こちらは read-only 表示用)。",
+    "when": "Inspector の Animations テーブルに clip 行を表示するため、clip ごとに 1 件作って配列で渡す。",
+    "sample": "FAnimationClipInfo c;\nc.name         = \"Idle\";\nc.duration_sec = 2.0f;\nc.sample_count = 60;\nc.is_looping   = true;",
+    "members": [
+      {
+        "sig": "const char* name = nullptr",
+        "desc": "clip 名(例: \"Idle\", \"Run\", \"Attack01\")。 caller 所有のポインタ。"
+      },
+      {
+        "sig": "f32 duration_sec = 0.0f",
+        "desc": "クリップの長さ(秒)。"
+      },
+      {
+        "sig": "u32 sample_count = 0",
+        "desc": "サンプル数(= keyframe 数の合計など)。"
+      },
+      {
+        "sig": "bool is_looping = false",
+        "desc": "ループ再生フラグ(clip metadata)。"
+      }
+    ]
+  }
+}

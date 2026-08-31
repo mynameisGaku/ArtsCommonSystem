@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="つまみをドラッグして範囲内の数値を選ぶウィジェット。 下限〜上限を指定し、現在値は TObservable で公開される。">
+  <title>ASlider — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ui.html">ui モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ui.html">ui</a><span>/</span><span aria-current="page">ASlider</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / ui</div><h1 class="identifier">ASlider</h1>
+<p class="lead">つまみをドラッグして範囲内の数値を選ぶ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29575">ウィジェット</button><span class="term-tooltip" id="term-tip-29575" role="tooltip">ボタンやラベルなど画面上の UI 部品 1 つ 1 つのこと。 AWidget を継承して作る。</span></span>。 下限〜上限を指定し、現在値は T<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29576">Observable</button><span class="term-tooltip" id="term-tip-29576" role="tooltip">監視できる 1 個の値。 Set で変えると購読者へ通知が飛ぶ。 MVVM の中核。</span></span> で公開される。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/ui/aslider-3e4b5a15.html"><code>acs::ASlider</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>音量・難易度・パラメータなど連続値をマウスで調整させたい時。 value を <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29570">ViewModel</button><span class="term-tooltip" id="term-tip-29570" role="tooltip">MVVM の橋渡し層。 実型 CViewModel と TObservable で状態を公開し、View(画面)がそれを購読して自動反映する。</span></span> と双方向 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29571">Bind</button><span class="term-tooltip" id="term-tip-29571" role="tooltip">Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。</span></span> すると便利。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>ui</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>ui/Widgets.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-b30db1dfecc1fec738df"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TObservable&lt;f32&gt; <a href="../../symbols/ui/aslider-3e4b5a15/value-b35a91cf.html">value</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>現在の値。 ドラッグで更新され、Subscribe / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29572">Bind</button><span class="term-tooltip" id="term-tip-29572" role="tooltip">Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。</span></span> で受け取れる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/aslider-3e4b5a15/value-b35a91cf.html"><code>acs::ASlider::value</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-76dc6e9e429093807de9"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/ui/aslider-3e4b5a15/min-value-19218a38.html">min_value</a> / <a href="../../symbols/ui/aslider-3e4b5a15/max-value-0e40d59b.html">max_value</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>選べる値の下限・上限。 コンストラクタ <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29573">ASlider</button><span class="term-tooltip" id="term-tip-29573" role="tooltip">指定範囲の連続値を drag で編集し、TObservable&lt;f32&gt; で公開する UI slider。</span></span>(min, max) で指定。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/aslider-3e4b5a15/min-value-19218a38.html"><code>acs::ASlider::min_value</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/aslider-3e4b5a15/max-value-0e40d59b.html"><code>acs::ASlider::max_value</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-630191d6c1d144c0eb17"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/ui/fslider-99e45a33.html">FSlider</a> = ASlider</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29574">ASlider</button><span class="term-tooltip" id="term-tip-29574" role="tooltip">指定範囲の連続値を drag で編集し、TObservable&lt;f32&gt; で公開する UI slider。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/fslider-99e45a33.html"><code>acs::FSlider</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>ASlider</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/ui/aslider-3e4b5a15.html"><code>acs::ASlider</code></a><span class="summary"><code>class ASlider : public AWidget;</code></span></li><li><a href="../../symbols/ui/aslider-3e4b5a15/aslider-32a2f917.html"><code>acs::ASlider::ASlider</code></a><span class="summary"><code>ASlider(f32 min_v = 0, f32 max_v = 1) noexcept;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="ASliderの使用例"><code>ASlider* sl = root.Add&lt;ASlider&gt;(0.0f, 100.0f);  // 0〜100
+sl-&gt;value.Subscribe([](const f32&amp; v, void*){ SetVolume(v); }, nullptr);
+auto bind = MakeTwoWayBind(vm.hp, sl-&gt;value);  // 双方向同期</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

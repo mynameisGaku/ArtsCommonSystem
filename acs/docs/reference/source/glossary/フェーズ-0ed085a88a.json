@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "フェーズ",
+  "definition": "ターン進行の局面(プレイヤーの番 / 敵の番など)。 ETurnPhase で表す。"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "PauseEventCallback",
+    "kind": "関数ポインタ型",
+    "header": "gameframework/PauseDirector.h",
+    "summary": "pause/resume 遷移時に発火する関数ポインタ型 = void(*)(void* user, EPauseReason reason, bool paused) noexcept。 立った / 落ちた reason の bit ごとに個別に呼ばれ、paused が遷移方向 (true=pause へ / false=resume へ)。",
+    "when": "pause 状態の変化に合わせて UI を更新したり、音をフェードさせたりしたい時のコールバック。",
+    "sample": "void OnPause(void* u, EPauseReason r, bool paused) noexcept {\n    if (paused) AudioDuck(); else AudioRestore();\n}\npause.SetCallback(&OnPause, this);"
+  }
+}

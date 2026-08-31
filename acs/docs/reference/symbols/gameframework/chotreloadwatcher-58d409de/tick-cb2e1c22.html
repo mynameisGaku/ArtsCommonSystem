@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="1 フレーム進める。 OS watcher の poll → pending events への push → 登録済み callback への dispatch を行う。 dt は前フレームからの経過秒。">
+  <title>acs::game::CHotReloadWatcher::Tick — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../chotreloadwatcher-58d409de.html">CHotReloadWatcher の概要</a><a class="tree-child" href="capturediagnostics-e684746a.html">CaptureDiagnostics</a><a class="tree-child" href="chotreloadwatcher-0435132f.html">CHotReloadWatcher</a><a class="tree-child" href="chotreloadwatcher-5ec6e235.html">CHotReloadWatcher</a><a class="tree-child" href="chotreloadwatcher-ed3b4ea9.html">CHotReloadWatcher</a><a class="tree-child" href="cleardiagnostics-c34fb2ba.html">ClearDiagnostics</a><a class="tree-child" href="clearevents-00988ab6.html">ClearEvents</a><a class="tree-child" href="consumenextevent-6fba8ce9.html">ConsumeNextEvent</a><a class="tree-child" href="debounceseconds-fecd90d2.html">DebounceSeconds</a><a class="tree-child" href="fcallbackentry-f2246d0c.html">FCallbackEntry</a><a class="tree-child" href="handlenativeoverflowcompletion-204881c0.html">HandleNativeOverflowCompletion</a><a class="tree-child" href="init-460dc9cb.html">Init</a><a class="tree-child" href="kmaxcallbacks-34eaff5d.html">kMaxCallbacks</a><a class="tree-child" href="kmaxdebounceseconds-652c1c04.html">kMaxDebounceSeconds</a><a class="tree-child" href="kmaxdirectorywatches-39fe21d8.html">kMaxDirectoryWatches</a><a class="tree-child" href="kmaxpathbytes-a4c0434a.html">kMaxPathBytes</a><a class="tree-child" href="kmaxpendingevents-f8cf226b.html">kMaxPendingEvents</a><a class="tree-child" href="kmaxwatchedpaths-0bcbc13b.html">kMaxWatchedPaths</a><a class="tree-child" href="m-abortdispatch-c45d6cae.html">m_AbortDispatch</a><a class="tree-child" href="m-callbacks-88ca06dc.html">m_Callbacks</a><a class="tree-child" href="m-debounceseconds-2e6f2e6f.html">m_DebounceSeconds</a><a class="tree-child" href="m-diagnostics-cb3f0909.html">m_Diagnostics</a><a class="tree-child" href="m-dispatching-c708234d.html">m_Dispatching</a><a class="tree-child" href="m-eventpaths-146612b1.html">m_EventPaths</a><a class="tree-child" href="m-lastconsumedpath-50f069e7.html">m_LastConsumedPath</a><a class="tree-child" href="m-pendingevents-daf7fa9c.html">m_PendingEvents</a><a class="tree-child" href="m-stopdrainaftercurrentevent-f9b6ac82.html">m_StopDrainAfterCurrentEvent</a><a class="tree-child" href="m-watchedpaths-e3586445.html">m_WatchedPaths</a><a class="tree-child" href="m-watchers-28d40ea9.html">m_Watchers</a><a class="tree-child" href="operator-6e4a003f.html">operator=</a><a class="tree-child" href="operator-765ce981.html">operator=</a><a class="tree-child" href="pendingeventcount-f35d06d5.html">PendingEventCount</a><a class="tree-child" href="processnativenotificationbuffer-058b162c.html">ProcessNativeNotificationBuffer</a><a class="tree-child" href="recorddiagnosticfailure-ffa97051.html">RecordDiagnosticFailure</a><a class="tree-child" href="registercallback-d65e5371.html">RegisterCallback</a><a class="tree-child" href="shutdown-59fb76e7.html">Shutdown</a><a class="tree-child" href="tick-cb2e1c22.html" aria-current="page">Tick</a><a class="tree-child" href="tryenqueueevent-c8c88317.html">TryEnqueueEvent</a><a class="tree-child" href="tryqueueevent-c9e11de9.html">TryQueueEvent</a><a class="tree-child" href="tryregistercallback-8046c3e0.html">TryRegisterCallback</a><a class="tree-child" href="trysetdebounceseconds-d347e723.html">TrySetDebounceSeconds</a><a class="tree-child" href="trytick-dd346b22.html">TryTick</a><a class="tree-child" href="trywatchdirectory-118a8fc7.html">TryWatchDirectory</a><a class="tree-child" href="trywatchfile-fddf783b.html">TryWatchFile</a><a class="tree-child" href="unregistercallback-47ad9306.html">UnregisterCallback</a><a class="tree-child" href="unwatch-1feccdc3.html">Unwatch</a><a class="tree-child" href="watchdirectory-94459145.html">WatchDirectory</a><a class="tree-child" href="watchedcount-379aac5c.html">WatchedCount</a><a class="tree-child" href="watchfile-e5e778fd.html">WatchFile</a><a class="tree-child" href="chotreloadwatcher-a7cb1f2d.html">~CHotReloadWatcher</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../chotreloadwatcher-58d409de.html">CHotReloadWatcher</a><span>/</span><span aria-current="page">Tick</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CHotReloadWatcher::Tick</h1>
+<p class="lead">1 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6443">フレーム</button><span class="term-tooltip" id="term-tip-6443" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>進める。 OS watcher の poll → pending events への push → 登録済み <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6444">callback</button><span class="term-tooltip" id="term-tip-6444" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> への dispatch を行う。 dt は前<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6445">フレーム</button><span class="term-tooltip" id="term-tip-6445" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>からの経過秒。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CHotReloadWatcher::Tickの宣言"><code>void <a href="tick-cb2e1c22.html" aria-current="page">Tick</a>(<a href="../../foundation/f32-87be3881.html">f32</a> dt) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../chotreloadwatcher-58d409de.html"><code>acs::game::CHotReloadWatcher</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/HotReload.h:231</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

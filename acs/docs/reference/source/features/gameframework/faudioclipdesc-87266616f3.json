@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FAudioClipDesc",
+    "kind": "構造体",
+    "header": "gameframework/audio_backend/IAudioBackend.h",
+    "summary": "再生する音声バッファの記述子。 フォーマット + データ参照を持つ。 pcm_data は backend 側が必要な間 (一発再生終了 / Stop まで) 内部コピーする。",
+    "when": "PlayOneShot / PlayLooped に渡す clip を組み立てる時。",
+    "sample": "FAudioClipDesc clip;\nclip.pcm_data = bytes;\nclip.pcm_size = len;\nclip.sample_rate = 44100;\nclip.channel_count = 2;\nclip.format = EAudioFormat::Pcm16;",
+    "members": [
+      {
+        "sig": "const void* pcm_data = nullptr",
+        "desc": "raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。"
+      },
+      {
+        "sig": "u64 pcm_size = 0",
+        "desc": "pcm_data の有効バイト数。"
+      },
+      {
+        "sig": "u32 sample_rate = 0",
+        "desc": "1 チャネルあたりサンプル/秒 (例 44100 / 48000)。"
+      },
+      {
+        "sig": "u32 channel_count = 0",
+        "desc": "チャネル数 (1=mono / 2=stereo)。"
+      },
+      {
+        "sig": "EAudioFormat format = EAudioFormat::Pcm16",
+        "desc": "上記 EAudioFormat。"
+      }
+    ]
+  }
+}

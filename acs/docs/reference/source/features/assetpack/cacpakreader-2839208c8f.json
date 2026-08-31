@@ -1,0 +1,73 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakReader",
+    "kind": "クラス",
+    "header": "assetpack/AcpakReader.h",
+    "summary": "1 つの .acpak を開き、中の仮想ファイルを名前で取り出す読み出し係。 圧縮・暗号化されていれば自動で解凍・復号して返す。",
+    "when": "実行時にアーカイブからテクスチャや音データを読み込みたい時。 普通はゲーム起動時に 1 度 Open し、必要な時に ReadFile する。",
+    "sample": "acs::assetpack::CAcpakReader reader;\nreader.Open(L\"game.acpak\");\nauto sz = reader.GetUncompressedSize(L\"textures/hero.png\");\nacs::byte* buf = MyAlloc(sz.Value());\nreader.ReadFile(L\"textures/hero.png\", buf, sz.Value());\nreader.Close();",
+    "members": [
+      {
+        "sig": "TResult<void> Open(const wchar_t* file_path)",
+        "desc": "pak を独立した一時 Reader へ開き、ヘッダとファイルテーブルの検証完了後にだけ現在状態を置換する。 多重 Open が失敗した場合は既存の handle・manifest・鍵を維持し、未 Open からの失敗は未 Open のまま。 暗号化 pak は Open 前に SetKey で鍵を渡しておくこと(無いと ReadFile でエラー)。 magic/version/flags 不一致はエラー。"
+      },
+      {
+        "sig": "void SetKey(const FAcpakKey& key)",
+        "desc": "暗号化 pak の復号鍵を設定する。 ReadFile 内の AES-256-GCM 復号で使う。 Close すると鍵情報は 0 クリアされる。",
+        "when": "暗号化された pak を読む時。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "ハンドルを閉じ、文字列プールと entry 配列を解放する。 Open 前・Close 済でも安全。"
+      },
+      {
+        "sig": "bool IsOpen() const",
+        "ret": "開いているか",
+        "desc": "Open 成功後かつ Close 前なら true。"
+      },
+      {
+        "sig": "u32 FileCount() const",
+        "ret": "ファイル数",
+        "desc": "今開いている pak に含まれる仮想ファイルの数。 未 Open なら 0。"
+      },
+      {
+        "sig": "const FAcpakFileEntry* GetEntry(u32 index) const",
+        "ret": "エントリ または null",
+        "desc": "index 番目のファイル情報を返す。 範囲外・未 Open なら null。 返り値の寿命は次の Close まで。"
+      },
+      {
+        "sig": "const FAcpakFileEntry* FindEntry(const wchar_t* path) const",
+        "ret": "エントリ または null",
+        "desc": "要求 path を一度 hash し、manifest 読み込み時に保持した hash と一致する候補だけを大文字小文字を区別して完全比較する。 見つからない・非正規形・未 Open なら null。"
+      },
+      {
+        "sig": "TResult<u64> ReadFile(const wchar_t* path, void* out_buffer, u64 buffer_size)",
+        "ret": "書き込んだバイト数",
+        "desc": "ファイルを out_buffer へ読み出す。 buffer_size は GetUncompressedSize 以上必要。 読み出し後 CRC32 を照合し、不一致(破損/改竄)はエラー。",
+        "when": "実際にファイルの中身が欲しい時。",
+        "sample": "auto r = reader.ReadFile(L\"data/level1.bin\", buf, bufSize);\nif (r.IsOk()) { /* buf に生データ */ }"
+      },
+      {
+        "sig": "TResult<u64> GetUncompressedSize(const wchar_t* path) const",
+        "ret": "復号+解凍後のバイト数",
+        "desc": "ファイルの最終サイズを返す。 ReadFile 用バッファの事前確保に使う。 未存在パスはエラー。",
+        "when": "ReadFile の前に必要なバッファ量を知りたい時。"
+      },
+      {
+        "sig": "u32 Flags() const",
+        "ret": "フラグ",
+        "desc": "ヘッダから読んだ flags(暗号化/圧縮の有無)をそのまま返す。 診断用。"
+      },
+      {
+        "sig": "using FAcpakReader = CAcpakReader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakReader を使う。"
+      }
+    ]
+  }
+}

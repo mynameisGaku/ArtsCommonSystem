@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "IBuildFarmBackend",
+    "kind": "インターフェース",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "ビルドファームを抽象化するシーム。 「ビルド投入 → ポーリングで完了確認 → artifact URL 受け取り」のフローを提供する。 ビルド ID は不透明 u64。",
+    "when": "ナイトリービルドや CI ジョブをプログラムから投入・追跡したい時。",
+    "sample": "IBuildFarmBackend* farm = &GetLocalBuildRunner();\nIBuildFarmBackend::FBuildRequest req{\"Shipping_Win64\", \"main\", \"1e6c12b\"};\nauto id = farm->SubmitBuild(req);\n// あとで farm->PollBuild(id.Value())",
+    "members": [
+      {
+        "sig": "TResult<u64> SubmitBuild(const FBuildRequest& req)",
+        "ret": "build_id",
+        "desc": "ビルドを投入。 成功時は非ゼロのビルド ID を返す。"
+      },
+      {
+        "sig": "TResult<FBuildResult> PollBuild(u64 build_id)",
+        "ret": "結果",
+        "desc": "ビルド状態を取得。 build_id == 0 は不正、未知 ID は kSub_NotFound。"
+      },
+      {
+        "sig": "TResult<void> CancelBuild(u64 build_id)",
+        "ret": "成否",
+        "desc": "ビルドのキャンセル要求。"
+      },
+      {
+        "sig": "bool IsConnected() const",
+        "desc": "backend に接続できているか。 stub は常に false。"
+      }
+    ]
+  }
+}

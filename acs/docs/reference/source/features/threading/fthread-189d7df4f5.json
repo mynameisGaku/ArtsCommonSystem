@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FThread",
+    "kind": "クラス",
+    "header": "threading/Thread.h",
+    "summary": "例外を投げず、起動失敗は Result で返す。 コピー不可・ムーブ可。",
+    "when": "重い処理(読み込み・計算)をメインスレッドと別に走らせたい時。 多数の小タスクを捌くなら FThread を直接作らず CThreadPool を使う方が効率的。",
+    "sample": "void Work(void* user) { /* 別スレッドで走る */ }\nauto r = FThread::Spawn(&Work, &ctx);\nif (r.IsOk()) {\n    FThread t = static_cast<FThread&&>(r.Value());\n    t.Join();   // 終わるまで待つ\n}",
+    "members": [
+      {
+        "sig": "static TResult<FThread> Spawn(ThreadEntry entry, void* user, const FThreadConfig& cfg = {})",
+        "ret": "スレッド または エラー",
+        "desc": "entry(user) を別スレッドで起動する。 失敗時は Err。",
+        "when": "スレッドを 1 本立ち上げる時。"
+      },
+      {
+        "sig": "bool Joinable() const",
+        "desc": "まだ Join も Detach もしていない有効なハンドルなら true。"
+      },
+      {
+        "sig": "void Join()",
+        "desc": "スレッドが終わるまで待ち、その後ハンドルを解放する。"
+      },
+      {
+        "sig": "void Detach()",
+        "desc": "ハンドルだけ閉じてスレッドは走らせ続ける(待たない)。"
+      },
+      {
+        "sig": "FThreadId Id() const",
+        "ret": "スレッド ID",
+        "desc": "このスレッドの FThreadId。"
+      }
+    ]
+  }
+}

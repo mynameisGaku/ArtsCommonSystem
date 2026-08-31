@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "CComponentRegistry",
+    "kind": "クラス",
+    "header": "ecs/ComponentRegistry.h",
+    "summary": "コンポーネント型ごとの操作(FComponentOps)を登録・引き出す静的レジストリ。 型 T を 1 度登録すれば、以後は番号から型を知らずに操作を取り出せる。",
+    "when": "型消去したコンポーネント管理を自作する時の土台。 通常は CWorld の内側で使われる。",
+    "sample": "const FComponentOps& ops = CComponentRegistry::Register<Velocity>();\nFComponentTypeId id = GetComponentTypeId<Velocity>();\nconst FComponentOps& same = CComponentRegistry::Get(id);  // 同じ Ops",
+    "members": [
+      {
+        "sig": "static const FComponentOps& Register<T>()",
+        "ret": "型 T の Ops",
+        "desc": "型 T を登録(初回のみ実体作成)し、その FComponentOps を返す。",
+        "when": "新しいコンポーネント型を初めて使う前に。"
+      },
+      {
+        "sig": "static const FComponentOps& Get(FComponentTypeId id)",
+        "ret": "Ops",
+        "desc": "番号から登録済みの FComponentOps を引く。"
+      },
+      {
+        "sig": "using FComponentRegistry = CComponentRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CComponentRegistry を使う。"
+      }
+    ]
+  }
+}

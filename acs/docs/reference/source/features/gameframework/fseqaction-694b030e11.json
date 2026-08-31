@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSeqAction",
+    "kind": "構造体",
+    "header": "gameframework/Sequence.h",
+    "summary": "FSequence の中に積まれる「動作 1 つ」を表す POD。 EKind(Wait / Call / TweenF / TweenV2 / TweenV3) で種類を区別する。",
+    "when": "通常は FSequence のビルダー経由で間接的に作られる。 中身を直接覗いて独自処理したい時だけ触る。",
+    "sample": "// FSequence::Wait/Call/Tween が内部で 1 個ずつ生成する。\n// 直接組み立てることは普通ない。",
+    "members": [
+      {
+        "sig": "enum class EKind : u8 { Wait, Call, TweenF, TweenV2, TweenV3 }",
+        "desc": "この動作が待ちか・呼び出しか・どの型の補間か。"
+      },
+      {
+        "sig": "f32 duration",
+        "desc": "待ち / 補間の所要秒 (Call は 0)。"
+      }
+    ]
+  }
+}

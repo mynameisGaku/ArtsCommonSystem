@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "FScriptCallFrame",
+    "kind": "構造体",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "Lua から NativeFunction(登録した C++ 関数)が呼ばれた瞬間に渡される、引数と戻り値のまとめ。 引数配列・件数・戻り値書き込み先だけを持つ薄い POD。",
+    "when": "RegisterNativeFunction で登録した C++ 関数の中で、引数を読み戻り値を書く時に使う。",
+    "sample": "void OnAdd(acs::game::IScriptVm&, acs::game::FScriptCallFrame& f, void*) noexcept {\n    f64 a = f.args[0].v.num;\n    f64 b = f.args[1].v.num;\n    if (f.ret) { f.ret->kind = acs::game::EScriptValueKind::Number; f.ret->v.num = a + b; }\n}",
+    "members": [
+      {
+        "sig": "const FScriptValue* args",
+        "desc": "引数配列(読み取り専用、長さは arg_count)。"
+      },
+      {
+        "sig": "u32 arg_count",
+        "desc": "args の長さ。 0 でも有効(引数なし関数)。"
+      },
+      {
+        "sig": "FScriptValue* ret",
+        "desc": "戻り値の書き込み先。 nullptr なら戻り値は捨てられる。"
+      }
+    ]
+  }
+}

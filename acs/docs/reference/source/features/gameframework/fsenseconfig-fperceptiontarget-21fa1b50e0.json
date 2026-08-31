@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FSenseConfig / FPerceptionTarget",
+    "kind": "構造体",
+    "header": "gameframework/Perception.h",
+    "summary": "FSenseConfig = 感覚パラメータ (sight_range 視認距離 / sight_fov_rad 視野角ラジアン / hearing_range 聴取距離)。 FPerceptionTarget = 知覚対象 1 件 (pos / id と、Tick が更新する is_visible / is_audible 出力)。",
+    "when": "SetConfig() に渡す設定、および AllTargets() で読む結果のデータ単位。",
+    "sample": "FSenseConfig cfg;\ncfg.sight_range = 8.0f;\ncfg.sight_fov_rad = acs::kPi / 3.0f;  // 60 度\ncfg.hearing_range = 4.0f;"
+  }
+}

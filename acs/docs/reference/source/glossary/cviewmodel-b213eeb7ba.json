@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CViewModel",
+  "definition": "MVVM のビューモデル(VM)の基底クラス。 継承して TObservable なプロパティを並べ、画面に見せたい状態をまとめる。"
+}

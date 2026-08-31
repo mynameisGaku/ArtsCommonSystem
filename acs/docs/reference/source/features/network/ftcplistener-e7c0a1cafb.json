@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "network",
+    "title": "network — ネットワーク基盤",
+    "description": "PC 同士を通信でつなぐための土台。 TCP(確実に届ける接続)と UDP(速いが届く保証なし)のソケットを、Windows の WinSock をくるんだ薄いAPIとして提供します。 マルチプレイや簡単なサーバ通信の入口です。"
+  },
+  "feature": {
+    "name": "FTcpListener",
+    "kind": "クラス",
+    "header": "network/TcpListener.h",
+    "summary": "TCP 接続を待ち受ける側(サーバ)。 指定ポートで Listen を始め、Accept() でクライアントの接続を 1 本ずつ受理して FTcpConnection に変える。 コピー不可・ムーブのみ。",
+    "when": "自分がサーバになって、複数のクライアントからの接続を受け付けたい時。",
+    "sample": "auto lr = FTcpListener::Listen(FIpAddress::Any(), 8080);\nif (lr.IsErr()) return;\nFTcpListener& l = lr.Value();\nwhile (true) {\n    auto cr = l.Accept();           // 1 接続を待つ\n    if (cr.IsOk()) HandleClient(Move(cr.Value()));\n}",
+    "members": [
+      {
+        "sig": "static TResult<FTcpListener> Listen(FIpAddress addr, u16 port, u32 backlog = 16)",
+        "ret": "リスナー または エラー",
+        "desc": "指定アドレス/ポートで待ち受けを開始する。 addr=Any() で全インターフェイス。 backlog は保留接続の上限。",
+        "when": "サーバ起動時。"
+      },
+      {
+        "sig": "TResult<FTcpConnection> Accept()",
+        "ret": "接続 または エラー",
+        "desc": "接続を 1 本受け付ける(既定では届くまでブロック)。 返った FTcpConnection でそのクライアントと通信する。",
+        "when": "接続待ちループの中で毎回呼ぶ。"
+      },
+      {
+        "sig": "TResult<void> SetNonBlocking(bool enable)",
+        "ret": "成功 または エラー",
+        "desc": "ノンブロッキングに切り替える。 true なら接続が無い時 Accept が待たずに即返る。",
+        "when": "メインループを止めずに接続を受けたい時。"
+      },
+      {
+        "sig": "TResult<FIpAddress> LocalAddress() const",
+        "ret": "待ち受け先 または エラー",
+        "desc": "OS が割り当てたローカル IPv4 アドレスとポートを返す。 Listen(..., 0) の実ポート確認にも使える。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "待ち受けを終了する。 デストラクタでも呼ばれる。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "待ち受けが生きていれば true。"
+      }
+    ]
+  }
+}

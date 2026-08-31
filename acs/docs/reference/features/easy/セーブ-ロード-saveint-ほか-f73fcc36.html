@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="実行ファイルの場所の save.dat に key-value で永続化する。 整数・小数・文字列を保存／読み出し。 Load 系は未保存ならデフォルト値を返す。 OpenWindow の前でも後でも呼べる。">
+  <title>セーブ／ロード（SaveInt ほか） — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">セーブ／ロード（SaveInt ほか）</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">セーブ／ロード（SaveInt ほか）</h1>
+<p class="lead">実行ファイルの場所の save.dat に key-value で永続化する。 整数・小数・文字列を保存／読み出し。 Load 系は未保存ならデフォルト値を返す。 OpenWindow の前でも後でも呼べる。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/easy/saveint-d5b0f1bc.html"><code>acs::easy::SaveInt</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>ハイスコア・設定・進行状況の保存。 文字列の値に改行（\n）は使えない。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-773f892c05532765b9fd"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/easy/saveint-d5b0f1bc.html">SaveInt</a>(const char* key, i32 value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>整数を保存する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/saveint-d5b0f1bc.html"><code>acs::easy::SaveInt</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-f35c4e66e531dda899f3"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>i32 <a href="../../symbols/easy/loadint-fd8c4b12.html">LoadInt</a>(const char* key, i32 default_value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>整数を読む。 未保存なら default_value。</dd></div><div class="fact"><dt>戻り値</dt><dd>値 または 既定</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/loadint-fd8c4b12.html"><code>acs::easy::LoadInt</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-576ba5cbc330f33afab2"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/easy/savefloat-5663bb59.html">SaveFloat</a>(const char* key, f32 value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>小数を保存する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/savefloat-5663bb59.html"><code>acs::easy::SaveFloat</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-88ded8676c7e8a619324"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>f32 <a href="../../symbols/easy/loadfloat-140bdd9a.html">LoadFloat</a>(const char* key, f32 default_value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>小数を読む。 未保存なら default_value。</dd></div><div class="fact"><dt>戻り値</dt><dd>値 または 既定</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/loadfloat-140bdd9a.html"><code>acs::easy::LoadFloat</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-75d4d92fc458c93214ef"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>void <a href="../../symbols/easy/savestring-13cbdb42.html">SaveString</a>(const char* key, const char* value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>文字列を保存する（改行は不可）。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/savestring-13cbdb42.html"><code>acs::easy::SaveString</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-2aeb5abe01bda34cddd1"><h3>API項目 6</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 6 の宣言"><code>const char* <a href="../../symbols/easy/loadstring-212f737c.html">LoadString</a>(const char* key, const char* default_value)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>文字列を読む。 戻り値は次に Save 系を呼ぶまで有効。</dd></div><div class="fact"><dt>戻り値</dt><dd>値 または 既定</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/loadstring-212f737c.html"><code>acs::easy::LoadString</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-251ceebe8b5a06e37459"><h3>API項目 7</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 7 の宣言"><code>bool <a href="../../symbols/easy/hassavekey-2ac0cc8b.html">HasSaveKey</a>(const char* key)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>そのキーが保存されていれば true。</dd></div><div class="fact"><dt>戻り値</dt><dd>保存済みか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/hassavekey-2ac0cc8b.html"><code>acs::easy::HasSaveKey</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-13f87ad0c7089434b23a"><h3>API項目 8</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 8 の宣言"><code>void <a href="../../symbols/easy/deleteallsaves-da33df7b.html">DeleteAllSaves</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>保存内容を全消去する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/deleteallsaves-da33df7b.html"><code>acs::easy::DeleteAllSaves</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="セーブ／ロード（SaveInt ほか）の使用例"><code>SaveInt(&quot;highscore&quot;, 1200);
+i32 best = LoadInt(&quot;highscore&quot;, 0);   // 未保存なら 0
+SaveString(&quot;name&quot;, &quot;あべ&quot;);
+const char* n = LoadString(&quot;name&quot;, &quot;NONAME&quot;);
+if (HasSaveKey(&quot;highscore&quot;)) /* 続きから */;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

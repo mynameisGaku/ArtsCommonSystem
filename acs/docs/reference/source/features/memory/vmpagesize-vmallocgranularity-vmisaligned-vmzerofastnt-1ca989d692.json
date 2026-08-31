@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "VmPageSize / VmAllocGranularity / VmIsAligned / VmZeroFastNT",
+    "kind": "関数 / 定数",
+    "header": "memory/VirtualMemory.h",
+    "summary": "仮想メモリ層の補助関数とページサイズ定数。 VmZeroFastNT は x64 の CPU/OS が AVX と XMM/YMM 状態保存に対応し、32B 整列かつ 256B 以上なら Non-Temporal ストアを使う。 非対応CPU、ARM64、未整列、小領域は memset へ安全にフォールバックする。",
+    "when": "VM 予約の整列計算や、巨大バッファを高速にゼロクリアしたい低レベルな場面。",
+    "sample": "usize ps = VmPageSize();              // OS ページサイズ\nusize gr = VmAllocGranularity();      // VirtualAlloc 予約粒度\nif (VmIsAligned((uptr)p, 4096)) { /* ... */ }\nVmZeroFastNT(buf, 4u << 20);          // 4MB を非テンポラル書き込みでゼロ化",
+    "members": [
+      {
+        "sig": "usize VmPageSize() noexcept",
+        "ret": "OS ページサイズ",
+        "desc": "OS の物理ページサイズ(通常 4KB)。"
+      },
+      {
+        "sig": "usize VmAllocGranularity() noexcept",
+        "ret": "予約粒度",
+        "desc": "VirtualAlloc の予約粒度(Windows では通常 64KB)。"
+      },
+      {
+        "sig": "bool VmIsAligned(uptr address, usize alignment) noexcept",
+        "ret": "整列か",
+        "desc": "address が alignment の倍数なら true。"
+      },
+      {
+        "sig": "void VmZeroFastNT(void* destination, usize size) noexcept",
+        "desc": "利用可能なら非テンポラルストアでキャッシュを汚さずゼロクリアし、非対応環境は通常経路へフォールバックする。"
+      },
+      {
+        "sig": "constexpr usize kVmSmallPageSize = 16*1024",
+        "desc": "論理小ページ単位(16 KiB)。"
+      },
+      {
+        "sig": "constexpr usize kVmMediumPageSize = 128*1024",
+        "desc": "論理中ページ単位(128 KiB)。"
+      },
+      {
+        "sig": "constexpr usize kVmSegmentSize = 8*1024*1024",
+        "desc": "論理セグメント単位(8 MiB)。"
+      }
+    ]
+  }
+}

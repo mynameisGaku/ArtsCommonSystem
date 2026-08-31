@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FArenaAllocatorDiagnostics",
+    "kind": "構造体",
+    "header": "memory/ArenaAllocatorDiagnostics.h",
+    "summary": "Arena の batch と世代 Reset の効果を観測する 40 byte の値 snapshot。 owner や寿命は持たない。",
+    "members": [
+      {
+        "sig": "u64 retained_pages",
+        "desc": "現在保持する page 数。 診断取得時に GrowLock 内で数える。"
+      },
+      {
+        "sig": "u64 batch_allocations",
+        "desc": "最後の Reset 以降に成功した batch 呼び出し数。"
+      },
+      {
+        "sig": "u64 batch_suballocations",
+        "desc": "最後の Reset 以降に batch で返した領域数。"
+      },
+      {
+        "sig": "u64 last_reset_page_visits",
+        "desc": "直前の Reset が直接参照した page 数。 通常の保持 Reset は 0 または 1。"
+      },
+      {
+        "sig": "u64 lazy_page_resets",
+        "desc": "最後の Reset 以降に再利用直前まで初期化を遅らせた page 数。"
+      }
+    ]
+  }
+}

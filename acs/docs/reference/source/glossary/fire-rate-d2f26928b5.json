@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "fire rate",
+  "definition": "1 秒あたりの発射回数。 連射間隔 = 1.0 / fire rate で決まる。"
+}

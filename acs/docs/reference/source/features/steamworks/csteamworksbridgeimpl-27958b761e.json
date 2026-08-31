@@ -1,0 +1,143 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "steamworks",
+    "title": "steamworks — Steam 連携",
+    "description": "Steam の実績・リーダーボード・クラウドセーブ・フレンドなどを使うバックエンドです。 ゲーム側は acs::game の シーム(抽象 I/F)越しに呼ぶだけで、このモジュールが本物の Steamworks SDK につなぎます。"
+  },
+  "feature": {
+    "name": "CSteamworksBridgeImpl",
+    "kind": "クラス",
+    "header": "steamworks/SteamworksBridgeImpl.h",
+    "summary": "Steamworks SDK を実際に呼ぶ本物の実装(acs::game::ISteamworksBridge を Override)。 SteamAPI_Init() を起点に、実績解除・リーダーボード・統計(Stats)・DLC 所有・リッチプレゼンス・フレンド・クラウドセーブ・Workshop・ボイス・Steam Input を提供します。",
+    "when": "出荷ビルドで本物の Steam 機能を使いたい時。 開発中で Steam クライアントを立ち上げられない時は、代わりに acs::game::SteamworksBridgeStub を使う(自動切り替えは GetDefaultSteamworksBridge() 参照)。",
+    "sample": "acs::steamworks::CSteamworksBridgeImpl steam;\nif (steam.Init().IsErr()) {\n    // Steam 未起動 / AppID 不一致 → stub にフォールバック\n}\n// ボス撃破時に実績解除\n(void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム必須(コールバックポンプ)\nsteam.Tick(dt);",
+    "members": [
+      {
+        "sig": "TResult<void> Init()",
+        "ret": "成功 または エラー",
+        "desc": "SteamAPI_Init() を呼んで Steam クライアント連携を確立する。 Steam 未起動 / AppID 不一致なら Err(kSubSteamworksInitFailed)。",
+        "when": "起動時に一度。 失敗したら stub へフォールバックする。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "SDK 終了処理。 Init() 前に呼んでも安全(no-op)。"
+      },
+      {
+        "sig": "bool IsInitialized() const",
+        "ret": "初期化済みか",
+        "desc": "Init() 成功後かつ Shutdown() 前なら true。 失敗時の判定に使う。"
+      },
+      {
+        "sig": "PlayerIdentity GetLocalPlayer() const",
+        "ret": "ローカルプレイヤー",
+        "desc": "自分の表示名(GetPersonaName)と SteamID64 を acs::game::PlayerIdentity で返す。 未初期化なら空。 文字列の寿命は「次の Tick() まで」。"
+      },
+      {
+        "sig": "TResult<void> UnlockAchievement(const char* ach_id)",
+        "ret": "成功 または エラー",
+        "desc": "実績を解除する(SetAchievement + StoreStats を即時呼び出し)。",
+        "sample": "(void)steam.UnlockAchievement(\"ACH_FIRST_CLEAR\");"
+      },
+      {
+        "sig": "TResult<void> SetLeaderboardScore(const char* board_id, i64 score)",
+        "ret": "成功 または エラー",
+        "desc": "リーダーボードへスコアを送信する。 内部は 非同期(Find → Upload の 2 段)で、Tick() 経由でコールバックを進めて完了を待つため数フレーム遅延する。",
+        "when": "スコア更新時に。 board_id は Steam 側で定義したボード名。"
+      },
+      {
+        "sig": "TResult<i64> GetLeaderboardScore(const char* board_id)",
+        "ret": "自分のスコア",
+        "desc": "自分の現在スコアを取得する。 こちらも 非同期(Find → Download)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "SteamAPI_RunCallbacks() を呼ぶ必須処理。 毎フレーム呼ぶこと(非同期 API の完了もここで進む)。",
+        "when": "ゲームループから毎フレーム。"
+      },
+      {
+        "sig": "TResult<void> SetStat(const char* stat_name, i64 value) / TResult<i64> GetStat(...)",
+        "desc": "整数の統計値(Stat)を設定/取得する。 Steam 側で事前定義した key 名(\"kills\" 等)を渡す。"
+      },
+      {
+        "sig": "TResult<void> SetFloatStat(const char* stat_name, f32 value) / TResult<f32> GetFloatStat(...)",
+        "desc": "小数の統計値(Stat)を設定/取得する。"
+      },
+      {
+        "sig": "bool IsDlcOwned(u32 app_id) const",
+        "ret": "DLC 所有か",
+        "desc": "指定 DLC の AppID をユーザーが所有していれば true。"
+      },
+      {
+        "sig": "TResult<void> SetRichPresence(const char* key, const char* value)",
+        "desc": "リッチプレゼンスを設定する。 key=\"status\" の値はフレンド一覧の「今プレイ中」行に出る。",
+        "sample": "(void)steam.SetRichPresence(\"status\", \"3面ボス戦\");"
+      },
+      {
+        "sig": "u32 GetFriendCount() const",
+        "ret": "フレンド数",
+        "desc": "自分のフレンド数。 未初期化/未取得時は 0。"
+      },
+      {
+        "sig": "PlayerIdentity GetFriendByIndex(u32 index) const",
+        "ret": "フレンド情報",
+        "desc": "0 <= index < GetFriendCount() のフレンド情報。 範囲外は空。"
+      },
+      {
+        "sig": "TResult<void> CloudWriteFile(const char* path, const void* data, u32 size)",
+        "ret": "成功 または エラー",
+        "desc": "Steam Cloud(Remote Storage)へファイルを書き込み永続化する。",
+        "when": "クラウドセーブを書き出す時。"
+      },
+      {
+        "sig": "TResult<u32> CloudReadFile(const char* path, void* out_buf, u32 buf_size)",
+        "ret": "読んだバイト数",
+        "desc": "Steam Cloud から読み出す。 戻り値はファイルサイズ。 0 は「ファイル無し」or エラー。"
+      },
+      {
+        "sig": "bool CloudFileExists(const char* path) const",
+        "ret": "存在するか",
+        "desc": "Cloud に該当ファイルがあれば true。"
+      },
+      {
+        "sig": "TResult<void> CloudDeleteFile(const char* path)",
+        "desc": "Cloud から削除する。 存在しなくても成功扱い(冪等)。"
+      },
+      {
+        "sig": "void CloudGetQuota(u64& out_available, u64& out_total) const",
+        "desc": "Cloud の空き容量と総容量を返す。 エラー時は両方 0。"
+      },
+      {
+        "sig": "u32 WorkshopGetSubscribedCount() const",
+        "ret": "購読アイテム数",
+        "desc": "ユーザーがサブスクライブ済みの Workshop(UGC)アイテム数。"
+      },
+      {
+        "sig": "void WorkshopGetSubscribedItem(u32 index, u64& out_item_id, const char*& out_install_path) const",
+        "desc": "index 番目の Workshop アイテム ID とインストールパスを返す。 範囲外は id=0 / path=nullptr。"
+      },
+      {
+        "sig": "TResult<void> VoiceStartRecording() / VoiceStopRecording()",
+        "desc": "ボイスチャットの録音を開始/停止する(プッシュトゥトーク想定)。"
+      },
+      {
+        "sig": "TResult<u32> VoiceGetCompressed(void* out_buf, u32 buf_size)",
+        "ret": "取得バイト数",
+        "desc": "圧縮済み音声データを取り出す。 0 は「データなし」。"
+      },
+      {
+        "sig": "TResult<void> InputInit()",
+        "desc": "Steam Input を初期化する(アクションセットを SDK へ通知)。"
+      },
+      {
+        "sig": "u32 InputGetControllerCount() const",
+        "ret": "接続数",
+        "desc": "Steam Input が認識しているコントローラ数。"
+      },
+      {
+        "sig": "using FSteamworksBridgeImpl = CSteamworksBridgeImpl",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSteamworksBridgeImpl を使う。"
+      }
+    ]
+  }
+}

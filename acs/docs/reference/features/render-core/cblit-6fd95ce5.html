@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="フルスクリーンのテクスチャコピー(ブリット)ユーティリティ。 RHI に直接 GPU コピーが無いため、フルスクリーン三角形 + テクスチャサンプルで 1 枚の RT をもう 1 枚へピクセル等価でコピーする。">
+  <title>CBlit — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-core.html">render-core モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-core.html">render-core</a><span>/</span><span aria-current="page">CBlit</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-core</div><h1 class="identifier">CBlit</h1>
+<p class="lead">フルスクリーンのテクスチャ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28522">コピー</button><span class="term-tooltip" id="term-tip-28522" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28523">ブリット</button><span class="term-tooltip" id="term-tip-28523" role="tooltip">テクスチャ/バッファの内容を別の領域へコピーする操作。</span></span>)ユーティリティ。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28524">RHI</button><span class="term-tooltip" id="term-tip-28524" role="tooltip">Render Hardware Interface。 DX12 / Vulkan / Diligent などの GPU API の違いを隠す、バックエンド非依存の薄い抽象層。 ACS では IRhiDevice 等がこれ。</span></span> に直接 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28525">GPU</button><span class="term-tooltip" id="term-tip-28525" role="tooltip">画像処理に特化した演算装置。 描画はここで行われる。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28526">コピー</button><span class="term-tooltip" id="term-tip-28526" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>が無いため、フルスクリーン三角形 + テクスチャサンプルで 1 枚の RT をもう 1 枚へピクセル等価で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28527">コピー</button><span class="term-tooltip" id="term-tip-28527" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>する。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/render/cblit-45e27fd6.html"><code>acs::CBlit</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>屈折の背景捕捉など、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28518">描画</button><span class="term-tooltip" id="term-tip-28518" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>済み RT を「複製」して後段が読めるようにしたいとき(同一 RT の read+write 不可を回避)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-core</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/Blit.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-aab7d4cfe256dcd8c2b5"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/render/cblit-45e27fd6/init-8191dd7a.html">Init</a>(IRhiDevice&amp;, EFormat rt_format)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>出力 RT の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28519">フォーマット</button><span class="term-tooltip" id="term-tip-28519" role="tooltip">1 ピクセル/要素のビット配置と型(RGBA8、HDR float、深度など)。 ACS では EFormat。</span></span>を焼き込んで初期化。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cblit-45e27fd6/init-8191dd7a.html"><code>acs::CBlit::Init</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-6b25c6de07a2bdf028c4"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>void <a href="../../symbols/render/cblit-45e27fd6/copy-54744d75.html">Copy</a>(IRhiCommandList&amp; cmd, IRhiTexture&amp; src, IRhiTexture&amp; dst)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>src を dst へフルスクリーン<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28520">コピー</button><span class="term-tooltip" id="term-tip-28520" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>。 clear 不要(全 pixel 上書き)、viewport は dst サイズに自動。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cblit-45e27fd6/copy-54744d75.html"><code>acs::CBlit::Copy</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-a4e3f798a2294e1a611f"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>IRhiPipeline* <a href="../../symbols/render/cblit-45e27fd6/pipeline-fb90d3aa.html">Pipeline</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>内部<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28521">パイプライン</button><span class="term-tooltip" id="term-tip-28521" role="tooltip">1 回の描画方式(VS+PS・頂点レイアウト・ブレンド・深度等)を丸ごと固めたオブジェクト。 PSO とも。</span></span>の取得。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/cblit-45e27fd6/pipeline-fb90d3aa.html"><code>acs::CBlit::Pipeline</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-48cd4f11806a446859a7"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>using <a href="../../symbols/render/fblit-2129779a.html">FBlit</a> = CBlit</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CBlit を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fblit-2129779a.html"><code>acs::FBlit</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CBlit</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/render/cblit-45e27fd6.html"><code>acs::CBlit</code></a><span class="summary"><code>class CBlit;</code></span></li><li><a href="../../symbols/render/cblit-45e27fd6/cblit-6eaf503c.html"><code>acs::CBlit::CBlit</code></a><span class="summary"><code>CBlit() noexcept = default;</code></span></li><li><a href="../../symbols/render/cblit-45e27fd6/cblit-d3de360c.html"><code>acs::CBlit::CBlit</code></a><span class="summary"><code>CBlit(const CBlit&amp;) = delete;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CBlitの使用例"><code>CBlit blit;
+blit.Init(*dev, hdr_format);
+// コピーしたい時点で:
+blit.Copy(*cl, *src_hdr, *dst_bg);   // dst は is_render_target=true、同フォーマット</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

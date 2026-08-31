@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AAudioAsset",
+  "definition": "wav/mp3/flac/ogg を統一 PCM として読み込んだ音声アセット(asset モジュール)。 CAudioEngine に渡して再生する。"
+}

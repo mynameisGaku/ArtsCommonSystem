@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DOM",
+  "definition": "Document Object Model。 文書(JSON 等)を木構造のオブジェクト群としてメモリ上に表現したもの。"
+}

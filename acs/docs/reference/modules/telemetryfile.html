@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのtelemetryfileモジュールに含まれる機能とAPIです。">
+  <title>telemetryfile モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="telemetryfile.html">telemetryfile モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="telemetryfile.html">telemetryfile モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="telemetryfile.html">telemetryfile モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">telemetryfile</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">telemetryfile</h1>
+<p class="lead">telemetryfile モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 3</span><span class="badge">API 4</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/telemetryfile/cfiletelemetrybackendclient-aa424fab.html"><span class="card-title">CFileTelemetryBackendClient</span><span class="card-description">テレメトリイベントを1 行 1 件のテキストファイルに追記していく IBackendClient の実装。 サーバ送信の代わりに file: パス先のファイルへ書き込む。 Connect でファイルを開き、SendTelemetry でイベントを書き、Disconnect で閉じる。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/telemetryfile/getdefaultfiletelemetrybackendclient-05100454.html"><span class="card-title">GetDefaultFileTelemetryBackendClient()</span><span class="card-description">プロセス全体で共有される既定の CFileTelemetryBackendClient 1 個(シングルトン)への参照を返す。 自分でインスタンスを作らず、これ 1 つを使い回す入口。</span><span class="card-meta">関数</span></a><a class="card" href="../features/telemetryfile/installfiletelemetryasdefault-e18bfbe7.html"><span class="card-title">InstallFileTelemetryAsDefault()</span><span class="card-description">gameframework の backend provider にこのファイル実装を登録する関数。 一度呼ぶと、以降 acs::game::GetDefaultBackendClient() がファイルバック実装を返すようになる。</span><span class="card-meta">関数</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/telemetryfile/cfiletelemetrybackendclient-3f55f2dd.html"><span><span class="identifier">acs::telemetryfile::CFileTelemetryBackendClient</span><span class="summary">テレメトリイベントをファイルへ追記する IBackendClient 実装。 Connect で &quot;file://&quot; スキーム付き (またはそのまま) のパスを開き (&quot;ab&quot; 追記)、 SendTelemetry ごとに {&quot;event&quot;:...,&quot;payload&quot;:...} を 1 行ずつ書いて即 flush する。 server_url は呼出側が寿命を保証する非所有文字列で、本実装は内部固定長バッファに コピーして保持する。 non-copy / non-move 型。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/telemetryfile/ffiletelemetrybackendclient-9fe738a5.html"><span><span class="identifier">acs::telemetryfile::FFileTelemetryBackendClient</span><span class="summary">ACS の telemetryfile モジュールで FFileTelemetryBackendClient を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/telemetryfile/getdefaultfiletelemetrybackendclient-8eb65f5e.html"><span><span class="identifier">acs::telemetryfile::GetDefaultFileTelemetryBackendClient</span><span class="summary">プロセス共有の既定 CFileTelemetryBackendClient singleton を返す。 InstallFileTelemetryAsDefault が gameframework の backend provider に登録する provider 実体。 戻り値: ファイルバック実装の singleton への参照。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/telemetryfile/installfiletelemetryasdefault-e7a9bd11.html"><span><span class="identifier">acs::telemetryfile::InstallFileTelemetryAsDefault</span><span class="summary">本実装を gameframework の既定 backend provider として登録する。 アプリ起動時に一度だけ呼ぶと、以降 acs::game::GetDefaultBackendClient() が GetDefaultFileTelemetryBackendClient() のファイルバック実装を返すようになり、 上位コードは backend 非依存に既定実装を取得できる。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

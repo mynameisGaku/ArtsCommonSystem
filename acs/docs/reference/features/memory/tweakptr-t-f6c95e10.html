@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="対象の寿命を延ばさない。 生きているか確認し、生きていれば一時的に強参照を得る。">
+  <title>TWeakPtr&lt;T&gt; — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/memory.html">memory モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/memory.html">memory</a><span>/</span><span aria-current="page">TWeakPtr&lt;T&gt;</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / memory</div><h1 class="identifier">TWeakPtr&lt;T&gt;</h1>
+<p class="lead">対象の寿命を延ばさない。 生きているか確認し、生きていれば一時的に強参照を得る。</p></div><div class="badges"><span class="badge">クラステンプレート</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/memory/tweakptr-63d80418.html"><code>acs::TWeakPtr</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>対象を所有したくないが生死は監視したい時。 とくに<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27605">循環参照</button><span class="term-tooltip" id="term-tip-27605" role="tooltip">AがBを、BがAを参照カウント付きで持ち合い、互いに 0 にならず解放されない状態。 片方を弱参照にして解消する。</span></span>(親子が持ち合う)を断ち切る側に使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>memory</dd></div><div class="fact"><dt>分類</dt><dd>クラステンプレート</dd></div><div class="fact"><dt>ヘッダー</dt><dd>memory/SharedPtr.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-9edba998bba008a1b62d"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TSharedPtr&lt;T&gt; <a href="../../symbols/memory/tweakptr-63d80418/lock-2fa176fc.html">Lock</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>対象が生きていれば <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27606">TSharedPtr</button><span class="term-tooltip" id="term-tip-27606" role="tooltip">複数で共有するスマートポインタ。 参照カウントが 0 で自動解放。</span></span> を得る。 破棄済みなら空。 安全に昇格できる(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27607">アトミック</button><span class="term-tooltip" id="term-tip-27607" role="tooltip">複数スレッドから同時に触っても途中状態が見えず、分割されずに完了する操作。 TAtomic が代表。</span></span>な確認付き)。</dd></div><div class="fact"><dt>戻り値</dt><dd>強参照(空かも)</dd></div><div class="fact"><dt>使う場面</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27608">弱参照</button><span class="term-tooltip" id="term-tip-27608" role="tooltip">対象を所有せず(寿命を延ばさず)、生きているかだけを見られる参照。 循環参照を断ち切るのに使う。</span></span>から実際に中身を触る直前に毎回呼ぶ。</dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>TSharedPtr</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/memory/tsharedptr-3d4751e4.html"><code>acs::TSharedPtr</code></a><span class="summary"><code>template&lt;typename T&gt; class TSharedPtr;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-360da28e.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>TSharedPtr() noexcept = default;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-080ec4f1.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>TSharedPtr(decltype(nullptr)) noexcept;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-4b186b5a.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>TSharedPtr(const TSharedPtr&amp; o) noexcept;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-78df0876.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>TSharedPtr(TSharedPtr&amp;&amp; o) noexcept;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-ffa4190d.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>template&lt;typename U&gt; TSharedPtr(const TSharedPtr&lt;U&gt;&amp; o) noexcept;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-5029dd4c.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>template&lt;typename U&gt; TSharedPtr(TSharedPtr&lt;U&gt;&amp;&amp; o) noexcept;</code></span></li><li><a href="../../symbols/memory/tsharedptr-3d4751e4/tsharedptr-4bc59c29.html"><code>acs::TSharedPtr::TSharedPtr</code></a><span class="summary"><code>TSharedPtr(T* p, sp_detail::FControlBlock* cb) noexcept;</code></span></li></ul></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/tweakptr-63d80418/lock-2fa176fc.html"><code>acs::TWeakPtr::Lock</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-d838f799c3e283c97354"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/memory/tweakptr-63d80418/expired-7842c14a.html">Expired</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>対象がすでに破棄されていれば true。</dd></div><div class="fact"><dt>戻り値</dt><dd>期限切れか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/tweakptr-63d80418/expired-7842c14a.html"><code>acs::TWeakPtr::Expired</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-e6946b3ad96502763f3e"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/memory/tweakptr-63d80418/isvalid-d2a68fea.html">IsValid</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>!Expired()。 生きていれば true(瞬間値)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/tweakptr-63d80418/isvalid-d2a68fea.html"><code>acs::TWeakPtr::IsValid</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-c18bdc7097c1b6324748"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>void <a href="../../symbols/memory/tweakptr-63d80418/reset-3b83210a.html">Reset</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27609">弱参照</button><span class="term-tooltip" id="term-tip-27609" role="tooltip">対象を所有せず(寿命を延ばさず)、生きているかだけを見られる参照。 循環参照を断ち切るのに使う。</span></span>を手放す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/tweakptr-63d80418/reset-3b83210a.html"><code>acs::TWeakPtr::Reset</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="TWeakPtr&lt;T&gt;の使用例"><code>auto p = MakeShared&lt;FEnemy&gt;();
+TWeakPtr&lt;FEnemy&gt; w = p;        // 弱参照(寿命は延ばさない)
+if (auto s = w.Lock()) {          // 生きていれば強参照を取得
+    s-&gt;Update();
+}
+p.Reset();                        // 強参照ゼロ → 破棄
+// w.Lock() は以後ずっと空を返す</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

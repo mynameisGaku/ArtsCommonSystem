@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのlocalmatchモジュールに含まれる機能とAPIです。">
+  <title>localmatch モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="localmatch.html">localmatch モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="localmatch.html">localmatch モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="localmatch.html">localmatch モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">localmatch</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">localmatch</h1>
+<p class="lead">localmatch モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 4</span><span class="badge">API 5</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/localmatch/clocalmatchmaker-117d245b.html"><span class="card-title">CLocalMatchmaker</span><span class="card-description">マッチメイクの本体。 acs::game::IMatchmaker を実装し、同じプロセス内で出された検索同士をレートが近い順に組ませる決定的な実装です。 最大 32 件の検索を同時に扱えます。 コピー/ムーブは禁止。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/localmatch/flocalmatchmakerconfig-6d93c888.html"><span class="card-title">FLocalMatchmakerConfig</span><span class="card-description">CLocalMatchmaker の設定。 今は『どれだけレーティングが離れていてもマッチさせてよいか』の上限値だけを持ちます。</span><span class="card-meta">構造体</span></a><a class="card" href="../features/localmatch/getdefaultlocalmatchmaker-487db9fd.html"><span class="card-title">GetDefaultLocalMatchmaker()</span><span class="card-description">プロセス全体で共有される既定の CLocalMatchmaker(シングルトン)を acs::game::IMatchmaker&amp; として返します。</span><span class="card-meta">関数</span></a><a class="card" href="../features/localmatch/installlocalmatchmakerasdefault-557ac17c.html"><span class="card-title">InstallLocalMatchmakerAsDefault()</span><span class="card-description">gameframework の matchmaker provider にローカル実装を登録します。 これ以降 acs::game::GetDefaultMatchmaker() がローカル matchmaker を返すようになります。</span><span class="card-meta">関数</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/localmatch/clocalmatchmaker-8f272c60.html"><span><span class="identifier">acs::localmatch::CLocalMatchmaker</span><span class="summary">プロセス内で完結する決定論的なローカル matchmaker 実装。 acs::game::IMatchmaker を固定長スロット (kMaxTickets) のプールだけで実装する。 StartSearch で空き / 退役済みスロットに ticket を発行し、同 mode かつ rating 差が MaxRatingDelta 以内の Searching な相手が居れば双方を Matched にする。 終端状態 (Cancelled / 双方 Accept 済み) に入ったスロットは退役させ、満杯時に最古の退役 スロットを再利用することで ticket リークを防ぐ。 ネットワークは一切使わない。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/localmatch/flocalmatchmaker-15e8dbca.html"><span><span class="identifier">acs::localmatch::FLocalMatchmaker</span><span class="summary">ACS の localmatch モジュールで FLocalMatchmaker を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/localmatch/flocalmatchmakerconfig-8f5c2ec6.html"><span><span class="identifier">acs::localmatch::FLocalMatchmakerConfig</span><span class="summary">ローカル matchmaker の挙動を調整する設定値。</span></span><span class="kind-label">構造体 →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/localmatch/getdefaultlocalmatchmaker-d91813d1.html"><span><span class="identifier">acs::localmatch::GetDefaultLocalMatchmaker</span><span class="summary">プロセス共有の既定 CLocalMatchmaker singleton を返す。 matchmaker provider に登録する provider 実体として使う。 戻り値: ローカル matchmaker singleton への参照。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/localmatch/installlocalmatchmakerasdefault-791d88bb.html"><span><span class="identifier">acs::localmatch::InstallLocalMatchmakerAsDefault</span><span class="summary">gameframework の matchmaker provider に本実装を既定として登録する。 アプリ起動時に一度だけ呼ぶと、以降 acs::game::GetDefaultMatchmaker() が GetDefaultLocalMatchmaker() の返すローカル matchmaker (プロセス共有 singleton) を返すようになる。 これにより上位コードは backend 非依存に GetDefaultMatchmaker() だけで実 matchmaker を取得できる。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

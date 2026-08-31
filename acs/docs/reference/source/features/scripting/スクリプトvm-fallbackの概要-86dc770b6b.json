@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "スクリプトVM fallbackの概要",
+    "kind": "クラス / 関数",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "実 backend(Lua 等)が未統合のときの安全側 IScriptVm。 Init/Shutdown だけ no-op 成功し、LoadScript/CallFunction/RegisterNativeFunction は kSub_NotImplemented を返す。 これで上位層の「スクリプトが常に失敗する」fallback を検証できる。",
+    "when": "ACS_BUILD_SCRIPTING OFF や backend 未リンクの状態でも起動シーケンスを通したい時。",
+    "sample": "acs::game::CScriptHost host;\nhost.Init(&acs::game::GetVmStub());   // 未統合でも安全に動く\n// LoadAndRun / CallGlobalFunction は kSub_NotImplemented を返す",
+    "members": [
+      {
+        "sig": "IScriptVm& GetVmStub()",
+        "ret": "stub 参照",
+        "desc": "プロセス内に 1 つの静的 stub(Meyers singleton)への参照。"
+      },
+      {
+        "sig": "Init() / Shutdown()",
+        "desc": "no-op 成功(起動シーケンスを通すため)。"
+      },
+      {
+        "sig": "LoadScript / CallFunction / RegisterNativeFunction",
+        "desc": "kSub_NotImplemented(99)を返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAssetPackReaderStub / CAssetPackWriterStub",
+    "kind": "クラス",
+    "header": "gameframework/AssetPack.h",
+    "summary": "IAssetPackReader / IAssetPackWriter の no-op スタブ実装。 全 API が NotImplemented を返し、依存ゼロでコンパイルを通すための fallback。",
+    "when": "実 AssetPack backend を未統合のビルドやユニットテストで、ポインタ DI だけ通したい時。",
+    "sample": "IAssetPackReader& r = GetReaderStub();\nauto res = r.Mount(\"game.acpak\");   // 常に NotImplemented",
+    "members": [
+      {
+        "sig": "using FAssetPackReaderStub = CAssetPackReaderStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetPackReaderStub を使う。"
+      },
+      {
+        "sig": "using FAssetPackWriterStub = CAssetPackWriterStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetPackWriterStub を使う。"
+      }
+    ]
+  }
+}

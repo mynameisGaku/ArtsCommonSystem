@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CRigidWorld2D",
+    "kind": "クラス",
+    "header": "gameframework/RigidWorld2D.h",
+    "summary": "2D rigid bodyの登録、更新、衝突解決をまとめる。",
+    "when": "scene内の2D物理worldを進める時。",
+    "members": [
+      {
+        "sig": "using FRigidWorld2D = CRigidWorld2D",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRigidWorld2D を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FCurrencyDef",
+    "kind": "構造体",
+    "header": "gameframework/EconomyDirector.h",
+    "summary": "通貨 1 種類の定義。 id・表示名・premium フラグ (課金通貨か) を持つ。 文字列は所有しない。",
+    "when": "RegisterCurrency に渡して通貨を定義する時。"
+  }
+}

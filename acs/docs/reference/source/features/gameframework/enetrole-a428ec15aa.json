@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "ENetRole",
+    "kind": "列挙(enum)",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "CNetSnapshot の役割。 Client (受信のみ) / Server (送信のみ) / ServerListener (listen-server で両方) / Standalone (通信なし、全 API no-op)。",
+    "when": "Init で自機の役割を指定する時。"
+  }
+}

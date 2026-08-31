@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CPUID",
+  "definition": "CPU 自身に対応命令セットを問い合わせる命令。 Cpu() が起動時に使う。"
+}

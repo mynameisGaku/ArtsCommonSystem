@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "AFire2DComponent",
+    "kind": "クラス (コンポーネント)",
+    "header": "gameframework/Effects2D.h",
+    "summary": "手続き生成の炎を描くコンポーネント。 シェーダ・アセット不要で、ちらつきと揺らぎを時間で生成する。 強さ (intensity) を動的に変えられる。",
+    "when": "たいまつ・かがり火・燃え盛る演出を簡単に置きたい時。 近づくと勢いが増す等の連動も可能。",
+    "sample": "auto& f = node->AddComponent<AFire2DComponent>();\nf.SetSize(0.8f, 1.8f);\nf.SetIntensity(1.0f);   // 0 で消火、大きいほど激しく",
+    "members": [
+      {
+        "sig": "void SetSize(f32 width, f32 height)",
+        "desc": "炎の幅と高さ。"
+      },
+      {
+        "sig": "void SetIntensity(f32 i)",
+        "desc": "炎の強さ (負値は 0 にクランプ)。",
+        "when": "風や燃料で勢いを変える演出。"
+      },
+      {
+        "sig": "f32 Intensity()",
+        "desc": "現在の強さを返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "IVoiceChatBackend",
+    "kind": "インターフェース",
+    "header": "gameframework/VoiceChat.h",
+    "summary": "パーティ / チーム / 全体チャンネルのボイスチャットを抽象化するシーム(純粋仮想インターフェース)。 実体は Steam Voice / EOS Voice / Vivox / Discord / 自前 Opus のどれでもよく、ゲーム側はこの I/F 越しに参加者管理・ミュート・音量だけを扱います。",
+    "when": "オンライン対戦 / 協力プレイにボイスチャットを載せたいが、使う SDK をビルド時に差し替えたい時。",
+    "sample": "IVoiceChatBackend* voice = &GetVoiceStub();\n(void)voice->Init(EVoiceProvider::None);\n(void)voice->JoinChannel(EVoiceChannel::Party, \"party-1234\");\n// 毎フレーム:\nvoice->Tick(dt);",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init(EVoiceProvider p)",
+        "desc": "使うプロバイダを選んで SDK を初期化する。",
+        "when": "ゲーム開始時に 1 回。"
+      },
+      {
+        "sig": "virtual void Shutdown()",
+        "desc": "SDK を終了する。 Init 前に呼んでも安全。"
+      },
+      {
+        "sig": "virtual bool IsAvailable() const / virtual EVoiceProvider ActiveProvider() const",
+        "desc": "利用可能か / 現在のプロバイダを返す。"
+      },
+      {
+        "sig": "virtual TResult<void> JoinChannel(EVoiceChannel ch, const char* channel_id)",
+        "desc": "指定チャンネルに参加する。 channel_id は SDK 固有 ID(非所有)。"
+      },
+      {
+        "sig": "virtual TResult<void> LeaveChannel(EVoiceChannel ch)",
+        "desc": "チャンネルから離脱する。"
+      },
+      {
+        "sig": "virtual TResult<void> SetLocalMute(bool muted)",
+        "desc": "自分のマイクをローカルでミュート / 解除する。"
+      },
+      {
+        "sig": "virtual TResult<void> SetParticipantMute(const char* user_id, bool muted)",
+        "desc": "指定参加者を自分の耳でのみ無音化する。"
+      },
+      {
+        "sig": "virtual TResult<void> SetParticipantVolume(const char* user_id, f32 volume)",
+        "desc": "指定参加者の音量を 0.0〜1.0 で設定する。"
+      },
+      {
+        "sig": "virtual u32 ParticipantCount(EVoiceChannel ch)",
+        "ret": "参加者数",
+        "desc": "チャンネルの参加者数(自分含む)。 未参加なら 0。"
+      },
+      {
+        "sig": "virtual TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index)",
+        "ret": "参加者情報",
+        "desc": "index 番目の参加者情報を取得する。 戻り値の文字列は次 Tick まで有効。",
+        "when": "参加者リスト / 発話インジケータを描く時。"
+      },
+      {
+        "sig": "virtual void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 音声レベル取得 / 発話検出 / イベントポンプを回す。"
+      },
+      {
+        "sig": "virtual TResult<void> PushLocalFrame(EVoiceChannel ch, const i16* pcm, u32 sample_count)",
+        "desc": "自前ループバック用に int16 PCM を 1 フレーム送る。 実 SDK backend では既定で未実装。"
+      },
+      {
+        "sig": "virtual u32 PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity)",
+        "ret": "書き込みサンプル数",
+        "desc": "他参加者の音声を音量 / ミュート適用して合成し out に書き込む。 既定は無音(0)。"
+      },
+      {
+        "sig": "virtual f32 LocalAudioLevel() const",
+        "desc": "直近に送ったローカルフレームの音量(RMS, 0.0〜1.0)。 既定は 0.0。"
+      }
+    ]
+  }
+}

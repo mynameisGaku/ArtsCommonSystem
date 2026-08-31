@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CVoiceChatLoopbackBackend",
+    "kind": "クラス",
+    "header": "gameframework/VoiceChat.h",
+    "summary": "外部 SDK なしで実際に音声フレームを往復させるボイスチャット実装。 同一プロセス内で push→エンコード→他参加者キュー→デコード→音量 / ミュート→N-way ミックス→pump を成立させます。 ネットを使わず決定的なのでユニットテスト可能。",
+    "when": "ボイスのミュート / 音量 / ミックスのロジックを SDK なしで検証したい / ローカルセッションを組みたい時。",
+    "sample": "CVoiceChatLoopbackBackend& vb = GetVoiceLoopback();\n(void)vb.Init(EVoiceProvider::OpusSelf);\n(void)vb.AddParticipant(EVoiceChannel::Party, \"me\",   \"Me\");\n(void)vb.AddParticipant(EVoiceChannel::Party, \"ally\", \"Ally\");\nvb.PushLocalFrame(EVoiceChannel::Party, pcm, n);\nvb.PumpMixedOutput(EVoiceChannel::Party, out, cap);",
+    "members": [
+      {
+        "sig": "TResult<void> AddParticipant(EVoiceChannel ch, const char* user_id, const char* display_name)",
+        "desc": "参加者を追加する。 最初の 1 人がローカルユーザ(送信元 / 自分の声は聞かない)。 同一 user_id の二重追加は成功扱い。"
+      },
+      {
+        "sig": "TResult<void> RemoveParticipant(EVoiceChannel ch, const char* user_id)",
+        "desc": "参加者を取り除く(受信キューも破棄)。 未知 user はエラー。"
+      },
+      {
+        "sig": "TResult<void> SetPumpTarget(EVoiceChannel ch, const char* user_id)",
+        "desc": "PumpMixedOutput が「誰の耳」としてミックスするかを選ぶ(既定はローカル)。"
+      },
+      {
+        "sig": "TResult<void> PushLocalFrame(EVoiceChannel ch, const i16* pcm, u32 sample_count) override",
+        "desc": "int16 PCM を 1 フレーム送る。 ch に join 済みの自分以外全員のキューに届く。"
+      },
+      {
+        "sig": "TResult<void> PushLocalFrameF32(EVoiceChannel ch, const f32* pcm, u32 sample_count) override",
+        "desc": "float[-1,1] PCM を送る(内部で int16 に量子化)。"
+      },
+      {
+        "sig": "u32 PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) override",
+        "ret": "書き込みサンプル数",
+        "desc": "対象参加者のキューを音量 / ミュート適用して合成し out に書く。"
+      },
+      {
+        "sig": "f32 LocalAudioPeak() const / u32 PendingFrameCount(EVoiceChannel ch, const char* user_id)",
+        "desc": "直近フレームのピーク値 / 指定参加者の未消費フレーム数(テスト検証用)。"
+      },
+      {
+        "sig": "static u32 EncodeFrame(const i16* pcm, u32 sample_count, u32 sequence, u8* out, u32 out_capacity)",
+        "desc": "int16 PCM を 16 byte ヘッダ付きフレームにエンコードする。 ユニットテストから直接呼べる。"
+      },
+      {
+        "sig": "static TResult<u32> DecodeFrame(const u8* in, u32 in_size, i16* out, u32 out_capacity)",
+        "ret": "復元サンプル数",
+        "desc": "フレームのヘッダを検証して PCM を復元する。 magic 破損などはエラー。"
+      },
+      {
+        "sig": "using FVoiceChatLoopbackBackend = CVoiceChatLoopbackBackend",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CVoiceChatLoopbackBackend を使う。"
+      }
+    ]
+  }
+}

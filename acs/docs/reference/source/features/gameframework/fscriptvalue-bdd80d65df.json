@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FScriptValue",
+    "kind": "構造体",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "backend 中立な動的型付け値。 Nil/Bool/Number(f64)/FString(非所有)/Handle(u32) のタグ付き union 風 POD。 スクリプトと C++ の間で引数・戻り値を受け渡す。",
+    "when": "ネイティブ関数の引数や戻り値を読み書きする時。",
+    "sample": "FScriptValue v;\nv.kind = EScriptValueKind::Number;\nv.v.num = 3.14;",
+    "members": [
+      {
+        "sig": "EScriptValueKind kind",
+        "desc": "今どの型を保持しているか。"
+      },
+      {
+        "sig": "union { bool b; f64 num; const char* str; u32 handle; } v",
+        "desc": "値本体。 str は所有しない (寿命は呼び出し側)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCollisionWorld2D",
+    "kind": "クラス",
+    "header": "gameframework/CollisionWorld2D.h",
+    "summary": "2D 当たり判定の高レベル API。 AABB / 円 / 凸ポリゴン / OBB を FShapeId で登録し、内部の空間グリッド (SpatialGrid) で速い重なり検索やレイキャストを提供する。 レイヤビットマスクで player/enemy/wall を絞り込める。",
+    "when": "弾・敵・壁などの当たり判定や「この範囲に何がいる?」「この方向に何がある?」を 2D で問い合わせたい時。",
+    "sample": "CCollisionWorld2D world;\nworld.Init(64.0f);\nFShapeId player = world.AddCircle({ {0,0}, 16.0f });\nworld.UpdateCircle(player, { pos, 16.0f });\nTArray<FShapeId> hits;\nworld.OverlapCircle({ pos, 32.0f }, hits);  // 周囲のもの全部",
+    "members": [
+      {
+        "sig": "void Init(f32 cell_size = 64.0f)",
+        "desc": "グリッドのセルサイズを設定。 典型的には最大形状の 2〜3 倍。",
+        "when": "ワールド作成直後に 1 度呼ぶ。"
+      },
+      {
+        "sig": "FShapeId AddCircle(const FCircle& c, u32 layer = kAllLayers)",
+        "ret": "形状 handle",
+        "desc": "円を登録する。 layer は所属レイヤの bitmask。",
+        "when": "形状をワールドに追加する時。 AddAabb / AddPolygon / AddObb も同様。"
+      },
+      {
+        "sig": "void UpdateCircle(FShapeId id, const FCircle& c)",
+        "desc": "形状が移動したら毎フレーム更新する (dirty にして次クエリで再構築)。 AABB / Poly / Obb 版あり。"
+      },
+      {
+        "sig": "void Remove(FShapeId id)",
+        "desc": "形状を削除する (slot 再利用、generation 進む)。"
+      },
+      {
+        "sig": "void OverlapCircle(const FCircle& c, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers)",
+        "desc": "円と重なる全形状を out に集める。 exclude で自分を除外、mask でレイヤ絞り込み。 OverlapAabb / OverlapPolygon も同様。",
+        "when": "範囲内の対象を一覧したい時。"
+      },
+      {
+        "sig": "bool Raycast(const FRay2& ray, f32 max_t, FRayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers)",
+        "ret": "当たったか",
+        "desc": "最も近い形状を 1 つ返す。 out_hit に交点 / 法線 / 距離、out_id にどの形状か。",
+        "when": "視線判定・射撃・地面検出など。",
+        "sample": "FRayHit2 rh; FShapeId id;\nif (world.Raycast({org, dir}, 100.0f, rh, id)) Hit(id);"
+      },
+      {
+        "sig": "FVec2 ResolveCircle(const FCircle& c, FShapeId exclude = {}, u32 mask = kAllLayers)",
+        "ret": "押し出しベクトル",
+        "desc": "重なっている全形状から押し出す合計ベクトルを返す (重なり無しは {0,0})。 collide-and-slide 用。",
+        "when": "kinematic body の貫通解消とスライド移動。"
+      },
+      {
+        "sig": "u32 ShapeCount() const",
+        "desc": "登録中の形状数。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全形状とグリッドを破棄する。"
+      },
+      {
+        "sig": "FVec2 ResolvePolygon(const FConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers)",
+        "ret": "押し出しベクトル",
+        "desc": "凸ポリゴン版の押し出し合計ベクトル。 重なり無しは {0,0}。 ResolveCircle と同じ collide-and-slide 用。",
+        "when": "ポリゴン形状の kinematic body の貫通解消とスライド移動。"
+      },
+      {
+        "sig": "using FCollisionWorld2D = CCollisionWorld2D",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCollisionWorld2D を使う。"
+      }
+    ]
+  }
+}

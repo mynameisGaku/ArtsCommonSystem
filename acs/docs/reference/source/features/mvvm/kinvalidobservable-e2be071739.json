@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "kInvalidObservable",
+    "kind": "定数",
+    "header": "mvvm/Observable.h",
+    "summary": "無効な FObservableHandle を表す定数(id==0)。 Subscribe が失敗した時に返る値でもある。",
+    "when": "ハンドルが未設定/無効かを比較で判定したい時。",
+    "sample": "FObservableHandle h = kInvalidObservable;\n// ... 後で h = obs.Subscribe(...);\nif (h == kInvalidObservable) { /* まだ未登録 */ }"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCooldownId",
+    "kind": "構造体",
+    "header": "gameframework/CooldownTimer.h",
+    "summary": "cooldown を指すハンドル。 24bit index + 8bit generation の packed u32。 0 は invalid。",
+    "when": "登録した cooldown を後で参照する時。",
+    "sample": "FCooldownId id = cd.Register(\\\"dash\\\", 0.8f);"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "FDx12Buffer",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12Buffer.h",
+    "summary": "DX12 の GPU バッファ(IRhiBuffer 派生)。 頂点・インデックス・定数バッファを ID3D12Resource として確保します。 Uniform かつ cpu_writable なら自動でフレームリングバッファ化され、毎フレーム安全に書き換えられます。",
+    "when": "CreateRhiBuffer() が DX12 で生成する実体。 メッシュの頂点や、毎フレーム変わる行列(定数バッファ)を GPU へ載せる時。",
+    "sample": "FBufferDesc d;\nd.size = sizeof(FVertex)*3;\nd.usage = EBufferUsage::Vertex;\nd.initial_data = verts;\nauto vb = CreateRhiBuffer(*dev, d).Value();\n// 定数バッファを毎フレーム更新する例:\ncb->Update(&mvp, sizeof(mvp));",
+    "members": [
+      {
+        "sig": "usize Size() const",
+        "ret": "バイト数",
+        "desc": "1 フレームスロットあたりのサイズ。"
+      },
+      {
+        "sig": "EBufferUsage Usage() const",
+        "desc": "用途(Vertex / Index16 / Index32 / Uniform 等)。"
+      },
+      {
+        "sig": "void Update(const void* data, usize size, usize offset=0)",
+        "desc": "CPU からデータを書き込む(cpu_writable=true で作ったバッファのみ)。 フレームリングなら現スロットへ書く。"
+      },
+      {
+        "sig": "ID3D12Resource* Resource() const",
+        "ret": "生リソース",
+        "desc": "内部用の生 ID3D12Resource。"
+      },
+      {
+        "sig": "D3D12_GPU_VIRTUAL_ADDRESS Gpu() const",
+        "ret": "GPU 仮想アドレス",
+        "desc": "内部用。 リング有効なら現フレームスロット分のオフセットを足した先頭アドレスを返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ALevelEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/leveledit/LevelEditorPanel.h",
+    "summary": "FTilemap (multi-layer u16 FTileId grid) を対話的に編集する tilemap painter パネル。 Paint / Erase / Fill / Pick の 4 ブラシ + アクティブレイヤ切替 + tile id picker + grid 表示 + snap-to-grid を提供。 2D 用 CEditorCamera を内包し pan / zoom できる。 tilemap は 非所有 (caller 所有)。 非コピー・非ムーブ・全 noexcept。",
+    "when": "tilemap を ImGui 上でペイント編集したい時。 SetTilemap(&map) で編集対象を渡し、workspace に登録する。",
+    "sample": "namespace lv = acs::game::leveledit;\nlv::ALevelEditorPanel panel;\npanel.Init();\nworkspace.RegisterPanel(&panel);\n\nacs::game::FTilemap map;  // 別途 Init 済とする\npanel.SetTilemap(&map);\npanel.SetCurrentBrush(lv::EBrushKind::Paint);\npanel.SetCurrentTileId(1);\n// ... TickAllPanels(dt) 内で DrawUI ...\nworkspace.UnregisterPanel(&panel);\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "内部 state をデフォルトに (brush=Paint / tile_id=1 / active_layer=0 / show_grid=true / snap=true)、CEditorCamera を 2D mode で Init。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "tilemap 参照を解除し CEditorCamera を Reset。 tilemap 自体は破棄しない。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetTilemap(FTilemap* tm) noexcept",
+        "ret": "—",
+        "desc": "編集対象 FTilemap を raw 参照でセット (nullptr で解除)。 寿命は caller 責任。 active_layer を 0 にクランプ、selected coord をリセット。",
+        "when": "編集対象差し替え時。"
+      },
+      {
+        "sig": "FTilemap* CurrentTilemap() const noexcept",
+        "ret": "tilemap または nullptr",
+        "desc": "現在編集対象の FTilemap (未バインドは nullptr)。"
+      },
+      {
+        "sig": "editor_core::CEditorCamera& Camera() noexcept",
+        "ret": "camera 参照",
+        "desc": "内部 2D camera への参照。 呼出側が HandleMouseInput / Tick を呼ぶ。"
+      },
+      {
+        "sig": "EBrushKind CurrentBrush() const noexcept / void SetCurrentBrush(EBrushKind b) noexcept",
+        "ret": "brush",
+        "desc": "現在ブラシの取得 / 設定。"
+      },
+      {
+        "sig": "u16 CurrentTileId() const noexcept / void SetCurrentTileId(u16 id) noexcept",
+        "ret": "tile ID を返します。",
+        "desc": "ペイント中 tile id。 setter は kTileIdMax (1023) でクランプ。"
+      },
+      {
+        "sig": "u32 ActiveLayer() const noexcept / void SetActiveLayer(u32 layer) noexcept",
+        "ret": "layer",
+        "desc": "アクティブレイヤ番号。 バインド後 FTilemap::LayerCount() でクランプ。"
+      },
+      {
+        "sig": "bool ShowGrid() const noexcept / void SetShowGrid(bool b) noexcept",
+        "ret": "bool",
+        "desc": "grid line 表示 toggle。"
+      },
+      {
+        "sig": "bool SnapToGrid() const noexcept / void SetSnapToGrid(bool b) noexcept",
+        "ret": "bool",
+        "desc": "snap-to-grid 表示 toggle (ホバー強調用、ペイント自体は常に tile 単位)。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Level Editor\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void OnInit(editor_core::CEditorWorkspace& workspace) noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: workspace 登録時。 基底実装 + CEditorCamera を 2D mode で Init し直す保険。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: Toolbar + Canvas + Inspector を描画。 tilemap 未バインドなら \"(No tilemap bound)\"。"
+      },
+      {
+        "sig": "static constexpr u16 kTileIdMax = 1023u",
+        "desc": "tile id picker の上限。 SetCurrentTileId のクランプ値。"
+      },
+      {
+        "sig": "static constexpr u32 kFloodFillMaxCells = 4096u",
+        "desc": "flood-fill の最大処理セル数 (暴走防止の打ち切り)。"
+      },
+      {
+        "sig": "static constexpr u32 kNoCoord = 0xFFFFFFFFu",
+        "desc": "\"未選択\" を表す sentinel coord。"
+      },
+      {
+        "sig": "using FLevelEditorPanel = ALevelEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ALevelEditorPanel を使う。"
+      }
+    ]
+  }
+}

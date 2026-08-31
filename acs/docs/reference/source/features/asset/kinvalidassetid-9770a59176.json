@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "kInvalidAssetId",
+    "kind": "定数",
+    "header": "asset/AssetId.h",
+    "summary": "無効な FAssetId を表す定数(FAssetId{0})。 value == 0 は「無効」として予約されており、MakeAssetId は結果が 0 になった場合 1 に補正してこの値と衝突しないようにする。",
+    "when": "未設定/失敗の ID を初期値として置く時や、id != kInvalidAssetId で有効性を判定したい時(id.IsValid() と同義)。",
+    "sample": "FAssetId id = kInvalidAssetId;       // まだ無効\nid = MakeAssetId(\"textures/hero.png\");\nif (id != kInvalidAssetId) { /* 有効 */ }",
+    "members": [
+      {
+        "sig": "inline constexpr FAssetId kInvalidAssetId = FAssetId{0}",
+        "desc": "value == 0 の FAssetId。 無効値の唯一の表現。"
+      }
+    ]
+  }
+}

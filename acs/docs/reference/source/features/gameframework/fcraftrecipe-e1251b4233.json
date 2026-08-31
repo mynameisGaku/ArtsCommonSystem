@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCraftRecipe",
+    "kind": "構造体",
+    "header": "gameframework/CraftingSystem.h",
+    "summary": "1 件のレシピ定義。 recipe_id・表示名・成果物 (result_item_id / count) ・素材配列 (ingredients) ・所要秒数・必要ワークベンチ・解放レベルを持つ。 文字列・素材配列は非所有。",
+    "when": "RegisterRecipe() に渡す時。",
+    "sample": "static const FIngredient mats[] = { {\\\"wood\\\",3}, {\\\"iron_ore\\\",2} };\nFCraftRecipe r{ \\\"craft.axe\\\", \\\"Iron Axe\\\", \\\"tool.axe\\\", 1, 2, mats, 4.0f, \\\"workbench\\\", 3 };"
+  }
+}

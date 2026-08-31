@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "pub/sub",
+  "definition": "発行(publish)と購読(subscribe)で、送り手と受け手が互いを知らずに通知をやり取りする方式。"
+}

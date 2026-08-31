@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SetDefaultAllocator で既定アロケータを差し替えられる。">
+  <title>MemCopy / MemMove / MemSet / MemCmp — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/memory.html">memory モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/memory.html">memory</a><span>/</span><span aria-current="page">MemCopy / MemMove / MemSet / MemCmp</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / memory</div><h1 class="identifier">MemCopy / MemMove / MemSet / MemCmp</h1>
+<p class="lead">Set<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27559">DefaultAllocator</button><span class="term-tooltip" id="term-tip-27559" role="tooltip">既定のアロケータ。 指定なしの確保で使われる。</span></span> で既定<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27560">アロケータ</button><span class="term-tooltip" id="term-tip-27560" role="tooltip">メモリの確保/解放のやり方を担当する部品。 用途に応じて差し替えられる。</span></span>を差し替えられる。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/memory/memcopy-7a4511c2.html"><code>acs::MemCopy</code></a><span class="summary"><code>void MemCopy(void* Destination, const void* Source, usize Size) noexcept;</code></span></li><li><a href="../../symbols/memory/memmove-a03e5290.html"><code>acs::MemMove</code></a><span class="summary"><code>void MemMove(void* Destination, const void* Source, usize Size) noexcept;</code></span></li><li><a href="../../symbols/memory/memset-948e293e.html"><code>acs::MemSet</code></a><span class="summary"><code>void MemSet(void* Destination, int Value, usize Size) noexcept;</code></span></li><li><a href="../../symbols/memory/memcmp-da86aa8c.html"><code>acs::MemCmp</code></a><span class="summary"><code>int MemCmp(const void* Left, const void* Right, usize Size) noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>生バイト列の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27554">コピー</button><span class="term-tooltip" id="term-tip-27554" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>/比較/フィル。 型のある配列は通常<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27555">コンテナ</button><span class="term-tooltip" id="term-tip-27555" role="tooltip">値をまとめて入れておく入れ物(TArray や THashMap など)。 ACS は STL の代わりに独自のものを使う。</span></span>側に任せる。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>memory</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>memory/Memory.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-870cbe02b9cbc1051361"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/memory/memcopy-7a4511c2.html">MemCopy</a>(void* dst, const void* src, usize n)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>領域非重複<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27556">コピー</button><span class="term-tooltip" id="term-tip-27556" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/memcopy-7a4511c2.html"><code>acs::MemCopy</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-cda1bf60675b90b8c155"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>void <a href="../../symbols/memory/memmove-a03e5290.html">MemMove</a>(void* dst, const void* src, usize n)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>領域重複可<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27557">コピー</button><span class="term-tooltip" id="term-tip-27557" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/memmove-a03e5290.html"><code>acs::MemMove</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-c5fd693c4c4d32c4bf05"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/memory/memset-948e293e.html">MemSet</a>(void* dst, int value, usize n)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>バイト単位フィル。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/memset-948e293e.html"><code>acs::MemSet</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-feb1e537bce2e0837e9b"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>int <a href="../../symbols/memory/memcmp-da86aa8c.html">MemCmp</a>(const void* a, const void* b, usize n)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>バイト比較(0=一致)。</dd></div><div class="fact"><dt>戻り値</dt><dd>比較結果</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/memcmp-da86aa8c.html"><code>acs::MemCmp</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-4613e8653d740b12bed3"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>void <a href="../../symbols/memory/setdefaultallocator-5ba90c2a.html">SetDefaultAllocator</a>(IAllocator* a)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>既定<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27558">アロケータ</button><span class="term-tooltip" id="term-tip-27558" role="tooltip">メモリの確保/解放のやり方を担当する部品。 用途に応じて差し替えられる。</span></span>を差し替え。 nullptr で CSystemAllocator に戻す。 起動初期に呼ぶ。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/setdefaultallocator-5ba90c2a.html"><code>acs::SetDefaultAllocator</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="MemCopy / MemMove / MemSet / MemCmpの使用例"><code>MemCopy(dst, src, n);           // 非重複コピー
+MemMove(dst, src, n);           // 重複可
+MemSet(buf, 0, n);              // 0 クリア
+int c = MemCmp(a, b, n);        // 比較(0=一致)
+SetDefaultAllocator(&amp;myAlloc); // 既定を差し替え(null で System に戻す)</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

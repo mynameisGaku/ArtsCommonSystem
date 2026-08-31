@@ -1,0 +1,123 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AModelMaterialPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/modelview/ModelMaterialPanel.h",
+    "summary": "ModelViewer 内で、現在 load されたモデルの各 material slot に対し PBR マテリアルをライブ編集する ImGui パネル。 AEditorPanel を継承し、slot ごとの FMaterialOverride を内部 TArray に保持して CollapsingHeader + ColorEdit / SliderFloat で編集する。 編集 UI と override 値の保持だけを担い、実 shader への反映は MaterialChangeCallback(raw 関数ポインタ + void*) 経由で外部が行う。 非コピー / 非ムーブ・全 noexcept。",
+    "when": "モデルのマテリアルを試行錯誤で調整するパネルとして使う。 モデル load 時に SetMaterialSlotCount で slot 数を設定し、callback を登録して変更を shader に流す。",
+    "sample": "AModelMaterialPanel mat;\nmat.Init();\nmat.SetMaterialSlotCount(3);          // モデルの slot 数\nmat.SetOnMaterialChangeCallback(&OnMatChanged, nullptr);\nworkspace.RegisterPanel(&mat);\n\nif (FMaterialOverride* ov = mat.GetOverrideMutable(0)) {\n    ov->roughness = 0.2f;\n    ov->is_overridden = true;          // panel 自身は変更検知しない\n}",
+    "members": [
+      {
+        "sig": "using MaterialChangeCallback = void (*)(void* user, u32 slot_index, const FMaterialOverride& override) noexcept",
+        "ret": "型",
+        "desc": "override 1 件分の変更通知 callback 型。 user は登録時のポインタがそのまま戻る。 override は panel が保持する最新コピー。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "slot list を空に戻し、callback は維持したまま dirty / state をクリア。 多重呼び出し可。",
+        "when": "Workspace 登録前 / 単独利用時。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "slot list を解放し callback を解除。 多重呼び出し可。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetMaterialSlotCount(u32 count) noexcept",
+        "ret": "—",
+        "desc": "TArray を count 個に Resize し各 slot の slot_index を 0..count-1 でフィル。 既存値は維持されず default 初期化(古い override が新モデルに流れない)。 count=0 で全 slot 解除。 kMaxSlots で clamp。",
+        "when": "モデル load 時。"
+      },
+      {
+        "sig": "void ResetSlot(u32 slot_index) noexcept",
+        "ret": "—",
+        "desc": "指定 slot を「元の material に戻す」(is_overridden=false + 各値 default)。 範囲外は no-op。 callback も発火する。",
+        "when": "1 slot をリセットする時。"
+      },
+      {
+        "sig": "void ResetAll() noexcept",
+        "ret": "—",
+        "desc": "全 slot を ResetSlot 相当に。 callback は slot 数だけ発火する。",
+        "when": "全リセット時。"
+      },
+      {
+        "sig": "bool IsSlotOverridden(u32 slot_index) const noexcept",
+        "ret": "真偽",
+        "desc": "指定 slot が override 状態か。 範囲外は false。",
+        "when": "任意"
+      },
+      {
+        "sig": "const FMaterialOverride* GetOverride(u32 slot_index) const noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "指定 slot の override(const)。 範囲外 / 未 Init は nullptr。",
+        "when": "値を読む時。"
+      },
+      {
+        "sig": "FMaterialOverride* GetOverrideMutable(u32 slot_index) noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "指定 slot の override(mutable)。 範囲外 / 未 Init は nullptr。 外部から書き換える際は is_overridden=true を立てるか手動で callback を呼ぶ責務がある(panel は変更検知しない)。",
+        "when": "外部から値を書く時。"
+      },
+      {
+        "sig": "u32 SlotCount() const noexcept",
+        "ret": "件数",
+        "desc": "現在の slot 数(SetMaterialSlotCount の最終値)。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetOnMaterialChangeCallback(MaterialChangeCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "変更通知 callback を登録。 nullptr で解除。 発火は DrawUI 内で field が変わった時 + ResetSlot / ResetAll 時。 1 frame で複数 slot 変更なら複数回。",
+        "when": "shader 反映 / Undo 連携時。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Material Override\"",
+        "desc": "ImGui ウインドウタイトル兼 ID。",
+        "when": "基底からの呼び出し。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "ImGui::Begin(\"Material Override\") で start し、各 slot を CollapsingHeader 内に展開(Override enabled / Base Color / Metallic / Roughness / Normal / AO / Emissive / Emissive Intensity / Reset)。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "static constexpr f32 kMinMetallic=0 / kMaxMetallic=1",
+        "desc": "Metallic SliderFloat の値域。"
+      },
+      {
+        "sig": "static constexpr f32 kMinRoughness=0 / kMaxRoughness=1",
+        "desc": "Roughness SliderFloat の値域。"
+      },
+      {
+        "sig": "static constexpr f32 kMinNormalStrength=0 / kMaxNormalStrength=2",
+        "desc": "Normal Strength SliderFloat の値域。"
+      },
+      {
+        "sig": "static constexpr f32 kMinAoStrength=0 / kMaxAoStrength=1",
+        "desc": "AO Strength SliderFloat の値域。"
+      },
+      {
+        "sig": "static constexpr f32 kMinEmissiveIntensity=0 / kMaxEmissiveIntensity=10",
+        "desc": "Emissive Intensity SliderFloat の値域。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxSlots = 256u",
+        "desc": "slot 上限(UI と内部の安全弁)。 SetMaterialSlotCount に大きすぎる値が来ても clamp される。"
+      },
+      {
+        "sig": "using FModelMaterialPanel = AModelMaterialPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AModelMaterialPanel を使う。"
+      }
+    ]
+  }
+}

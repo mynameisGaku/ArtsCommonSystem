@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CGame",
+    "kind": "クラス",
+    "header": "gameframework/Game.h",
+    "summary": "ゲームアプリの基底クラス。 CApplication を継承し、CSceneManager を駆動する。 利用者は派生クラスで InitialScene() を override して最初のシーンを返すだけでよい。 固定タイムステップ・time scale・シーン跨ぎの永続状態 (AppState)・フェード付きシーン遷移を内蔵する。",
+    "when": "ゲームの土台を作る時。 ACS_GAME_MAIN マクロと組み合わせて起動する。",
+    "sample": "class CMyGame : public acs::game::CGame {\nprotected:\n    acs::TUniquePtr<acs::game::AScene> InitialScene() noexcept override {\n        return acs::MakeUnique<ATitleScene>();\n    }\n};\nACS_GAME_MAIN(CMyGame)",
+    "members": [
+      {
+        "sig": "virtual TUniquePtr<AScene> InitialScene()",
+        "ret": "最初のシーン",
+        "desc": "派生クラスで必ず実装。 起動時に最初に push されるシーンを返す。"
+      },
+      {
+        "sig": "CSceneManager& Scenes()",
+        "desc": "シーンスタック管理を取得 (push/pop/change)。"
+      },
+      {
+        "sig": "void SetTimeScale(f32 s) / f32 TimeScale()",
+        "desc": "時間スケール。 AScene の dt に乗算される (0 でポーズ、2 で倍速)。"
+      },
+      {
+        "sig": "void SetFixedTimestep(f32 fixed_dt, u32 max_steps_per_frame = 8)",
+        "desc": "固定タイムステップ設定 (既定 1/60 秒、最大 8 step)。 物理や3D移動を安定させる。"
+      },
+      {
+        "sig": "bool TrySetFixedTimestep(const timing::FFixedStepOptions& options) / void DisableFixedTimestep()",
+        "desc": "完全な固定更新設定を検証して適用 / 時計と未消費入力を初期化して固定更新を停止する。"
+      },
+      {
+        "sig": "f64 FixedStepInterpolationAlpha() const",
+        "ret": "[0,1)",
+        "desc": "次の固定tickまでの描画補間率。"
+      },
+      {
+        "sig": "void SetFixedStepInputSource(IInputFrameSource& source) / void SetFixedTickInputSource(IFixedTickInputSource& source)",
+        "desc": "AI・test向けframe入力、またはreplay・rollback向けtick入力へ排他的に切り替える。 sourceは呼び出し側が所有する。"
+      },
+      {
+        "sig": "void ResetFixedStepInputSource()",
+        "desc": "platform入力へ戻し、以前のsourceから残った未消費入力を破棄する。"
+      },
+      {
+        "sig": "bool TryCaptureFixedStepRuntimeSnapshot(FFixedStepRuntimeSnapshot& out) / bool TryRestoreFixedStepRuntimeSnapshot(const FFixedStepRuntimeSnapshot& in)",
+        "desc": "時計とactive sceneの未消費入力を一括保存・復元する。 同じgame・scene・source境界だけで復元できる。"
+      },
+      {
+        "sig": "T& EmplaceAppState<T>(args...) / T* AppState<T>()",
+        "desc": "シーン跨ぎで残る永続状態を構築 / 取り出す (型消去、1 個)。 未設定・型不一致は nullptr。",
+        "when": "プレイヤー所持金やセーブデータをシーン間で持ち回りたい時。"
+      },
+      {
+        "sig": "void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f)",
+        "desc": "フェードアウト → シーン切替 → フェードインを 1 行で行う。 フェードは実時間で進む。"
+      },
+      {
+        "sig": "CFadeTransition& Fade()",
+        "desc": "進行中のフェード状態を参照する。"
+      },
+      {
+        "sig": "CSceneRenderResources& SceneRenderResources()",
+        "desc": "全シーンが game 寿命で共有するスプライトバッチ・反射/水深度 RT・stencil の遅延生成束を取得する。"
+      },
+      {
+        "sig": "using FGame = CGame",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CGame を使う。"
+      }
+    ]
+  }
+}

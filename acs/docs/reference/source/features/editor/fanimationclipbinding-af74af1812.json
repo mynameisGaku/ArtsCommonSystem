@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FAnimationClipBinding",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelAnimationPanel.h",
+    "summary": "モデルに含まれる 1 個の animation clip のメタ情報。 AModelAnimationPanel::SetClips で外部から渡す POD で、panel は値コピーで内部 TArray に保持する(呼出側はビルド済み temp 配列を渡してよい)。 name はコピー所有しないため寿命は呼出側責任。",
+    "when": "モデル load 時に clip 一覧を組み立てて SetClips に渡す。 clip_index は外部 CAnimationPlayer のクリップ ID で、callback にそのまま返る。",
+    "sample": "FAnimationClipBinding clips[] = {\n    { \"Idle\", 2.0f, true,  0 },\n    { \"Walk\", 1.2f, true,  1 },\n    { \"Jump\", 0.8f, false, 2 },\n};\nanim.SetClips(clips, 3);",
+    "members": [
+      {
+        "sig": "const char* name = nullptr",
+        "desc": "clip 表示名。 const char* リテラル / 永続バッファ想定(panel はコピー所有しない)。"
+      },
+      {
+        "sig": "f32 duration_sec = 0.0f",
+        "desc": "clip の長さ(秒)。 0 以下が来た場合は内部で clamp される。"
+      },
+      {
+        "sig": "bool is_looping = false",
+        "desc": "clip 既定のループ可否。 UI の Loop checkbox で override 可能。"
+      },
+      {
+        "sig": "u32 clip_index = 0u",
+        "desc": "外部 CAnimationPlayer 内のクリップ ID。 callback にそのまま渡される。 panel は中身を解釈しない。"
+      }
+    ]
+  }
+}

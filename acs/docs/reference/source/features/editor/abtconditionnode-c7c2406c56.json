@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ABtConditionNode",
+    "kind": "クラス",
+    "header": "gameframework/tools/btedit/BtGuardNodes.h",
+    "summary": "登録済みconditionを呼び出して評価するbehavior tree node。",
+    "when": "再利用可能なconditionをtreeへ配置する時。",
+    "members": [
+      {
+        "sig": "using FBtConditionNode = ABtConditionNode",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtConditionNode を使う。"
+      }
+    ]
+  }
+}

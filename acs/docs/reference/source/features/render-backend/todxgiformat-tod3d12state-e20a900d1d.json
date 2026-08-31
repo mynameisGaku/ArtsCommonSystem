@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "ToDxgiFormat / ToD3D12State",
+    "kind": "自由関数",
+    "header": "render/Dx12/Dx12Common.h",
+    "summary": "DX12 バックエンド共通の小さな変換ヘルパ群(いずれも inline noexcept)。 ACS の論理列挙を Direct3D12 / DXGI のネイティブ列挙へ写します。 Dx12Common.h を include する DX12 系 .cpp から使われます。",
+    "when": "DX12 バックエンド内部で EFormat や EResourceState をネイティブ型に直す時。 利用側コードは普通 IRhi* 越しなので直接触りません。",
+    "sample": "DXGI_FORMAT fmt   = ToDxgiFormat(EFormat::R8G8B8A8_UNorm);\nD3D12_RESOURCE_STATES st = ToD3D12State(EResourceState::RenderTarget);",
+    "members": [
+      {
+        "sig": "DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept",
+        "ret": "DXGI フォーマット",
+        "desc": "EFormat を DXGI_FORMAT へ変換。 未対応値は DXGI_FORMAT_UNKNOWN。"
+      },
+      {
+        "sig": "D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept",
+        "ret": "D3D12 リソース状態",
+        "desc": "EResourceState を D3D12_RESOURCE_STATES へ変換。 未対応値は D3D12_RESOURCE_STATE_COMMON。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AHierarchyPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/inspector/HierarchyPanel.h",
+    "summary": "ANode ツリー (シーン) を ImGui の hierarchy パネルで可視化・編集する。 root 配下を再帰 TreeNode で描画し、クリックで選択 (CSelectionService 経由 or 内部保持)、右クリックで Delete / Duplicate / Reparent、Drag & Drop で reparent、ExpandAll / CollapseAll で一括開閉する。 editor_core::AEditorPanel を継承。 STL 不使用 (折りたたみ状態は TArray の linear search)。",
+    "when": "シーンの ANode 階層を GUI で見せ・選択・削除・親子付けさせたい時。 SetRootNode で起点 ANode を、必要なら SetSelectionService で選択を他 panel と共有し、毎フレーム DrawUI() を呼ぶ。",
+    "sample": "AHierarchyPanel hier;\nhier.Init();\nhier.SetRootNode(&scene_root);\nhier.SetSelectionService(&sel);   // Inspector と選択を共有\n// 毎フレーム:\nhier.DrawUI();",
+    "members": [
+      {
+        "sig": "using NodeRightClickCallback = void (*)(void* user, ANode* node) noexcept",
+        "desc": "右クリック context menu の追加項目を外部委譲する コールバック型。 標準の Delete / Duplicate / Reparent はパネル内描画で、これは \"Create Child\" 等の追加項目のみ担当。 user は登録時の第二引数。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "折りたたみマップを空に、selection を解除する。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "折りたたみマップを解放し callback を解除する。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetRootNode(ANode* root) noexcept",
+        "ret": "—",
+        "desc": "再帰描画の起点となる root ANode を事前 set する。 root 自体も最上位 TreeNode として表示される。"
+      },
+      {
+        "sig": "ANode* RootNode() const noexcept",
+        "ret": "root ポインタ",
+        "desc": "現在設定中の root ANode を返す。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Scene Hierarchy\"",
+        "desc": "ImGui window タイトル。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "Begin(\"Scene Hierarchy\") 1 window で root 配下を再帰 TreeNode 描画する。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void SetSelectionService(CSelectionService* svc) noexcept",
+        "ret": "—",
+        "desc": "選択ハブを注入する。 nullptr で内部 selection モードに戻る。"
+      },
+      {
+        "sig": "FNodeId SelectedNodeId() const noexcept",
+        "ret": "選択 id",
+        "desc": "現選択 ANode の FNodeId。 CSelectionService 注入時はそちら経由、なければ内部値。 未選択は FNodeId{} (packed==0)。"
+      },
+      {
+        "sig": "void SelectNode(ANode* node) noexcept",
+        "ret": "—",
+        "desc": "選択を node に切り替える。 nullptr で選択解除。 CSelectionService 注入時はそちらにも反映する。"
+      },
+      {
+        "sig": "void ExpandAll() noexcept",
+        "ret": "—",
+        "desc": "全 TreeNode を展開状態にする (= 折りたたみマップを空にする)。"
+      },
+      {
+        "sig": "void CollapseAll() noexcept",
+        "ret": "—",
+        "desc": "全 TreeNode を折りたたむ。 実適用は次回 DrawUI で行う (内部 pending フラグを立てるのみ)。"
+      },
+      {
+        "sig": "void DeleteSelected() noexcept",
+        "ret": "—",
+        "desc": "選択中 ANode に ANode::Destroy() を呼ぶ (実 destroy は次フレームの structural change 解決で)。 選択は解除される。 未選択時は no-op。"
+      },
+      {
+        "sig": "void SetOnNodeRightClickCallback(NodeRightClickCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "右クリック追加項目 callback を登録する。 nullptr で解除可。"
+      },
+      {
+        "sig": "using FHierarchyPanel = AHierarchyPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AHierarchyPanel を使う。"
+      }
+    ]
+  }
+}

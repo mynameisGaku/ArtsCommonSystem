@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSettings",
+    "kind": "クラス",
+    "header": "gameframework/Settings.h",
+    "summary": "音量・解像度・キー設定など「ゲームをまたいで残したい設定値」を型付き key-valueで持つ小さなストア。 INI 風テキストで Save/Load できる。",
+    "when": "オプション画面の値を保存/復元したい時。 audio.master のようなドット区切りのキーで管理する。",
+    "sample": "CSettings s;\ns.SetF32(\"audio.master\", 0.8f);\ns.SetBool(\"display.vsync\", true);\nf32 v = s.GetF32(\"audio.master\", 1.0f);\n(void)s.Save(L\"settings.ini\");",
+    "members": [
+      {
+        "sig": "void SetF32/SetI32/SetBool(const char* key, v)",
+        "desc": "数値 / 真偽を書き込む。 同名キーは上書き。 key == nullptr は無視。"
+      },
+      {
+        "sig": "void SetString(const char* key, const char* v)",
+        "desc": "文字列を書き込む。 値の寿命は呼び出し側が保証 (リテラル想定)。"
+      },
+      {
+        "sig": "f32 GetF32(const char* key, f32 default_value = 0.0f) const",
+        "ret": "値 または 既定",
+        "desc": "未設定 / 型不一致 / nullptr のときは既定値を返す (安全な fallback)。"
+      },
+      {
+        "sig": "i32 GetI32 / bool GetBool / const char* GetString(key, default)",
+        "desc": "それぞれの型で読み出す。 未設定なら既定値。"
+      },
+      {
+        "sig": "bool Has(const char* key) const",
+        "desc": "キーが登録済みか (型は不問)。"
+      },
+      {
+        "sig": "void Remove(const char* key) / void Clear()",
+        "desc": "1 件削除 / 全削除。"
+      },
+      {
+        "sig": "u32 Count() const",
+        "ret": "件数",
+        "desc": "登録されている設定数。"
+      },
+      {
+        "sig": "TResult<void> Save(const wchar_t* file_path)",
+        "ret": "成否",
+        "desc": "INI 風テキストへ安全に書き出す (一時ファイル → rename で破損防止)。",
+        "when": "オプション確定時 / 終了時。"
+      },
+      {
+        "sig": "TResult<void> Load(const wchar_t* file_path)",
+        "ret": "成否",
+        "desc": "保存したファイルから型ごと復元する。"
+      },
+      {
+        "sig": "using FSettings = CSettings",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSettings を使う。"
+      }
+    ]
+  }
+}

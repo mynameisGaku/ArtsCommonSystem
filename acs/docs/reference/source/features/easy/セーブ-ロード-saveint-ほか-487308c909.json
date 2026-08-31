@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "セーブ／ロード（SaveInt ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "実行ファイルの場所の save.dat に key-value で永続化する。 整数・小数・文字列を保存／読み出し。 Load 系は未保存ならデフォルト値を返す。 OpenWindow の前でも後でも呼べる。",
+    "when": "ハイスコア・設定・進行状況の保存。 文字列の値に改行（\\n）は使えない。",
+    "sample": "SaveInt(\"highscore\", 1200);\ni32 best = LoadInt(\"highscore\", 0);   // 未保存なら 0\nSaveString(\"name\", \"あべ\");\nconst char* n = LoadString(\"name\", \"NONAME\");\nif (HasSaveKey(\"highscore\")) /* 続きから */;",
+    "members": [
+      {
+        "sig": "void SaveInt(const char* key, i32 value)",
+        "desc": "整数を保存する。"
+      },
+      {
+        "sig": "i32 LoadInt(const char* key, i32 default_value)",
+        "ret": "値 または 既定",
+        "desc": "整数を読む。 未保存なら default_value。"
+      },
+      {
+        "sig": "void SaveFloat(const char* key, f32 value)",
+        "desc": "小数を保存する。"
+      },
+      {
+        "sig": "f32 LoadFloat(const char* key, f32 default_value)",
+        "ret": "値 または 既定",
+        "desc": "小数を読む。 未保存なら default_value。"
+      },
+      {
+        "sig": "void SaveString(const char* key, const char* value)",
+        "desc": "文字列を保存する（改行は不可）。"
+      },
+      {
+        "sig": "const char* LoadString(const char* key, const char* default_value)",
+        "ret": "値 または 既定",
+        "desc": "文字列を読む。 戻り値は次に Save 系を呼ぶまで有効。"
+      },
+      {
+        "sig": "bool HasSaveKey(const char* key)",
+        "ret": "保存済みか",
+        "desc": "そのキーが保存されていれば true。"
+      },
+      {
+        "sig": "void DeleteAllSaves()",
+        "desc": "保存内容を全消去する。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="owner ツリーに配線された CSceneServices を返す (未配線なら nullptr)。 戻り値: 配線済み services ポインタ (owner 未設定/未配線は nullptr)。">
+  <title>acs::game::AComponent::SceneServices — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../acomponent-c1bed82b.html">AComponent の概要</a><a class="tree-child" href="maybeattachservices-087a7c97.html">_MaybeAttachServices</a><a class="tree-child" href="setowner-1f0d79f8.html">_SetOwner</a><a class="tree-child" href="acomponent-495ef3aa.html">AComponent</a><a class="tree-child" href="acomponent-5ed1e9d0.html">AComponent</a><a class="tree-child" href="acomponent-63dac08f.html">AComponent</a><a class="tree-child" href="getsubsystem-fd1753e0.html">GetSubsystem</a><a class="tree-child" href="hasowner-2d967e2c.html">HasOwner</a><a class="tree-child" href="hassceneservices-56b8cbf7.html">HasSceneServices</a><a class="tree-child" href="kind-f8a5ea01.html">Kind</a><a class="tree-child" href="m-owner-f9529ab0.html">m_Owner</a><a class="tree-child" href="m-servicesattached-bed370bd.html">m_ServicesAttached</a><a class="tree-child" href="onattach-283adde9.html">OnAttach</a><a class="tree-child" href="onattachservices-a714fbd1.html">OnAttachServices</a><a class="tree-child" href="ondetach-86b4801a.html">OnDetach</a><a class="tree-child" href="ondraw-2136f0b7.html">OnDraw</a><a class="tree-child" href="ondrawpostchildren-e1b88527.html">OnDrawPostChildren</a><a class="tree-child" href="onfixedupdate-d300d4dd.html">OnFixedUpdate</a><a class="tree-child" href="onrequire-61cfdaea.html">OnRequire</a><a class="tree-child" href="onupdate-749c86c3.html">OnUpdate</a><a class="tree-child" href="operator-23adcb00.html">operator=</a><a class="tree-child" href="operator-cc219b1f.html">operator=</a><a class="tree-child" href="owner-28a6e577.html">Owner</a><a class="tree-child" href="owner-602519d8.html">Owner</a><a class="tree-child" href="querylight-de756683.html">QueryLight</a><a class="tree-child" href="queryprimitive-28727674.html">QueryPrimitive</a><a class="tree-child" href="queryshadowcaster-9c435227.html">QueryShadowCaster</a><a class="tree-child" href="reflectname-401de112.html">ReflectName</a><a class="tree-child" href="sceneservices-82c2792d.html" aria-current="page">SceneServices</a><a class="tree-child" href="subsystems-d727a464.html">Subsystems</a><a class="tree-child" href="wantsatomicsubtree-fa44cac6.html">WantsAtomicSubtree</a><a class="tree-child" href="acomponent-03f72cec.html">~AComponent</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../acomponent-c1bed82b.html">AComponent</a><span>/</span><span aria-current="page">SceneServices</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::AComponent::SceneServices</h1>
+<p class="lead">owner ツリーに配線された CSceneServices を返す (未配線なら nullptr)。 戻り値: 配線済み services <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3333">ポインタ</button><span class="term-tooltip" id="term-tip-3333" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span> (owner 未設定/未配線は nullptr)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::AComponent::SceneServicesの宣言"><code>CSceneServices* <a href="sceneservices-82c2792d.html" aria-current="page">SceneServices</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../acomponent-c1bed82b.html"><code>acs::game::AComponent</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/AComponent.h:218</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

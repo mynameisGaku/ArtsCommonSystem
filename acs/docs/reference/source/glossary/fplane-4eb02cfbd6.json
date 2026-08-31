@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FPlane",
+  "definition": "3D の無限平面（法線+距離）。 地面や壁の近似に。"
+}

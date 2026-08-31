@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FEventTypeId",
+    "kind": "型エイリアス",
+    "header": "event/EventTypeId.h",
+    "summary": "CMessageBroker がメッセージ型ごとの通路を識別する番号。",
+    "when": "購読数の確認など、型から得た通路番号を明示的に保持する時。",
+    "sample": "FEventTypeId channel = GetEventTypeId<FDamageEvent>();\nif (IsValidEventTypeId(channel)) { /* 利用できる通路 */ }",
+    "members": [
+      {
+        "sig": "FEventTypeId = u32",
+        "desc": "通路番号の実体は u32。"
+      },
+      {
+        "sig": "using EventTypeId = FEventTypeId",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは FEventTypeId を使う。"
+      },
+      {
+        "sig": "kMaxEventTypes = 256",
+        "desc": "同時に扱えるメッセージ型の上限。"
+      },
+      {
+        "sig": "bool IsValidEventTypeId(FEventTypeId channel)",
+        "ret": "範囲内か",
+        "desc": "通路番号が256未満ならtrue。 仲介器は範囲外の通路を作成しない。"
+      }
+    ]
+  }
+}

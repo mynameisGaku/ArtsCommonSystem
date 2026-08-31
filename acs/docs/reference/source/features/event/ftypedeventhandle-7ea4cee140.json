@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FTypedEventHandle",
+    "kind": "構造体",
+    "header": "event/TypedEventHandle.h",
+    "summary": "型付きイベント個体、購読枠、世代を一組で識別する値。 別イベントや解除済み世代への誤操作を防ぐ。",
+    "when": "TEventまたはTMulticastDelegateの購読を後で明示解除する時。",
+    "members": [
+      {
+        "sig": "u64 event_id / u32 slot_index / u32 generation",
+        "desc": "イベント個体、購読枠、再利用世代を識別する値。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効値か",
+        "desc": "イベント番号と世代番号がともに0以外なら true。"
+      }
+    ]
+  }
+}

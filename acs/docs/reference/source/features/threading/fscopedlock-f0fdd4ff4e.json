@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FScopedLock",
+    "kind": "クラス",
+    "header": "threading/ScopedLock.h",
+    "summary": "作った瞬間 Lock し、スコープを抜けると必ず Unlock する。",
+    "when": "FMutex を使う時は原則これ。 途中で return しても FPanic しても解除し忘れがない。 コピー/ムーブ不可。",
+    "sample": "FMutex m;\n{\n    FScopedLock lk(m);   // ここで Lock\n    list.Add(x);\n    // 早期 return しても安全\n}                        // スコープ脱出で自動 Unlock",
+    "members": [
+      {
+        "sig": "explicit FScopedLock(FMutex& m) noexcept",
+        "desc": "構築と同時に m.Lock() を呼び、デストラクタで m.Unlock() する。 FMutex& を参照で保持するため m はガードより長く生存させること。"
+      }
+    ]
+  }
+}

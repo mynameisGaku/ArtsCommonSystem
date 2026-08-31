@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTutorialStep",
+    "kind": "構造体",
+    "header": "gameframework/TutorialFlow.h",
+    "summary": "チュートリアル 1 ステップ分の定義。 文字列はすべて非所有(寿命は呼び出し側が保証)で、本クラスは保持するだけです。",
+    "when": "AddStep に渡す 1 件のガイド内容を組み立てる時。",
+    "sample": "tut.AddStep({ \"open_map\", \"M でマップを開こう\", \"map_button\", true });",
+    "members": [
+      {
+        "sig": "const char* id",
+        "desc": "NotifyAction で参照される識別子。"
+      },
+      {
+        "sig": "const char* message",
+        "desc": "UI が表示するテキスト。"
+      },
+      {
+        "sig": "const char* highlight_target",
+        "desc": "ハイライト対象の名前(例 \"player\")。 nullptr 可、本クラスは解釈しない。"
+      },
+      {
+        "sig": "bool require_user_action",
+        "desc": "true なら id 一致の NotifyAction か AdvanceStep まで自動進行しない。"
+      }
+    ]
+  }
+}

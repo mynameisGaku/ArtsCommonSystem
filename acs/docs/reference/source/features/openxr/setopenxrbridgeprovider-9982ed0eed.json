@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "SetOpenXrBridgeProvider()",
+    "kind": "関数",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "既定 bridge を返す関数(provider)を登録する。 実 backend モジュールの Install* から呼ぶ。 nullptr 登録で stub に戻す。 後勝ち。",
+    "when": "通常は直接呼ばない。 InstallOpenXrAsDefault() が内部でこれを使う。 独自 backend を差し込みたい時のみ。",
+    "sample": "using Prov = acs::game::OpenXrBridgeProvider;\nProv p = []() noexcept -> acs::game::IOpenXrBridge& { return MyBridge(); };\nacs::game::SetOpenXrBridgeProvider(p);",
+    "members": [
+      {
+        "sig": "void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider)",
+        "desc": "provider を登録。 nullptr で stub に戻す。"
+      }
+    ]
+  }
+}

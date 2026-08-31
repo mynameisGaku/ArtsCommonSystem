@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CDungeonGenerator",
+    "kind": "クラス",
+    "header": "gameframework/DungeonGenerator.h",
+    "summary": "2D グリッド上に部屋と廊下を配置するBSP (空間二分割) ダンジョン生成器。 全体を再帰的に 2 分割し各リーフに 1 部屋を置き、隣り合う部屋を L 字廊下で繋ぐ。 シードで結果を再現できる。",
+    "when": "ローグライクの「毎フロア違うレイアウト」を自動生成したい時。 地形のみ生成し、モンスターやアイテム配置は呼び出し側で行う。",
+    "sample": "FDungeonGenConfig cfg;\ncfg.width = 80; cfg.height = 50;\ncfg.seed = 0xDEADBEEFu;\nFDungeonGenerator gen;\ngen.Generate(cfg);\nfor (u32 y = 0; y < gen.Height(); ++y)\n  for (u32 x = 0; x < gen.Width(); ++x)\n    if (gen.At(x, y) == ETileKind::Floor) DrawSprite(floor, x, y);\nu32 px, py; gen.GetRoomCenter(0, px, py);  // 開始位置 = 最初の部屋の中心",
+    "members": [
+      {
+        "sig": "void Generate(const FDungeonGenConfig& config)",
+        "desc": "設定に従って全体を再生成 (既存状態は破棄)。 不正値はサイレントに既定へフォールバックして必ず有効なグリッドを作る。"
+      },
+      {
+        "sig": "u32 Width() / u32 Height()",
+        "ret": "グリッドの大きさ",
+        "desc": "生成されたダンジョンの幅・高さ (タイル数)。"
+      },
+      {
+        "sig": "ETileKind At(u32 x, u32 y)",
+        "ret": "タイル種別",
+        "desc": "指定座標のタイルを返す。 範囲外は Wall (通行不可)。"
+      },
+      {
+        "sig": "void SetTile(u32 x, u32 y, ETileKind kind)",
+        "desc": "タイルを書き換える。 範囲外は no-op。",
+        "when": "生成後に手で宝箱や入口を埋め込みたい時。"
+      },
+      {
+        "sig": "u32 RoomCount() / const FRoom* GetRoom(u32 index)",
+        "desc": "部屋の数と各部屋 (範囲外は nullptr)。"
+      },
+      {
+        "sig": "void GetRoomCenter(u32 room_index, u32& out_x, u32& out_y)",
+        "desc": "部屋の中心座標を取得 (範囲外は (0,0))。",
+        "when": "プレイヤーや階段のスポーン位置を決める時。"
+      },
+      {
+        "sig": "bool IsWalkable(u32 x, u32 y)",
+        "ret": "通行可能か",
+        "desc": "Floor/Door/Corridor/Stairs を通行可とみなす。 範囲外と Wall は false。"
+      },
+      {
+        "sig": "u32 FindRandomFloor(u32& out_x, u32& out_y)",
+        "ret": "試行回数 (0=失敗)",
+        "desc": "ランダムな床タイルの座標を探して書き込む。 最大 100 試行。",
+        "when": "敵やアイテムをランダムな床に置きたい時。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "グリッド・部屋・サイズをすべてリセット。"
+      },
+      {
+        "sig": "using FDungeonGenerator = CDungeonGenerator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDungeonGenerator を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSM",
+  "definition": "Cascaded Shadow Map。 カメラの距離帯ごとに解像度の違うシャドウマップを使い、遠景まで鮮鋭な影を保つ。"
+}

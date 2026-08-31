@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "EPixelFormat",
+  "definition": "画像のピクセルフォーマットを表す列挙。"
+}

@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FEditorCameraState",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/editor_core/EditorCamera.h",
+    "summary": "カメラの公開 state。 debug overlay / serializer から position / target 等を直接覗くための可視 struct(CEditorCamera::State() が const 参照で返す)。 直接書き換えは SetTarget 等の accessor 経由推奨(smooth_target との 2 重管理が崩れるため)。",
+    "when": "カメラの現在値を読み取り / シリアライズしたい時。",
+    "members": [
+      {
+        "sig": "FVec3 position{0,0,0}",
+        "desc": "実 eye position(3D)。 2D では (x,y) を使用。"
+      },
+      {
+        "sig": "FVec3 target{0,0,0}",
+        "desc": "orbit center(3D)。 2D では未使用。"
+      },
+      {
+        "sig": "FVec3 up{0,1,0}",
+        "desc": "up vector(LookAt 用)。"
+      },
+      {
+        "sig": "f32 fov_deg = 60.0f",
+        "desc": "3D perspective の vertical FoV(degree)。"
+      },
+      {
+        "sig": "f32 zoom_2d = 1.0f",
+        "desc": "2D ortho zoom(1.0 で基本、>1 で拡大)。"
+      },
+      {
+        "sig": "f32 yaw_rad = 0.0f",
+        "desc": "Y 軸まわりの orbit 角(0 = +Z 方向から見る)。"
+      },
+      {
+        "sig": "f32 pitch_rad = 0.0f",
+        "desc": "水平面からの仰角(負で見下ろし)。"
+      },
+      {
+        "sig": "f32 distance = 10.0f",
+        "desc": "target からの距離(3D orbit)。"
+      }
+    ]
+  }
+}

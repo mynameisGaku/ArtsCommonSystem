@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "BOM",
+  "definition": "テキスト先頭に付く文字コードの目印。 ACS のsource・文書・build設定は UTF-8 BOMなしを正本にします。 改行は通常 LF、Windows shellだけ CRLFです。"
+}

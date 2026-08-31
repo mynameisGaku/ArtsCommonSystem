@@ -1,0 +1,112 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CAssetBrowser",
+    "kind": "クラス(panel)",
+    "header": "gameframework/tools/editor_core/AssetBrowser.h",
+    "summary": "assets/ ディレクトリツリーを ImGui で参照し、Drag & Drop で他 panel にアセットパスを供給する panel。 左ペインに tree、右ペインに current directory 一覧を表示。 各エントリは \"ASSET_PATH\" payload(const wchar_t* 直渡し)の Drag Source。 拡張子から EAssetKind を判定。 非コピー / 非ムーブ、全 noexcept、文字列は内部 pool 管理。",
+    "when": "エディタにアセットブラウザを組み込み、ファイルを panel へドラッグ供給したい時。",
+    "sample": "CAssetBrowser browser;\nbrowser.Init(L\"assets\");\n// 毎フレーム:\nbrowser.DrawUI();\nif (const wchar_t* p = browser.SelectedAssetPath())\n    use(p);   // 寿命は次の Refresh まで",
+    "members": [
+      {
+        "sig": "using AssetSelectedCallback = void (*)(void* user, const wchar_t* path, EAssetKind kind) noexcept",
+        "desc": "選択変更通知 callback 型。 user は登録時のポインタがそのまま戻る。 path の寿命は次の Refresh() まで。"
+      },
+      {
+        "sig": "using AssetDoubleClickedCallback = void (*)(void* user, const wchar_t* path, EAssetKind kind) noexcept",
+        "desc": "ダブルクリック通知 callback 型(ディレクトリは Navigate、ファイルは Open 相当)。"
+      },
+      {
+        "sig": "void Init(const wchar_t* root_directory) noexcept",
+        "ret": "—",
+        "desc": "root_directory を assets/ ルートとして記録し初回 Refresh()。 nullptr / 空文字は L\"assets\" を既定採用。 多重 Init 可(root 切替)。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "文字列 pool / TArray / callback を全解放。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void Refresh() noexcept",
+        "ret": "—",
+        "desc": "current directory を rescan。 pool が再構築され既存 FAssetEntry::path / short_name が無効化されるので Refresh 越しに pointer を保持しないこと。"
+      },
+      {
+        "sig": "void DrawUI() noexcept",
+        "ret": "—",
+        "desc": "Begin(\"Asset Browser\") 1 window で完結する描画。 左 tree + 右 list。 各エントリは \"ASSET_PATH\" Drag Source。"
+      },
+      {
+        "sig": "u32 EntryCount() const noexcept",
+        "ret": "件数",
+        "desc": "current directory の entry 数(ディレクトリ + ファイル合算)。"
+      },
+      {
+        "sig": "const FAssetEntry* GetEntry(u32 index) const noexcept",
+        "ret": "entry または null",
+        "desc": "index 番目の entry。 範囲外は nullptr。 寿命は次の Refresh まで。"
+      },
+      {
+        "sig": "const wchar_t* CurrentDirectory() const noexcept",
+        "ret": "相対パス",
+        "desc": "現在表示中のディレクトリ(ルートからの相対)。 root 直下では L\"\"。"
+      },
+      {
+        "sig": "void SetCurrentDirectory(const wchar_t* path) noexcept",
+        "ret": "—",
+        "desc": "current directory 変更(空文字でルート)。 内部で必ず Refresh()。 存在しなければ no-op。"
+      },
+      {
+        "sig": "const wchar_t* SelectedAssetPath() const noexcept",
+        "ret": "path または null",
+        "desc": "選択中 entry の path。 未選択は nullptr。 寿命は次の Refresh まで。"
+      },
+      {
+        "sig": "EAssetKind SelectedAssetKind() const noexcept",
+        "ret": "kind",
+        "desc": "選択中 entry の kind。 未選択は EAssetKind::Unknown。"
+      },
+      {
+        "sig": "void SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "選択変更通知 callback を登録 / 解除(nullptr で解除)。"
+      },
+      {
+        "sig": "void SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "ダブルクリック通知 callback を登録 / 解除。"
+      },
+      {
+        "sig": "void SetFilterByKind(EAssetKind kind) noexcept",
+        "ret": "—",
+        "desc": "kind フィルタを設定。 Unknown でフィルタ解除(全表示)。 ディレクトリ entry は常に表示(フィルタ非対象)。"
+      },
+      {
+        "sig": "static EAssetKind ClassifyByExtension(const wchar_t* path) noexcept",
+        "ret": "kind",
+        "desc": "拡張子から EAssetKind を判定する static ヘルパ。 nullptr / 拡張子無しは Unknown。 大文字小文字無視。"
+      },
+      {
+        "sig": "static constexpr const char* kDragDropPayloadId = \"ASSET_PATH\"",
+        "desc": "Drag & Drop payload identifier(ImGui 仕様で 32 文字以内)。"
+      },
+      {
+        "sig": "static constexpr usize kInitialPathPoolBytes = 64u * 1024u",
+        "desc": "パス / 名前 pool の初期容量(足りなければ自動成長)。"
+      },
+      {
+        "sig": "static constexpr usize kMaxPathChars = 512u",
+        "desc": "1 entry あたりの最大 path 長(wchar_t 単位、終端含まず)。"
+      },
+      {
+        "sig": "using FAssetBrowser = CAssetBrowser",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetBrowser を使う。"
+      }
+    ]
+  }
+}

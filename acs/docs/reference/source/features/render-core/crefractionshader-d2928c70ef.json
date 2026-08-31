@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CRefractionShader",
+    "kind": "クラス",
+    "header": "render/RefractionShader.h",
+    "summary": "スクリーンスペース屈折シェーダ。 ガラス・水・氷など透明屈折オブジェクトを、描画済みの背景を屈折方向にずらしてサンプルして表現する。 粗さ(フロスト)・色収差(分散)・厚みマップ(Beer-Lambert 吸収)に対応。",
+    "when": "屈折するガラスや水を本格的に描きたいとき。 背景の複製テクスチャと環境キューブマップを用意して使う。",
+    "sample": "CRefractionShader refr;\nrefr.Init(*dev, hdr_format, depth_format);\nrefr.SetFrame(cam.ViewProjection(), cam.Eye());\nrefr.DrawMesh(*cl, glass_mesh, model, background_tex, env_cubemap,\n              /*ior=*/1.5f, /*thickness=*/0.5f, FVec3{1,1,1});",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)",
+        "desc": "初期化(rt は通常 HDR)。"
+      },
+      {
+        "sig": "void SetFrame(const FMat4& view_projection, FVec3 camera_pos)",
+        "desc": "毎フレームのカメラ設定。"
+      },
+      {
+        "sig": "void SetBackDepth(IRhiTexture* back_depth, f32 near, f32 far, u32 screen_w, u32 screen_h)",
+        "desc": "背面深度から per-pixel の実厚みを計算する厚みマップ。 null でスカラー厚みに戻る。"
+      },
+      {
+        "sig": "void SetObject(const FMat4& model, f32 ior, f32 thickness, FVec3 tint, f32 roughness = 0, f32 dispersion = 0)",
+        "desc": "屈折率・厚み・吸収色・荒さ・分散。"
+      },
+      {
+        "sig": "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, IRhiTexture& background, IRhiTexture& env, f32 ior, f32 thickness, FVec3 tint, f32 roughness, f32 dispersion)",
+        "desc": "設定 + 描画をまとめた便利 API。 background は背景の複製、env は反射用 cubemap。"
+      },
+      {
+        "sig": "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB()",
+        "desc": "手描き用アクセサ。"
+      },
+      {
+        "sig": "using FRefractionShader = CRefractionShader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRefractionShader を使う。"
+      }
+    ]
+  }
+}

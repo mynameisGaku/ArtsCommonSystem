@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CCrtDebugHeapDiagnostics",
+    "kind": "クラス",
+    "header": "memory/CrtDebugHeapDiagnostics.h",
+    "summary": "Windows CRT debug heapの診断状態を収集し、検査結果を呼び出し側へ返す。",
+    "when": "Debug buildでheap破損や未解放を調べる時。",
+    "members": [
+      {
+        "sig": "using FCrtDebugHeapDiagnostics = CCrtDebugHeapDiagnostics",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCrtDebugHeapDiagnostics を使う。"
+      }
+    ]
+  }
+}

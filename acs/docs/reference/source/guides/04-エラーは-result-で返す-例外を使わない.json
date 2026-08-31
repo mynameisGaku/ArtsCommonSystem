@@ -1,0 +1,19 @@
+{
+  "schema": 2,
+  "title": "エラーは Result で返す(例外を使わない)",
+  "blocks": [
+    {
+      "h2": "エラーは Result で返す(例外を使わない)"
+    },
+    {
+      "p": "ACS は例外(throw/try-catch)を使いません。 失敗し得る関数は TResult<T, E>(E 既定は FErrorCode)を返します。 成功なら値(T)、失敗なら理由(E)が入っていて、呼ぶ側が必ず確認します。"
+    },
+    {
+      "code": "TResult<FFile, EIoError> r = OpenFile(\"a.txt\");\nif (r.IsOk()) {\n    FFile f = r.Value();    // 成功: 中身を取り出す\n} else {\n    EIoError e = r.Error(); // 失敗: 理由\n}"
+    },
+    {
+      "note": "Ok(value) / Err(code) で作り、IsOk() で確認、Value() で取り出します。 確認せず Value() を呼ぶと失敗時にアサートで止まります。",
+      "kind": "warn"
+    }
+  ]
+}

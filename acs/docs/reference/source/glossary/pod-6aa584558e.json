@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "POD",
+  "definition": "Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。"
+}

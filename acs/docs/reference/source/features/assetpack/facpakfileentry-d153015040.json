@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "FAcpakFileEntry",
+    "kind": "構造体",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": "ファイルテーブルの 1 行を Reader がメモリ上に展開した形。 仮想パス・オフセット・サイズ・CRC32、暗号化 pak なら nonce/タグを持つ。",
+    "when": "CAcpakReader::GetEntry / FindEntry の戻り値として受け取り、ファイルの素性を調べる時。",
+    "sample": "const FAcpakFileEntry* e = reader.FindEntry(L\"bgm/title.ogg\");\nif (e) {\n    u64 raw = e->size_stored;          // アーカイブ上の生サイズ\n    u64 real = e->size_uncompressed;   // 解凍後サイズ\n}",
+    "members": [
+      {
+        "sig": "const wchar_t* path",
+        "desc": "仮想パス(Reader 内文字列プールへの参照、寿命は次の Close まで)。"
+      },
+      {
+        "sig": "u64 offset",
+        "desc": "アーカイブ先頭からこのファイルデータまでの絶対オフセット。"
+      },
+      {
+        "sig": "u64 size_uncompressed",
+        "desc": "復号+解凍後のバイト数(= 最終的な実サイズ)。"
+      },
+      {
+        "sig": "u64 size_stored",
+        "desc": "アーカイブ上の生バイト数(= 圧縮+暗号化済サイズ)。"
+      },
+      {
+        "sig": "u32 crc32",
+        "desc": "size_uncompressed バイトに対する CRC32。 読み出し時の破損検証に使う。"
+      },
+      {
+        "sig": "u8 cipher_nonce[12] / u8 cipher_tag[16]",
+        "desc": "暗号化 pak のときの AES-256-GCM nonce と認証タグ。 非暗号化 pak では 0。"
+      }
+    ]
+  }
+}

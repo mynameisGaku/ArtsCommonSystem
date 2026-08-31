@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCosmeticItem",
+    "kind": "構造体",
+    "header": "gameframework/CharacterCustomizer.h",
+    "summary": "1 つの cosmetic (見た目アイテム) の定義。 id・表示名・装着 slot・アセットパス・課金フラグ・レアリティラベルを持つ。 文字列はすべて非所有 (リテラル想定)。",
+    "when": "RegisterCosmetic() に渡す時。",
+    "sample": "FCosmeticItem item;\nitem.id = \\\"skin.gold\\\";\nitem.display_name = \\\"Gold Skin\\\";\nitem.slot = ECosmeticSlot::Body;\nitem.asset_path = \\\"art/skin_gold.fbx\\\";\nitem.is_premium = true;\nitem.rarity = \\\"rare\\\";"
+  }
+}

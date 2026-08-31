@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FFixedStepInputBuffer",
+    "kind": "クラス",
+    "header": "gameframework/FixedStepInputBuffer.h",
+    "summary": "可変frame入力を固定tickへ渡す状態保持器。 最新の保持状態・axisと、未消費の押下・解放を分けて管理する。",
+    "when": "短いtapを固定更新まで保持し、catch-up中の同じedgeを一度だけ通知したい時。",
+    "members": [
+      {
+        "sig": "bool TryPushFrame(const IInputStateView& input)",
+        "desc": "frame入力を蓄積する。 不正入力では既存状態を保つ。"
+      },
+      {
+        "sig": "bool TryConsumeFixedStep(FInputStateSnapshot& out)",
+        "desc": "固定tick用snapshotを返し、押下・解放だけを消費する。"
+      },
+      {
+        "sig": "bool TryCaptureSnapshot(...) / bool TryRestoreSnapshot(...)",
+        "desc": "未消費入力を保存・復元する。"
+      },
+      {
+        "sig": "using CFixedStepInputBuffer = FFixedStepInputBuffer",
+        "desc": "旧名向け互換別名。"
+      }
+    ]
+  }
+}

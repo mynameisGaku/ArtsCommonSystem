@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FAabb2 / FCircle / FRay2",
+    "kind": "構造体",
+    "header": "math/Collision2D.h",
+    "summary": "2D の衝突判定で使う基本形状。 FAabb2=軸並行の矩形（中心+半サイズ）、FCircle=円、FRay2=レイ（始点+方向）。",
+    "when": "2D ゲームの当たり判定。 プレイヤーや壁を矩形・円で表し、レイで射撃や視線を飛ばす。",
+    "sample": "FAabb2 player{ {x, y}, {8, 12} };       // 中心 + 半サイズ\nAabb2 wall = FAabb2::FromTopLeftSize({0,0}, {100, 8});\nCircle bullet{ {bx, by}, 4 };\nRay2 sight{ {px, py}, {1, 0} };",
+    "members": [
+      {
+        "sig": "FAabb2{ FVec2 center, FVec2 half_size }",
+        "desc": "中心と半サイズ（幅/2, 高さ/2）で矩形を表す。"
+      },
+      {
+        "sig": "static FAabb2 FromMinMax(min, max) / FromTopLeftSize(tl, size)",
+        "ret": "矩形",
+        "desc": "左上+右下、または左上+サイズから作る。 スプライト系に便利。"
+      },
+      {
+        "sig": "FVec2 FAabb2::Min() / Max()",
+        "ret": "角の座標",
+        "desc": "矩形の左上・右下の座標を返す。"
+      },
+      {
+        "sig": "FCircle{ FVec2 center, f32 radius }",
+        "desc": "中心と半径で円を表す。"
+      },
+      {
+        "sig": "FRay2{ FVec2 origin, FVec2 direction }",
+        "desc": "始点と方向のレイ。 方向は正規化しなくてもよい（t は方向長さ依存）。"
+      }
+    ]
+  }
+}

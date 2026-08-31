@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="旧 Kit 形式で固定された33個のイージング数値 ID と、ACS の Easing::EEasingType を相互変換する状態なしの移行境界。 曲線の評価実装や正規 enum の数値は変更しない。">
+  <title>CLegacyKitEaseIdCodec — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CLegacyKitEaseIdCodec</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CLegacyKitEaseIdCodec</h1>
+<p class="lead">旧 Kit 形式で固定された33個の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25113">イージング</button><span class="term-tooltip" id="term-tip-25113" role="tooltip">トゥイーンの加減速カーブ。 Linear(等速)や InOutSine(ゆっくり始まりゆっくり終わる)など。</span></span>数値 ID と、ACS の Easing::EEasingType を相互変換する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25114">状態</button><span class="term-tooltip" id="term-tip-25114" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>なしの移行境界。 曲線の評価実装や正規 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25115">enum</button><span class="term-tooltip" id="term-tip-25115" role="tooltip">決まった選択肢の集合を表す型(列挙)。 例: 上下左右のキー。</span></span> の数値は変更しない。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb.html"><code>acs::game::CLegacyKitEaseIdCodec</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>旧形式の保存データを読み込む時、または互換出力へ旧数値 ID を書き戻す時。 新規データはcanonical名を保存する。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/LegacyKitEaseIdCodec.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-ed3cceaaf60b7679d64e"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>static constexpr i32 <a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/klegacyidcount-fd0e41f2.html">kLegacyIdCount</a> = 33</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧形式で固定された有効 ID 数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/klegacyidcount-fd0e41f2.html"><code>acs::game::CLegacyKitEaseIdCodec::kLegacyIdCount</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-7e12154baebb99ac6b76"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>static bool <a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/trydecode-2b2cf2c2.html">TryDecode</a>(i32 legacy_id, Easing::EEasingType&amp; out_type) noexcept</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧 ID 0〜32を正規型へ変換する。 範囲外ではfalseを返し、出力を変更しない。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/trydecode-2b2cf2c2.html"><code>acs::game::CLegacyKitEaseIdCodec::TryDecode</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-71332d15d09166bd6e3c"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>static bool <a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/tryencode-d72cd843.html">TryEncode</a>(Easing::EEasingType type, i32&amp; out_legacy_id) noexcept</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>固定表にある正規型を旧 IDへ戻す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/tryencode-d72cd843.html"><code>acs::game::CLegacyKitEaseIdCodec::TryEncode</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-90a7880750f831378059"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>using <a href="../../symbols/gameframework/flegacykiteaseidcodec-74ecaede.html">FLegacyKitEaseIdCodec</a> = CLegacyKitEaseIdCodec</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CLegacyKitEaseIdCodec を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/flegacykiteaseidcodec-74ecaede.html"><code>acs::game::FLegacyKitEaseIdCodec</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CLegacyKitEaseIdCodec</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb.html"><code>acs::game::CLegacyKitEaseIdCodec</code></a><span class="summary"><code>class CLegacyKitEaseIdCodec final;</code></span></li><li><a href="../../symbols/gameframework/clegacykiteaseidcodec-b72220eb/clegacykiteaseidcodec-a2d143c8.html"><code>acs::game::CLegacyKitEaseIdCodec::CLegacyKitEaseIdCodec</code></a><span class="summary"><code>CLegacyKitEaseIdCodec() = delete;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CLegacyKitEaseIdCodecの使用例"><code>using namespace acs::game;
+Easing::EEasingType type = Easing::EEasingType::Linear;
+if (!CLegacyKitEaseIdCodec::TryDecode(saved_id, type)) {
+    /* type は変更されない */
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

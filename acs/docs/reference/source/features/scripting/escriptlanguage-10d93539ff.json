@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "EScriptLanguage",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "VM の backend(言語)を識別するタグ。 CLuaVm は常に Lua54 を返す。 複数 backend を併用する場合の判定に使う。",
+    "when": "IScriptVm::Language() の戻り値で、どの言語の VM かを見分けたい時。",
+    "sample": "if (vm.Language() == acs::game::EScriptLanguage::Lua54) { /* Lua 用処理 */ }",
+    "members": [
+      {
+        "sig": "Lua54 = 0",
+        "desc": "Lua 5.4(推奨 backend、CLuaVm が返す)。"
+      },
+      {
+        "sig": "Wren = 1",
+        "desc": "Wren(小規模・組み込み向け)。"
+      },
+      {
+        "sig": "Python3 = 2",
+        "desc": "CPython 3.x(重量級)。"
+      },
+      {
+        "sig": "Custom = 3",
+        "desc": "ユーザー独自実装の IScriptVm 派生。"
+      }
+    ]
+  }
+}

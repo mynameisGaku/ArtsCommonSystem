@@ -1,0 +1,84 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCinematicsDirector",
+    "kind": "クラス",
+    "header": "gameframework/CinematicsDirector.h",
+    "summary": "時間軸に並べたキーフレームを順に発火していくカットシーン driver。 「0 秒で BGM」「2 秒でカメラ移動」「3 秒でセリフ」を 1 本のタイムラインとして宣言的に組める。 自分では描画も音も出さず、種別ごとの callback を呼ぶだけ。",
+    "when": "オープニング・ボス導入・イベントムービー等の演出を時系列で組み立てる時。",
+    "sample": "CCinematicsDirector cine;\nFTimelineKeyframe kf;\nkf.time_sec = 2.0f; kf.kind = ETimelineTrackKind::MoveCamera;\nkf.payload.camera = { FVec2{100,200}, 1.5f, 3.0f };\ncine.AddKeyframe(kf);\ncine.SetCameraCallback(&DoMoveCamera, this);\ncine.Play();\n// 毎フレーム: cine.Tick(dt);",
+    "members": [
+      {
+        "sig": "bool TryAddKeyframe(const FTimelineKeyframe& kf)",
+        "ret": "追加可否",
+        "desc": "有限時刻の keyframe を time_sec 昇順 (同時刻は登録順) で追加する。 再生中・進行後・確保失敗・非有限時刻では追加せず false。 負値は 0 秒へ丸める。",
+        "when": "停止状態の初期設定時。"
+      },
+      {
+        "sig": "void AddKeyframe(const FTimelineKeyframe& kf)",
+        "desc": "TryAddKeyframe の結果を返さず、受け入れ可能な keyframe だけを追加する。",
+        "when": "シーンに入った時にまとめて keyframe を積む。"
+      },
+      {
+        "sig": "void Play()",
+        "desc": "先頭から再生開始 (Stop されていれば 0 秒から、Pause からは続き)。"
+      },
+      {
+        "sig": "void Pause()",
+        "desc": "一時停止 (時刻と発火位置は保持)。"
+      },
+      {
+        "sig": "void Stop()",
+        "desc": "完全停止して 0 秒に戻す。"
+      },
+      {
+        "sig": "void Skip()",
+        "desc": "残り全 keyframe を即座に順番に発火し、末尾まで進める。",
+        "when": "「ボタンでスキップ」する時。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "有限で正の dt だけ時刻を進め、到達した keyframe を時刻順に一度発火する。 再生中でない、非有限、0 以下、または加算結果が非有限なら何もしない。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "bool IsFinished() const",
+        "desc": "全 keyframe を発火し終わったか。"
+      },
+      {
+        "sig": "f32 TotalDuration() const",
+        "ret": "総尺 [秒]",
+        "desc": "最後の keyframe の time_sec。 何秒で終わるかを知る用。"
+      },
+      {
+        "sig": "void SetCameraCallback(CameraCallbackFn cb, void* user)",
+        "desc": "MoveCamera keyframe 発火時の callback。 target_pos / zoom / duration を受け取る。"
+      },
+      {
+        "sig": "void SetDialogueCallback(DialogueCallbackFn cb, void* user)",
+        "desc": "ShowDialogue keyframe 発火時の callback。 line_id を受け取る。"
+      },
+      {
+        "sig": "void SetMusicCallback(MusicCallbackFn cb, void* user)",
+        "desc": "PlayMusic keyframe 発火時の callback。 music_id / fade を受け取る。"
+      },
+      {
+        "sig": "void SetEventCallback(EventCallbackFn cb, void* user)",
+        "desc": "FireEvent keyframe 発火時の callback。 汎用 event_id を受け取る (フラグ立て等)。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全 keyframe と状態を破棄する。"
+      },
+      {
+        "sig": "using FCinematicsDirector = CCinematicsDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCinematicsDirector を使う。"
+      }
+    ]
+  }
+}

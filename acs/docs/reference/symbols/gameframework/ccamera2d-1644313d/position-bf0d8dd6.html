@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="カメラ位置 (= shake 前の view center) を返す。 戻り値: world 座標でのカメラ位置。">
+  <title>acs::game::CCamera2D::Position — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ccamera2d-1644313d.html">CCamera2D の概要</a><a class="tree-child" href="addshake-e3b5ff91.html">AddShake</a><a class="tree-child" href="ccamera2d-2b5a70d6.html">CCamera2D</a><a class="tree-child" href="ccamera2d-dedbfc32.html">CCamera2D</a><a class="tree-child" href="clearbounds-97782059.html">ClearBounds</a><a class="tree-child" href="cleardeadzone-834ca76e.html">ClearDeadzone</a><a class="tree-child" href="cleartarget-eda8191e.html">ClearTarget</a><a class="tree-child" href="effectiveviewcenter-06742d4a.html">EffectiveViewCenter</a><a class="tree-child" href="hasbounds-73394d54.html">HasBounds</a><a class="tree-child" href="hasdeadzone-a01b38c0.html">HasDeadzone</a><a class="tree-child" href="hastarget-50f224c3.html">HasTarget</a><a class="tree-child" href="m-boundsmax-7ba4f73a.html">m_BoundsMax</a><a class="tree-child" href="m-boundsmin-2063725b.html">m_BoundsMin</a><a class="tree-child" href="m-deadzone-6a2a2d7c.html">m_Deadzone</a><a class="tree-child" href="m-hasbounds-d3d95a65.html">m_HasBounds</a><a class="tree-child" href="m-hasdeadzone-8c1c8079.html">m_HasDeadzone</a><a class="tree-child" href="m-hastarget-77ddaa03.html">m_HasTarget</a><a class="tree-child" href="m-position-12bee601.html">m_Position</a><a class="tree-child" href="m-rotation-1dad8923.html">m_Rotation</a><a class="tree-child" href="m-shakeamplitude-5a00784e.html">m_ShakeAmplitude</a><a class="tree-child" href="m-shakedecay-90e69268.html">m_ShakeDecay</a><a class="tree-child" href="m-shakeoffset-51e9f4cf.html">m_ShakeOffset</a><a class="tree-child" href="m-shakeseed-ec8cdbff.html">m_ShakeSeed</a><a class="tree-child" href="m-smoothing-f71a218a.html">m_Smoothing</a><a class="tree-child" href="m-targetpos-9f8dcc13.html">m_TargetPos</a><a class="tree-child" href="m-trauma-bb9719f1.html">m_Trauma</a><a class="tree-child" href="m-zoom-2ec5308d.html">m_Zoom</a><a class="tree-child" href="operator-42ca345d.html">operator=</a><a class="tree-child" href="position-bf0d8dd6.html" aria-current="page">Position</a><a class="tree-child" href="rotation-c0d94a28.html">Rotation</a><a class="tree-child" href="screentoworld-68f454bb.html">ScreenToWorld</a><a class="tree-child" href="setbounds-50f30e48.html">SetBounds</a><a class="tree-child" href="setdeadzone-2c81e965.html">SetDeadzone</a><a class="tree-child" href="setposition-44b6800a.html">SetPosition</a><a class="tree-child" href="setrotation-f7d5362b.html">SetRotation</a><a class="tree-child" href="setshakeamplitude-1624dcf5.html">SetShakeAmplitude</a><a class="tree-child" href="setshakedecayrate-017ab1d7.html">SetShakeDecayRate</a><a class="tree-child" href="settargetpos-b9156474.html">SetTargetPos</a><a class="tree-child" href="setzoom-a86b1afd.html">SetZoom</a><a class="tree-child" href="tick-18a964a5.html">Tick</a><a class="tree-child" href="traumalevel-f373bd96.html">TraumaLevel</a><a class="tree-child" href="worldtoscreen-02a1398c.html">WorldToScreen</a><a class="tree-child" href="zoom-810d06a6.html">Zoom</a><a class="tree-child" href="ccamera2d-888b0c52.html">~CCamera2D</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ccamera2d-1644313d.html">CCamera2D</a><span>/</span><span aria-current="page">Position</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CCamera2D::Position</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5038">カメラ</button><span class="term-tooltip" id="term-tip-5038" role="tooltip">視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。</span></span>位置 (= shake 前の view center) を返す。 戻り値: world 座標での<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5039">カメラ</button><span class="term-tooltip" id="term-tip-5039" role="tooltip">視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。</span></span>位置。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CCamera2D::Positionの宣言"><code>FVec2 <a href="position-bf0d8dd6.html" aria-current="page">Position</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ccamera2d-1644313d.html"><code>acs::game::CCamera2D</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/Camera2D.h:71</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

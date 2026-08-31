@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="INetTransport の実 Winsock2 UDP 実装。 1 Send = 1 sendto = 1 datagram、1 Receive = 1 recvfrom = 1 datagram でメッセージ境界保持の契約を満たす。">
+  <title>CUdpTransport — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CUdpTransport</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CUdpTransport</h1>
+<p class="lead">INetTransport の実 Winsock2 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25757">UDP</button><span class="term-tooltip" id="term-tip-25757" role="tooltip">接続を張らずデータグラムを 1 通ずつ送る通信方式。 速いが到達・順序は保証されない。 関連語 TCP。</span></span> 実装。 1 Send = 1 sendto = 1 datagram、1 Receive = 1 recvfrom = 1 datagram でメッセージ境界保持の契約を満たす。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/cudptransport-4af60ac3.html"><code>acs::game::CUdpTransport</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>実際に <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25753">UDP</button><span class="term-tooltip" id="term-tip-25753" role="tooltip">接続を張らずデータグラムを 1 通ずつ送る通信方式。 速いが到達・順序は保証されない。 関連語 TCP。</span></span> で <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25754">snapshot</button><span class="term-tooltip" id="term-tip-25754" role="tooltip">ある時刻の世界全体の状態を 1 つに固めたもの。 server がこれを配信し、client は受信した複数 snapshot を補間して表示する (FPS/MMO 系で標準)。</span></span> を送受信したい時。 loopback round-trip 検証済みの本実装 (stub ではない)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/NetSnapshot.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-a5f6d02a7ccf07d2b581"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/gameframework/cudptransport-4af60ac3/setlocalport-ad9f501e.html">SetLocalPort</a>(u16 port) / u16 <a href="../../symbols/gameframework/cudptransport-4af60ac3/localport-40d28c20.html">LocalPort</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>bind する local port を指定 (0=OS が ephemeral)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25755">Connect</button><span class="term-tooltip" id="term-tip-25755" role="tooltip">IBackendClient で送信先(サーバや出力ファイル)を開いて通信を始めること。 終了時は Disconnect。</span></span> 前に呼ぶ。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cudptransport-4af60ac3/setlocalport-ad9f501e.html"><code>acs::game::CUdpTransport::SetLocalPort</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cudptransport-4af60ac3/localport-40d28c20.html"><code>acs::game::CUdpTransport::LocalPort</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-8e1058b0913eedaa1983"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/gameframework/cudptransport-4af60ac3/connect-345e3203.html">Connect</a>(const char* address, u16 port) noexcept override</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>WSAStartup → <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25756">UDP</button><span class="term-tooltip" id="term-tip-25756" role="tooltip">接続を張らずデータグラムを 1 通ずつ送る通信方式。 速いが到達・順序は保証されない。 関連語 TCP。</span></span> socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cudptransport-4af60ac3/connect-345e3203.html"><code>acs::game::CUdpTransport::Connect</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-fb58de347806cba8bbad"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/gameframework/cudptransport-4af60ac3/send-4c8d6fd7.html">Send</a> / TResult&lt;u32&gt; <a href="../../symbols/gameframework/cudptransport-4af60ac3/receive-0ace6d4f.html">Receive</a>(...) noexcept override</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>sendto / recvfrom。 WSAEWOULDBLOCK は buffer 満杯 / 受信なしとして扱う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cudptransport-4af60ac3/send-4c8d6fd7.html"><code>acs::game::CUdpTransport::Send</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cudptransport-4af60ac3/receive-0ace6d4f.html"><code>acs::game::CUdpTransport::Receive</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-2879ddf2e51da51de0fc"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>using <a href="../../symbols/gameframework/fudptransport-549936f5.html">FUdpTransport</a> = CUdpTransport</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CUdpTransport を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fudptransport-549936f5.html"><code>acs::game::FUdpTransport</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CUdpTransport</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/cudptransport-4af60ac3.html"><code>acs::game::CUdpTransport</code></a><span class="summary"><code>class CUdpTransport final : public INetTransport;</code></span></li><li><a href="../../symbols/gameframework/cudptransport-4af60ac3/cudptransport-8d98a84e.html"><code>acs::game::CUdpTransport::CUdpTransport</code></a><span class="summary"><code>CUdpTransport() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CUdpTransportの使用例"><code>CUdpTransport server, client;
+server.SetLocalPort(50000);
+server.Connect(&quot;127.0.0.1&quot;, 50001); // 送り先=client
+client.SetLocalPort(50001);
+client.Connect(&quot;127.0.0.1&quot;, 50000);
+server.Send(frame, n);
+u8 buf[2048]; auto r = client.Receive(buf, sizeof(buf));</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

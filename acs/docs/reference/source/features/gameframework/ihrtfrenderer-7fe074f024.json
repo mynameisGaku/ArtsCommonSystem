@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "IHrtfRenderer",
+    "kind": "インターフェース",
+    "header": "gameframework/SpatialAudio.h",
+    "summary": "モノラル入力をステレオに空間化する処理の抽象インターフェース (シーム)。 本格的な HRTF 畳み込みを後から差し替えられる。",
+    "when": "音の空間化処理を自前 / 別モジュールの実装に切り替えたい時にこの型で受け渡す。",
+    "sample": "CHrtfRendererStub stub;\n(void)stub.Init();\nstub.SetListener(listener);\nstub.ProcessSource(src, monoIn, stereoOut, n);",
+    "members": [
+      {
+        "sig": "TResult<void> Init() / void Shutdown()",
+        "desc": "初期化 / 終了。"
+      },
+      {
+        "sig": "bool IsHrtfEnabled() const",
+        "ret": "本格HRTFか",
+        "desc": "真の HRTF 効果が走るか。 stub は false (パン + 距離減衰のみ)。"
+      },
+      {
+        "sig": "void SetListener(const FAudioListener& listener)",
+        "desc": "聞き手状態を空間化レイヤへ伝える。"
+      },
+      {
+        "sig": "void ProcessSource(const FAudioSource3D& source, const f32* mono_input, f32* stereo_output, u32 sample_count)",
+        "desc": "モノラル sample_count サンプルを interleaved ステレオ (LRLR...) に変換する。"
+      }
+    ]
+  }
+}

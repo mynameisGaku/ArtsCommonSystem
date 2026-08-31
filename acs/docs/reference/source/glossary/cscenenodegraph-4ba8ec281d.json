@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSceneNodeGraph",
+  "definition": "root ANodeと世代付きpoolを所有し、scene非依存の構造更新、検索、3D bounds queryを提供する。"
+}

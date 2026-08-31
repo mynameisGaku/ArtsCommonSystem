@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "AObject",
+    "kind": "クラス",
+    "header": "memory/AObject.h",
+    "summary": "参照カウントで管理される『オブジェクト』の基底。",
+    "when": "エンジン上の実体(キャラ・アクター等)を表し、生ポインタを持ち回りつつ安全に生死を監視したい時。 NewObject で生成する。",
+    "sample": "class AEnemy : public AObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr<AEnemy> e = NewObject<AEnemy>();\nAEnemy* raw = e.Get();\nTWeakObjectPtr<AEnemy> w(raw);  // 生ポインタから弱参照が作れる",
+    "members": [
+      {
+        "sig": "virtual ~AObject()",
+        "desc": "デストラクタは仮想。 派生クラスが正しく破棄される。"
+      },
+      {
+        "sig": "using FObject = AObject",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AObject を使う。"
+      }
+    ]
+  }
+}

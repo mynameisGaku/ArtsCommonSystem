@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "ActionHash",
+    "kind": "関数",
+    "header": "gameframework/InputMap.h",
+    "summary": "文字列を 32bit の FNV-1a ハッシュに変換する constexpr 関数。 FActionId の内部で使われる。",
+    "when": "通常は FActionId 経由で十分。 ハッシュ値を直接欲しい時のみ。",
+    "sample": "constexpr u32 h = ActionHash(\"Jump\");"
+  }
+}

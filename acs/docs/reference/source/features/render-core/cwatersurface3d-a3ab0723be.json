@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CWaterSurface3D",
+    "kind": "クラス",
+    "header": "render/WaterSurface3D.h",
+    "summary": "3D水面の描画資源、反射、屈折、波、surface別interactionを管理する。",
+    "when": "有限な矩形水面またはlocal XZの任意輪郭水面をsceneへ描画する時。 旧名FWaterSurface3Dも互換別名として使える。",
+    "members": [
+      {
+        "sig": "static TResult<void> CreateAdaptivePlaneMesh(IRhiDevice&, FGpuMesh&, u32 cells = 96)",
+        "desc": "camera近傍へ密度を寄せる正規化XZ格子を成功時だけ出力する。"
+      },
+      {
+        "sig": "void DrawAdaptivePlane(...)",
+        "desc": "有限な全体寸法を保ったまま、矩形水面の格子密度をcamera近傍へ連続再配置して描く。"
+      },
+      {
+        "sig": "void DrawMesh(...)",
+        "desc": "水たまりや蛇行する川など、local XZの任意輪郭meshを形状変更せず描く。"
+      },
+      {
+        "sig": "using FWaterSurface3D = CWaterSurface3D",
+        "desc": "旧名を使う既存コード向けの互換別名。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FMatchInfo",
+    "kind": "構造体",
+    "header": "gameframework/MatchGrid.h",
+    "summary": "連続マッチ 1 個の記述。 開始座標・長さ (3 以上)・横/縦フラグ・色。",
+    "when": "DetectMatches の出力を読む時。",
+    "members": [
+      {
+        "sig": "u32 start_x / start_y / length",
+        "desc": "開始セルと連続長 (length >= 3)。"
+      },
+      {
+        "sig": "bool horizontal / u8 color",
+        "desc": "横方向か (false=縦) / マッチした色。"
+      }
+    ]
+  }
+}

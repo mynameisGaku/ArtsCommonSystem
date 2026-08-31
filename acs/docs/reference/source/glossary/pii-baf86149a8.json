@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "PII",
+  "definition": "Personally Identifiable Information (個人を特定できる情報)。 メール・電話・クレカ番号など。 安全フィルタで [REDACTED] 等に伏せる対象。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "決定論",
+  "definition": "同じ入力なら必ず同じ結果になる性質。 replay / netcode / record-replay の同期で必須。 ML 推論や浮動小数のドライバ差はこれを壊すので隔離する。"
+}

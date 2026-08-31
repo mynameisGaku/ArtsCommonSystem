@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "DrawerFn",
+    "kind": "型エイリアス(関数ポインタ)",
+    "header": "gameframework/tools/editor_core/PropertyDrawer.h",
+    "summary": "1 つの property 描画関数の型。 drawer 内から ImGui を直接叩いてよい。",
+    "when": "CPropertyDrawerRegistry::RegisterDrawer に渡すカスタム drawer を定義する時。",
+    "members": [
+      {
+        "sig": "using DrawerFn = void (*)(const FPropertyContext& ctx) noexcept",
+        "desc": "ctx を受け取って 1 property を描画する関数ポインタ型。"
+      }
+    ]
+  }
+}

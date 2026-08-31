@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FLapRecord",
+    "kind": "構造体",
+    "header": "gameframework/LapTimer.h",
+    "summary": "1 ラップ分の結果スナップショット。 ラップ番号・そのラップ単体の秒数・累計秒数・自己ベスト更新フラグ。",
+    "when": "GetLapRecord でラップ履歴を表示する時。",
+    "members": [
+      {
+        "sig": "u32 lap_index",
+        "desc": "周回番号 (1-origin)。"
+      },
+      {
+        "sig": "f32 lap_time_sec / split_time_sec",
+        "desc": "このラップ単体の秒数 / Start からの累計秒数。"
+      },
+      {
+        "sig": "bool is_personal_best",
+        "desc": "自己ベスト更新だったか。"
+      }
+    ]
+  }
+}

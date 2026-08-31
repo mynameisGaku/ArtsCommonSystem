@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "localmatch",
+    "title": "localmatch — ローカルマッチメイク",
+    "description": "サーバを使わず、同じプロセスの中だけでプレイヤー同士を引き合わせるマッチメイクの実装です。 検索を出した者同士をレーティング(腕前の数値)が近い順に組ませます。 テストやオフライン開発、ローカル対戦の動作確認に使います。"
+  },
+  "feature": {
+    "name": "CLocalMatchmaker",
+    "kind": "クラス",
+    "header": "localmatch/LocalMatchmaker.h",
+    "summary": "マッチメイクの本体。 acs::game::IMatchmaker を実装し、同じプロセス内で出された検索同士をレートが近い順に組ませる決定的な実装です。 最大 32 件の検索を同時に扱えます。 コピー/ムーブは禁止。",
+    "when": "オンラインサーバ無しでマッチング処理を動かしたい時(自動テスト・オフライン開発・ローカル対戦のロジック確認)。 通常は直接生成せず InstallLocalMatchmakerAsDefault 経由で使う。",
+    "sample": "CLocalMatchmaker mm;\nauto a = mm.StartSearch(\"ranked_1v1\", 1500);  // プレイヤーA が検索\nauto b = mm.StartSearch(\"ranked_1v1\", 1480);  // プレイヤーB が検索 → 互いに発見\nif (mm.PollStatus(a.Value()) == acs::game::EMatchStatus::Matched) {\n    mm.AcceptMatch(a.Value());                 // 双方が Accept で確定\n}",
+    "members": [
+      {
+        "sig": "explicit CLocalMatchmaker(const FLocalMatchmakerConfig& Config)",
+        "desc": "設定を渡して構築する。 引数なし版は既定設定(レート差 150)。"
+      },
+      {
+        "sig": "TResult<MatchTicket> StartSearch(const char* Mode, acs::u32 EloHint)",
+        "ret": "発行された ticket",
+        "desc": "Mode(\"ranked_1v1\" 等のキー)と自分のレーティング推定値で検索を開始し、MatchTicket を発行する。 同じ Mode でレートが近い待機者がいれば即座に双方を Matched にする。 空きが無い時は Result がエラー。",
+        "when": "プレイヤーが『対戦相手を探す』ボタンを押した時。",
+        "sample": "auto t = mm.StartSearch(\"casual\", 1500);\nif (t.IsOk()) { /* t.Value() を保持して PollStatus で監視 */ }"
+      },
+      {
+        "sig": "TResult<void> CancelSearch(MatchTicket Ticket)",
+        "desc": "進行中の検索を取りやめる。 状態は Cancelled になる。 無効な ticket は安全に無視(べき等)。",
+        "when": "プレイヤーが検索をやめた / 画面を閉じた時。"
+      },
+      {
+        "sig": "acs::game::EMatchStatus PollStatus(MatchTicket Ticket)",
+        "ret": "現在の状態",
+        "desc": "ticket の現在状態(Searching/Matched/Cancelled/Failed)を返す。 副作用なしなので毎フレーム呼んでよい。 無効 ticket は Failed。",
+        "when": "検索中、相手が見つかったかを定期的に確認する時。"
+      },
+      {
+        "sig": "TResult<void> AcceptMatch(MatchTicket Ticket)",
+        "desc": "Matched 状態の ticket を確定する。 双方が Accept した時点でマッチ成立。 Matched 以外で呼ぶとエラー。",
+        "when": "相手が見つかり、プレイヤーが『参加』を押した時。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "保持している全検索を破棄して初期状態に戻す。",
+        "when": "テストの後始末や、セッションを丸ごとリセットしたい時。"
+      },
+      {
+        "sig": "acs::u32 ActiveTicketCount() const",
+        "ret": "有効な検索数",
+        "desc": "今アクティブな(終端に達していない)検索の件数を返す。 主にデバッグ・テスト用。"
+      },
+      {
+        "sig": "using FLocalMatchmaker = CLocalMatchmaker",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalMatchmaker を使う。"
+      }
+    ]
+  }
+}

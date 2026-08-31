@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "preset",
+  "definition": "テーマの色 / spacing / corner をまとめた既定スナップショット。 ACS では EEditorThemePreset(Dark / DarkBlue / Light など)。"
+}

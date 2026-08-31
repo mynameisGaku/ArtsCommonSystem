@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのcollisionモジュールに含まれる機能とAPIです。">
+  <title>collision モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="collision.html">collision モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="collision.html">collision モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="collision.html">collision モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">collision</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">collision</h1>
+<p class="lead">collision モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 3</span><span class="badge">API 5</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/collision/buildconvexhull3-7ca06345.html"><span class="card-title">BuildConvexHull3</span><span class="card-description">3D の点群(メッシュ頂点など)から凸包を作り、三角形メッシュ(頂点配列 + インデックス列)として出力する関数。 凹んだメッシュを軽い「凸の当たり判定」に近似するのに使う。</span><span class="card-meta">関数</span></a><a class="card" href="../features/collision/cmeshcollider-4d0d88f7.html"><span class="card-title">CMeshCollider</span><span class="card-description">3D の三角形メッシュから当たり判定を作るクラス。 内部で BVH(三角形を空間で階層分けした木)を組み、レイキャストや AABB との重なり判定を高速に行う。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/collision/cspritecollider-6c281fd0.html"><span class="card-title">CSpriteCollider</span><span class="card-description">2D スプライトのアルファチャンネル(透明度)から、絵の形に沿った当たり判定形状を作るクラス。 凸包(扱いやすい)と簡略化済みの輪郭ポリゴン(凹形状にも追従)の両方を生成し、点の内外判定や AABB も得られる。</span><span class="card-meta">クラス</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/collision/cmeshcollider-1404cd55.html"><span><span class="identifier">acs::CMeshCollider</span><span class="summary">三角形メッシュから median-split AABB BVH を構築する 3D メッシュコライダー。 レンダリング用の AMeshAsset や生の頂点/インデックス配列から collider を作り、 レイキャスト (最近接ヒット) と AABB 重なりクエリを BVH で高速化する。 中身は 三角形リスト + 最長軸の空間中点で分割する BVH。 視覚に依存しない純 CPU ロジックで、 ACS 規約に従い non-copy・全 noexcept・TResult を用いる。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/collision/cspritecollider-438fc226.html"><span><span class="identifier">acs::CSpriteCollider</span><span class="summary">スプライトのアルファチャンネルから形状に沿ったコライダーを生成する 2D コライダー。 不透明画素の境界から凸包 (Jarvis march、順序非依存で堅牢) と簡略化済み輪郭ポリゴン (Moore 近傍トレース + Douglas-Peucker 簡略化) を作る。 凸包は物理で扱いやすく常に有効、 輪郭は凹形状にも追従する。 座標はピクセル空間 (左上原点) で、単一連結成分・穴なしを前提。 ACS 規約に従い non-copy・全 noexcept・TResult を用いる純 CPU ロジック。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/collision/fmeshcollider-36e5e8c7.html"><span><span class="identifier">acs::FMeshCollider</span><span class="summary">ACS の collision モジュールで FMeshCollider を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a><a class="member-card" href="../symbols/collision/fspritecollider-f0f1cecb.html"><span><span class="identifier">acs::FSpriteCollider</span><span class="summary">ACS の collision モジュールで FSpriteCollider を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/collision/buildconvexhull3-bddc1981.html"><span><span class="identifier">acs::BuildConvexHull3</span><span class="summary">点群から 3D 凸包の三角形メッシュを構築する (incremental hull)。 初期四面体を affinely independent な 4 点で張り、残りの点を可視面を剥がしながら 1 点ずつ追加していく。 out_verts には凸包の頂点、out_indices には三角形を構成する 頂点インデックスを 3 個 1 組で埋める (out_verts は使用頂点だけに remap される)。 そのまま CMeshCollider::BuildFromTriangles に渡せる。 点が 4 個未満、全点一致、共線、 同一平面 (coplanar) など退化した入力ではエラーを返す。 points: 入力点群の先頭ポインタ。 count: 入力点の個数 (4 以上が必要)。 out_verts: 凸包頂点を格納する出力配列 (呼び出し時に Clear される)。 out_indices: 三角形インデックス (3 個 1 組) を格納する出力配列 (Clear される)。 戻り値: 成功なら空の TResult、点が不足・退化していればエラー。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

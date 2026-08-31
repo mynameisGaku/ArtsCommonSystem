@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IShakeTarget",
+  "definition": "画面ゆれ(shake)の trauma を受け取る側の純粋仮想インターフェース。 AddShake など揺れ量の設定 API を持つ。"
+}

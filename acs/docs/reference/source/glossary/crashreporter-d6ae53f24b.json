@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CrashReporter",
+  "definition": "gameframework のクラッシュ報告 seam 一式（stub・provider・ハンドラ）。 crashwin が実 backend を供給する。"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCollisionPenetration3D",
+    "kind": "構造体",
+    "header": "gameframework/CollisionPenetration3D.h",
+    "summary": "query sphere が最も深く貫通する shape、正の深さ、登録 shape から sphere へ向く world 単位法線を保持する。 Translation() で最小分離移動量を得る。",
+    "when": "3D sphere の初期重なりや移動後の貫通を、owner 側の明示的な反復処理で解消する時。"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CMlRuntimeStub",
+    "kind": "クラス",
+    "header": "gameframework/MlRuntime.h",
+    "summary": "全メソッドが NotImplemented を返す IMlRuntime のスタブ実装。 「ML 経路が常に失敗する」前提でフォールバックを正しく書けているか検証するためのもの。",
+    "when": "backend 未統合の状態 (ACS_BUILD_ML_ONNX=OFF) や、ML SDK を持たない CI でロジック試験を回す時。",
+    "members": [
+      {
+        "sig": "using FMlRuntimeStub = CMlRuntimeStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMlRuntimeStub を使う。"
+      }
+    ]
+  }
+}

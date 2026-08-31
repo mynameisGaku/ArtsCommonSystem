@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "tilemap",
+  "definition": "タイルを格子状に敷き詰めて作る 2D マップ。 FTilemap は複数レイヤのタイル ID 配列を持つ。"
+}

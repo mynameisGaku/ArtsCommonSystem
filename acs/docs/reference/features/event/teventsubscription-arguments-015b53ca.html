@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="破棄時に購読を自動解除するムーブ専用値。 イベント本体より長く生存しても弱参照が失効するため安全に終了する。">
+  <title>TEventSubscription&lt;Arguments...&gt; — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/event.html">event モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/event.html">event モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/event.html">event モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/event.html">event</a><span>/</span><span aria-current="page">TEventSubscription&lt;Arguments...&gt;</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / event</div><h1 class="identifier">TEventSubscription&lt;Arguments...&gt;</h1>
+<p class="lead">破棄時に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24025">購読</button><span class="term-tooltip" id="term-tip-24025" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>を自動解除する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24026">ムーブ</button><span class="term-tooltip" id="term-tip-24026" role="tooltip">中身をコピーせず所有権ごと移すこと。 大きなデータを安く引き渡せる。</span></span>専用値。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24027">イベント</button><span class="term-tooltip" id="term-tip-24027" role="tooltip">『× ボタンが押された』『キーが押された』のような、その瞬間に起きた出来事の通知。 ACS では FEvent として届く。</span></span>本体より長く生存しても<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24028">弱参照</button><span class="term-tooltip" id="term-tip-24028" role="tooltip">対象を所有せず(寿命を延ばさず)、生きているかだけを見られる参照。 循環参照を断ち切るのに使う。</span></span>が失効するため安全に終了する。</p></div><div class="badges"><span class="badge">クラステンプレート</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/event/teventsubscription-725777bc.html"><code>acs::TEventSubscription</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>スコープや所有オブジェクトの寿命と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24015">購読</button><span class="term-tooltip" id="term-tip-24015" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>期間を一致させたい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>event</dd></div><div class="fact"><dt>分類</dt><dd>クラステンプレート</dd></div><div class="fact"><dt>ヘッダー</dt><dd>event/TypedEventSubscription.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-8a553762d569bc46ccb9"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/event/teventsubscription-725777bc/isvalid-34f22586.html">IsValid</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24016">イベント</button><span class="term-tooltip" id="term-tip-24016" role="tooltip">『× ボタンが押された』『キーが押された』のような、その瞬間に起きた出来事の通知。 ACS では FEvent として届く。</span></span>と同じ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24017">世代</button><span class="term-tooltip" id="term-tip-24017" role="tooltip">再利用される番号(ID)に付ける通し番号。 古いハンドルと新しい中身を取り違えないための目印。</span></span>の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24018">購読</button><span class="term-tooltip" id="term-tip-24018" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>が残っているかを返す。</dd></div><div class="fact"><dt>戻り値</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24019">購読</button><span class="term-tooltip" id="term-tip-24019" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>中か</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/event/teventsubscription-725777bc/isvalid-34f22586.html"><code>acs::TEventSubscription::IsValid</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-cabd26c02026394f3226"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/event/teventsubscription-725777bc/reset-9c4819c0.html">Reset</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24020">購読</button><span class="term-tooltip" id="term-tip-24020" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>を解除して保持<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24021">状態</button><span class="term-tooltip" id="term-tip-24021" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を空にする。</dd></div><div class="fact"><dt>戻り値</dt><dd>解除できたか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/event/teventsubscription-725777bc/reset-9c4819c0.html"><code>acs::TEventSubscription::Reset</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-034c7c06c113492f52b3"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>FTypedEventHandle <a href="../../symbols/event/teventsubscription-725777bc/handle-c87ea689.html">Handle</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>現在保持している<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24022">世代付きハンドル</button><span class="term-tooltip" id="term-tip-24022" role="tooltip">オブジェクトを直接ポインタで指す代わりに「配列の index + 世代カウンタ」で指す仕組み。 slot が再利用されても世代が食い違うので、破棄済みの古いハンドルを安全に検出できる。</span></span>を返す。</dd></div><div class="fact"><dt>戻り値</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24023">購読</button><span class="term-tooltip" id="term-tip-24023" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24024">ハンドル</button><span class="term-tooltip" id="term-tip-24024" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span></dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/event/teventsubscription-725777bc/handle-c87ea689.html"><code>acs::TEventSubscription::Handle</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

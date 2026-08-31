@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "i18n",
+  "definition": "internationalization (国際化) の略。 多言語対応のこと。 文字列を言語ごとの辞書から引けるようにする。"
+}

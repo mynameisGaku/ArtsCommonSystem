@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FMappedT / FPageT",
+    "kind": "構造体",
+    "header": "memory/VirtualMemory.h",
+    "summary": "VM 層がマップ済み領域・連続ページ群を各 8 バイトに圧縮して持つビットフィールド POD。 アドレスとページ数・フラグをパックする。 static_assert で 8 バイトを保証。",
+    "when": "VM 層の内部記述子。 通常は直接触らないが、LRU キャッシュ等の構造を理解する際に参照する。",
+    "sample": "static_assert(sizeof(FMappedT) == 8);\nstatic_assert(sizeof(FPageT)   == 8);",
+    "members": [
+      {
+        "sig": "u64 packed_virtual_addr : 44 / page_count : 16 / sparse : 1 / misc : 3",
+        "desc": "FMappedT: マップ領域の仮想アドレス・ページ数・スパース/その他フラグ。"
+      },
+      {
+        "sig": "u64 continuous_page_count : 12 / misc : 4 / packed_virtual_addr : 48",
+        "desc": "FPageT: 連続ページ数・フラグ・ページ整列アドレス。"
+      }
+    ]
+  }
+}

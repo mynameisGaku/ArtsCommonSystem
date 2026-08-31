@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FSubMesh",
+    "kind": "構造体",
+    "header": "asset/MeshAsset.h",
+    "summary": "サブメッシュ。 複数マテリアルに対応するため、インデックス配列内の開始位置と本数だけを持つ範囲指定。",
+    "when": "1 つのメッシュをマテリアルごとに分けて描画する時。",
+    "sample": "for (const FSubMesh& s : mesh->SubMeshes()) {\n    DrawIndexed(s.first_index, s.index_count);\n}",
+    "members": [
+      {
+        "sig": "u32 first_index",
+        "desc": "このサブメッシュが使う最初のインデックス位置。"
+      },
+      {
+        "sig": "u32 index_count",
+        "desc": "インデックス数。"
+      }
+    ]
+  }
+}

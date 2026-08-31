@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "title": "ビルドと実行",
+  "blocks": [
+    {
+      "h2": "ビルドと実行"
+    },
+    {
+      "p": "Visual Studio 用の ACSEngine.slnx を acs/generate.ps1 で生成し、acs/Intermediate/vs にプロジェクトが出ます。 実行ファイルは acs/Binaries/<構成>(Debug/Release) に出ます。"
+    },
+    {
+      "note": "source・文書・build設定は UTF-8 BOMなしで保存します。 改行は通常 LF、Windows shell (.bat、.cmd、.ps1、.psm1、.psd1)だけ CRLF です。 MSBuild のターゲット名は snake_case(例 acs_unit_tests)です。",
+      "kind": "warn"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SSE",
+  "definition": "x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。"
+}

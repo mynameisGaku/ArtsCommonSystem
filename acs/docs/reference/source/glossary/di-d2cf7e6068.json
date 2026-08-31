@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DI",
+  "definition": "Dependency Injection(依存性注入)。 使う実装を外から差し込み、呼び出し側を具体実装に依存させない設計。 CScriptHost は VM を差し替え可能にする。"
+}

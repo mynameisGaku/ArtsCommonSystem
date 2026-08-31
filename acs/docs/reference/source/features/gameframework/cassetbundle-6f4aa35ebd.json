@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAssetBundle",
+    "kind": "クラス",
+    "header": "gameframework/AssetBundle.h",
+    "summary": "シーンが使う複数アセットをまとめて宣言・一括ロードし、集約した進捗を見られる箱。 個別の Future を散らかさず 1 つの bundle で扱える。 シーン破棄で参照が drop し、決定的に解放される。",
+    "when": "ローディング画面付きで「このシーンに必要な N 個のアセット」をまとめて読み込みたい時。",
+    "sample": "CAssetBundle bundle;\nbundle.Add(\"textures/hero.png\");\nbundle.Add(\"audio/bgm.ogg\");\nbundle.BeginLoad(registry);\n// 毎フレーム:\nif (!bundle.IsLoaded()) ShowLoading(bundle.Progress());\nelse RunGame();\n// 終了時:\nbundle.Unload();",
+    "members": [
+      {
+        "sig": "void Add(const char* asset_path)",
+        "desc": "ロード対象のパスを追加する (実ロードはまだ走らない)。 BeginLoad 後の Add は無視。"
+      },
+      {
+        "sig": "void BeginLoad(CAssetRegistry& registry)",
+        "desc": "登録済み全パスを registry 経由で実ロードする。 多重呼び出しは無視。",
+        "when": "シーン入場時にロードを開始する。"
+      },
+      {
+        "sig": "TSharedPtr<Asset> GetAsset(u32 index) const / TSharedPtr<Asset> FindAsset(const char* path) const",
+        "ret": "ロード済みアセット",
+        "desc": "index 順 / パス一致でロード済みアセットを取り出す (未ロード/失敗は空)。"
+      },
+      {
+        "sig": "f32 Progress() const",
+        "ret": "0〜1",
+        "desc": "完了割合。 プログレスバー表示用。"
+      },
+      {
+        "sig": "bool IsLoaded() const / bool HasFailed() const",
+        "desc": "全完了したか / 1 個でも失敗があるかを返す。"
+      },
+      {
+        "sig": "u32 AssetCount() const / u32 LoadedCount() const",
+        "desc": "登録総数 / 成功した数を返す。"
+      },
+      {
+        "sig": "void Unload()",
+        "desc": "全アセットを解放する。 シーン破棄前に呼ぶと決定的タイミングで refcount を落とせる。"
+      },
+      {
+        "sig": "using FAssetBundle = CAssetBundle",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetBundle を使う。"
+      }
+    ]
+  }
+}

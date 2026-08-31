@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "EScriptOpKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/DialogueScript.h",
+    "summary": "スクリプト命令の種別。 Say / Show / Hide / Background / PlayBgm / StopBgm / PlaySe / Choice / Wait / Jump / EndScene の 11 種。",
+    "when": "FScriptOp::kind に設定する命令の種類を選ぶ時。"
+  }
+}

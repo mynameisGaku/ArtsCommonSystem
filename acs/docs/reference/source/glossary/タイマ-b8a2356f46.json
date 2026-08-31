@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "タイマ",
+  "definition": "時間を計る仕組み。 ACS では CClock（経過時間）と FFrameTimer（フレーム間 dt）。"
+}

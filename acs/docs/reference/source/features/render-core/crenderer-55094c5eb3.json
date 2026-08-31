@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CRenderer",
+    "kind": "クラス",
+    "header": "render/Renderer.h",
+    "summary": "ウィンドウへの描画ループを統括する司令塔。 デバイス・スワップチェイン・コマンドリスト・深度バッファをまとめて初期化し、毎フレームの「開始→描く→終了」を 1 つにまとめる。",
+    "when": "とりあえず 3D / 2D を画面に出したいとき最初に作るもの。 低レベル RHI を自分で組み立てる前の、いちばん簡単な入口。",
+    "sample": "CRenderer rdr;\nrdr.Init(window);                       // Device+Swapchain+CmdList+深度を一括作成\nwhile (!window.ShouldClose()) {\n    window.PollEvents();\n    rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});   // クリア色で塗る\n    // rdr.CommandList() にコマンドを積む\n    if (!rdr.EndFrame()) break;           // Submit/Present failure は継続しない\n}\nrdr.Shutdown();",
+    "members": [
+      {
+        "sig": "TResult<void> Init(FWindow& w, bool enable_debug = false, bool enable_depth = true)",
+        "ret": "成功/失敗",
+        "desc": "ウィンドウに紐付けて初期化。 enable_depth=true で深度バッファ(D32_Float)も自動作成。",
+        "when": "ウィンドウ作成直後に 1 回。"
+      },
+      {
+        "sig": "void BeginFrame(const FClearColor& clear)",
+        "desc": "フレーム開始。 バックバッファをクリア色で塗り、深度を 1.0 でクリアする。"
+      },
+      {
+        "sig": "bool EndFrame()",
+        "ret": "Submit と Present の両方が成功したとき true",
+        "desc": "フレーム終了。 積んだコマンドを GPU に投入して画面に Present する。 device removal や提示失敗は false。"
+      },
+      {
+        "sig": "bool OnResize(u32 width, u32 height)",
+        "ret": "スワップチェインと深度の再作成に成功したとき true",
+        "desc": "ウィンドウサイズ変更時に一度だけ GPU idle を待ち、スワップチェインと深度を作り直す。 失敗時は false。"
+      },
+      {
+        "sig": "IRhiCommandList* CommandList() const",
+        "ret": "コマンドリスト",
+        "desc": "BeginFrame 後、このコマンドリストに描画命令を積む。"
+      },
+      {
+        "sig": "IRhiDevice* Device() / IRhiSwapchain* Swapchain() / IRhiTexture* DepthBuffer()",
+        "desc": "内部リソースへのアクセサ。 シェーダ等の Init に渡す。"
+      },
+      {
+        "sig": "EFormat ColorFormat() / EFormat DepthFormat()",
+        "ret": "フォーマット",
+        "desc": "描画ターゲットのフォーマット。 パイプライン/シェーダ作成時に渡す。"
+      },
+      {
+        "sig": "u32 CurrentBuffer() const",
+        "ret": "バックバッファ番号",
+        "desc": "現在 BeginFrame で取得したバックバッファ index。 反射等のマルチパスで再 bind する際に使う。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "全リソースを解放する。"
+      },
+      {
+        "sig": "using FRenderer = CRenderer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRenderer を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "dolly",
+  "definition": "カメラを前後に寄せる / 引く操作。 3D では target からの distance、2D では zoom_2d を変化させる。"
+}

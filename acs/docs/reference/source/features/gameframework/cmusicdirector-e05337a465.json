@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CMusicDirector",
+    "kind": "クラス",
+    "header": "gameframework/MusicDirector.h",
+    "summary": "ゲームプレイ状態 (戦闘/平穏/勝利...) を BGM にマッピングする上位レイヤ。 state ごとに track を登録し、激しさ (intensity) で曲を選び、クロスフェードや一発もの (stinger) を扱う。 実再生は CAudioDirector に委ねる。",
+    "when": "状況に応じて BGM を自動で切り替える「適応 BGM」を作る時。 CAudioDirector が低レイヤの mixer/クロスフェードを担うのに対し、こちらは「どの track をどのゲインで鳴らすか」の state machine。",
+    "sample": "CMusicDirector md;\nmd.SetAudioDirector(&audio);\nmd.RegisterTrack(EMusicState::Combat,\n    FMusicTrack{ \"bgm/combat.ogg\", 0.0f, 1.0f, true });\nmd.SetState(EMusicState::Combat, 2.0f); // 2 秒クロスフェード\nmd.SetIntensity(0.9f);                  // 高激戦\nmd.Tick(dt);",
+    "members": [
+      {
+        "sig": "void RegisterTrack(EMusicState state, const FMusicTrack& track)",
+        "desc": "state に track を登録 (複数可、intensity range で選別)。 asset_path==nullptr は無視。"
+      },
+      {
+        "sig": "void SetState(EMusicState state, f32 transition_sec = 2.0f)",
+        "desc": "現 state → 指定 state へクロスフェード開始。 <=0 は即時、同 state 再要求は no-op。"
+      },
+      {
+        "sig": "EMusicState CurrentState() / TargetState() const / bool IsTransitioning() const",
+        "desc": "現/目標 state とクロスフェード中か。"
+      },
+      {
+        "sig": "f32 TransitionProgress() const",
+        "ret": "[0,1]",
+        "desc": "遷移進捗 (1 で完了)。"
+      },
+      {
+        "sig": "void SetIntensity(f32 v) / f32 Intensity() const",
+        "desc": "同 state 内の激しさ [0,1] を設定/取得 (範囲外は clamp)。"
+      },
+      {
+        "sig": "void PlayStinger(const char* asset_path, f32 volume = 1.0f)",
+        "desc": "BGM を停めずに重ねる一発もの SFX (ボス出現/達成)。 pending があれば最新で上書き。"
+      },
+      {
+        "sig": "bool HasPendingStinger() const / const char* ConsumeStinger(f32& out_volume)",
+        "desc": "未消費 stinger があるか / 取り出して pending を消す (ゲインを out で返す)。"
+      },
+      {
+        "sig": "void SetAudioDirector(CAudioDirector* audio) / CAudioDirector* GetAudioDirector() const",
+        "desc": "実再生を委ねる低レイヤ director を結線 (非所有)。 nullptr で state-only 動作 (無音)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼び、transition / stinger タイマを進める。"
+      },
+      {
+        "sig": "void Stop()",
+        "desc": "Silent に即時切替 + stinger 破棄 (intensity は保持)。"
+      },
+      {
+        "sig": "const FMusicTrack* CurrentTrack() / TargetTrack() const",
+        "desc": "現在/遷移先 state で intensity に合う track。 該当なしは nullptr。"
+      },
+      {
+        "sig": "using FMusicDirector = CMusicDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMusicDirector を使う。"
+      }
+    ]
+  }
+}

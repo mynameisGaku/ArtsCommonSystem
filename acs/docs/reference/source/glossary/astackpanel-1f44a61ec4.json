@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AStackPanel",
+  "definition": "子ウィジェットを縦または横へ spacing/padding 付きで並べる layout panel。"
+}

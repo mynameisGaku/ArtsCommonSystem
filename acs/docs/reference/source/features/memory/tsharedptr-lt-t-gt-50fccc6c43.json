@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TSharedPtr<T>",
+    "kind": "クラステンプレート",
+    "header": "memory/SharedPtr.h",
+    "summary": "コピーで参照カウントが増え、最後の持ち主が消えた時に対象を破棄。 カウントはアトミックでスレッド安全。",
+    "when": "1 つのデータを複数箇所で持ち回りたいが、誰が最後に解放するか決められない時。",
+    "sample": "auto p = MakeShared<FTexture>();  // 参照カウント=1\nauto q = p;                       // 共有 → カウント=2\np->Bind();\n// p,q 両方が消えた時に1度だけ解放される",
+    "members": [
+      {
+        "sig": "T* Get() const / *p / p->",
+        "desc": "中身にアクセスする。"
+      },
+      {
+        "sig": "u32 UseCount() const",
+        "ret": "強参照数",
+        "desc": "今この対象を共有している TSharedPtr の数。 主にデバッグ用。",
+        "sample": "if (p.UseCount() == 1) { /* 自分だけが持っている */ }"
+      },
+      {
+        "sig": "bool IsValid() const / explicit operator bool()",
+        "desc": "中身があるかを返す。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "共有から抜ける(カウントを 1 減らす)。 空になる。"
+      },
+      {
+        "sig": "void Swap(TSharedPtr& o)",
+        "desc": "2 つの中身を入れ替える(カウント操作なしで高速)。"
+      }
+    ]
+  }
+}

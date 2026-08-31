@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FTask / TaskFn",
+    "kind": "構造体 / 型エイリアス",
+    "header": "threading/ThreadPool.h",
+    "summary": "CThreadPool に投げる 1 件の仕事。 TaskFn=タスク本体の関数型 void(*)(void* user, u32 worker_index)。 FTask=その関数・ユーザーデータ・完了通知先をまとめた POD。",
+    "when": "CThreadPool::Submit に渡すために組み立てる。 counter を付けると Wait で完了を待てる。",
+    "sample": "void MyTask(void* user, u32 worker) { /* 実処理 */ }\nFCompletionCounter done;\nFTask t;\nt.fn      = &MyTask;\nt.user    = &ctx;\nt.counter = &done;   // 任意(null 可)\nFThreadPool::Submit(t);",
+    "members": [
+      {
+        "sig": "using TaskFn = void (*)(void* user, u32 worker_index)",
+        "desc": "実行される関数。 worker_index は実行ワーカーの番号 0..N-1。"
+      },
+      {
+        "sig": "TaskFn fn",
+        "desc": "実行する関数。"
+      },
+      {
+        "sig": "void* user",
+        "desc": "関数に渡される任意のユーザーデータ。"
+      },
+      {
+        "sig": "FCompletionCounter* counter",
+        "desc": "完了通知先(任意・null 可)。 Submit 時に自動で 1 加算され、タスク終了時に減算される。"
+      }
+    ]
+  }
+}

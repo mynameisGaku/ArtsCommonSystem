@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPickupSystem",
+    "kind": "クラス",
+    "header": "gameframework/PickupSystem.h",
+    "summary": "世界に転がっている「拾える物」(HP オーブ / コイン / ジェム / 弾薬 / パワーアップ / 鍵) を管理する小型マネージャ。 プレイヤー位置との距離で磁石効果 (引き寄せ)・拾取判定・寿命切れ消滅を 1 つの Tick でまとめて処理する。",
+    "when": "拾うと callback で通知が来るので、インベントリ追加や HP 回復は呼び出し側で行う。",
+    "sample": "CPickupSystem ps;\nps.Init();\nFPickupInfo info{};\ninfo.kind = EPickupKind::Coin;\ninfo.world_pos = {100, 50};\ninfo.radius = 12.0f;\ninfo.magnet_radius = 80.0f;\ninfo.value = 5;\nFPickupId id = ps.Spawn(info);\nps.SetOnPickupCallback(&OnPickup, user);\n// 毎フレーム\nps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "初期化。 複数回呼べる (再 Init は ClearAll と等価)。"
+      },
+      {
+        "sig": "FPickupId Spawn(const FPickupInfo& info)",
+        "ret": "新規 ID (失敗時 invalid)",
+        "desc": "pickup を世界に登録する。"
+      },
+      {
+        "sig": "void Despawn(FPickupId id)",
+        "desc": "pickup を消す (拾取扱いではなく callback も呼ばない)。 無効 / 既消滅は no-op。"
+      },
+      {
+        "sig": "void Tick(f32 dt, FVec2 player_pos, f32 magnet_strength)",
+        "desc": "毎フレーム呼ぶ。 寿命減算 → 磁石で引き寄せ → radius 内なら拾取 (callback + Despawn) を順に処理。"
+      },
+      {
+        "sig": "void SetOnPickupCallback(PickupCallback cb, void* user)",
+        "desc": "拾取時の callback を設定。 SetOnExpireCallback は寿命切れ時。 cb=nullptr で detach。"
+      },
+      {
+        "sig": "void SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius)",
+        "desc": "中心の周り半径 spread_radius の円板内にランダム配置。 半径/磁石/寿命/value は kind 別の既定値。"
+      },
+      {
+        "sig": "u32 CountOfKind(EPickupKind kind) const",
+        "desc": "指定 kind の active 数。 DespawnAllOfKind で kind 別の一括消去もできる。"
+      },
+      {
+        "sig": "u32 AlivePickupCount() const",
+        "desc": "active な pickup の総数。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全 pickup を消滅 (callback 設定は維持)。"
+      },
+      {
+        "sig": "using FPickupSystem = CPickupSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPickupSystem を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "ELogSeverity",
+    "kind": "列挙(enum)",
+    "header": "foundation/Log.h",
+    "summary": "ログの重要度レベル（基底 u8）。 数値が小さいほど詳細。 最小レベル以上のものだけが出力される。",
+    "when": "FLogConfig::min_severity や SetMinSeverity でしきい値を決める時。",
+    "sample": "CLogger::SetMinSeverity(ELogSeverity::Warn);\n// → Warn / Error / Fatal だけ出力、Info 以下は無視\nconst char* lv = ToString(ELogSeverity::Error);  // \"ERROR\"",
+    "members": [
+      {
+        "sig": "Trace=0 / Debug=1 / Info=2",
+        "desc": "詳細トレース / デバッグ / 通常情報。"
+      },
+      {
+        "sig": "Warn=3 / Error=4 / Fatal=5",
+        "desc": "警告 / エラー / 致命エラー。"
+      },
+      {
+        "sig": "Off=6",
+        "desc": "出力を完全に止める。"
+      },
+      {
+        "sig": "const char* ToString(ELogSeverity)",
+        "desc": "レベルを文字列化する。"
+      }
+    ]
+  }
+}

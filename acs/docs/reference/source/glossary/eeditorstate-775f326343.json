@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "EEditorState",
+  "definition": "AEditorToolbar が持つ editor の再生状態列挙 (Playing / Paused / Stepping)。"
+}

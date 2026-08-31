@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "GetDefaultWindowsCrashReporter",
+  "definition": "プロセス全体で共有される既定の CWindowsCrashReporter シングルトンを返す関数。"
+}

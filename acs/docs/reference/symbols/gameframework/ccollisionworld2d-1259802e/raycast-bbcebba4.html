@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="レイをキャストし最も近い shape を 1 つ返す。 ray: 発射するレイ。 max_t: レイの最大距離。 out_hit: ヒット時の交点・法線・t を書き込む先。 out_id: ヒットした shape の handle を書き込む先。 mask: ヒット候補を絞るレイヤ bitmask。 戻り値: いずれかにヒットしたら true。">
+  <title>acs::game::CCollisionWorld2D::Raycast — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ccollisionworld2d-1259802e.html">CCollisionWorld2D の概要</a><a class="tree-child" href="acquireslot-ba93fbf3.html">AcquireSlot</a><a class="tree-child" href="addaabb-aa3a3bfd.html">AddAabb</a><a class="tree-child" href="addcircle-043f0913.html">AddCircle</a><a class="tree-child" href="addobb-ac28c028.html">AddObb</a><a class="tree-child" href="addpolygon-a57ae603.html">AddPolygon</a><a class="tree-child" href="ccollisionworld2d-35d13ce8.html">CCollisionWorld2D</a><a class="tree-child" href="ccollisionworld2d-7f1260d4.html">CCollisionWorld2D</a><a class="tree-child" href="cellrange-6f96778b.html">CellRange</a><a class="tree-child" href="cellrange-eca259ee.html">CellRange</a><a class="tree-child" href="clearall-528240b5.html">ClearAll</a><a class="tree-child" href="collectcandidates-b9914939.html">CollectCandidates</a><a class="tree-child" href="ekind-5f40219b.html">EKind</a><a class="tree-child" href="fgridcell-d778dcff.html">FGridCell</a><a class="tree-child" href="findcell-e1c9a2fb.html">FindCell</a><a class="tree-child" href="fslot-fdf49cfb.html">FSlot</a><a class="tree-child" href="getorcreatecell-55059798.html">GetOrCreateCell</a><a class="tree-child" href="init-f1d95c38.html">Init</a><a class="tree-child" href="insertslotintocells-1727a0eb.html">InsertSlotIntoCells</a><a class="tree-child" href="kalllayers-1acae2b0.html">kAllLayers</a><a class="tree-child" href="m-cells-aef34141.html">m_Cells</a><a class="tree-child" href="m-cellsize-406759aa.html">m_CellSize</a><a class="tree-child" href="m-dirty-34f2a563.html">m_Dirty</a><a class="tree-child" href="m-hugeshapes-5f1ac9bc.html">m_HugeShapes</a><a class="tree-child" href="m-querymarks-bfee2909.html">m_QueryMarks</a><a class="tree-child" href="m-queryscratch-1e122aee.html">m_QueryScratch</a><a class="tree-child" href="m-shapecount-0e46fe7c.html">m_ShapeCount</a><a class="tree-child" href="m-slots-4cd371e4.html">m_Slots</a><a class="tree-child" href="markdirty-5c5b7667.html">MarkDirty</a><a class="tree-child" href="narrowintersectaabb-4874ce05.html">NarrowIntersectAabb</a><a class="tree-child" href="narrowintersectcircle-6a20fa3f.html">NarrowIntersectCircle</a><a class="tree-child" href="narrowintersectpoly-6a4a2562.html">NarrowIntersectPoly</a><a class="tree-child" href="operator-715623f2.html">operator=</a><a class="tree-child" href="overlapaabb-3c46764a.html">OverlapAabb</a><a class="tree-child" href="overlapcircle-b4328760.html">OverlapCircle</a><a class="tree-child" href="overlappolygon-651d02c3.html">OverlapPolygon</a><a class="tree-child" href="raycast-bbcebba4.html" aria-current="page">Raycast</a><a class="tree-child" href="rebuildgridifdirty-d1def6fb.html">RebuildGridIfDirty</a><a class="tree-child" href="remove-db2544c5.html">Remove</a><a class="tree-child" href="resolvecircle-3395ffbf.html">ResolveCircle</a><a class="tree-child" href="resolvepolygon-56357df3.html">ResolvePolygon</a><a class="tree-child" href="shapecount-eb16f618.html">ShapeCount</a><a class="tree-child" href="updateaabb-5fa067cd.html">UpdateAabb</a><a class="tree-child" href="updatecircle-e4b4bd1c.html">UpdateCircle</a><a class="tree-child" href="updateobb-2e9bb46f.html">UpdateObb</a><a class="tree-child" href="updatepolygon-aa800f9f.html">UpdatePolygon</a><a class="tree-child" href="ccollisionworld2d-cb643fda.html">~CCollisionWorld2D</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ccollisionworld2d-1259802e.html">CCollisionWorld2D</a><span>/</span><span aria-current="page">Raycast</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CCollisionWorld2D::Raycast</h1>
+<p class="lead">レイをキャストし最も近い shape を 1 つ返す。 ray: 発射するレイ。 max_t: レイの最大距離。 out_hit: ヒット時の交点・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5362">法線</button><span class="term-tooltip" id="term-tip-5362" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>・t を書き込む先。 out_id: ヒットした shape の handle を書き込む先。 mask: ヒット候補を絞る<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5363">レイヤ</button><span class="term-tooltip" id="term-tip-5363" role="tooltip">当たり判定や描画の対象を分類するための札。 player/enemy/wall のように仲間分けする。</span></span> bitmask。 戻り値: いずれかにヒットしたら true。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CCollisionWorld2D::Raycastの宣言"><code>bool <a href="raycast-bbcebba4.html" aria-current="page">Raycast</a>(const <a href="../../math/fray2-a64cc160.html">FRay2</a>&amp; ray, <a href="../../foundation/f32-87be3881.html">f32</a> max_t, <a href="../../math/frayhit2-6e642afd.html">FRayHit2</a>&amp; out_hit, FShapeId&amp; out_id, <a href="../../foundation/u32-4ce4a209.html">u32</a> mask = <a href="kalllayers-1acae2b0.html">kAllLayers</a>) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ccollisionworld2d-1259802e.html"><code>acs::game::CCollisionWorld2D</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/CollisionWorld2D.h:277</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

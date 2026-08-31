@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CRollbackSession",
+    "kind": "クラス",
+    "header": "gameframework/RollbackSession.h",
+    "summary": "入力履歴とsnapshotを使うrollback進行を管理する。",
+    "when": "決定論的な対戦状態を巻き戻して再実行する時。",
+    "members": [
+      {
+        "sig": "using FRollbackSession = CRollbackSession",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRollbackSession を使う。"
+      }
+    ]
+  }
+}

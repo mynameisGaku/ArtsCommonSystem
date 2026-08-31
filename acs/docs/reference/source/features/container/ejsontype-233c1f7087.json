@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "EJsonType",
+    "kind": "列挙(enum)",
+    "header": "container/Json.h",
+    "summary": "FJsonValue が保持している値の種別。 Null / Bool / Number / String / Array / Object の 6 種。",
+    "when": "Type() の戻り値で値の種類を分岐したい時。",
+    "sample": "switch (v.Type()) {\n    case EJsonType::Number: /* ... */ break;\n    case EJsonType::Array:  /* ... */ break;\n    default: break;\n}"
+  }
+}

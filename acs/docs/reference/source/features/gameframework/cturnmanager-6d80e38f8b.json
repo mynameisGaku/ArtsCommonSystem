@@ -1,0 +1,76 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CTurnManager",
+    "kind": "クラス",
+    "header": "gameframework/TurnManager.h",
+    "summary": "ターン制の進行を管理する部品。 複数の陣営(side)を行動順(イニシアチブ)で並べ、各陣営がAP(行動ポイント)予算で行動する、SRPG / ローグライク / 戦略系の定番マネージャです。",
+    "when": "プレイヤー→敵→環境の順に手番を回し、ラウンドごとに AP を回復する、ターン制ゲームを作る時。",
+    "sample": "CTurnManager tm;\ntm.Init();\nauto p = tm.AddSide(\"Player\", 3, 100, true);\nauto e = tm.AddSide(\"Enemy\",  2, 50,  false);\ntm.StartRound();          // 全 side の AP 回復 + 行動順並べ替え\nif (tm.TryConsumeAP(1)) { /* 行動した */ }\ntm.EndCurrentTurn();      // 次 side へ (最後なら次ラウンド開始)",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "全 side / 行動順を捨て、phase=Setup・round=0 に戻す(コールバックは保持)。"
+      },
+      {
+        "sig": "FTurnSideId AddSide(const char* display_name, u32 max_ap, u32 initiative, bool is_player_controlled)",
+        "ret": "side ハンドル",
+        "desc": "陣営を登録する。 名前・最大 AP・行動順・プレイヤー操作かを指定。",
+        "when": "戦闘開始時に参加陣営を並べる時。"
+      },
+      {
+        "sig": "void RemoveSide(FTurnSideId id)",
+        "desc": "陣営を除外する。 手番中の side を消した場合は次へ進む。"
+      },
+      {
+        "sig": "void StartRound()",
+        "desc": "全 side の AP を満タンに回復 + 行動順を再構築 + 先頭 side を current にして、ターン開始コールバックを発火する。"
+      },
+      {
+        "sig": "void EndCurrentTurn()",
+        "desc": "現在の side を行動済みにして次へ。 全 side 完了ならラウンド終了コールバックを呼び、内部で次ラウンドを開始する。"
+      },
+      {
+        "sig": "bool TryConsumeAP(u32 amount)",
+        "ret": "消費できたか",
+        "desc": "現在の side から AP を消費する。 残量不足なら false で据え置き。",
+        "when": "行動の度に必要 AP を引きたい時。"
+      },
+      {
+        "sig": "FTurnSideId CurrentTurnSide() const",
+        "ret": "現手番の side",
+        "desc": "今行動できる side。 Setup / ラウンド終端中は無効 ID。"
+      },
+      {
+        "sig": "ETurnPhase CurrentPhase() const / u32 CurrentRound() const",
+        "desc": "現在のフェーズ / ラウンド番号を返す。"
+      },
+      {
+        "sig": "const FTurnSideState* GetSideState(FTurnSideId id) const",
+        "ret": "表示用 snapshot",
+        "desc": "UI / AI 向けの読み取り専用状態を返す。 次の Add/Remove までしか有効でない点に注意。"
+      },
+      {
+        "sig": "u32 SideCount() const / u32 TurnsRemainingThisRound() const",
+        "desc": "登録 side 数 / 今ラウンドで未行動の side 数を返す。"
+      },
+      {
+        "sig": "void SetOnTurnStartCallback(TurnStartCallback cb, void* user)",
+        "desc": "ターン開始時のコールバックを登録する(nullptr で解除)。"
+      },
+      {
+        "sig": "void SetOnRoundEndCallback(RoundEndCallback cb, void* user)",
+        "desc": "ラウンド終了時のコールバックを登録する。 報酬計算 / 状態異常処理などに。"
+      },
+      {
+        "sig": "using FTurnManager = CTurnManager",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTurnManager を使う。"
+      }
+    ]
+  }
+}

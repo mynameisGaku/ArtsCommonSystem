@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "kInvalidEntity",
+    "kind": "定数",
+    "header": "ecs/Entity.h",
+    "summary": "無効な FEntityId。 戻り値や初期値の『該当なし』を表す番兵。",
+    "when": "ID を返す関数が『見つからなかった』を示す時や、未代入の初期値として使う。",
+    "sample": "FEntityId target = kInvalidEntity;\n// ...探索...\nif (target == kInvalidEntity) return;  // 見つからなかった"
+  }
+}

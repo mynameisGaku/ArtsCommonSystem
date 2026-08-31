@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="kPi（円周率）や度↔ラジアン変換係数、比較用イプシロンなどの定数。">
+  <title>数学定数 (kPi ほか) — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/math.html">math モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/math.html">math モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/math.html">math モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/math.html">math</a><span>/</span><span aria-current="page">数学定数 (kPi ほか)</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / math</div><h1 class="identifier">数学定数 (kPi ほか)</h1>
+<p class="lead">kPi（円周率）や度↔ラジアン変換係数、比較用<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27336">イプシロン</button><span class="term-tooltip" id="term-tip-27336" role="tooltip">浮動小数の比較に使う非常に小さな許容誤差。 kEpsilon = 1e-6。</span></span>などの定数。</p></div><div class="badges"><span class="badge">定数群</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/math/kpi-d5d6c55e.html"><code>acs::kPi</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>角度計算（ラジアン）や<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27334">浮動小数</button><span class="term-tooltip" id="term-tip-27334" role="tooltip">float / double など小数を表す数値型。 丸め誤差があるため == ではなく EXPECT_NEAR で許容誤差つきで比べる。</span></span>の近似比較をする時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>math</dd></div><div class="fact"><dt>分類</dt><dd>定数群</dd></div><div class="fact"><dt>ヘッダー</dt><dd>math/Math.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-f88dfbfb4802884a7c5a"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/math/kpi-d5d6c55e.html">kPi</a> / <a href="../../symbols/math/ktwopi-1208c71c.html">kTwoPi</a> / <a href="../../symbols/math/khalfpi-94aa1454.html">kHalfPi</a> / <a href="../../symbols/math/kinvpi-6d0382c8.html">kInvPi</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>円周率 π、2π、π/2、1/π。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/kpi-d5d6c55e.html"><code>acs::kPi</code></a> <span class="kind-label">定数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/ktwopi-1208c71c.html"><code>acs::kTwoPi</code></a> <span class="kind-label">定数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/khalfpi-94aa1454.html"><code>acs::kHalfPi</code></a> <span class="kind-label">定数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/kinvpi-6d0382c8.html"><code>acs::kInvPi</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-60ba74f420ffb74e8601"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/math/kdeg2rad-f7254846.html">kDeg2Rad</a> / <a href="../../symbols/math/krad2deg-b6d21c9d.html">kRad2Deg</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>度→ラジアン / ラジアン→度 の変換係数。 角度は内部ではラジアンで扱う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/kdeg2rad-f7254846.html"><code>acs::kDeg2Rad</code></a> <span class="kind-label">定数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/krad2deg-b6d21c9d.html"><code>acs::kRad2Deg</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-405e8e257bcb02b82973"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/math/kepsilon-ef77d569.html">kEpsilon</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>比較用の微小値 1e-6。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27335">浮動小数</button><span class="term-tooltip" id="term-tip-27335" role="tooltip">float / double など小数を表す数値型。 丸め誤差があるため == ではなく EXPECT_NEAR で許容誤差つきで比べる。</span></span>の「ほぼ等しい」判定に。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/math/kepsilon-ef77d569.html"><code>acs::kEpsilon</code></a> <span class="kind-label">定数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="数学定数 (kPi ほか)の使用例"><code>f32 rad = 90.0f * kDeg2Rad;  // 度 → ラジアン
+f32 deg = rad * kRad2Deg;    // ラジアン → 度
+if (Abs(x) &lt; kEpsilon) { /* ほぼ 0 */ }</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FMutex",
+  "definition": "一度に1つのスレッドだけが保護区間へ入れる、ACSの排他ロックです。"
+}

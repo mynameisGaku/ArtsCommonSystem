@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CApplication",
+  "definition": "メインループを回すアプリの基底クラス。 継承して OnStart/OnUpdate/OnRender/OnShutdown を実装する。"
+}

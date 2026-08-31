@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TEventSubscription<Arguments...>",
+    "kind": "クラステンプレート",
+    "header": "event/TypedEventSubscription.h",
+    "summary": "破棄時に購読を自動解除するムーブ専用値。 イベント本体より長く生存しても弱参照が失効するため安全に終了する。",
+    "when": "スコープや所有オブジェクトの寿命と購読期間を一致させたい時。",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "購読中か",
+        "desc": "イベントと同じ世代の購読が残っているかを返す。"
+      },
+      {
+        "sig": "bool Reset()",
+        "ret": "解除できたか",
+        "desc": "購読を解除して保持状態を空にする。"
+      },
+      {
+        "sig": "FTypedEventHandle Handle() const",
+        "ret": "購読ハンドル",
+        "desc": "現在保持している世代付きハンドルを返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SSGI",
+  "definition": "Screen-Space Global Illumination。 画面情報から 1 バウンスの間接光(色のにじみ)を加える技法。"
+}

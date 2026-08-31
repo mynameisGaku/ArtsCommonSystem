@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FSequence の中に積まれる「動作 1 つ」を表す POD。 EKind(Wait / Call / TweenF / TweenV2 / TweenV3) で種類を区別する。">
+  <title>FSeqAction — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FSeqAction</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FSeqAction</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26436">FSequence</button><span class="term-tooltip" id="term-tip-26436" role="tooltip">「待つ→関数を呼ぶ→値を滑らかに変える」を 1 行で連鎖記述する演出ビルダー。 作って CSequenceRunner に渡して再生する。</span></span> の中に積まれる「動作 1 つ」を表す <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26437">POD</button><span class="term-tooltip" id="term-tip-26437" role="tooltip">Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。</span></span>。 EKind(Wait / Call / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26438">Tween</button><span class="term-tooltip" id="term-tip-26438" role="tooltip">値を時間で滑らかに補間する仕組み。 UI・カメラ・演出・シーン遷移に使う。</span></span>F / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26439">Tween</button><span class="term-tooltip" id="term-tip-26439" role="tooltip">値を時間で滑らかに補間する仕組み。 UI・カメラ・演出・シーン遷移に使う。</span></span>V2 / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26440">Tween</button><span class="term-tooltip" id="term-tip-26440" role="tooltip">値を時間で滑らかに補間する仕組み。 UI・カメラ・演出・シーン遷移に使う。</span></span>V3) で種類を区別する。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fseqaction-267d940c.html"><code>acs::game::FSeqAction</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>通常は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26433">FSequence</button><span class="term-tooltip" id="term-tip-26433" role="tooltip">「待つ→関数を呼ぶ→値を滑らかに変える」を 1 行で連鎖記述する演出ビルダー。 作って CSequenceRunner に渡して再生する。</span></span> のビルダー経由で間接的に作られる。 中身を直接覗いて独自処理したい時だけ触る。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/Sequence.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-e4a8b771ab49522ed927"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>enum class <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6.html">EKind</a> : u8 { <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/wait-e81e2927.html">Wait</a>, <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/call-154cb326.html">Call</a>, <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenf-6d370207.html">TweenF</a>, <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenv2-74dd597a.html">TweenV2</a>, <a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenv3-38e33664.html">TweenV3</a> }</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>この動作が待ちか・呼び出しか・どの型の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26434">補間</button><span class="term-tooltip" id="term-tip-26434" role="tooltip">2 つの値 (ここでは前後の snapshot) の間を滑らかにつないで中間の状態を作ること。 少し過去の時刻を狙うことで通信ジッタを吸収する。</span></span>か。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6.html"><code>acs::game::FSeqAction::EKind</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/wait-e81e2927.html"><code>acs::game::FSeqAction::EKind::Wait</code></a> <span class="kind-label">列挙値</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/call-154cb326.html"><code>acs::game::FSeqAction::EKind::Call</code></a> <span class="kind-label">列挙値</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenf-6d370207.html"><code>acs::game::FSeqAction::EKind::TweenF</code></a> <span class="kind-label">列挙値</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenv2-74dd597a.html"><code>acs::game::FSeqAction::EKind::TweenV2</code></a> <span class="kind-label">列挙値</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/ekind-d40fb2c6/tweenv3-38e33664.html"><code>acs::game::FSeqAction::EKind::TweenV3</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-333e7c21a54d458c2b09"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/gameframework/fseqaction-267d940c/duration-b0a718ee.html">duration</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>待ち / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26435">補間</button><span class="term-tooltip" id="term-tip-26435" role="tooltip">2 つの値 (ここでは前後の snapshot) の間を滑らかにつないで中間の状態を作ること。 少し過去の時刻を狙うことで通信ジッタを吸収する。</span></span>の所要秒 (Call は 0)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fseqaction-267d940c/duration-b0a718ee.html"><code>acs::game::FSeqAction::duration</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FSeqActionの使用例"><code>// FSequence::Wait/Call/Tween が内部で 1 個ずつ生成する。
+// 直接組み立てることは普通ない。</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

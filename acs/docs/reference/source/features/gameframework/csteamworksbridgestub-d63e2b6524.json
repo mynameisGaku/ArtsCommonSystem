@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSteamworksBridgeStub",
+    "kind": "クラス",
+    "header": "gameframework/SteamworksBridge.h",
+    "summary": "ISteamworksBridge の依存ゼロ既定実装。 Init() のみ成功し、実績 / ランキング系は Result でエラーを返す。 GetStub() で シングルトンを取得できる。",
+    "when": "実 SDK を未統合のままビルド / テストしたい時。 実装が差し込まれる前のデフォルト。",
+    "sample": "auto& social = CSteamworksBridgeStub::GetStub();\n(void)social.Init();",
+    "members": [
+      {
+        "sig": "static CSteamworksBridgeStub& GetStub()",
+        "ret": "共有 stub",
+        "desc": "プロセス共有の static シングルトン。"
+      },
+      {
+        "sig": "using FSteamworksBridgeStub = CSteamworksBridgeStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSteamworksBridgeStub を使う。"
+      }
+    ]
+  }
+}

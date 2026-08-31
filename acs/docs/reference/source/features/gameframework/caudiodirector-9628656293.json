@@ -1,0 +1,66 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAudioDirector",
+    "kind": "クラス",
+    "header": "gameframework/AudioDirector.h",
+    "summary": "シーンを跨いで生きる音声の指揮層。 Master/Bgm/Sfx の 3 段ボリューム、BGM クロスフェード、SFX 連射、ダッキング、Pause/Resume をまとめて扱う。 IAudioBackend を差すと実音が鳴り、無ければ無音の状態管理だけ動く。",
+    "when": "シーン切替で途切れない BGM や、ヒット音の連発、ボイス中の BGM 抑制などを 1 箇所で管理したい時 (CGame に持たせる)。",
+    "sample": "CAudioDirector audio;\naudio.SetBackend(&xaudio2);\naudio.SetMasterVolume(0.8f);\naudio.PlayBgm(\"battle\", 2.0f, true);  // 2 秒かけて遷移\naudio.PlaySfx(\"hit\", 0.8f);           // 即時 one-shot\naudio.Duck(0.5f, 0.3f);               // 0.5 秒 BGM を 30% に\n// 毎フレーム:\naudio.Tick(dt);",
+    "members": [
+      {
+        "sig": "void SetMasterVolume(f32 v) / void SetBgmVolume(f32 v) / void SetSfxVolume(f32 v)",
+        "desc": "3 段のボリュームバスを [0,1] で設定する (範囲外は警告 + clamp)。"
+      },
+      {
+        "sig": "void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true)",
+        "desc": "BGM をクロスフェードで再生する。 同名は no-op、fade<=0 で即時切替。"
+      },
+      {
+        "sig": "void StopBgm(f32 fade_out_sec = 0.5f)",
+        "desc": "BGM をフェードアウトして停止する。"
+      },
+      {
+        "sig": "void PlaySfx(const char* name, f32 volume_scale = 1.0f)",
+        "desc": "SFX を即時 one-shot 再生する (最大 32 本、満杯なら最古を上書き)。"
+      },
+      {
+        "sig": "void Duck(f32 duration_sec, f32 depth)",
+        "desc": "短時間だけ BGM 音量を下げる (ボイス再生中など)。 前後に短い線形 fade。"
+      },
+      {
+        "sig": "void Pause() / void Resume() / void StopAll()",
+        "desc": "全体の一時停止 / 再開 / 停止+リセット。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "クロスフェード/ダッキングの内部タイマーを進める。 毎フレーム呼ぶ (Pause 中は凍結)。"
+      },
+      {
+        "sig": "void SetBackend(IAudioBackend* backend)",
+        "desc": "実音再生 backend (CXAudio2Backend 等) を差し込む。 nullptr で無音の状態管理のみ。"
+      },
+      {
+        "sig": "void SetAssetRegistry(CAssetRegistry* registry)",
+        "desc": "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。"
+      },
+      {
+        "sig": "FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc&, f32 fade=1, bool loop=true) / FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc&, f32 vol=1, f32 pitch=1)",
+        "desc": "raw PCM clip から直接 BGM/SFX を再生する。 backend 未設定時は無効ハンドル。"
+      },
+      {
+        "sig": "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const",
+        "desc": "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。"
+      },
+      {
+        "sig": "using FAudioDirector = CAudioDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAudioDirector を使う。"
+      }
+    ]
+  }
+}

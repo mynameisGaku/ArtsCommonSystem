@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "TPool<T>",
+    "kind": "クラステンプレート",
+    "header": "gameframework/Pool.h",
+    "summary": "短命オブジェクトを毎フレーム大量に作っては捨てる用途のオブジェクトプール。 固定容量で、要素 T は最初に全部 default 構築しておき、m_Active[i] の 0/1 で使用中かを表すだけ。 new/delete を避けてGC ヒッチや断片化を防ぐ。",
+    "when": "弾・パーティクル・一時的な敵など、生成と破棄が高頻度なものを軽く取り回したい時。 Acquire / Release では T のコンストラクタ / デストラクタは走らないので、再初期化は自分で行う。",
+    "sample": "struct FBullet { f32 x, y, vx, vy; bool alive; };\nTPool<FBullet> bullets;\nbullets.Init(1024);\nif (FBullet* b = bullets.Acquire()) {\n    b->x = px; b->y = py; b->vx = vx; b->alive = true;\n}\nbullets.ForEachActive([dt](FBullet& b) {\n    b.x += b.vx * dt;\n});",
+    "members": [
+      {
+        "sig": "void Init(u32 capacity)",
+        "desc": "固定容量を予約 (T は default 構築される)。 2 度目以降は no-op (固定容量ポリシー)。"
+      },
+      {
+        "sig": "T* Acquire()",
+        "ret": "空きスロット または nullptr",
+        "desc": "空き 1 個を確保して返す。 満杯なら nullptr。 中身は前回値が残るので再初期化すること。 返ったポインタは ResetAll / 破棄まで安定。"
+      },
+      {
+        "sig": "void Release(T* p)",
+        "desc": "p をプールに返す。 nullptr / 範囲外ポインタ / 二重 Release は no-op (安全)。"
+      },
+      {
+        "sig": "void ResetAll()",
+        "desc": "全 active を一括解放 (中身の T は触らない)。"
+      },
+      {
+        "sig": "void ForEachActive(F&& fn)",
+        "desc": "active な要素だけ fn(T&) で巡回。 update / draw 用。 fn 内での Acquire/Release は未定義動作。"
+      },
+      {
+        "sig": "u32 ActiveCount() const",
+        "desc": "使用中の数。 Capacity() は容量。"
+      }
+    ]
+  }
+}

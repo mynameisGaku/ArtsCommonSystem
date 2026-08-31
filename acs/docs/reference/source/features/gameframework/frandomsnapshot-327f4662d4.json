@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FRandomSnapshot",
+    "kind": "構造体",
+    "header": "gameframework/RandomSnapshot.h",
+    "summary": "FRandomの4状態を版・予約値・標準FNV-1a 64bit検査値と共に保持する32byte値型。 標準layoutかつ単純copy可能だが、native byte列は保存形式ではない。",
+    "when": "リプレイや決定論テストで同じ乱数位置へO(1)で戻す時。 永続化では各fieldを明示的なbyte順で符号化する。",
+    "members": [
+      {
+        "sig": "u32 version",
+        "desc": "保存形式の版。 現行値はkCurrentVersion。"
+      },
+      {
+        "sig": "u32 state0 / state1 / state2 / state3",
+        "desc": "xoshiro128**の4状態。 全0は無効。"
+      },
+      {
+        "sig": "u32 reserved",
+        "desc": "現行版では0だけ有効。"
+      },
+      {
+        "sig": "u64 signature",
+        "desc": "版、状態、予約値をlittle-endian順に畳み込んだ標準FNV-1a 64bit検査値。"
+      },
+      {
+        "sig": "static constexpr u32 kCurrentVersion = 1",
+        "desc": "現行の保存形式版。"
+      }
+    ]
+  }
+}

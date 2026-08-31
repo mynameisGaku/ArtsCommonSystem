@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "IOpenXrBridge",
+    "kind": "インターフェース",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "VR / AR / MR (XR) ランタイムへの接続を抽象化するseam(差し替え点)。 HMD のヘッドポーズ、左右コントローラの状態、passthrough の on/off だけを公開する最小の窓口。 実 SDK (OpenXR / Oculus / SteamVR / PS VR2 等) は別モジュールで差し替える。",
+    "when": "VR ゲームを書くが、開発機に HMD が刺さっていなくても動くようにしたい時。 未接続なら stub が「常に未トラッキング」を返すので、通常の 2D 描画へのフォールバックを最初から書ける。",
+    "sample": "IOpenXrBridge& xr = GetDefaultOpenXrBridge();\nif (xr.Init().IsOk()) {\n    FXrPose head = xr.HeadPose();\n    FXrControllerState r = xr.RightController();\n    if (r.trigger > 0.5f) { /* 撃つ */ }\n}\nxr.Tick(dt);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(EXrPlatform platform = EXrPlatform::Unknown)",
+        "ret": "成功 / NotImplemented",
+        "desc": "backend を初期化 (XR ランタイム接続 / セッション開始)。 Unknown なら利用可能な SDK を自動検出。 stub は常に NotImplemented。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "backend を破棄。 Init 前に呼んでも安全。"
+      },
+      {
+        "sig": "bool IsInitialized() const",
+        "desc": "Init 成功後かつ Shutdown 前なら true。"
+      },
+      {
+        "sig": "bool IsTracking() const",
+        "desc": "ヘッド/コントローラが今ライブトラッキング中か。 false ならポーズは原点なので使ってはならない。 IsInitialized() とは別概念。"
+      },
+      {
+        "sig": "FXrPose HeadPose() const",
+        "ret": "HMD のポーズ",
+        "desc": "直近 Tick 時点の HMD 位置 + 向き。 未初期化 / stub は原点 (zero pose)。"
+      },
+      {
+        "sig": "FXrControllerState LeftController() const",
+        "desc": "左コントローラの 1 フレーム分の入力 snapshot。 RightController() も同様。 未接続側はゼロ state。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "ポーズ / 入力の取り込みを進める (イベントポンプ相当)。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "bool IsPassthroughSupported() const",
+        "desc": "passthrough (MR モード) 対応かどうか。 stub は常に false。"
+      },
+      {
+        "sig": "void SetPassthrough(bool on)",
+        "desc": "passthrough の on/off を要求。 非対応 / 未初期化なら no-op で構わない。"
+      }
+    ]
+  }
+}

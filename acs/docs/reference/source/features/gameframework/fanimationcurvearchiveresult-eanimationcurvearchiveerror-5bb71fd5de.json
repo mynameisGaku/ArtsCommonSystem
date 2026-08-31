@@ -1,0 +1,14 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAnimationCurveArchiveResult / EAnimationCurveArchiveError",
+    "kind": "構造体・列挙(enum)",
+    "header": "gameframework/AnimationCurveArchive.h",
+    "summary": "buffer 不足、magic/version/header/size/CRC 不正、key 過多、曲線データ不正、OOM、永続化失敗を安定 enum と詳細 field で返す。 curve_error は曲線 semantic error、required_size は必要容量を保持する。"
+  }
+}

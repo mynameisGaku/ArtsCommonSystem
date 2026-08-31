@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FScriptOp",
+    "kind": "構造体",
+    "header": "gameframework/DialogueScript.h",
+    "summary": "CDialogueScript の命令 1 つ。 種別 (EScriptOpKind) と引数 (文字列 2 つ + 数値 + u32) を持つ。 文字列は所有しない。",
+    "when": "スクリプトの台本配列を直接組み立てる時。",
+    "sample": "FScriptOp say  { EScriptOpKind::Say, \"アリス\", \"やあ\" };\nFScriptOp bgm  { EScriptOpKind::PlayBgm, \"town\", nullptr, 0.8f }; // arg_f=音量\nFScriptOp wait { EScriptOpKind::Wait, nullptr, nullptr, 1.5f };  // 1.5 秒待つ"
+  }
+}

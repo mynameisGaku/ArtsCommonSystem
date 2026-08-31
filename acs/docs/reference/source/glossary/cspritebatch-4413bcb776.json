@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSpriteBatch",
+  "definition": "多数のスプライトをまとめて効率よく描画する仕組み。"
+}

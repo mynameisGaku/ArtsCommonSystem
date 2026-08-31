@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FRwLock",
+    "kind": "クラス",
+    "header": "threading/RwLock.h",
+    "summary": "読み取りが多いデータでスループットが上がる。 Win32 SRWLOCK ベース。",
+    "when": "設定値・リソースカタログのように『たまに書き換え、ほとんど読むだけ』のデータを守りたい時。",
+    "sample": "FRwLock rw;\nrw.LockShared();      // 読み取り(複数同時OK)\nint v = config.value;\nrw.UnlockShared();\nrw.LockExclusive();   // 書き込み(独占)\nconfig.value = 42;\nrw.UnlockExclusive();",
+    "members": [
+      {
+        "sig": "void LockShared() / bool TryLockShared() / void UnlockShared()",
+        "desc": "共有(読み取り)ロックの取得・試行・解除。 複数スレッドが同時に保持できる。"
+      },
+      {
+        "sig": "void LockExclusive() / bool TryLockExclusive() / void UnlockExclusive()",
+        "desc": "排他(書き込み)ロックの取得・試行・解除。 1 スレッドだけが保持でき、読み手も締め出す。"
+      }
+    ]
+  }
+}

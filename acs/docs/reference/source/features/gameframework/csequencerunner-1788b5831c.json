@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSequenceRunner",
+    "kind": "クラス",
+    "header": "gameframework/Sequence.h",
+    "summary": "複数の FSequence を同時に再生・管理する実行係。 Start でシーケンスを所有して走らせ、毎フレーム Tick(dt) で進める。",
+    "when": "シーンが演出シーケンスを 1 本以上動かす時。 シーンに 1 つ持たせて使うのが典型。",
+    "sample": "CSequenceRunner runner;\nFSeqHandle h = runner.Start(static_cast<FSequence&&>(s));\n// 毎フレーム\nrunner.Tick(dt);\n// シーン終了時\nrunner.CancelAll();",
+    "members": [
+      {
+        "sig": "FSeqHandle Start(FSequence seq)",
+        "ret": "ハンドル",
+        "desc": "シーケンスの所有権を奪って再生開始。 空シーケンスは無効ハンドルを返す。"
+      },
+      {
+        "sig": "void Cancel(FSeqHandle h)",
+        "desc": "進行中の 1 本を中止する (補間は最後に書いた値で停止)。"
+      },
+      {
+        "sig": "void CancelAll()",
+        "desc": "全シーケンスを破棄する。 AScene::OnExit 等で呼ぶ。"
+      },
+      {
+        "sig": "bool IsActive(FSeqHandle h) const",
+        "desc": "そのハンドルのシーケンスがまだ動いているか。"
+      },
+      {
+        "sig": "u32 ActiveCount() const",
+        "ret": "稼働本数",
+        "desc": "今動いているシーケンスの数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "経過時間を流して全シーケンスを進める。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "using FSequenceRunner = CSequenceRunner",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSequenceRunner を使う。"
+      }
+    ]
+  }
+}

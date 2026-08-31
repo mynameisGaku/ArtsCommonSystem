@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "callback",
+  "definition": "ある出来事が起きた時に呼んでもらう関数。"
+}

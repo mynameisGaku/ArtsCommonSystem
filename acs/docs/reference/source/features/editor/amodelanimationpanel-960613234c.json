@@ -1,0 +1,167 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AModelAnimationPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/modelview/ModelAnimationPanel.h",
+    "summary": "ModelViewer 内でロード済みモデルの animation clip 再生制御 + timeline を行うパネル。 AEditorPanel を継承し、clip dropdown / Play / Pause / Stop / Time slider / Loop checkbox / Speed slider / BlendWeight slider を提供する。 時刻の進行 + clip 選択 + UI control だけを持ち、実 bone palette 計算 / GPU 反映は OnFrameCallback(raw 関数ポインタ + void*) 経由で外部 renderer + CAnimationPlayer に委譲する。 時刻進行は Tick(dt) に分離(DrawUI は描画専任)。 非コピー / 非ムーブ・全 noexcept。",
+    "when": "モデルのアニメーションを切り替えて再生確認するパネルとして使う。 SetClips で clip 一覧を渡し、callback を登録して毎フレーム Tick(dt) を呼ぶと、終端で外部に時刻が通知される。",
+    "sample": "AModelAnimationPanel anim;\nanim.Init();\nworkspace.RegisterPanel(&anim);\n\nFAnimationClipBinding clips[] = { { \"Idle\", 2.0f, true, 0 } };\nanim.SetClips(clips, 1);\nanim.SelectClip(0);\nanim.Play();\n\n// 毎フレーム:\nanim.Tick(dt);    // Playing 中は m_CurrentTime += dt * speed",
+    "members": [
+      {
+        "sig": "using AnimationFrameCallback = void (*)(void* user, u32 clip_index, f32 time_sec) noexcept",
+        "ret": "型",
+        "desc": "Tick 終端で呼ばれる callback 型。 clip_index は FAnimationClipBinding::clip_index(外部 CAnimationPlayer ID)。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "内部 state をデフォルト、clip リストを空、selection / time を 0、callback も nullptr に(= 完全リセット)。 多重呼び出し可。",
+        "when": "生成直後 / 再利用時。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "内部 state を全解放(明示 Clear で再 Init の確定状態を作る)。 多重呼び出し可。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetClips(const FAnimationClipBinding* clips, u32 count) noexcept",
+        "ret": "—",
+        "desc": "clip メタ一覧を push。 内部 TArray を count 個に Resize し値コピー。 count==0 で空。 selection は自動的に index 0(count==0 なら -1)、時刻 / state も Stopped + 0 にリセット。",
+        "when": "モデル load / 切替時。"
+      },
+      {
+        "sig": "void ClearClips() noexcept",
+        "ret": "—",
+        "desc": "clip リストを完全に空に(selection=-1、state=Stopped、time=0)。 callback はクリアしない(Init / Shutdown と区別)。",
+        "when": "モデル unload 時。"
+      },
+      {
+        "sig": "u32 ClipCount() const noexcept",
+        "ret": "件数",
+        "desc": "現在登録されている clip の数。",
+        "when": "任意"
+      },
+      {
+        "sig": "const FAnimationClipBinding* CurrentClip() const noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "現在選択中の clip メタ(read-only)。 未選択 / 範囲外は nullptr。",
+        "when": "任意"
+      },
+      {
+        "sig": "i32 CurrentClipIndex() const noexcept",
+        "ret": "index",
+        "desc": "現在選択中の clip index(ClipCount() 未満、未選択は kNoClipSelected= -1)。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SelectClip(u32 clip_index) noexcept",
+        "ret": "—",
+        "desc": "clip を選択。 範囲外(>= ClipCount())は no-op。 selection 切替時は時刻を 0 にリセット + Stopped に戻す。",
+        "when": "clip を切り替える時。"
+      },
+      {
+        "sig": "void Play() noexcept",
+        "ret": "—",
+        "desc": "現在位置から再生開始。 clip 未選択(-1)なら no-op。 Stopped からは 0 から、Paused からは m_CurrentTime 維持で再開。",
+        "when": "再生開始時。"
+      },
+      {
+        "sig": "void Pause() noexcept",
+        "ret": "—",
+        "desc": "一時停止(m_CurrentTime 保持)。 Playing 以外からは no-op。",
+        "when": "一時停止時。"
+      },
+      {
+        "sig": "void Stop() noexcept",
+        "ret": "—",
+        "desc": "停止(m_CurrentTime = 0 + state=Stopped)。 Stopped でも安全。",
+        "when": "停止時。"
+      },
+      {
+        "sig": "EAnimationPlayState PlayState() const noexcept",
+        "ret": "状態",
+        "desc": "現在の再生状態(Stopped / Playing / Paused)。",
+        "when": "任意"
+      },
+      {
+        "sig": "f32 CurrentTimeSec() const noexcept",
+        "ret": "秒",
+        "desc": "現在の再生位置(秒)。 Stopped 時は 0、Playing / Paused 時は最新 Tick 結果 or SetCurrentTimeSec の値。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetCurrentTimeSec(f32 t) noexcept",
+        "ret": "—",
+        "desc": "再生位置を直接設定(Time slider / スクラブ用)。 0 未満は 0、duration 超過は duration にクランプ(clip 未選択時は 0 のまま no-op)。 state は変更しない。",
+        "when": "スクラブ操作時。"
+      },
+      {
+        "sig": "f32 PlaybackSpeed() const noexcept",
+        "ret": "倍率",
+        "desc": "現在の再生速度。 Tick で m_CurrentTime += dt * speed に乗る。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetPlaybackSpeed(f32 speed) noexcept",
+        "ret": "—",
+        "desc": "再生速度を設定。 [0.1, 4.0] にクランプするため、停止と逆再生は指定できない。",
+        "when": "速度変更時。"
+      },
+      {
+        "sig": "bool IsLoopingOverride() const noexcept / void SetLoopingOverride(bool b) noexcept",
+        "ret": "—",
+        "desc": "UI の Loop checkbox 状態。 true なら clip 側 is_looping を無視して強制 loop、false なら clip 既定に従う。",
+        "when": "ループ切替時。"
+      },
+      {
+        "sig": "f32 BlendWeight() const noexcept / void SetBlendWeight(f32 w) noexcept",
+        "ret": "—",
+        "desc": "blend weight [0,1](0 未満 / 1 超過はクランプ)。 単一 clip の表示と callback 経由の renderer 入力に使う。",
+        "when": "ブレンド重み設定時。"
+      },
+      {
+        "sig": "void Tick(f32 dt) noexcept",
+        "ret": "—",
+        "desc": "Playing 中は m_CurrentTime += dt * m_Speed。 duration 到達時、loop 有効なら wrap、無効なら duration に固定 + Stopped に遷移。 終端で callback を発火。 clip 未選択 / Stopped / Paused / dt <= 0 は no-op(巻き戻し非対応)。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void SetOnFrameCallback(AnimationFrameCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "Tick 終端で 1 度呼ばれる callback を設定。 nullptr で解除。 引数は (user, clip_index, time_sec)。",
+        "when": "CAnimationPlayer 連携時。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Animation\"",
+        "desc": "ImGui ウインドウタイトル兼 ID。 固定リテラル。",
+        "when": "基底からの呼び出し。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "ImGui::Begin \"Animation\" + ClipCombo + Time slider + Play / Pause / Stop + Loop checkbox + Speed slider + BlendWeight slider を描画。 IsVisible() が false なら早期 return。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "static constexpr f32 kMinPlaybackSpeed=0.1f / kMaxPlaybackSpeed=4.0f",
+        "desc": "Speed slider の範囲。 SetPlaybackSpeed の clamp にも使う。"
+      },
+      {
+        "sig": "static constexpr i32 kNoClipSelected = -1",
+        "desc": "「未選択」を表す sentinel(i32 戻り値で使用)。"
+      },
+      {
+        "sig": "using FModelAnimationPanel = AModelAnimationPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AModelAnimationPanel を使う。"
+      }
+    ]
+  }
+}

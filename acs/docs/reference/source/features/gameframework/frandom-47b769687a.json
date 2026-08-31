@@ -1,0 +1,112 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FRandom",
+    "kind": "クラス",
+    "header": "gameframework/Random.h",
+    "summary": "決定論的な乱数生成器(xoshiro128**)。 既存の16byte状態と値列を保ち、定数時間snapshot・検査済み一括生成・偏り除去APIを提供する。",
+    "when": "敵の出現位置・ドロップ抽選・シャッフルなど、ゲーム中の乱数全般。 再現性が欲しいならシードを明示する。",
+    "sample": "FRandom r(0x12345678ull);\nFRandomSnapshot saved = r.CaptureSnapshot();\nu32 selected = 0;\nconst f32 weights[] = {1.0f, 2.0f, 3.0f};\nif (r.TryWeightedIndex(weights, 3, selected)) { /* 使用 */ }\nr.TryRestoreSnapshot(saved);",
+    "members": [
+      {
+        "sig": "explicit FRandom(u64 seed)",
+        "desc": "シードを指定して作る。 引数なしだと起動時刻ベース。"
+      },
+      {
+        "sig": "void Seed(u64 seed)",
+        "desc": "任意の u64 で再シードする。"
+      },
+      {
+        "sig": "u32 NextU32()",
+        "ret": "32bit 乱数",
+        "desc": "最下層の生の乱数を 1 個取り出す。"
+      },
+      {
+        "sig": "bool TryDiscard(u64 draw_count)",
+        "ret": "成功したか",
+        "desc": "最大1,048,576個だけ列を進める。 上限超過時は状態を維持する。"
+      },
+      {
+        "sig": "FRandomSnapshot CaptureSnapshot() const",
+        "ret": "現在の再生位置",
+        "desc": "raw stateを改変検出付き値としてO(1)で取得する。"
+      },
+      {
+        "sig": "bool TryRestoreSnapshot(const FRandomSnapshot& snapshot)",
+        "ret": "復元したか",
+        "desc": "版・予約値・全0状態・検査値を確認してO(1)で復元する。 失敗時は状態を維持する。"
+      },
+      {
+        "sig": "f32 NextF32Unit()",
+        "ret": "[0,1) の小数",
+        "desc": "0 以上 1 未満の f32。 確率判定や補間に。"
+      },
+      {
+        "sig": "i32 RangeInt(i32 min, i32 max)",
+        "ret": "[min,max] の整数",
+        "desc": "互換用の1回剰余方式。 両端を含み、max<minなら交換する。",
+        "sample": "i32 dmg = r.RangeInt(8, 12);"
+      },
+      {
+        "sig": "f32 RangeF32(f32 min, f32 max)",
+        "ret": "[min,max) の小数",
+        "desc": "範囲内の f32 乱数。"
+      },
+      {
+        "sig": "bool NextBool(f32 true_probability = 0.5f)",
+        "ret": "真偽値",
+        "desc": "指定確率で true を返す。"
+      },
+      {
+        "sig": "FVec2 PointInCircle(f32 radius = 1.0f)",
+        "ret": "円板内の点",
+        "desc": "半径 radius の円の内側に一様な点を返す。"
+      },
+      {
+        "sig": "FVec2 PointOnCircle(f32 radius = 1.0f)",
+        "ret": "円周上の点",
+        "desc": "円周上に一様な点を返す。"
+      },
+      {
+        "sig": "void Shuffle<T>(TArray<T>& values)",
+        "desc": "互換用の32bit剰余方式で配列をその場で並べ替える。",
+        "sample": "r.Shuffle(deck);"
+      },
+      {
+        "sig": "u32 WeightedChoice(const f32* weights, u32 count)",
+        "ret": "選ばれた index",
+        "desc": "互換用の24bit重み抽選。 新規処理は検査済み版を使う。"
+      },
+      {
+        "sig": "bool TryWeightedIndex(const f32* weights, u32 count, u32& out_index)",
+        "ret": "成功したか",
+        "desc": "最大4,096個の有限・非負重みを全検査し、最大値正規化と53bit抽選を行う。 失敗時は状態と出力を維持する。"
+      },
+      {
+        "sig": "bool TryFillRangeF32(f32* values, u32 count, f32 min, f32 max)",
+        "ret": "成功したか",
+        "desc": "最大4,096個を有限な半開区間で埋める。 0件はnull可、同値範囲は乱数を消費しない。"
+      },
+      {
+        "sig": "bool TryFillRangeIntUnbiased(i32* values, u32 count, i32 min, i32 max)",
+        "ret": "成功したか",
+        "desc": "32bit棄却法で偏りのない整数列を生成する。 i32全域にも対応する。"
+      },
+      {
+        "sig": "bool TryShuffleIndicesUnbiased(u32* indices, u32 count)",
+        "ret": "成功したか",
+        "desc": "高位32bitから結合する64bit棄却法で最大4,096個のindexを並べ替える。"
+      },
+      {
+        "sig": "static FRandom& Global()",
+        "ret": "共有インスタンス",
+        "desc": "プロセス内で1個の共有値。 呼び出し側が単一threadへ閉じ、同期機構は暗黙に追加しない。"
+      }
+    ]
+  }
+}

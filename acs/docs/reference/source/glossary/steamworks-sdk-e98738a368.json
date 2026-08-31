@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Steamworks SDK",
+  "definition": "Steam の機能(実績/リーダーボード/クラウド/Workshop 等)をゲームから呼ぶための公式ライブラリ。"
+}

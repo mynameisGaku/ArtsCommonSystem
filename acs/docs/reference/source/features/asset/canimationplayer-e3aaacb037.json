@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CAnimationPlayer",
+    "kind": "クラス",
+    "header": "asset/SkinnedMesh.h",
+    "summary": "スキンメッシュのアニメ再生器。 時間を進めて、GPU 用のボーンパレット(FMat4 の配列)を毎フレーム書き出す。",
+    "when": "スキンメッシュを実際に動かして描画する時。",
+    "sample": "CAnimationPlayer ap;\nap.SetMesh(&mesh);\nap.Play(0, /*loop=*/true);\nap.Update(dt);\nFMat4 palette[64];\nu32 count = ap.WritePalette(palette, 64);\nshader.SetBonePalette(palette, count);",
+    "members": [
+      {
+        "sig": "void SetMesh(const ASkinnedMeshAsset* mesh)",
+        "desc": "再生対象のメッシュを設定する(アニメ・時刻はリセット)。"
+      },
+      {
+        "sig": "void Play(u32 anim_index, bool loop = true)",
+        "desc": "指定番号のアニメを再生開始する。"
+      },
+      {
+        "sig": "void Pause() / void Resume() / void Stop()",
+        "desc": "一時停止 / 再開 / 停止(Stop は時刻を 0 に)。"
+      },
+      {
+        "sig": "void SetTime(f32) / f32 Time() / bool IsPlaying()",
+        "desc": "再生時刻の設定・取得と再生中判定。"
+      },
+      {
+        "sig": "void Update(f32 dt)",
+        "desc": "経過時間 dt ぶん再生を進める。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "u32 WritePalette(FMat4* out, u32 max_count) const",
+        "ret": "ボーン数",
+        "desc": "現在時刻のボーンパレットを out へ書き、書いたボーン数を返す。 シェーダへ渡す行列群。"
+      },
+      {
+        "sig": "using FAnimationPlayer = CAnimationPlayer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAnimationPlayer を使う。"
+      }
+    ]
+  }
+}

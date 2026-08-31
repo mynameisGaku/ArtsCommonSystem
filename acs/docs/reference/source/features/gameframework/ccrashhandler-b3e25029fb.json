@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCrashHandler",
+    "kind": "クラス",
+    "header": "gameframework/CrashReporter.h",
+    "summary": "ICrashReporterBackend を 1 つ抱えてタイトル側で使いやすくする薄い wrapper。 backend が未 Install (nullptr) のときは全 API が no-op になる (二次クラッシュ防止)。",
+    "when": "ホットパスから簡単にクラッシュ通知 / breadcrumb を出したい時。",
+    "sample": "CCrashHandler handler;\nhandler.Install(&backend);\nhandler.AddBreadcrumb(\\\"shader\\\", \\\"compile pass 2\\\");\nhandler.NotifyCrash(\\\"SEH_AV\\\", \\\"null deref in Foo\\\");",
+    "members": [
+      {
+        "sig": "void Install(ICrashReporterBackend* backend)",
+        "desc": "backend 参照を保持する (寿命は呼出側所有)。 nullptr で Uninstall と同義。"
+      },
+      {
+        "sig": "void Uninstall()",
+        "desc": "backend 参照を外す (べき等)。"
+      },
+      {
+        "sig": "void NotifyCrash(const char* exception_type, const char* message)",
+        "desc": "最小フィールドだけ埋めて ReportCrash を呼ぶ簡略パス。"
+      },
+      {
+        "sig": "void AddBreadcrumb(const char* category, const char* message)",
+        "desc": "backend に素通し。 未 Install なら no-op。"
+      },
+      {
+        "sig": "using FCrashHandler = CCrashHandler",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCrashHandler を使う。"
+      }
+    ]
+  }
+}

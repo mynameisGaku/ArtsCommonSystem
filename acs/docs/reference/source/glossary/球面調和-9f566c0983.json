@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "球面調和",
+  "definition": "方向ごとの光を少数の係数(SH)で表す近似。 間接光(irradiance)の圧縮表現に使う。"
+}

@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "THashMap<K, V, H>",
+    "kind": "クラステンプレート",
+    "header": "container/HashMap.h",
+    "summary": "キーから値を検索する連想配列。 探索距離と指紋を持つバケット列と密な値配列を分け、削除済み目印を残さず連続イテレーションに対応する。 コピー禁止・ムーブ専用。",
+    "when": "ID から実体、名前から設定値、のように『キーで素早く引きたい』時。",
+    "sample": "THashMap<u32, FString> names;\nnames.Add(1, FString(\"Alice\"));\nif (FString* p = names.Find(1)) { /* 見つかった */ }\nfor (auto& kv : names) {  }\nnames.Remove(1);",
+    "members": [
+      {
+        "sig": "void Add(const K& key, V value)",
+        "desc": "キーと値を追加する。 同じキーが既にあれば上書きし、必要時にバケット容量を拡張する。"
+      },
+      {
+        "sig": "V* Find(const K& key)",
+        "ret": "値ポインタ または null",
+        "desc": "キーを検索する。 見つかれば値へのポインタ、なければ nullptr。",
+        "when": "存在チェックと値取得を一度に済ませたい時。"
+      },
+      {
+        "sig": "bool Contains(const K& key) const",
+        "ret": "存在するか",
+        "desc": "そのキーがあるかどうかだけ調べる。"
+      },
+      {
+        "sig": "bool Remove(const K& key)",
+        "ret": "削除したか",
+        "desc": "キーを削除する。 tombstone を残さず後方シフトで詰める。 あれば true。"
+      },
+      {
+        "sig": "void Reserve(usize n)",
+        "desc": "n 個入る容量を予約し、挿入中の rehash を防ぐ。",
+        "when": "入れる個数の目安が分かっている時に最初に呼ぶ。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "全要素を削除して空にする。"
+      },
+      {
+        "sig": "usize Num() const / bool IsEmpty() const",
+        "desc": "要素数 / 空かどうか。"
+      },
+      {
+        "sig": "EntryType* begin() / end()",
+        "desc": "密な値配列を直接走査する(TPair<K,V> の列)。 range-for 対応。"
+      }
+    ]
+  }
+}

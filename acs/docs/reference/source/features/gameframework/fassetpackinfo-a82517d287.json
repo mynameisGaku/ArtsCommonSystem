@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAssetPackInfo",
+    "kind": "構造体",
+    "header": "gameframework/AssetPack.h",
+    "summary": "現在マウント中の pak の最小情報 (ファイルパス / content hash / 暗号化フラグ / マウント中フラグ)。",
+    "when": "マウント済み pak の素性や改竄検知の hash を確認したい時。",
+    "sample": "FAssetPackInfo info;\nif (info.mounted && info.encrypted) { /* 暗号化済み pak */ }"
+  }
+}

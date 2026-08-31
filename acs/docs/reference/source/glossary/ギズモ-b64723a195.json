@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ギズモ",
+  "definition": "viewport 上で選択 ANode の Transform(移動 / 回転 / 拡縮)を直接ドラッグ操作するハンドル。 ACS では CEditorGizmo が実装する。"
+}

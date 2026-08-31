@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Lua 側から呼べる C++ 関数の型。 void(*)(IScriptVm&amp; vm, FScriptCallFrame&amp; frame, void* user) noexcept。 user には登録時に渡したコンテキスト(this 等)がそのまま流れてくる。 例外を投げてはいけない(Lua は C 由来で巻き戻し非対応)。">
+  <title>NativeFunction — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/scripting.html">scripting モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/scripting.html">scripting</a><span>/</span><span aria-current="page">NativeFunction</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / scripting</div><h1 class="identifier">NativeFunction</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29191">Lua</button><span class="term-tooltip" id="term-tip-29191" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span> 側から呼べる C++ 関数の型。 void(*)(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29192">IScriptVm</button><span class="term-tooltip" id="term-tip-29192" role="tooltip">スクリプト VM の純粋仮想インターフェース。 Lua/Wren/Python 等を差し替えるための seam。 CLuaVm がこれを実装する。</span></span>&amp; vm, FScriptCallFrame&amp; frame, void* user) noexcept。 user には登録時に渡したコンテキスト(this 等)がそのまま流れてくる。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29193">例外</button><span class="term-tooltip" id="term-tip-29193" role="tooltip">C++ の throw/catch による失敗伝搬。 ACS は性能と単純さのため使わず TResult を選ぶ。</span></span>を投げてはいけない(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29194">Lua</button><span class="term-tooltip" id="term-tip-29194" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span> は C 由来で巻き戻し非対応)。</p></div><div class="badges"><span class="badge">関数ポインタ型</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/nativefunction-27ec2211.html"><code>acs::game::NativeFunction</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29189">Lua</button><span class="term-tooltip" id="term-tip-29189" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span> から呼ばせたい C++ 関数を Register<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29190">NativeFunction</button><span class="term-tooltip" id="term-tip-29190" role="tooltip">Lua 側から呼べる C++ 関数の型。 例外を投げてはいけない。</span></span> に登録する時の関数シグネチャとして使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>scripting</dd></div><div class="fact"><dt>分類</dt><dd>関数ポインタ型</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ScriptHost.h</dd></div></dl></section>
+
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="NativeFunctionの使用例"><code>void OnLog(acs::game::IScriptVm&amp;, acs::game::FScriptCallFrame&amp; f, void* user) noexcept {
+    // f.args[0].v.str をログ出力 等
+}
+vm.RegisterNativeFunction(&quot;Log&quot;, &amp;OnLog, nullptr);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

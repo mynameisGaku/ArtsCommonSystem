@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CSceneClock",
+    "kind": "クラス",
+    "header": "gameframework/Clock.h",
+    "summary": "シーン単位の時間トラッカ。 実時間とは別に、pause / slow-mo / 倍速を反映した「シーンが感じる論理時間」を刻む。 time_scale を変えるだけでスローモーや早送りが作れる。",
+    "when": "ポーズ可能なゲームや、スローモー演出・スピードラン倍速モードで、Tween やタイマーに渡す時間を一元管理したい時。",
+    "sample": "CSceneClock clock;\nclock.SetTimeScale(0.5f);   // スローモー\nvoid OnUpdate(f32 dt) {\n    clock.Tick(dt);\n    UpdateTweens(clock.Dt());  // scaled な dt を渡す\n}",
+    "members": [
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "dt 秒を流す。 pause 中は scaled 系が止まり unscaled 系のみ進む。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void Pause() / void Resume()",
+        "desc": "一時停止 / 再開。 pause 中は Dt() が 0 になる。"
+      },
+      {
+        "sig": "f32 Dt() const",
+        "ret": "scale 適用後の dt を返します。",
+        "desc": "time_scale と pause を反映した最後の dt。 Tween 等にはこれを渡す。"
+      },
+      {
+        "sig": "f32 DtUnscaled() const",
+        "desc": "倍率も pause も無視した生の dt。 UI アニメ等の「常に進めたい」もの用。"
+      },
+      {
+        "sig": "f32 Time() const",
+        "ret": "累計 scaled 時間",
+        "desc": "開始からの scaled な累積秒。"
+      },
+      {
+        "sig": "u64 Frame() const",
+        "desc": "Tick した回数 (フレーム数)。"
+      },
+      {
+        "sig": "void SetTimeScale(f32 s)",
+        "desc": "倍率を設定。 0=フリーズ、1=通常、>1=早送り、<1=スロー。 負値は 0 にクランプ。",
+        "sample": "clock.SetTimeScale(2.0f);  // 早送り"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "時間積算とフレーム数だけリセット (pause / time_scale は維持)。"
+      },
+      {
+        "sig": "using FSceneClock = CSceneClock",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneClock を使う。"
+      }
+    ]
+  }
+}

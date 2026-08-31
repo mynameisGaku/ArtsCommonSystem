@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CLocalBuildRunner",
+    "kind": "クラス",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "IBuildFarmBackend のローカル本実装。 CreateProcessW で実際にビルドコマンドを起動して終了コードを回収する「サイズ 1 のビルドファーム」。 同期実行ヘルパも持つ (stub ではなく実動作)。",
+    "when": "外部ファーム無しで、ローカルマシン上でビルドコマンドを実行・追跡したい時。",
+    "sample": "CLocalBuildRunner& runner = GetLocalBuildRunner();\nu32 ec = 0;\n(void)runner.RunBuild(L\"cmd /c exit 3\", ec);",
+    "members": [
+      {
+        "sig": "TResult<void> RunBuild(const wchar_t* command_line, u32& out_exit_code, u32 timeout_ms = 0)",
+        "ret": "成否",
+        "desc": "コマンドを起動し完了まで待って終了コードを返す同期ヘルパ。 timeout_ms = 0 で無限待ち。"
+      },
+      {
+        "sig": "TResult<void> RunBuildUtf8(const char* command_line, u32& out_exit_code, u32 timeout_ms = 0)",
+        "ret": "成否",
+        "desc": "コマンドラインを UTF-8 で受ける版 (内部で UTF-16 変換)。"
+      },
+      {
+        "sig": "using FLocalBuildRunner = CLocalBuildRunner",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalBuildRunner を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="名前付きアクションの評価に必要な物理入力状態を読み取る境界。">
+  <title>acs::game::IInputStateView — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="iinputstateview-315f189f.html" aria-current="page">IInputStateView</a><a class="tree-child" href="iinputstateview-315f189f/gamepadaxisvalue-8cc00037.html">GamepadAxisValue</a><a class="tree-child" href="iinputstateview-315f189f/isgamepadbuttondown-463993b3.html">IsGamepadButtonDown</a><a class="tree-child" href="iinputstateview-315f189f/isgamepadbuttonpressed-e86b1052.html">IsGamepadButtonPressed</a><a class="tree-child" href="iinputstateview-315f189f/isgamepadbuttonreleased-7ec14a9f.html">IsGamepadButtonReleased</a><a class="tree-child" href="iinputstateview-315f189f/iskeydown-fb69e115.html">IsKeyDown</a><a class="tree-child" href="iinputstateview-315f189f/iskeypressed-b34e3315.html">IsKeyPressed</a><a class="tree-child" href="iinputstateview-315f189f/iskeyreleased-2a9c9e1c.html">IsKeyReleased</a><a class="tree-child" href="iinputstateview-315f189f/ismousebuttondown-8f0ad0ad.html">IsMouseButtonDown</a><a class="tree-child" href="iinputstateview-315f189f/ismousebuttonpressed-981b7edf.html">IsMouseButtonPressed</a><a class="tree-child" href="iinputstateview-315f189f/ismousebuttonreleased-4dd58c58.html">IsMouseButtonReleased</a><a class="tree-child" href="iinputstateview-315f189f/iinputstateview-c471037e.html">~IInputStateView</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">IInputStateView</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::IInputStateView</h1>
+<p class="lead">名前付きアクションの評価に必要な物理<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12839">入力</button><span class="term-tooltip" id="term-tip-12839" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12840">状態</button><span class="term-tooltip" id="term-tip-12840" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を読み取る境界。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::IInputStateViewの宣言"><code>class <a href="iinputstateview-315f189f.html" aria-current="page">IInputStateView</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/InputStateView.h:9</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="iinputstateview-315f189f/gamepadaxisvalue-8cc00037.html"><span><span class="identifier">virtual f32 GamepadAxisValue(u32 player_index, EGamepadAxis axis) const noexcept = 0;</span><span class="summary">指定プレイヤーのゲームパッド軸値を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/isgamepadbuttondown-463993b3.html"><span><span class="identifier">virtual bool IsGamepadButtonDown(u32 player_index, EGamepadButton button) const noexcept = 0;</span><span class="summary">指定プレイヤーのゲームパッドボタンが現在押されているか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/isgamepadbuttonpressed-e86b1052.html"><span><span class="identifier">virtual bool IsGamepadButtonPressed(u32 player_index, EGamepadButton button) const noexcept = 0;</span><span class="summary">指定プレイヤーのゲームパッドボタンが今回押されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/isgamepadbuttonreleased-7ec14a9f.html"><span><span class="identifier">virtual bool IsGamepadButtonReleased(u32 player_index, EGamepadButton button) const noexcept = 0;</span><span class="summary">指定プレイヤーのゲームパッドボタンが今回離されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/iskeydown-fb69e115.html"><span><span class="identifier">virtual bool IsKeyDown(EKey key) const noexcept = 0;</span><span class="summary">指定キーが現在押されているか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/iskeypressed-b34e3315.html"><span><span class="identifier">virtual bool IsKeyPressed(EKey key) const noexcept = 0;</span><span class="summary">指定キーが今回押されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/iskeyreleased-2a9c9e1c.html"><span><span class="identifier">virtual bool IsKeyReleased(EKey key) const noexcept = 0;</span><span class="summary">指定キーが今回離されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/ismousebuttondown-8f0ad0ad.html"><span><span class="identifier">virtual bool IsMouseButtonDown(EMouseButton button) const noexcept = 0;</span><span class="summary">指定マウスボタンが現在押されているか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/ismousebuttonpressed-981b7edf.html"><span><span class="identifier">virtual bool IsMouseButtonPressed(EMouseButton button) const noexcept = 0;</span><span class="summary">指定マウスボタンが今回押されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/ismousebuttonreleased-4dd58c58.html"><span><span class="identifier">virtual bool IsMouseButtonReleased(EMouseButton button) const noexcept = 0;</span><span class="summary">指定マウスボタンが今回離されたか返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="iinputstateview-315f189f/iinputstateview-c471037e.html"><span><span class="identifier">virtual ~IInputStateView() noexcept = default;</span><span class="summary">派生した入力参照を基底ポインターから安全に破棄する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

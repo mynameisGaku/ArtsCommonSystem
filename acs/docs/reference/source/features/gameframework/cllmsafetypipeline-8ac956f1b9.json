@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CLlmSafetyPipeline",
+    "kind": "クラス",
+    "header": "gameframework/LlmSafetyPipeline.h",
+    "summary": "LLM で喋る NPC のセリフ生成経路に対し、入力検証・jailbreak 検出・PII除去・コンテンツレーティング・トークン予算・refusal 強制を bit flag で束ねた安全パイプライン。",
+    "when": "プレイヤー入力を LLM に渡す前 (ValidateInput) と、LLM 応答を画面に出す前 (FilterOutput) に通す時。 ルールベースで常に同じ判定を返すので「NPC が黙る/別セリフ」分岐を確実に書ける。",
+    "sample": "CLlmSafetyPipeline pipe;\npipe.Init();\npipe.SetTokenBudget(1024, 512);\npipe.SetCharacterAnchor(\"You are a friendly shopkeeper.\");\nauto in = pipe.ValidateInput(player_text);\nif (in.verdict != ESafetyVerdict::Pass) { ShowRefusal(in.refusal_reason); return; }\nauto out = pipe.FilterOutput(llm_text);\nif (out.verdict == ESafetyVerdict::Refused) { NpcSilent(); return; }\nDisplay(out.filtered_text);",
+    "members": [
+      {
+        "sig": "void Init(ESafetyRule rules = ESafetyRule::Default)",
+        "desc": "bit flag で有効機能を選んで初期化。 既定は全機能 on。"
+      },
+      {
+        "sig": "void SetTokenBudget(u32 max_in, u32 max_out)",
+        "desc": "入出力のトークン上限 (簡易: 1 token ≒ 4 byte)。 0 で当該方向のチェック無効。"
+      },
+      {
+        "sig": "void SetCharacterAnchor(const char* system_prompt)",
+        "desc": "NPC キャラの system prompt (refusal 判定の基準)。 非所有。 nullptr で RefusalEnforcement は実質無効。"
+      },
+      {
+        "sig": "FSafetyResult ValidateInput(const char* user_text)",
+        "ret": "判定結果",
+        "desc": "ユーザー入力を LLM 投入前に検証。 空/長すぎ/jailbreak で Refused、トークン超過で BudgetExceeded。"
+      },
+      {
+        "sig": "FSafetyResult FilterOutput(const char* llm_response)",
+        "ret": "判定結果",
+        "desc": "LLM 応答を表示前に検証/フィルタ。 判定順は Refusal → Rating → PII。 PII は [REDACTED] 置換で Filtered。"
+      },
+      {
+        "sig": "bool IsRuleEnabled(ESafetyRule) const / void EnableRule(ESafetyRule, bool)",
+        "desc": "個別ルールの on/off 照会・切替。"
+      },
+      {
+        "sig": "u32 RefusedCount() / FilteredCount() const",
+        "desc": "拒否 / フィルタ回数の統計 (テレメトリ用)。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "統計とキャラ anchor を初期化 (rules / budget は保持)。"
+      },
+      {
+        "sig": "using FLlmSafetyPipeline = CLlmSafetyPipeline",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLlmSafetyPipeline を使う。"
+      }
+    ]
+  }
+}

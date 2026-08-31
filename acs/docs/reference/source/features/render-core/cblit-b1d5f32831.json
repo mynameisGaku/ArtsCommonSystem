@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CBlit",
+    "kind": "クラス",
+    "header": "render/Blit.h",
+    "summary": "フルスクリーンのテクスチャコピー(ブリット)ユーティリティ。 RHI に直接 GPU コピーが無いため、フルスクリーン三角形 + テクスチャサンプルで 1 枚の RT をもう 1 枚へピクセル等価でコピーする。",
+    "when": "屈折の背景捕捉など、描画済み RT を「複製」して後段が読めるようにしたいとき(同一 RT の read+write 不可を回避)。",
+    "sample": "CBlit blit;\nblit.Init(*dev, hdr_format);\n// コピーしたい時点で:\nblit.Copy(*cl, *src_hdr, *dst_bg);   // dst は is_render_target=true、同フォーマット",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format)",
+        "desc": "出力 RT のフォーマットを焼き込んで初期化。"
+      },
+      {
+        "sig": "void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst)",
+        "desc": "src を dst へフルスクリーンコピー。 clear 不要(全 pixel 上書き)、viewport は dst サイズに自動。"
+      },
+      {
+        "sig": "IRhiPipeline* Pipeline()",
+        "desc": "内部パイプラインの取得。"
+      },
+      {
+        "sig": "using FBlit = CBlit",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBlit を使う。"
+      }
+    ]
+  }
+}

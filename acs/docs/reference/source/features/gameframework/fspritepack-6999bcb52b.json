@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSpritePack",
+    "kind": "クラス",
+    "header": "gameframework/SpritePack.h",
+    "summary": "「1 枚の アトラステクスチャ + その中に並ぶ複数フレームの矩形」を持つデータ層。 名前でフレームを引き、[0,1] の UV を計算する。 Aseprite / TexturePacker の JSON も読める。",
+    "when": "スプライトシートを名前付きフレームで管理したい時。 CSpriteAnimator と組んでアニメ再生する。",
+    "sample": "FSpritePack pack;\nFSpritePackInfo info; info.atlas_texture_path = \"hero.png\";\ninfo.atlas_width = 1024; info.atlas_height = 1024;\npack.Init(info);\nif (const FSpriteFrame* f = pack.FindFrame(\"Idle_00\")) {\n    FVec4 uv = pack.ComputeUv(*f);\n}",
+    "members": [
+      {
+        "sig": "void Init(const FSpritePackInfo& info)",
+        "desc": "アトラスのメタ情報 (パス / サイズ) を設定する。 既存フレームは保持。"
+      },
+      {
+        "sig": "void AddFrame(const FSpriteFrame& frame)",
+        "desc": "フレーム矩形を 1 つ追加する。 name == nullptr は無視。"
+      },
+      {
+        "sig": "TResult<void> LoadAtlasJson(const char* json_text, usize len)",
+        "ret": "成否",
+        "desc": "Aseprite / TexturePacker の atlas JSON を読み込む。 名前 / 画像パスは内部所有。",
+        "when": "ツールが吐いた JSON からまとめて取り込む時。"
+      },
+      {
+        "sig": "const FSpriteFrame* FindFrame(const char* name) const",
+        "ret": "フレーム または null",
+        "desc": "名前で矩形を検索。 見つからなければ nullptr。"
+      },
+      {
+        "sig": "bool HasFrame(const char* name) const",
+        "desc": "名前のフレームがあるか。"
+      },
+      {
+        "sig": "u32 FrameCount() const",
+        "ret": "フレーム数",
+        "desc": "登録済みフレーム数。"
+      },
+      {
+        "sig": "const FSpriteFrame* AllFrames(u32& out_count) const",
+        "ret": "生バッファ",
+        "desc": "全フレームの先頭ポインタ。 out_count に件数。"
+      },
+      {
+        "sig": "void RemoveFrame(const char* name) / void ClearAll()",
+        "desc": "名前指定で削除 (全一致) / 全フレーム削除 (メタは保持)。"
+      },
+      {
+        "sig": "FVec4 ComputeUv(const FSpriteFrame& frame) const",
+        "ret": "{u0,v0,u1,v1}",
+        "desc": "矩形をアトラスサイズで割って [0,1] UV を返す。 サイズ 0 のときは {0,0,0,0}。"
+      }
+    ]
+  }
+}

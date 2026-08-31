@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CLighting2D / FLight2D / CBlobShadow",
+    "kind": "クラス / 構造体",
+    "header": "render/Light2D.h",
+    "summary": "複数のカラー点光源と、スプライトのシルエットから落ちる柔らかい影を扱う。 CBlobShadow は光源計算なしの激軽な足元の楕円影(fallback)。",
+    "when": "暗い洞窟をたいまつで照らす等、トップダウン/横スクロール 2D で雰囲気のあるライティングをしたいとき。",
+    "sample": "CLighting2D li;\nli.Init(*dev, rdr.ColorFormat(), w, h);\nli.BeginScene(cl);  sb.Begin(cl,w,h); /* ワールド描画 */ sb.End();  li.EndScene(cl);\nli.BeginOccluders(cl); sb.Begin(cl,w,h); /*影を落とす絵を白tintで*/ sb.End(); li.EndOccluders(cl);\nli.SetAmbient(FVec3{0.06f,0.06f,0.09f});\nli.ClearLights();\nli.AddLight({ {px,py}, 256.0f, {1,0.8f,0.5f}, 1.0f, 0.5f });\ncl.BeginRenderToSwapchain(sc, idx, clear);\nli.Composite(cl, w, h);\ncl.EndRenderToSwapchain(sc, idx);",
+    "members": [
+      {
+        "sig": "static constexpr u32 kMaxLights = 16",
+        "desc": "同時ライト上限。"
+      },
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat color_format, u32 width, u32 height) / Resize(...)",
+        "desc": "scene/occluder RT と合成パイプラインを作る。"
+      },
+      {
+        "sig": "void SetAmbient(FVec3) / ClearLights() / bool AddLight(const FLight2D&) / u32 LightCount()",
+        "desc": "環境光・ライトのクリア/追加(上限到達で false)・数。"
+      },
+      {
+        "sig": "void SetShadowQuality(u32 march_steps, u32 ray_count)",
+        "desc": "影の march 数 / 面光源近似レイ本数(多いほど滑らか/重い)。"
+      },
+      {
+        "sig": "void BeginScene/EndScene/BeginOccluders/EndOccluders(IRhiCommandList&)",
+        "desc": "世界 albedo と影シルエットを描く各 bracket。"
+      },
+      {
+        "sig": "void Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h)",
+        "desc": "scene × (ambient + Σ light·影) を現在の RT(通常バックバッファ)へ合成。"
+      },
+      {
+        "sig": "struct FLight2D{ FVec2 pos, f32 radius, FVec3 color, f32 intensity, f32 softness }",
+        "desc": "2D 点光源 1 個。 softness 0=くっきり〜1=とても柔らかい。"
+      },
+      {
+        "sig": "CBlobShadow: Init(IRhiDevice&, u32 resolution = 64) / Draw(CSpriteBatch& sb, cx, cy, w, h, alpha, color)",
+        "desc": "柔らかい放射状テクスチャを 1 枚作り、足元の影として描く軽量影。"
+      },
+      {
+        "sig": "using FBlobShadow = CBlobShadow",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBlobShadow を使う。"
+      },
+      {
+        "sig": "using FLighting2D = CLighting2D",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLighting2D を使う。"
+      }
+    ]
+  }
+}

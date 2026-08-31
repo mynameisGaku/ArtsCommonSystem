@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FBuffDef",
+  "definition": "バフ 1 種の定義(id・種別・持続秒・効果量・スタック方針など)。 RegisterBuff で登録する。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SSAO",
+  "definition": "Screen-Space Ambient Occlusion。 深度から隙間や接地部の遮蔽を求めて陰影を足す技法。"
+}

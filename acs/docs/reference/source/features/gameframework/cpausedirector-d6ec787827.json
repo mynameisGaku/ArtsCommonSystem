@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPauseDirector",
+    "kind": "クラス",
+    "header": "gameframework/PauseDirector.h",
+    "summary": "ゲーム全体の pause 状態を一元管理する director。 pause 理由をビットフラグ(EPauseReason) の OR で持ち、「全部の理由が 0 になるまで pause を続ける」スタック的な挙動にすることで、「メニュー閉じたらフォーカス喪失中なのに動き出した」系のバグを防ぐ。",
+    "when": "メニュー表示・OS メニュー・フォーカス喪失・カットシーンなど複数の pause 理由が同時に起きうるゲームで、安全に pause/resume したい時。",
+    "sample": "CPauseDirector pause;\npause.Pause(EPauseReason::UserMenu);\ngame.SetTimeScale(pause.EffectiveTimeScale());   // 0.0f\npause.Pause(EPauseReason::SystemMenu);\npause.Resume(EPauseReason::UserMenu);            // まだ SystemMenu が残る\ngame.SetTimeScale(pause.EffectiveTimeScale());   // まだ 0.0f\npause.Resume(EPauseReason::SystemMenu);\ngame.SetTimeScale(pause.EffectiveTimeScale());   // 1.0f に復帰",
+    "members": [
+      {
+        "sig": "void Pause(EPauseReason reason)",
+        "desc": "指定理由の bit を立てる (OR、複合可)。 新たに立った bit ごとに callback が paused=true で呼ばれる。"
+      },
+      {
+        "sig": "void Resume(EPauseReason reason)",
+        "desc": "指定理由の bit を落とす。 実際に落ちた bit ごとに callback が paused=false で呼ばれる。"
+      },
+      {
+        "sig": "bool IsPaused() const",
+        "desc": "1 つでも理由が立っていれば true。 IsPausedFor(reason) は特定理由の全 bit が立っているか。"
+      },
+      {
+        "sig": "EPauseReason ActiveReasons() const",
+        "desc": "現在立っている全理由の bit OR (デバッグ表示 / 永続化用)。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全理由を一気に落とす (立っていた各 bit について callback 発火)。 タイトルに戻る時など。"
+      },
+      {
+        "sig": "f32 EffectiveTimeScale() const",
+        "ret": "0 または NormalTimeScale",
+        "desc": "呼び出し側が SetTimeScale に渡す値。 pause 中は 0、非 pause は NormalTimeScale()。"
+      },
+      {
+        "sig": "void SetNormalTimeScale(f32 s)",
+        "desc": "pause 解除時に戻る scale。 スローモーション演出 (0.5x など) と pause を直交管理。 負値は 0 に clamp。"
+      },
+      {
+        "sig": "void SetCallback(PauseEventCallback cb, void* user)",
+        "desc": "pause/resume 遷移時に呼ばれる関数ポインタを登録 (cb=nullptr で解除)。 UI 更新やオーディオ ducking に使う。"
+      },
+      {
+        "sig": "using FPauseDirector = CPauseDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPauseDirector を使う。"
+      }
+    ]
+  }
+}

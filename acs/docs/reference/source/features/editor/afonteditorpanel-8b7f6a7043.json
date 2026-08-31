@@ -1,0 +1,127 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AFontEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/fontedit/FontEditorPanel.h",
+    "summary": "複数 font face の fallback chain を ImGui で対話編集 + プレビューする エディタパネル。 FFontFaceInfo の順序保持配列を持ち、add / remove / reorder (MoveUp/Down) と、任意 UTF-8 テキストの擬似プレビュー (実 atlas は持たず ImGui デフォルト font で代用) を提供。 非コピー・非ムーブ・全 noexcept。",
+    "when": "font の fallback 優先順位と各 face のメタ情報を編集したい時。 編集結果を取り戻して別途 FFont::LoadFromFile 等を呼ぶ (panel は設定エディタ、loader は外部)。",
+    "sample": "namespace fe = acs::game::fontedit;\nfe::AFontEditorPanel panel;\npanel.Init();\nworkspace.RegisterPanel(&panel);\n\nfe::FFontFaceInfo primary {};\nprimary.file_path   = L\"assets/fonts/NotoSansJP-Regular.otf\";\nprimary.family_name = \"Noto Sans JP\";\npanel.AddFontFace(primary);\npanel.SetPreviewText(\"Hello, ACS! 日本語\");\npanel.SetPreviewFontSize(28.0f);\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "face 配列をクリア、selection 解除、preview text をデフォルト、preview size を 24.0f に。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "face 配列 / preview バッファをゼロ化。 OnShutdown とは別の panel 単体 reset API。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "u32 FontFaceCount() const noexcept",
+        "ret": "個数",
+        "desc": "現在の face 数。"
+      },
+      {
+        "sig": "const FFontFaceInfo* GetFontFace(u32 i) const noexcept",
+        "ret": "info または nullptr",
+        "desc": "i 番目の face。 範囲外は nullptr。"
+      },
+      {
+        "sig": "void AddFontFace(const FFontFaceInfo& info) noexcept",
+        "ret": "—",
+        "desc": "face を末尾に追加。 fallback_index は末尾 index で上書き。 kMaxFontFaces 到達なら no-op。",
+        "when": "追加時。"
+      },
+      {
+        "sig": "void RemoveFontFace(u32 i) noexcept",
+        "ret": "—",
+        "desc": "i 番目を削除 (順序保持)。 後続の fallback_index を詰めて再書き込み。 selection も追随。 範囲外は no-op。"
+      },
+      {
+        "sig": "void MoveFaceUp(u32 i) noexcept",
+        "ret": "—",
+        "desc": "i 番目を 1 つ上へ (優先度を上げる)。 i==0 / 範囲外は no-op。 両者の fallback_index を再書き込み、selection 追随。"
+      },
+      {
+        "sig": "void MoveFaceDown(u32 i) noexcept",
+        "ret": "—",
+        "desc": "i 番目を 1 つ下へ (優先度を下げる)。 i==count-1 / 範囲外は no-op。"
+      },
+      {
+        "sig": "i32 SelectedIndex() const noexcept",
+        "ret": "index または -1",
+        "desc": "現在の選択 face index (-1 = 未選択)。"
+      },
+      {
+        "sig": "void SelectFace(i32 i) noexcept",
+        "ret": "—",
+        "desc": "face を選択。 範囲外 (<0 or >=FontFaceCount) は -1 に正規化。"
+      },
+      {
+        "sig": "void SetPreviewText(const char* utf8) noexcept",
+        "ret": "—",
+        "desc": "preview 文字列を設定 (UTF-8、末尾 '\\0' 必須)。 kPreviewTextCapacity-1 超過分は切り詰め。 nullptr は空文字列。"
+      },
+      {
+        "sig": "const char* PreviewText() const noexcept",
+        "ret": "文字列",
+        "desc": "現在の preview 文字列 (静的バッファ、寿命 = panel 寿命)。"
+      },
+      {
+        "sig": "f32 PreviewFontSize() const noexcept / void SetPreviewFontSize(f32 px) noexcept",
+        "ret": "px",
+        "desc": "preview font size (px) の取得 / 設定。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Font Editor\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void OnInit(editor_core::CEditorWorkspace& workspace) noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: workspace 登録時。 基底実装 + preview バッファの終端 0 確認。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: toolbar / list / preview / inspector + char-range strip を描画。 IsVisible() が false なら早期 return。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxFontFaces = 32u",
+        "desc": "fallback chain の最大 face 数。"
+      },
+      {
+        "sig": "static constexpr u32 kPreviewTextCapacity = 256u",
+        "desc": "preview 文字列の最大 byte 長 (終端 '\\0' 込み)。"
+      },
+      {
+        "sig": "static constexpr f32 kMinPreviewFontSize = 8.0f",
+        "desc": "preview font size slider の下限 (px)。"
+      },
+      {
+        "sig": "static constexpr f32 kMaxPreviewFontSize = 96.0f",
+        "desc": "preview font size slider の上限 (px)。"
+      },
+      {
+        "sig": "static constexpr u32 kCharRangePreviewMin = 0x0020u",
+        "desc": "下部 char range preview の Unicode 下端 (ASCII 開始)。"
+      },
+      {
+        "sig": "static constexpr u32 kCharRangePreviewMax = 0x00FFu",
+        "desc": "下部 char range preview の Unicode 上端 (Latin-1 補助末尾)。"
+      },
+      {
+        "sig": "using FFontEditorPanel = AFontEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AFontEditorPanel を使う。"
+      }
+    ]
+  }
+}

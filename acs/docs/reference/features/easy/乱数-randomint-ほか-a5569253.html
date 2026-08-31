@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="整数・小数・真偽値の乱数。 RandomSeed で種を固定すると、毎回同じ並びになる（再現性が必要なテストやリプレイに）。">
+  <title>乱数（RandomInt ほか） — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">乱数（RandomInt ほか）</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">乱数（RandomInt ほか）</h1>
+<p class="lead">整数・小数・真偽値の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22901">乱数</button><span class="term-tooltip" id="term-tip-22901" role="tooltip">規則性のない数値。 敵の出現位置やドロップ抽選などに使う。</span></span>。 RandomSeed で種を固定すると、毎回同じ並びになる（再現性が必要なテストや<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22902">リプレイ</button><span class="term-tooltip" id="term-tip-22902" role="tooltip">プレイの入力や状態を記録し、後で同じ進行を再生する仕組み。 決定論的な乱数と相性が良い。</span></span>に）。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/easy/randomint-5b48fd30.html"><code>acs::easy::RandomInt</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>敵の出現位置、ドロップ判定、ランダム挙動。 デバッグで毎回同じ展開にしたい時は種を固定。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-54273ed0affc6d190ad0"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>i32 <a href="../../symbols/easy/randomint-5b48fd30.html">RandomInt</a>(i32 min, i32 max)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>min 以上 max 以下の整数。</dd></div><div class="fact"><dt>戻り値</dt><dd>整数</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/randomint-5b48fd30.html"><code>acs::easy::RandomInt</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-f4948583e77b4b51ff72"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/easy/randomfloat-cd1f9b91.html">RandomFloat</a>(f32 min, f32 max)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>min 以上 max 未満の小数。</dd></div><div class="fact"><dt>戻り値</dt><dd>小数</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/randomfloat-cd1f9b91.html"><code>acs::easy::RandomFloat</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-139a9890fa0aadab5dec"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>bool <a href="../../symbols/easy/randombool-3ab42957.html">RandomBool</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>半々で true か false。</dd></div><div class="fact"><dt>戻り値</dt><dd>true/false</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/randombool-3ab42957.html"><code>acs::easy::RandomBool</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-45d7f3f4f942dbc8c2fb"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>void <a href="../../symbols/easy/randomseed-e7842c5a.html">RandomSeed</a>(u32 seed)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22900">乱数</button><span class="term-tooltip" id="term-tip-22900" role="tooltip">規則性のない数値。 敵の出現位置やドロップ抽選などに使う。</span></span>の種を固定する。 同じ種なら同じ並びになる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/randomseed-e7842c5a.html"><code>acs::easy::RandomSeed</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="乱数（RandomInt ほか）の使用例"><code>i32 hp = RandomInt(1, 100);          // 1〜100
+f32 angle = RandomFloat(0, 360);     // 0〜360 未満
+if (RandomBool()) SpawnEnemy();
+RandomSeed(42);                      // 同じ種＝同じ並び</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

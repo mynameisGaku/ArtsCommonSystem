@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "CurrentThreadId()",
+    "kind": "関数",
+    "header": "threading/ThreadId.h",
+    "summary": "今このコードを実行しているスレッドの FThreadId を返す(GetCurrentThreadId のラッパ)。",
+    "when": "スレッド固有の処理分岐や、後述の ACS_THREAD_AFFINITY_* の検証に使われる。",
+    "sample": "FThreadId tid = CurrentThreadId();"
+  }
+}

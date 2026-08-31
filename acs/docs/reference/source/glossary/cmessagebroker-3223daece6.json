@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CMessageBroker",
+  "definition": "型ごとにイベントを同期配信するpub/subバス。 1 スレッド内で使う。"
+}

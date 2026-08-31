@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CImageAssetLoader",
+    "kind": "クラス(IAssetLoader 派生)",
+    "header": "asset/ImageAsset.h",
+    "summary": "画像ファイルのローダ(stb_image)。 バイト列を AImageAsset にデコードする。 RegisterDefaultLoaders() で登録される。",
+    "when": "通常は標準ローダ登録で自動的に使われる。 個別に追加したい時のみ手動登録。",
+    "sample": "CImageAssetLoader loader;\nreg.RegisterLoader(&loader);",
+    "members": [
+      {
+        "sig": "using FImageAssetLoader = CImageAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CImageAssetLoader を使う。"
+      }
+    ]
+  }
+}

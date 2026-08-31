@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="空状態で構築する (pool は Init で確保)。">
+  <title>acs::game::CProjectileSystem::CProjectileSystem — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cprojectilesystem-63f8f49f.html">CProjectileSystem の概要</a><a class="tree-child" href="acquireslot-42ae554c.html">AcquireSlot</a><a class="tree-child" href="alivecount-dc681d7d.html">AliveCount</a><a class="tree-child" href="allalive-5a881c10.html">AllAlive</a><a class="tree-child" href="clearall-19c25c61.html">ClearAll</a><a class="tree-child" href="cprojectilesystem-2ccd89e4.html">CProjectileSystem</a><a class="tree-child" href="cprojectilesystem-39e096ca.html" aria-current="page">CProjectileSystem</a><a class="tree-child" href="cprojectilesystem-fae1e893.html">CProjectileSystem</a><a class="tree-child" href="despawn-dafc273f.html">Despawn</a><a class="tree-child" href="finddef-4021dfd1.html">FindDef</a><a class="tree-child" href="findslot-110319d6.html">FindSlot</a><a class="tree-child" href="findslot-a97477a4.html">FindSlot</a><a class="tree-child" href="fslot-42f2a5d2.html">FSlot</a><a class="tree-child" href="getinstance-27b1f9d3.html">GetInstance</a><a class="tree-child" href="init-a461bef0.html">Init</a><a class="tree-child" href="kinvalididx-0adfa27d.html">kInvalidIdx</a><a class="tree-child" href="m-alivecount-8121688c.html">m_AliveCount</a><a class="tree-child" href="m-alivesnapshot-dcfcc3a4.html">m_AliveSnapshot</a><a class="tree-child" href="m-capacity-4c38ae0b.html">m_Capacity</a><a class="tree-child" href="m-defs-b881e336.html">m_Defs</a><a class="tree-child" href="m-hittestfn-f7ab68c1.html">m_HitTestFn</a><a class="tree-child" href="m-hittestuser-ab888f25.html">m_HitTestUser</a><a class="tree-child" href="m-onexpire-84945a1b.html">m_OnExpire</a><a class="tree-child" href="m-onexpireuser-a2abb901.html">m_OnExpireUser</a><a class="tree-child" href="m-onhit-48ecc532.html">m_OnHit</a><a class="tree-child" href="m-onhituser-5f86f990.html">m_OnHitUser</a><a class="tree-child" href="m-slots-eef3c220.html">m_Slots</a><a class="tree-child" href="m-snapshotdirtysize-7f4adb77.html">m_SnapshotDirtySize</a><a class="tree-child" href="maxcount-3cd636da.html">MaxCount</a><a class="tree-child" href="operator-8d3a7dcb.html">operator=</a><a class="tree-child" href="operator-b86e891d.html">operator=</a><a class="tree-child" href="rebuildalivesnapshot-d440f69a.html">RebuildAliveSnapshot</a><a class="tree-child" href="registerdef-7e8611af.html">RegisterDef</a><a class="tree-child" href="sethittestfn-e06df5e0.html">SetHitTestFn</a><a class="tree-child" href="sethomingtarget-2a80efb9.html">SetHomingTarget</a><a class="tree-child" href="setonexpirecallback-2177dbf8.html">SetOnExpireCallback</a><a class="tree-child" href="setonhitcallback-1da8a301.html">SetOnHitCallback</a><a class="tree-child" href="spawn-0fa26e61.html">Spawn</a><a class="tree-child" href="tick-9e555c5e.html">Tick</a><a class="tree-child" href="cprojectilesystem-edb39a41.html">~CProjectileSystem</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cprojectilesystem-63f8f49f.html">CProjectileSystem</a><span>/</span><span aria-current="page">CProjectileSystem</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CProjectileSystem::CProjectileSystem</h1>
+<p class="lead">空<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-7613">状態</button><span class="term-tooltip" id="term-tip-7613" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>で構築する (pool は Init で確保)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CProjectileSystem::CProjectileSystemの宣言"><code><a href="cprojectilesystem-39e096ca.html" aria-current="page">CProjectileSystem</a>() noexcept = default;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cprojectilesystem-63f8f49f.html"><code>acs::game::CProjectileSystem</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/ProjectileSystem.h:292</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

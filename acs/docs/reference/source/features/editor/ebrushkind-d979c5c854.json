@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EBrushKind",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/leveledit/LevelEditorPanel.h",
+    "summary": "ALevelEditorPanel のペイントブラシ種別。 tilemap 上のマウス操作の意味を切り替える。 E-prefix は ACS 規約。",
+    "when": "LevelEditor のツールバーで現在ブラシを選ぶ時。 SetCurrentBrush / CurrentBrush で読み書き。",
+    "members": [
+      {
+        "sig": "Paint = 0",
+        "desc": "塗り。 current_tile_id を SetTile (drag 対応)。"
+      },
+      {
+        "sig": "Erase = 1",
+        "desc": "消し。 FTileId{0} を SetTile (drag 対応)。"
+      },
+      {
+        "sig": "Fill = 2",
+        "desc": "flood-fill。 クリック位置の連結成分を current_tile_id で塗替 (click 単発)。"
+      },
+      {
+        "sig": "Pick = 3",
+        "desc": "スポイト。 クリック位置の tile id を current_tile_id にコピー (click 単発)。"
+      }
+    ]
+  }
+}

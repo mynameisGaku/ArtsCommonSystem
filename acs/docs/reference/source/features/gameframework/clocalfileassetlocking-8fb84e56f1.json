@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CLocalFileAssetLocking",
+    "kind": "クラス",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "IAssetLockingBackend のローカル本実装。 外部 SCM を使わず、<asset>.lock サイドカーファイルを CreateFileW(CREATE_NEW) の原子性で作って協調ロックする (stub ではなく実動作)。",
+    "when": "Perforce 等のサーバを立てずに、ローカル / 共有フォルダで簡易な排他ロックを使いたい時。",
+    "sample": "CLocalFileAssetLocking& locks = GetLocalFileAssetLocking();\n(void)locks.LockAsset(\"assets/hero.fbx\", \"alice\");\n// 自分のロックだけ厳格に外す\n(void)locks.UnlockAssetAs(\"assets/hero.fbx\", \"alice\");",
+    "members": [
+      {
+        "sig": "TResult<void> UnlockAssetAs(const char* asset_path, const char* user)",
+        "ret": "成否",
+        "desc": "lock の owner が user と一致する時だけ解除する厳格版。 不一致は kSub_PermissionDenied。"
+      },
+      {
+        "sig": "bool IsConnected() const override",
+        "desc": "ローカル FS は常に使えるので true。"
+      },
+      {
+        "sig": "using FLocalFileAssetLocking = CLocalFileAssetLocking",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalFileAssetLocking を使う。"
+      }
+    ]
+  }
+}

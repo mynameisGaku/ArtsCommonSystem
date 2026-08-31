@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "Bind / TwoWayBind / CopyOnce",
+    "kind": "ファクトリ関数",
+    "header": "mvvm/Binder.h",
+    "summary": "バインダを手軽に作る入口。 Bind は同じ型なら TOneWayBinder、違う型なら組込み変換(TDefaultConverter)経由の TOneWayConvertBinder を返す。 返り値はそのまま auto で受けられる。",
+    "when": "1 行でサッと結合したい時。 返り値のライフタイムが結合の寿命なので、変数として保持し続ける必要がある。",
+    "sample": "TObservable<f32> hp { 100 };\nTObservable<FString> hp_text;\nauto b = Bind(hp, hp_text);     // f32 → FString 自動変換\nTObservable<i32> a, c;\nauto b2 = Bind(a, c);           // 同型 → TOneWayBinder<i32>\nauto b3 = TwoWayBind(a, c);     // 双方向",
+    "members": [
+      {
+        "sig": "TOneWayBinder<T> Bind(TObservable<T>& src, TObservable<T>& dst)",
+        "desc": "同じ型同士を片方向結合して返す。"
+      },
+      {
+        "sig": "TOneWayConvertBinder<Src,Dst> Bind(TObservable<Src>& src, TObservable<Dst>& dst)",
+        "desc": "別の型同士を、組込み変換 TDefaultConverter<Src,Dst> 経由で片方向結合して返す。"
+      },
+      {
+        "sig": "TTwoWayBinder<T> TwoWayBind(TObservable<T>& a, TObservable<T>& b)",
+        "desc": "同じ型同士を双方向結合して返す。"
+      },
+      {
+        "sig": "void CopyOnce(const TObservable<T>& src, TObservable<T>& dst)",
+        "desc": "1 回だけ src の値を dst へコピーする。 継続的な結合ではなく初期化用。"
+      }
+    ]
+  }
+}

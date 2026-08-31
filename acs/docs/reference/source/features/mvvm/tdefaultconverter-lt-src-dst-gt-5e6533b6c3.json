@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TDefaultConverter<Src, Dst>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Convert.h",
+    "summary": "Bind が使う組込みの型変換テーブル。 i32/u32/f32/f64/bool/FString の主要ペアを Convert 静的メソッドで提供する。 対応の無いペアを使うと static_assert で「既定変換が無い」と教えてくれる。",
+    "when": "通常は Bind(src, dst) 経由で間接的に使われる。 直接呼ぶことは少ないが、変換の挙動を知りたい時の参照になる。",
+    "sample": "// Bind が内部でこれを呼ぶ:\nf32 x = mvvm::TDefaultConverter<i32, f32>::Convert(42, nullptr); // 42.0f\n// 数値↔数値は static_cast、FString 絡みは .cpp 実装でパース/整形\n// FString のパース失敗時は T{} (0/false/空文字) になる",
+    "members": [
+      {
+        "sig": "static Dst Convert(const Src& v, void* user)",
+        "ret": "変換後の値",
+        "desc": "Src から Dst へ変換する。 数値間は static_cast、FString 絡みは文字列⇄数値の整形/パース。"
+      }
+    ]
+  }
+}

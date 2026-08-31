@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="アイテム 1 種類の定義 (不変)。 id・表示名・分類・最大スタック数・アイコンパス・落とせるか。">
+  <title>FItemDef — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FItemDef</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FItemDef</h1>
+<p class="lead">アイテム 1 種類の定義 (不変)。 id・表示名・分類・最大<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26248">スタック</button><span class="term-tooltip" id="term-tip-26248" role="tooltip">関数の呼び出しに沿って自動で確保/解放される高速なメモリ。 寿命はスコープに縛られる。</span></span>数・アイコンパス・落とせるか。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fitemdef-a6f41c76.html"><code>acs::game::FItemDef</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>RegisterItem に渡す。 文字列はすべて<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26244">非所有</button><span class="term-tooltip" id="term-tip-26244" role="tooltip">そのポインタ/参照は対象を所有しておらず、寿命管理 (解放) は別の誰かが行うこと。 non-owning。</span></span> (リテラル想定)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/InventorySystem.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-328af270a126609cdd20"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fitemdef-a6f41c76/id-6f526043.html">id</a> / <a href="../../symbols/gameframework/fitemdef-a6f41c76/display-name-4df3b0b0.html">display_name</a> / <a href="../../symbols/gameframework/fitemdef-a6f41c76/icon-path-dbcf04fd.html">icon_path</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>一意キー / UI 表示名 / アイコン画像パス (すべて<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26245">非所有</button><span class="term-tooltip" id="term-tip-26245" role="tooltip">そのポインタ/参照は対象を所有しておらず、寿命管理 (解放) は別の誰かが行うこと。 non-owning。</span></span>)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/id-6f526043.html"><code>acs::game::FItemDef::id</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/display-name-4df3b0b0.html"><code>acs::game::FItemDef::display_name</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/icon-path-dbcf04fd.html"><code>acs::game::FItemDef::icon_path</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-70e8332428ba9bcd5c30"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/eitemcategory-59180438.html">EItemCategory</a> <a href="../../symbols/gameframework/fitemdef-a6f41c76/category-56c52eb5.html">category</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>分類 (UI フィルタ用、Manager は値保存のみ)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/eitemcategory-59180438.html"><code>acs::game::EItemCategory</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/category-56c52eb5.html"><code>acs::game::FItemDef::category</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-8833c4c7f386d8dffb2e"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u32 <a href="../../symbols/gameframework/fitemdef-a6f41c76/max-stack-1d2ef721.html">max_stack</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>同スロットに重ねられる最大数。 1=<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26246">スタック</button><span class="term-tooltip" id="term-tip-26246" role="tooltip">関数の呼び出しに沿って自動で確保/解放される高速なメモリ。 寿命はスコープに縛られる。</span></span>不可。 0 指定は 1 に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26247">クランプ</button><span class="term-tooltip" id="term-tip-26247" role="tooltip">値を指定範囲内に収めること。 Saturate は 0〜1 に収める。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/max-stack-1d2ef721.html"><code>acs::game::FItemDef::max_stack</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-81cddb4a799f4dac89d0"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>bool <a href="../../symbols/gameframework/fitemdef-a6f41c76/can-drop-abcf4bb0.html">can_drop</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>DropSlot で落とせるか。 quest / key 系は false 推奨。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fitemdef-a6f41c76/can-drop-abcf4bb0.html"><code>acs::game::FItemDef::can_drop</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FItemDefの使用例"><code>FItemDef d{ &quot;ore.iron&quot;, &quot;Iron Ore&quot;,
+           EItemCategory::Material, 999,
+           &quot;ui/ore_iron.png&quot;, true };</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

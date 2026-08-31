@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "script_err:: サブコード",
+    "kind": "定数(u16)",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "TResult が Err の時に err.subcode で原因を見分ける定数群(カテゴリは ErrCategory::Generic)。 TSaveSlot/FMlRuntime と同じ流儀で番号を固定。",
+    "when": "LoadAndRun/CallGlobalFunction 等の失敗理由で分岐したい時に r.Error().subcode == ... で照合する。",
+    "sample": "auto r = host.LoadAndRun(L\"a.lua\");\nif (r.IsErr() && r.Error().subcode == acs::game::script_err::kSub_NotImplemented) {\n    // backend 未統合。スクリプト無しで続行\n}",
+    "members": [
+      {
+        "sig": "kSub_NotImplemented = 99",
+        "desc": "stub / backend 未統合。"
+      },
+      {
+        "sig": "kSub_InvalidArg = 1",
+        "desc": "nullptr / 不正引数。"
+      },
+      {
+        "sig": "kSub_NotInitialized = 2",
+        "desc": "Init() 前の API 呼び出し。"
+      },
+      {
+        "sig": "kSub_LoadFailed = 10",
+        "desc": "LoadScript 失敗(parse error 等)。"
+      },
+      {
+        "sig": "kSub_CallFailed = 11",
+        "desc": "CallFunction 失敗(runtime error 等)。"
+      },
+      {
+        "sig": "kSub_FileNotFound = 20 / kSub_FileTooLarge = 21",
+        "desc": "LoadAndRun のファイル読み込み失敗 / 上限超過。"
+      },
+      {
+        "sig": "kSub_NoVm = 30",
+        "desc": "CScriptHost::Init 未呼出。"
+      }
+    ]
+  }
+}

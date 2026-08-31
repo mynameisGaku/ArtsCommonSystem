@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ISteamworksBridge",
+  "definition": "プラットフォーム SDK (Steam 等) への抽象橋渡しシーム。"
+}

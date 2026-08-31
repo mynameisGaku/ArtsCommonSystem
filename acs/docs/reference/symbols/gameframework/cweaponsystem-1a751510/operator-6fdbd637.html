@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="コピー代入も禁止。">
+  <title>acs::game::CWeaponSystem::operator= — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cweaponsystem-1a751510.html">CWeaponSystem の概要</a><a class="tree-child" href="state-d45faa1d.html">_state</a><a class="tree-child" href="addreserveammo-8af11c34.html">AddReserveAmmo</a><a class="tree-child" href="cancelreload-d8b2957b.html">CancelReload</a><a class="tree-child" href="clearall-72fbd2ed.html">ClearAll</a><a class="tree-child" href="completereload-d5252fed.html">CompleteReload</a><a class="tree-child" href="currentdef-6889266c.html">CurrentDef</a><a class="tree-child" href="cweaponsystem-23796661.html">CWeaponSystem</a><a class="tree-child" href="cweaponsystem-2c09310c.html">CWeaponSystem</a><a class="tree-child" href="cweaponsystem-d7d542f5.html">CWeaponSystem</a><a class="tree-child" href="equipweapon-8439b273.html">EquipWeapon</a><a class="tree-child" href="findweaponslot-65087dea.html">FindWeaponSlot</a><a class="tree-child" href="freserveslot-89eaeb1e.html">FReserveSlot</a><a class="tree-child" href="getammoinmag-3bfd3356.html">GetAmmoInMag</a><a class="tree-child" href="getreserveammo-1f85fb3f.html">GetReserveAmmo</a><a class="tree-child" href="isreloading-38db47ad.html">IsReloading</a><a class="tree-child" href="m-currentdef-091df47d.html">m_CurrentDef</a><a class="tree-child" href="m-currentslot-fd8d0037.html">m_CurrentSlot</a><a class="tree-child" href="m-defs-46251c99.html">m_Defs</a><a class="tree-child" href="m-elapsedtime-6a09ca1e.html">m_ElapsedTime</a><a class="tree-child" href="m-onfire-7d622277.html">m_OnFire</a><a class="tree-child" href="m-onfireuser-2703faf6.html">m_OnFireUser</a><a class="tree-child" href="m-onreload-e8cf8bc3.html">m_OnReload</a><a class="tree-child" href="m-onreloaduser-5373e502.html">m_OnReloadUser</a><a class="tree-child" href="m-reserves-e9c09839.html">m_Reserves</a><a class="tree-child" href="operator-6fdbd637.html" aria-current="page">operator=</a><a class="tree-child" href="operator-f5caa9e9.html">operator=</a><a class="tree-child" href="registerweapon-0b32c833.html">RegisterWeapon</a><a class="tree-child" href="reloadprogress-9f3ea214.html">ReloadProgress</a><a class="tree-child" href="savecurrenttoslot-ef0d4c83.html">SaveCurrentToSlot</a><a class="tree-child" href="setonfirecallback-522cd8db.html">SetOnFireCallback</a><a class="tree-child" href="setonreloadcompletecallback-183d0db3.html">SetOnReloadCompleteCallback</a><a class="tree-child" href="startreload-404c86a8.html">StartReload</a><a class="tree-child" href="state-b5cadff6.html">State</a><a class="tree-child" href="tick-7745bece.html">Tick</a><a class="tree-child" href="tryfire-9d379c6c.html">TryFire</a><a class="tree-child" href="cweaponsystem-36e2d365.html">~CWeaponSystem</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cweaponsystem-1a751510.html">CWeaponSystem</a><span>/</span><span aria-current="page">operator=</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CWeaponSystem::operator=</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9398">コピー</button><span class="term-tooltip" id="term-tip-9398" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>代入も禁止。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CWeaponSystem::operator=の宣言"><code><a href="../cweaponsystem-1a751510.html">CWeaponSystem</a>&amp; operator=(const <a href="../cweaponsystem-1a751510.html">CWeaponSystem</a>&amp;) = delete;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cweaponsystem-1a751510.html"><code>acs::game::CWeaponSystem</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/WeaponSystem.h:219</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

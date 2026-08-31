@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FHotReloadDiagnostics",
+    "kind": "構造体",
+    "header": "gameframework/HotReload.h",
+    "summary": "1 watcher の通知パイプラインを観測する allocation-free 診断 snapshot。 全 counter は u64 最大値で飽和し、last_failure と authoritative rescan 要求は ClearDiagnostics まで sticky。",
+    "when": "通知欠落を正常 tick で見失わず、監視ダッシュボード、ログ、復旧処理から rescan 要否を判断する時。 Shipping shell では storage を持たず決定的なゼロ値を返す。",
+    "members": [
+      {
+        "sig": "u64 enqueued_event_count / coalesced_event_count",
+        "desc": "新規 pending pair の commit 件数 / debounce で既存 event へ統合した件数。"
+      },
+      {
+        "sig": "u64 dispatched_event_count",
+        "desc": "callback dispatch 対象として FIFO から取り出した event 件数。"
+      },
+      {
+        "sig": "u64 rejected_event_count / loss_incident_count",
+        "desc": "検証・queue 追加で拒否した event 件数 / 通知集合の完全性を保証できなくなった incident 件数。"
+      },
+      {
+        "sig": "EHotReloadResult last_failure",
+        "desc": "enqueue・native poll・dispatch で実際に最後に観測した非 Success 結果。 TryTick の代表返却値に使う優先度集約では上書きせず、成功でも消さない。"
+      },
+      {
+        "sig": "bool authoritative_rescan_required",
+        "desc": "true ならディスクや asset DB などの正本から全量再走査が必要。"
+      }
+    ]
+  }
+}

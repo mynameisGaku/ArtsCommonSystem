@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "ATilemapComponent",
+    "kind": "クラス",
+    "header": "gameframework/TilemapComponent.h",
+    "summary": "FTilemap のデータを AScene 上に描画するコンポーネント。 格子アトラステクスチャを持ち、非空タイルを対応セルの UV で CSpriteBatch に描く。 当たり判定の生成もできる。",
+    "when": "タイルマップを実際に画面表示し、必要なら壁として物理ワールドに登録したい時。",
+    "sample": "auto& tm = node->AddComponent<ATilemapComponent>();\ntm.Map().Init(16, 12, 1, 1.0f);\ntm.Map().FillRect(0, 0, 15, 0, FTileId{1});\ntm.SetTexture(atlas_tex);\ntm.SetAtlasGrid(4, 4);\ntm.BuildCollision(world, 0, kWall);",
+    "members": [
+      {
+        "sig": "FTilemap& Map() / const FTilemap& Map() const",
+        "ret": "タイルマップ",
+        "desc": "所有するタイルマップ。 Init / Fill / SetTile はここ経由で行う。"
+      },
+      {
+        "sig": "void SetTexture(IRhiTexture* tex)",
+        "desc": "格子アトラステクスチャ (非所有) を設定する。"
+      },
+      {
+        "sig": "void SetAtlasGrid(u32 cols, u32 rows)",
+        "desc": "アトラス内のタイル格子の列数 / 行数。 タイル ID v は cell index (v-1) に対応。"
+      },
+      {
+        "sig": "void SetTint(FVec4 tint)",
+        "desc": "全タイルに乗算する色。"
+      },
+      {
+        "sig": "void BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit)",
+        "desc": "指定レイヤーの非空タイルを 1 タイル = 1 AABB として物理ワールドに登録する (ソリッド化)。",
+        "when": "床や壁を当たり判定にしたい時。"
+      },
+      {
+        "sig": "void OnDraw(FRenderContext& rc) override",
+        "desc": "描画処理 (利用者は通常呼ばない)。"
+      }
+    ]
+  }
+}

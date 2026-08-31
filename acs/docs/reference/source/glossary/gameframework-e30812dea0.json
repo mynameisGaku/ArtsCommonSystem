@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "GameFramework",
+  "definition": "シーン、コンポーネント、各ジャンル用機能、アセット読み書きの抽象 API など、ゲーム構築用の部品を提供する acs::game モジュールです。"
+}

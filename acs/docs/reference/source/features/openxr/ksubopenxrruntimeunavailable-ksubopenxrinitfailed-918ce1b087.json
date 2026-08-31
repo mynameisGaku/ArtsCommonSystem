@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "kSubOpenXrRuntimeUnavailable / kSubOpenXrInitFailed",
+    "kind": "定数(エラー subcode)",
+    "header": "openxr/KhronosOpenXrBridge.h",
+    "summary": "Init 失敗時に Result へ載るエラーの細分番号。 301=XR ランタイムが見つからない、302=初期化に失敗。",
+    "when": "Init() の失敗理由を分岐したい時に Result のエラーと突き合わせる。",
+    "sample": "auto r = xr.Init();\nif (!r) {\n    // r.Error().subcode が kSubOpenXrRuntimeUnavailable なら\n    //   → ランタイム未導入。2D 描画へフォールバック。\n}"
+  }
+}

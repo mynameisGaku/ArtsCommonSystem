@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="天候ごとの修飾パラメータ(環境光倍率 / 粒子密度 / 空色 / 風強さ / 霧密度)を 1 つにまとめた表。 各 getter が内部でこの表を参照します。">
+  <title>CWeatherSystem::FKindParams — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CWeatherSystem::FKindParams</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CWeatherSystem::FKindParams</h1>
+<p class="lead">天候ごとの修飾パラメータ(環境光倍率 / 粒子密度 / 空色 / 風強さ / 霧密度)を 1 つにまとめた表。 各 getter が内部でこの表を参照します。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/gameframework/cweathersystem-ebf45314.html"><code>acs::game::CWeatherSystem</code></a><span class="summary"><code>class CWeatherSystem;</code></span></li><li><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1.html"><code>acs::game::CWeatherSystem::FKindParams</code></a><span class="summary"><code>struct FKindParams;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>天候パラメータの内部構造を理解する時(通常は getter 経由で十分)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/WeatherSystem.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-578b3d57653c6892fea1"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>f32 <a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/ambient-mult-7750454a.html">ambient_mult</a> / f32 <a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/particle-density-0d60732d.html">particle_density</a> / f32 <a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/fog-density-6917f84e.html">fog_density</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>環境光倍率 / 粒子密度 / 霧密度。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/ambient-mult-7750454a.html"><code>acs::game::CWeatherSystem::FKindParams::ambient_mult</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/particle-density-0d60732d.html"><code>acs::game::CWeatherSystem::FKindParams::particle_density</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/fog-density-6917f84e.html"><code>acs::game::CWeatherSystem::FKindParams::fog_density</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-9e7ebef28008f2c75ea2"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>FVec3 <a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/sky-tint-425c85d7.html">sky_tint</a> / f32 <a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/wind-strength-d7f0ffb7.html">wind_strength</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>空色補正 / 風の強さ。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/sky-tint-425c85d7.html"><code>acs::game::CWeatherSystem::FKindParams::sky_tint</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cweathersystem-ebf45314/fkindparams-468481b1/wind-strength-d7f0ffb7.html"><code>acs::game::CWeatherSystem::FKindParams::wind_strength</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CWeatherSystem::FKindParamsの使用例"><code>// 各天候の係数を LUT として .cpp に保持する</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

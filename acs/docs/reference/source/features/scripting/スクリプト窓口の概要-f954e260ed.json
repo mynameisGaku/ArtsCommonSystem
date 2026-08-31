@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "スクリプト窓口の概要",
+    "kind": "クラス",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "ゲームコードから見たスクリプトの単一窓口。 IScriptVm* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(DI ポイントを 1 つに絞る)。 vm は所有しない(生成/破棄は CGame/Scene 側の責任)。 コピー/ムーブ不可。",
+    "when": "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。 CLuaVm(実)や GetVmStub()(未統合時)を Init() で差し込んで使う。",
+    "sample": "acs::scripting::CLuaVm vm; vm.Init();\nacs::game::CScriptHost host;\nhost.Init(&vm);                              // 実 VM(未統合なら &GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &Spawn, &world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &ret);\nhost.Shutdown();                            // vm は delete しない",
+    "members": [
+      {
+        "sig": "void Init(IScriptVm* vm)",
+        "desc": "使う VM を差し込む。 nullptr は Shutdown 相当。 多重呼び出し可(後勝ち)。 vm は所有しない。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "vm 参照を切り、内部の native 登録リストもクリア(vm の破棄は呼び出し側)。"
+      },
+      {
+        "sig": "IScriptVm* Vm() const",
+        "ret": "VM または null",
+        "desc": "保持中の VM。 未 Init / Shutdown 後は nullptr。"
+      },
+      {
+        "sig": "TResult<void> LoadAndRun(const wchar_t* file_path)",
+        "ret": "成否",
+        "desc": "ファイルを読み込んで LoadScript に流す。 読み込み上限 64 MiB。 失敗は subcode で区別(未設定/open 失敗/サイズ超過)。"
+      },
+      {
+        "sig": "TResult<void> CallGlobalFunction(const char* name, const FScriptValue* args, u32 argc, FScriptValue* ret_out)",
+        "ret": "成否",
+        "desc": "グローバル関数を呼ぶ薄い委譲。"
+      },
+      {
+        "sig": "TResult<void> RegisterNative(const char* name, NativeFunction fn, void* user)",
+        "ret": "成否",
+        "desc": "C++ 関数を vm に登録し、ホスト内の registry にも記録(backend 差し替え時の再登録の素地)。 失敗時は registry にも追加しない。"
+      },
+      {
+        "sig": "void RegisterStandardBindings()",
+        "desc": "Log/Math/Time/Input/Audio 等の標準 binding を一括登録(現状はプレースホルダで件数 0)。"
+      },
+      {
+        "sig": "u32 RegisteredNativeCount() const",
+        "ret": "件数",
+        "desc": "RegisterNative で登録した native function の数。"
+      },
+      {
+        "sig": "void SetOnErrorCallback(ScriptErrorCallback cb, void* user)",
+        "desc": "スクリプト実行/ロードエラーを上位 UI/ログへ通知する callback を設定(nullptr で無効化)。"
+      }
+    ]
+  }
+}

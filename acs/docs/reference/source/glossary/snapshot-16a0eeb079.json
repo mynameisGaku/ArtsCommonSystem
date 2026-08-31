@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "snapshot",
+  "definition": "ある時刻の世界全体の状態を 1 つに固めたもの。 server がこれを配信し、client は受信した複数 snapshot を補間して表示する (FPS/MMO 系で標準)。"
+}

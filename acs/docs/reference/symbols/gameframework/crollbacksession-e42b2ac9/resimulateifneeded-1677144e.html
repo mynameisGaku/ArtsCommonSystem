@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="保留中の巻き戻し再実行を行う。">
+  <title>acs::game::CRollbackSession::ResimulateIfNeeded — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../crollbacksession-e42b2ac9.html">CRollbackSession の概要</a><a class="tree-child" href="advanceconfirmedfloor-fb50cf5b.html">AdvanceConfirmedFloor</a><a class="tree-child" href="advancetick-e6d0f9d4.html">AdvanceTick</a><a class="tree-child" href="confirmedfloor-6e86f1a2.html">ConfirmedFloor</a><a class="tree-child" href="crollbacksession-5efd1a20.html">CRollbackSession</a><a class="tree-child" href="crollbacksession-735da311.html">CRollbackSession</a><a class="tree-child" href="crollbacksession-fc5012b3.html">CRollbackSession</a><a class="tree-child" href="currenttick-afb7c23e.html">CurrentTick</a><a class="tree-child" href="ensureslot-b86f02ce.html">EnsureSlot</a><a class="tree-child" href="gatherinputs-dadf815a.html">GatherInputs</a><a class="tree-child" href="init-f8d154f1.html">Init</a><a class="tree-child" href="isinitialized-14ab6695.html">IsInitialized</a><a class="tree-child" href="kinvalidslottick-a9d56139.html">kInvalidSlotTick</a><a class="tree-child" href="knodirtytick-76c67c13.html">kNoDirtyTick</a><a class="tree-child" href="m-confirmed-6378a5e0.html">m_Confirmed</a><a class="tree-child" href="m-confirmedfloor-609e74ab.html">m_ConfirmedFloor</a><a class="tree-child" href="m-currenttick-b6c86885.html">m_CurrentTick</a><a class="tree-child" href="m-dirtytick-81cada3e.html">m_DirtyTick</a><a class="tree-child" href="m-history-d234328a.html">m_History</a><a class="tree-child" href="m-historylength-2f5052c5.html">m_HistoryLength</a><a class="tree-child" href="m-ledger-0367f8af.html">m_Ledger</a><a class="tree-child" href="m-maxprediction-80dd53d7.html">m_MaxPrediction</a><a class="tree-child" href="m-playercount-2a7354a7.html">m_PlayerCount</a><a class="tree-child" href="m-simfn-fd39c167.html">m_SimFn</a><a class="tree-child" href="m-simuser-8690bddb.html">m_SimUser</a><a class="tree-child" href="m-slottick-cb83a659.html">m_SlotTick</a><a class="tree-child" href="m-tickinputs-418a6e2b.html">m_TickInputs</a><a class="tree-child" href="m-used-aa869999.html">m_Used</a><a class="tree-child" href="m-world-21c3ba2b.html">m_World</a><a class="tree-child" href="needsresimulation-f5f9c53d.html">NeedsResimulation</a><a class="tree-child" href="operator-6f17a673.html">operator=</a><a class="tree-child" href="operator-e9ffc6dd.html">operator=</a><a class="tree-child" href="predictiondepth-7f377c0d.html">PredictionDepth</a><a class="tree-child" href="reset-1ac2a845.html">Reset</a><a class="tree-child" href="resimulateifneeded-1677144e.html" aria-current="page">ResimulateIfNeeded</a><a class="tree-child" href="setsimcallback-94dd438c.html">SetSimCallback</a><a class="tree-child" href="simtickfn-ad94344c.html">SimTickFn</a><a class="tree-child" href="submitinput-2c5ddfb4.html">SubmitInput</a><a class="tree-child" href="crollbacksession-74074a31.html">~CRollbackSession</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../crollbacksession-e42b2ac9.html">CRollbackSession</a><span>/</span><span aria-current="page">ResimulateIfNeeded</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CRollbackSession::ResimulateIfNeeded</h1>
+<p class="lead">保留中の巻き戻し再実行を行う。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CRollbackSession::ResimulateIfNeededの宣言"><code>bool <a href="resimulateifneeded-1677144e.html" aria-current="page">ResimulateIfNeeded</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../crollbacksession-e42b2ac9.html"><code>acs::game::CRollbackSession</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/RollbackSession.h:223</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

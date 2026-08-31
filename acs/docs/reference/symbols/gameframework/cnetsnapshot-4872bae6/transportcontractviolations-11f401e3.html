@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="transport 契約違反の飽和累積数。">
+  <title>acs::game::CNetSnapshot::TransportContractViolations — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cnetsnapshot-4872bae6.html">CNetSnapshot の概要</a><a class="tree-child" href="addentitysnapshot-7e355146.html">AddEntitySnapshot</a><a class="tree-child" href="bufferedsnapshotcount-6727b13a.html">BufferedSnapshotCount</a><a class="tree-child" href="bytesreceived-76d13b20.html">BytesReceived</a><a class="tree-child" href="bytessent-367d8a56.html">BytesSent</a><a class="tree-child" href="cnetsnapshot-091b7f67.html">CNetSnapshot</a><a class="tree-child" href="cnetsnapshot-56cee7af.html">CNetSnapshot</a><a class="tree-child" href="cnetsnapshot-8ac4867c.html">CNetSnapshot</a><a class="tree-child" href="commitsnapshot-d1ba61b9.html">CommitSnapshot</a><a class="tree-child" href="currentinterpolationdelay-d9a2dc48.html">CurrentInterpolationDelay</a><a class="tree-child" href="decodesnapshot-b0264479.html">DecodeSnapshot</a><a class="tree-child" href="encodedsnapshotsize-e65de3fb.html">EncodedSnapshotSize</a><a class="tree-child" href="encodesnapshot-b5ce26a5.html">EncodeSnapshot</a><a class="tree-child" href="fbufferedsnapshot-b9b84efd.html">FBufferedSnapshot</a><a class="tree-child" href="fpendingentity-cbc261eb.html">FPendingEntity</a><a class="tree-child" href="init-cbd814b8.html">Init</a><a class="tree-child" href="kentityheadersize-792e1904.html">kEntityHeaderSize</a><a class="tree-child" href="lastreceivedtick-a2950ef8.html">LastReceivedTick</a><a class="tree-child" href="m-bytesreceived-023ab1d8.html">m_BytesReceived</a><a class="tree-child" href="m-bytessent-61f53f6e.html">m_BytesSent</a><a class="tree-child" href="m-config-34df8aa9.html">m_Config</a><a class="tree-child" href="m-interpscratch-975f7ba2.html">m_InterpScratch</a><a class="tree-child" href="m-lastreceivedtick-cc03a510.html">m_LastReceivedTick</a><a class="tree-child" href="m-nextsequence-e5d83249.html">m_NextSequence</a><a class="tree-child" href="m-packetsreceived-bbcbd112.html">m_PacketsReceived</a><a class="tree-child" href="m-packetssent-d3eacdb9.html">m_PacketsSent</a><a class="tree-child" href="m-pendingentities-cb752fa5.html">m_PendingEntities</a><a class="tree-child" href="m-pendingpayloadbytes-91e2f77f.html">m_PendingPayloadBytes</a><a class="tree-child" href="m-rejectedpackets-19762db6.html">m_RejectedPackets</a><a class="tree-child" href="m-ringbuffer-59019fc9.html">m_RingBuffer</a><a class="tree-child" href="m-ringcount-026be042.html">m_RingCount</a><a class="tree-child" href="m-ringhead-132c550d.html">m_RingHead</a><a class="tree-child" href="m-role-0526e2c7.html">m_Role</a><a class="tree-child" href="m-transport-2dbe1804.html">m_Transport</a><a class="tree-child" href="m-transportcontractviolations-927df138.html">m_TransportContractViolations</a><a class="tree-child" href="operator-53cdd68b.html">operator=</a><a class="tree-child" href="operator-b1f138be.html">operator=</a><a class="tree-child" href="packetsreceived-2d3f9b4b.html">PacketsReceived</a><a class="tree-child" href="packetssent-dc1d9d6f.html">PacketsSent</a><a class="tree-child" href="rejectedpackets-fb87a145.html">RejectedPackets</a><a class="tree-child" href="role-83fa3bb1.html">Role</a><a class="tree-child" href="shutdown-0288936f.html">Shutdown</a><a class="tree-child" href="tick-fc2c00f0.html">Tick</a><a class="tree-child" href="transportcontractviolations-11f401e3.html" aria-current="page">TransportContractViolations</a><a class="tree-child" href="tryaddentitysnapshot-c979b2b1.html">TryAddEntitySnapshot</a><a class="tree-child" href="trycommitsnapshot-5dc2b663.html">TryCommitSnapshot</a><a class="tree-child" href="trygetinterpolatedsnapshot-3826d627.html">TryGetInterpolatedSnapshot</a><a class="tree-child" href="tryinit-cf03878f.html">TryInit</a><a class="tree-child" href="trytick-67f1eb85.html">TryTick</a><a class="tree-child" href="cnetsnapshot-da3e53e5.html">~CNetSnapshot</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cnetsnapshot-4872bae6.html">CNetSnapshot</a><span>/</span><span aria-current="page">TransportContractViolations</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CNetSnapshot::TransportContractViolations</h1>
+<p class="lead">transport 契約違反の飽和累積数。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CNetSnapshot::TransportContractViolationsの宣言"><code><a href="../../foundation/u32-4ce4a209.html">u32</a> <a href="transportcontractviolations-11f401e3.html" aria-current="page">TransportContractViolations</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cnetsnapshot-4872bae6.html"><code>acs::game::CNetSnapshot</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/NetSnapshot.h:877</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

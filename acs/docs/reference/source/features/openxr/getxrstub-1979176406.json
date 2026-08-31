@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "GetXrStub()",
+    "kind": "関数",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "プロセス内に 1 個だけ存在する静的 COpenXrBridgeStub への参照を返す。 provider 未登録時に GetDefaultOpenXrBridge() が返すのもこれ。",
+    "when": "明示的に stub を使いたい/テストで原点ポーズを期待する時。",
+    "sample": "acs::game::IOpenXrBridge& xr = acs::game::GetXrStub();"
+  }
+}

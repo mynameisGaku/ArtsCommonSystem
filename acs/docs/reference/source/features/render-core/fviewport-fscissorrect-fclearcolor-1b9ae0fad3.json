@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FViewport / FScissorRect / FClearColor",
+    "kind": "構造体",
+    "header": "render/RhiTypes.h",
+    "summary": "描画の基本パラメータ。 FViewport=描画する画面領域(x,y,幅,高さ,深度範囲)、FScissorRect=この矩形外を捨てるシザー、FClearColor=塗りつぶし色(RGBA 各 0..1)。",
+    "when": "画面の一部だけに描く・分割描画する・クリア色を指定するとき。",
+    "sample": "FViewport vp; vp.width = 1280; vp.height = 720;\ncl->SetViewport(vp);\nFClearColor clear{0.1f, 0.1f, 0.15f, 1.0f};",
+    "members": [
+      {
+        "sig": "FViewport{ x, y, width, height, min_depth=0, max_depth=1 }",
+        "desc": "描画先の矩形と深度の出力範囲。"
+      },
+      {
+        "sig": "FScissorRect{ left, top, right, bottom }",
+        "desc": "この矩形の外側のピクセルを描かない。"
+      },
+      {
+        "sig": "FClearColor{ r, g, b, a }",
+        "desc": "クリア色。 各成分 0..1。"
+      }
+    ]
+  }
+}

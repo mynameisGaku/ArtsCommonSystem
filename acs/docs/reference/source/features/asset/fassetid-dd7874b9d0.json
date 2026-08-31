@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FAssetId",
+    "kind": "構造体",
+    "header": "asset/AssetId.h",
+    "summary": "アセットの識別子。 パス文字列をハッシュした 64-bit 値で、同じパスからは常に同じ ID が得られる。 レジストリのキャッシュキーになる。",
+    "when": "パスではなく ID でアセットを引きたい時(CAssetRegistry::Find など)。",
+    "sample": "FAssetId id = MakeAssetId(\"textures/hero.png\");\nif (id.IsValid()) {\n    TSharedPtr<AAsset> a = reg.Find(id);\n}",
+    "members": [
+      {
+        "sig": "u64 value",
+        "desc": "ハッシュ値の本体。 0 は「無効」用に予約。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "value != 0 なら true。"
+      },
+      {
+        "sig": "bool operator==/!=(FAssetId) const",
+        "desc": "ID 同士を比較する。"
+      }
+    ]
+  }
+}

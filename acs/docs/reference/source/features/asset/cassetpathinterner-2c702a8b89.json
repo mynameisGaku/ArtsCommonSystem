@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CAssetPathInterner",
+    "kind": "クラス",
+    "header": "asset/AssetPathInterner.h",
+    "summary": "アセットパスを正規化して一度だけ保持し、同じパスへ同じ FInternedAssetPath を返す共有テーブル。",
+    "when": "パス文字列の重複確保と繰り返しハッシュを抑えたい時。",
+    "members": [
+      {
+        "sig": "using FAssetPathInterner = CAssetPathInterner",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetPathInterner を使う。"
+      }
+    ]
+  }
+}

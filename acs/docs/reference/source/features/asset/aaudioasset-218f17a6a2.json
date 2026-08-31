@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "AAudioAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/AudioAsset.h",
+    "summary": "音声データ。 全フォーマットを 16-bit か float の PCM に統一して保持する。 サンプルレート・チャンネル数・フレーム数・生サンプルを持つ。 再生は CAudioEngine が直接この PCM を扱う。",
+    "when": "BGM や効果音を読み込んで再生する時。 wav/mp3/flac/ogg に対応。",
+    "sample": "auto r = reg.Load(L\"se/jump.wav\");\nauto* au = static_cast<AAudioAsset*>(r.Value().Get());\nf32 sec = au->DurationSeconds();\nu32 rate = au->SampleRate();",
+    "members": [
+      {
+        "sig": "u32 SampleRate()",
+        "ret": "Hz",
+        "desc": "1 秒あたりのサンプル数(44100 など)。"
+      },
+      {
+        "sig": "u8 Channels()",
+        "ret": "チャンネル数",
+        "desc": "モノラル=1 / ステレオ=2。"
+      },
+      {
+        "sig": "ESampleFormat Format()",
+        "ret": "サンプル形式",
+        "desc": "ESampleFormat(16-bit 整数 or 32-bit float)。"
+      },
+      {
+        "sig": "u64 FrameCount()",
+        "ret": "フレーム数",
+        "desc": "1 フレーム = チャンネル数ぶんのサンプル。"
+      },
+      {
+        "sig": "const byte* Samples() / usize SampleByteCount()",
+        "desc": "インターリーブ済みの生サンプル先頭ポインタと総バイト数。"
+      },
+      {
+        "sig": "f32 DurationSeconds()",
+        "ret": "秒",
+        "desc": "再生時間(秒)。 FrameCount / SampleRate。"
+      },
+      {
+        "sig": "using FAudioAsset = AAudioAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AAudioAsset を使う。"
+      }
+    ]
+  }
+}

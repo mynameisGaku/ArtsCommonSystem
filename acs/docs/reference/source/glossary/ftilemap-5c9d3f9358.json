@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FTilemap",
+  "definition": "2D グリッドにタイル ID を並べるデータ専用のマップ。"
+}

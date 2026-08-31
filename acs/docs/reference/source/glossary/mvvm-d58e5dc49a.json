@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "MVVM",
+  "definition": "Model(データ) / View(画面) / ViewModel(その橋渡し) の 3 層で UI を組む設計手法。 VM が Observable で状態を公開し、View が購読して自動反映する。"
+}

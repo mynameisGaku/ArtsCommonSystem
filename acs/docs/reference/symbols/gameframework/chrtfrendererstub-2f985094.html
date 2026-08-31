@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="constant-power stereo panning + 距離減衰を実数学で行う IHrtfRenderer 実装。 真のバイノーラル化 (HRTF convolution) のみ stub で、stereo 空間化は本物: pan = 右ベクトル投影 (dot(dir, right))、L = mono·cos((pan+1)·π/4)·volume·atten、 R = mono·sin((pan+1)·π/4)·volume·atten (constant-power パン則)、atten は source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。 現状これが唯一の IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。">
+  <title>acs::game::CHrtfRendererStub — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="chrtfrendererstub-2f985094.html" aria-current="page">CHrtfRendererStub</a><a class="tree-child" href="chrtfrendererstub-2f985094/chrtfrendererstub-f30b54c8.html">CHrtfRendererStub</a><a class="tree-child" href="chrtfrendererstub-2f985094/init-42a77c82.html">Init</a><a class="tree-child" href="chrtfrendererstub-2f985094/ishrtfenabled-76b5d44d.html">IsHrtfEnabled</a><a class="tree-child" href="chrtfrendererstub-2f985094/m-initialized-22951c16.html">m_Initialized</a><a class="tree-child" href="chrtfrendererstub-2f985094/m-listener-b34056a3.html">m_Listener</a><a class="tree-child" href="chrtfrendererstub-2f985094/processsource-864e5009.html">ProcessSource</a><a class="tree-child" href="chrtfrendererstub-2f985094/setlistener-22553a6c.html">SetListener</a><a class="tree-child" href="chrtfrendererstub-2f985094/shutdown-9dd1ba98.html">Shutdown</a><a class="tree-child" href="chrtfrendererstub-2f985094/chrtfrendererstub-ca521400.html">~CHrtfRendererStub</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CHrtfRendererStub</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::CHrtfRendererStub</h1>
+<p class="lead">constant-power stereo panning + 距離減衰を実数学で行う <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6461">IHrtfRenderer</button><span class="term-tooltip" id="term-tip-6461" role="tooltip">モノラルをステレオへ空間化する処理の抽象インターフェース。</span></span> 実装。 真のバイノーラル化 (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6462">HRTF</button><span class="term-tooltip" id="term-tip-6462" role="tooltip">頭部伝達関数。 耳の形状による音の変化を畳み込んで、ヘッドホンで方向感のある立体音響を作る技術。</span></span> convolution) のみ stub で、stereo 空間化は本物: pan = 右<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6463">ベクトル</button><span class="term-tooltip" id="term-tip-6463" role="tooltip">向きと大きさを持つ量。 2D/3D の位置・速度・方向を FVec2/FVec3 で表す。</span></span>投影 (dot(dir, right))、L = mono·cos((pan+1)·π/4)·volume·atten、 R = mono·sin((pan+1)·π/4)·volume·atten (constant-power <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6464">パン</button><span class="term-tooltip" id="term-tip-6464" role="tooltip">音を左右どちらのスピーカーへ振るか。 -1=左 / 0=中央 / +1=右。</span></span>則)、atten は source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。 現状これが唯一の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6465">IHrtfRenderer</button><span class="term-tooltip" id="term-tip-6465" role="tooltip">モノラルをステレオへ空間化する処理の抽象インターフェース。</span></span> 実装で、IsHrtfEnabled() は false を返す (真の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6466">HRTF</button><span class="term-tooltip" id="term-tip-6466" role="tooltip">頭部伝達関数。 耳の形状による音の変化を畳み込んで、ヘッドホンで方向感のある立体音響を作る技術。</span></span> 効果のみ無い)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CHrtfRendererStubの宣言"><code>class <a href="chrtfrendererstub-2f985094.html" aria-current="page">CHrtfRendererStub</a> final : public IHrtfRenderer;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/SpatialAudio.h:221</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="chrtfrendererstub-2f985094/chrtfrendererstub-f30b54c8.html"><span><span class="identifier">CHrtfRendererStub() noexcept = default;</span><span class="summary">空状態で構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/init-42a77c82.html"><span><span class="identifier">TResult&lt;void&gt; Init() noexcept override;</span><span class="summary">stub を初期化する (初回のみ HRTF off のログを出す)。 戻り値: 常に Ok。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/ishrtfenabled-76b5d44d.html"><span><span class="identifier">bool IsHrtfEnabled() const noexcept override;</span><span class="summary">HRTF が有効かを返す。 戻り値: 常に false (panning だけで真の HRTF 効果は無い)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/m-initialized-22951c16.html"><span><span class="identifier">bool m_Initialized = false;</span><span class="summary">初期化済みフラグ。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/m-listener-b34056a3.html"><span><span class="identifier">FAudioListener m_Listener {};</span><span class="summary">保持中の listener 状態 (SetListener で更新)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/processsource-864e5009.html"><span><span class="identifier">void ProcessSource(const FAudioSource3D&amp; source, const f32* mono_input, f32* stereo_output, u32 sample_count) noexcept override;</span><span class="summary">mono 入力に constant-power パン + 距離減衰を掛けて stereo 出力する。 source: 処理対象の 3D 音源 (active==false なら 0 埋め)。 mono_input: mono 入力サンプル (sample_count 要素)。 stereo_output: 出力先 (interleaved、sample_count * 2 要素書き込む)。 sample_count: 入力サンプル数。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/setlistener-22553a6c.html"><span><span class="identifier">void SetListener(const FAudioListener&amp; listener) noexcept override;</span><span class="summary">listener 状態を保持する (pan 算出に使う)。 listener: 現在の listener 状態。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/shutdown-9dd1ba98.html"><span><span class="identifier">void Shutdown() noexcept override;</span><span class="summary">初期化フラグを下ろす。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="chrtfrendererstub-2f985094/chrtfrendererstub-ca521400.html"><span><span class="identifier">~CHrtfRendererStub() noexcept override = default;</span><span class="summary">破棄する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

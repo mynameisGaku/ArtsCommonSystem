@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FFontFaceInfo",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/fontedit/FontEditorPanel.h",
+    "summary": "1 font face のメタ情報 (= fallback chain の 1 要素)。 全フィールド POD (trivially copyable)。 文字列 (file_path / family_name) は caller 所有のリテラル前提で 非所有保持 (ACS 規約: <string> 禁止)。",
+    "when": "AFontEditorPanel::AddFontFace に渡す font face 定義として。 loader が file_path を CreateFile / WIC 等に渡す。",
+    "sample": "acs::game::fontedit::FFontFaceInfo primary {};\nprimary.file_path      = L\"assets/fonts/NotoSansJP-Regular.otf\";\nprimary.family_name    = \"Noto Sans JP\";\nprimary.base_size_px   = 24.0f;\nprimary.char_range_min = 0x0020u;\nprimary.char_range_max = 0xFFFFu;\nprimary.is_msdf        = true;",
+    "members": [
+      {
+        "sig": "const wchar_t* file_path = nullptr",
+        "desc": "font file の絶対 / 相対 path (Windows wide)。 非所有。"
+      },
+      {
+        "sig": "const char* family_name = nullptr",
+        "desc": "UI 表示用 family 名 (UTF-8、\"Noto Sans JP\" 等)。 非所有。"
+      },
+      {
+        "sig": "f32 base_size_px = 24.0f",
+        "desc": "この face を基準サイズで焼くときの px。"
+      },
+      {
+        "sig": "u32 char_range_min = 0x0020u",
+        "desc": "担当 Unicode 範囲の下端。"
+      },
+      {
+        "sig": "u32 char_range_max = 0x00FFu",
+        "desc": "担当 Unicode 範囲の上端。"
+      },
+      {
+        "sig": "u32 fallback_index = 0u",
+        "desc": "chain の何番目か。 panel が Add/Move のたびに TArray index と同期して再書き込みする冗長情報。"
+      },
+      {
+        "sig": "bool is_msdf = false",
+        "desc": "MSDF アトラスで焼くか (true) / 通常 bitmap か (false)。"
+      }
+    ]
+  }
+}

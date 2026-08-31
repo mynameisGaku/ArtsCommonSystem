@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="query sphereが最も深く貫通しているshapeを返す。 接触だけのshapeは除外する。 同じ深さではslot indexが小さいshapeを選ぶ。 AABB内部では最寄り面、sphere同士では中心差を分離法線にする。 失敗・非貫通では 出力を変更しない。 複数shapeからの反復分離は上位adapterが明示的に行う。 sphere: world空間のquery sphere。 out_penetration: shape、深さ、world分離法線の書き込み先。 exclude: queryから除外するshape。 無効またはstaleなら除外なし。 mask: layerとのANDが0でないshapeだけを含めるmask。 戻り値: 有効なsphereが少なくとも一つのshapeへ正の深さで貫通していればtrue。">
+  <title>acs::game::CCollisionWorld3D::TryFindSpherePenetration — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ccollisionworld3d-c0402584.html">CCollisionWorld3D の概要</a><a class="tree-child" href="ccollisionworld3d-d0d53b5c.html">CCollisionWorld3D</a><a class="tree-child" href="ccollisionworld3d-f44ebd62.html">CCollisionWorld3D</a><a class="tree-child" href="clearall-fa4601fb.html">ClearAll</a><a class="tree-child" href="ekind-5b70309e.html">EKind</a><a class="tree-child" href="findslot-internal-355926c0.html">FindSlot_Internal</a><a class="tree-child" href="findslot-internal-9778ebce.html">FindSlot_Internal</a><a class="tree-child" href="fslot-55dc58eb.html">FSlot</a><a class="tree-child" href="isalive-87195c21.html">IsAlive</a><a class="tree-child" href="kalllayers-239d4dce.html">kAllLayers</a><a class="tree-child" href="kmaximumslotindex-5ea95069.html">kMaximumSlotIndex</a><a class="tree-child" href="m-shapecount-e96ba9e7.html">m_ShapeCount</a><a class="tree-child" href="m-slots-ee5f137a.html">m_Slots</a><a class="tree-child" href="operator-2e439074.html">operator=</a><a class="tree-child" href="shapecount-7901774e.html">ShapeCount</a><a class="tree-child" href="tryacquireslot-internal-f668348e.html">TryAcquireSlot_Internal</a><a class="tree-child" href="tryaddaabb-50195bf3.html">TryAddAabb</a><a class="tree-child" href="tryaddsphere-f56408af.html">TryAddSphere</a><a class="tree-child" href="tryfindspherepenetration-704401ac.html" aria-current="page">TryFindSpherePenetration</a><a class="tree-child" href="trygetlayer-a219f252.html">TryGetLayer</a><a class="tree-child" href="tryoverlapaabb-018035da.html">TryOverlapAabb</a><a class="tree-child" href="tryoverlapsphere-d9471aa9.html">TryOverlapSphere</a><a class="tree-child" href="tryraycast-c9bdbed1.html">TryRaycast</a><a class="tree-child" href="tryremove-ebafa758.html">TryRemove</a><a class="tree-child" href="trysetlayer-1dcf69a6.html">TrySetLayer</a><a class="tree-child" href="trysweepsphere-303ec03f.html">TrySweepSphere</a><a class="tree-child" href="tryupdateaabb-54121063.html">TryUpdateAabb</a><a class="tree-child" href="tryupdatesphere-91790a93.html">TryUpdateSphere</a><a class="tree-child" href="ccollisionworld3d-b97c55c4.html">~CCollisionWorld3D</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ccollisionworld3d-c0402584.html">CCollisionWorld3D</a><span>/</span><span aria-current="page">TryFindSpherePenetration</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CCollisionWorld3D::TryFindSpherePenetration</h1>
+<p class="lead">query sphereが最も深く貫通しているshapeを返す。 接触だけのshapeは除外する。 同じ深さではslot indexが小さいshapeを選ぶ。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5396">AABB</button><span class="term-tooltip" id="term-tip-5396" role="tooltip">Axis-Aligned Bounding Box。 軸に平行な直方体の境界ボックス。 当たり判定の粗い包囲に使う。</span></span>内部では最寄り面、sphere同士では中心差を分離<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5397">法線</button><span class="term-tooltip" id="term-tip-5397" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>にする。 失敗・非貫通では 出力を変更しない。 複数shapeからの反復分離は上位<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5398">adapter</button><span class="term-tooltip" id="term-tip-5398" role="tooltip">別システム (ここでは在庫システム) との橋渡しをする差し替え可能な関数群。 これ経由にすることで本体が在庫の実装に依存しない。</span></span>が明示的に行う。 sphere: world空間のquery sphere。 out_penetration: shape、深さ、world分離<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5399">法線</button><span class="term-tooltip" id="term-tip-5399" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>の書き込み先。 exclude: queryから除外するshape。 無効または<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5400">stale</button><span class="term-tooltip" id="term-tip-5400" role="tooltip">「古くなって無効になった」状態。 例えば破棄された ANode を指したままのハンドルが stale。 世代付きハンドルでは世代不一致で検出する。</span></span>なら除外なし。 mask: layerとのANDが0でないshapeだけを含めるmask。 戻り値: 有効なsphereが少なくとも一つのshapeへ正の深さで貫通していればtrue。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CCollisionWorld3D::TryFindSpherePenetrationの宣言"><code>bool <a href="tryfindspherepenetration-704401ac.html" aria-current="page">TryFindSpherePenetration</a>(const <a href="../../math/fsphere-e5029ea5.html">FSphere</a>&amp; sphere, <a href="../fcollisionpenetration3d-17238000.html">FCollisionPenetration3D</a>&amp; out_penetration, FCollisionShapeId3D exclude = {}, <a href="../../foundation/u32-4ce4a209.html">u32</a> mask = <a href="kalllayers-239d4dce.html">kAllLayers</a>) const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ccollisionworld3d-c0402584.html"><code>acs::game::CCollisionWorld3D</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/CollisionWorld3D.h:143</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

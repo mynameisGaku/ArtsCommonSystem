@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CPlatformInputStateAdapter",
+    "kind": "クラス",
+    "header": "gameframework/PlatformInputStateAdapter.h",
+    "summary": "現在の CInput を検証済み FInputStateSnapshot へ一度だけ取得するplatformアダプター。",
+    "when": "platform入力を明示snapshotとして評価・蓄積する時。 通常はCGameが自動で使う。"
+  }
+}

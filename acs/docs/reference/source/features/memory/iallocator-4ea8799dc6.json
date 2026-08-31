@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "IAllocator",
+    "kind": "インターフェース",
+    "header": "memory/Allocator.h",
+    "summary": "メモリ確保/解放のインターフェース。 すべてのアロケータはこれを実装し、差し替え可能。",
+    "when": "確保方法を切り替えたい/独自アロケータを差し込みたい時に、この型で受け渡す。",
+    "sample": "IAllocator& a = DefaultAllocator();\nvoid* p = a.Alloc(256, 16, FSourceLoc::Current());\na.Free(p);",
+    "members": [
+      {
+        "sig": "void* Alloc(usize size, usize alignment, FSourceLoc location)",
+        "ret": "確保した領域",
+        "desc": "指定サイズ・整列でメモリを確保。 失敗時 null。"
+      },
+      {
+        "sig": "void Free(void* pointer)",
+        "desc": "Alloc で得た領域を解放。"
+      },
+      {
+        "sig": "u64 BytesAllocated() const",
+        "ret": "確保中バイト数",
+        "desc": "現在確保中の合計(実装による)。 リーク調査に。"
+      },
+      {
+        "sig": "void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment, FSourceLoc location)",
+        "ret": "新領域",
+        "desc": "既存確保を拡大/縮小する。 既定実装は Alloc+MemCopy+Free(実装で上書き可)。"
+      },
+      {
+        "sig": "u64 PeakBytes() const",
+        "ret": "ピーク量",
+        "desc": "過去最大の使用量(既定 0、実装で上書き)。"
+      },
+      {
+        "sig": "const char* Name() const",
+        "ret": "識別名",
+        "desc": "アロケータの名前(\"System\"/\"TLSF\" 等)。 診断/可視化用。"
+      },
+      {
+        "sig": "u64 LifetimeGeneration() const",
+        "ret": "寿命世代",
+        "desc": "アロケータの有効期間ごとに異なる非0値。 寿命追跡非対応または Shutdown 後は 0。 遅延解放先の再初期化検出に使う。"
+      },
+      {
+        "sig": "void* Alloc(usize size, FSourceLoc location = FSourceLoc::Current())",
+        "ret": "確保領域",
+        "desc": "整列を kDefaultAlignment(16B)・呼び出し位置を自動キャプチャする利便オーバーロード。"
+      },
+      {
+        "sig": "using FAllocator = IAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは IAllocator を使う。"
+      }
+    ]
+  }
+}

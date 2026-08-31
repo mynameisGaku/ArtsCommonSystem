@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "浮動小数",
+  "definition": "float / double など小数を表す数値型。 丸め誤差があるため == ではなく EXPECT_NEAR で許容誤差つきで比べる。"
+}

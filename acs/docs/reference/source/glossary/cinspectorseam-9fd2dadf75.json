@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CInspectorSeam",
+  "definition": "ANode から FInspectableObject / FInspectableField 配列を解決する seam。 AInspectorPanel が provider 解決元として消費する。"
+}

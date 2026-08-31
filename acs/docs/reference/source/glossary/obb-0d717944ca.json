@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "OBB",
+  "definition": "有向境界ボックス（Oriented Bounding Box）。 回転を持てる矩形/直方体コライダー。"
+}

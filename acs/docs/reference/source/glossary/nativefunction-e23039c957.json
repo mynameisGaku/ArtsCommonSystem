@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "NativeFunction",
+  "definition": "Lua 側から呼べる C++ 関数の型。 例外を投げてはいけない。"
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTriggerId",
+    "kind": "構造体",
+    "header": "gameframework/TriggerWorld2D.h",
+    "summary": "トリガを識別する 32bit のハンドル(下位 24bit が index、上位 8bit が世代)。 削除→再登録でスロットが再利用されても、古いハンドルは無効と判定できます。",
+    "when": "CTriggerWorld2D の登録・更新・削除でトリガを指し示す時。",
+    "sample": "FTriggerId id = world.AddCircle(c);\nif (id.IsValid()) { /* 登録成功 */ }",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "0(無効)でなければ true。"
+      },
+      {
+        "sig": "u32 Index() const / u8 Generation() const",
+        "desc": "index 部 / 世代部を取り出す。"
+      },
+      {
+        "sig": "bool operator==(FTriggerId) const / bool operator!=(FTriggerId) const",
+        "desc": "ハンドル同士を比較する。"
+      }
+    ]
+  }
+}

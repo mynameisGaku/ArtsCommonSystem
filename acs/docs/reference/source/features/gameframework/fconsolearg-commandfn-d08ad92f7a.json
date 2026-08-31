@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FConsoleArg / CommandFn",
+    "kind": "構造体 / 関数ポインタ型",
+    "header": "gameframework/DevConsole.h",
+    "summary": "FConsoleArg は raw 文字列として保持するコマンド引数 1 つ。 CommandFn はコマンド本体の関数ポインタ型 void(*)(void* user, u32 argc, const FConsoleArg* args)。 argv[0] はコマンド名でなく最初の引数。",
+    "when": "コマンドを実装する時のシグネチャ。",
+    "sample": "static void SpawnCmd(void* user, u32 argc, const FConsoleArg* args) noexcept {\n    if (argc >= 1) Spawn(args[0].str);\n}"
+  }
+}

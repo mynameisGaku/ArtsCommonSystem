@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "AAsset",
+    "kind": "基底クラス",
+    "header": "asset/Asset.h",
+    "summary": "すべてのアセット(画像・音声・メッシュ・テキスト等)が継承する共通の基底。 実行時の型 ID(Type())・FAssetId・ロード状態を持つ。",
+    "when": "ローダやレジストリがアセットを型を問わず受け渡す時の共通の入れ物。 読み込んだ TSharedPtr<AAsset> を具体型に判別したい時にも使う。",
+    "sample": "TSharedPtr<AAsset> a = result.Value();\nif (a->Type() == AImageAsset::StaticType()) {\n    auto* img = static_cast<AImageAsset*>(a.Get());\n    u32 w = img->Width();\n}",
+    "members": [
+      {
+        "sig": "virtual AssetType Type() const",
+        "ret": "型 ID",
+        "desc": "派生クラスごとの実行時型 ID。 FXxx::StaticType() と比較して種類を判別する。"
+      },
+      {
+        "sig": "FAssetId Id() const",
+        "ret": "識別子",
+        "desc": "このアセットの FAssetId(パスのハッシュ)。 レジストリが設定する。"
+      },
+      {
+        "sig": "EAssetState State() const",
+        "ret": "ロード状態",
+        "desc": "EAssetState(未ロード/ロード中/利用可/失敗)を返す。"
+      },
+      {
+        "sig": "void SetId(FAssetId) / void SetState(EAssetState)",
+        "desc": "レジストリが内部で設定する。 一般ユーザは触らない。"
+      },
+      {
+        "sig": "using FAsset = AAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AAsset を使う。"
+      }
+    ]
+  }
+}

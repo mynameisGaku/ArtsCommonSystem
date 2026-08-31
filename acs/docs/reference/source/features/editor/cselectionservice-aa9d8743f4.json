@@ -1,0 +1,72 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CSelectionService",
+    "kind": "クラス",
+    "header": "gameframework/tools/inspector/SelectionService.h",
+    "summary": "今「選択されている FNodeId」を全 editor panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar / scene view 等) で共有するための選択ハブ。 単一の選択だけを持ち、変化時に登録済み コールバックを (from, to) 付きで一斉発火する。 CGame / CSceneManager には依存せず、対象 ANode が生きているかの検証は購読側責務。 STL 不使用 (内部は TArray)、非コピー・非ムーブ。",
+    "when": "editor 起動コードが 1 個だけ所有し、各 panel が選択を読み書き・購読する集中点として使う。 クリックで SelectNode、ハイライト判定に IsSelected、選択追従に RegisterCallback。",
+    "sample": "CSelectionService sel;\nsel.Init();\nsel.RegisterCallback(&OnSelChanged, &hierarchy);\nif (ImGui::Selectable(label, sel.IsSelected(node_id)))\n    sel.SelectNode(node_id);   // 登録済み callback が一斉に呼ばれる",
+    "members": [
+      {
+        "sig": "using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) noexcept",
+        "desc": "選択変更 コールバック型。 from=変更前 (未選択時 invalid)、to=変更後 (ClearSelection 時 invalid)、user=登録時のコンテキスト。 同じ選択を再 SelectNode しても呼ばれない (no-op)。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "callback list と現選択を空に戻す。 多重呼び出し可。"
+      },
+      {
+        "sig": "void SelectNode(FNodeId id) noexcept",
+        "ret": "—",
+        "desc": "現選択を id に切り替える。 値が変化した場合のみ callback を一斉発火。 invalid handle を渡すと ClearSelection と等価。"
+      },
+      {
+        "sig": "void ClearSelection() noexcept",
+        "ret": "—",
+        "desc": "現選択を invalid に戻す。 前選択が valid だった場合のみ callback 発火。"
+      },
+      {
+        "sig": "FNodeId CurrentSelection() const noexcept",
+        "ret": "現選択",
+        "desc": "現在の選択 FNodeId を返す。 未選択時は invalid handle (IsValid() == false)。"
+      },
+      {
+        "sig": "bool IsSelected(FNodeId id) const noexcept",
+        "ret": "一致可否",
+        "desc": "id が現選択と完全一致 (index + generation) なら true。 invalid id を渡した場合は現選択が invalid のとき true。",
+        "when": "ImGui::Selectable のハイライト判定に。"
+      },
+      {
+        "sig": "void RegisterCallback(SelectionChangeCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "(cb, user) ペアを登録する。 同一ペアの重複登録と cb == null は no-op で弾く。 dispatch 順は登録順。"
+      },
+      {
+        "sig": "void UnregisterCallback(SelectionChangeCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "(cb, user) 完全一致 1 件を解除する。 該当なしは no-op。"
+      },
+      {
+        "sig": "u32 CallbackCount() const noexcept",
+        "ret": "登録数",
+        "desc": "登録済みコールバック数を返す。"
+      },
+      {
+        "sig": "void ClearAll() noexcept",
+        "ret": "—",
+        "desc": "全 callback 登録を破棄し選択も invalid に戻す。 ClearSelection 相当の通知は行わない (shutdown 時の一括破棄想定)。"
+      },
+      {
+        "sig": "using FSelectionService = CSelectionService",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSelectionService を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FGraphHandle",
+    "kind": "構造体",
+    "header": "gameframework/AnimationGraph.h",
+    "summary": "現フェーズでは未使用だが API として公開されている。",
+    "when": "今は意識しなくてよい。",
+    "sample": "FGraphHandle h = FGraphHandle::Pack(0, 1);\nif (h.IsValid()) { /* ... */ }"
+  }
+}

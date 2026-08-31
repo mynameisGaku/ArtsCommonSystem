@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputAxisOptions",
+    "kind": "構造体",
+    "header": "gameframework/InputAxisOptions.h",
+    "summary": "1D軸の合算値へデッドゾーン、非負倍率、反転を適用する12byteの値。 デッドゾーン外を連続する0..1へ再正規化してから倍率を掛ける。",
+    "when": "移動や視点入力へ、物理バインドとは独立した感度・反転設定を適用したい時。 FInputMap::AxisValueへ値渡しする。",
+    "sample": "const FInputAxisOptions look{0.12f, 1.4f, true};\nconst f32 x = input_map.AxisValue(FActionId(\"LookX\"), look);",
+    "members": [
+      {
+        "sig": "f32 dead_zone = 0",
+        "desc": "絶対値がこの値以下なら0。 有効範囲は0以上1未満。"
+      },
+      {
+        "sig": "f32 scale = 1",
+        "desc": "再正規化後の絶対値へ掛ける有限の非負倍率。"
+      },
+      {
+        "sig": "bool inverted = false",
+        "desc": "trueなら出力方向を反転。"
+      },
+      {
+        "sig": "bool IsValid() const noexcept",
+        "desc": "dead_zoneとscaleが有限かつ有効範囲ならtrue。"
+      },
+      {
+        "sig": "f32 Apply(f32 value) const noexcept",
+        "ret": "[-1,+1]",
+        "desc": "有限入力を制限して設定を適用。 不正設定または非有限入力は0。"
+      }
+    ]
+  }
+}

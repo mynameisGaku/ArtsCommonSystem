@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSceneClock",
+  "definition": "シーン単位の論理時間を刻むクロック。 pause・スロー・倍速を反映した dt を Tween やタイマーに供給する。"
+}

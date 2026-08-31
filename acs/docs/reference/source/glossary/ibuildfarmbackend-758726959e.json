@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IBuildFarmBackend",
+  "definition": "ビルドファームの抽象シーム (Jenkins 等)。"
+}

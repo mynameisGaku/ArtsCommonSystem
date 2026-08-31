@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="panel 内部で保持する keyframe (リッチ payload 付き)。 CCinematicsDirector::FTimelineKeyframe より広い payload を持つ。 Play 時に director へ AddKeyframe する際は kind に応じた FTimelineKeyframe へ変換する。 payload フィールドは active な kind に対応するものだけが意味を持つ (CameraCut=camera_target、FadeColor=fade_start_color/fade_end_color、 TimeScale=time_scale、SpawnEffect=event_id+camera_target、 TriggerCallback=event_id)。">
+  <title>acs::game::cinetimeline::FEditorKeyframe — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="feditorkeyframe-8cbdf479.html" aria-current="page">FEditorKeyframe</a><a class="tree-child" href="feditorkeyframe-8cbdf479/camera-target-3c060193.html">camera_target</a><a class="tree-child" href="feditorkeyframe-8cbdf479/event-id-bbbf5d56.html">event_id</a><a class="tree-child" href="feditorkeyframe-8cbdf479/fade-end-color-5d6493ec.html">fade_end_color</a><a class="tree-child" href="feditorkeyframe-8cbdf479/fade-start-color-9ef07a98.html">fade_start_color</a><a class="tree-child" href="feditorkeyframe-8cbdf479/feditorkeyframe-38ae90d0.html">FEditorKeyframe</a><a class="tree-child" href="feditorkeyframe-8cbdf479/kind-5c99314d.html">kind</a><a class="tree-child" href="feditorkeyframe-8cbdf479/time-scale-17f82d0b.html">time_scale</a><a class="tree-child" href="feditorkeyframe-8cbdf479/time-sec-6cff22ef.html">time_sec</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FEditorKeyframe</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / gameframework</div>
+<h1 class="identifier">acs::game::cinetimeline::FEditorKeyframe</h1>
+<p class="lead">panel 内部で保持する keyframe (リッチ <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6561">payload</button><span class="term-tooltip" id="term-tip-6561" role="tooltip">ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では &quot;ASSET_PATH&quot; id で wchar_t* を渡す。</span></span> 付き)。 CCinematicsDirector::FTimelineKeyframe より広い <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6562">payload</button><span class="term-tooltip" id="term-tip-6562" role="tooltip">ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では &quot;ASSET_PATH&quot; id で wchar_t* を渡す。</span></span> を持つ。 Play 時に director へ AddKeyframe する際は kind に応じた FTimelineKeyframe へ変換する。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6563">payload</button><span class="term-tooltip" id="term-tip-6563" role="tooltip">ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では &quot;ASSET_PATH&quot; id で wchar_t* を渡す。</span></span> フィールドは active な kind に対応するものだけが意味を持つ (CameraCut=camera_target、FadeColor=fade_start_color/fade_end_color、 TimeScale=<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-6564">time_scale</button><span class="term-tooltip" id="term-tip-6564" role="tooltip">時間の流れる倍率。 1=通常、0=停止、&gt;1=早送り、&lt;1=スロー。 CSceneClock がこれを掛けて scaled な時間を作る。</span></span>、SpawnEffect=event_id+camera_target、 TriggerCallback=event_id)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::cinetimeline::FEditorKeyframeの宣言"><code>struct <a href="feditorkeyframe-8cbdf479.html" aria-current="page">FEditorKeyframe</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h:158</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="feditorkeyframe-8cbdf479/camera-target-3c060193.html"><span><span class="identifier">FVec3 camera_target { 0.0f, 0.0f, 0.0f };</span><span class="summary">CameraCut のカメラ移動先 / SpawnEffect の発生位置。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/event-id-bbbf5d56.html"><span><span class="identifier">u32 event_id { 0u };</span><span class="summary">SpawnEffect の effect_id / TriggerCallback の event_id。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/fade-end-color-5d6493ec.html"><span><span class="identifier">FVec3 fade_end_color { 1.0f, 1.0f, 1.0f };</span><span class="summary">FadeColor のフェード終了色 (r,g,b in [0,1])。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/fade-start-color-9ef07a98.html"><span><span class="identifier">FVec3 fade_start_color { 0.0f, 0.0f, 0.0f };</span><span class="summary">FadeColor のフェード開始色 (r,g,b in [0,1])。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/feditorkeyframe-38ae90d0.html"><span><span class="identifier">FEditorKeyframe() noexcept = default;</span><span class="summary">既定値で keyframe を構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/kind-5c99314d.html"><span><span class="identifier">ETimelineKeyKind kind = ETimelineKeyKind::TriggerCallback;</span><span class="summary">この keyframe の演出種別。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/time-scale-17f82d0b.html"><span><span class="identifier">f32 time_scale { 1.0f };</span><span class="summary">TimeScale の時間スケール倍率。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="feditorkeyframe-8cbdf479/time-sec-6cff22ef.html"><span><span class="identifier">f32 time_sec = 0.0f;</span><span class="summary">タイムライン上の発火時刻 [秒]。</span></span><span class="kind-label">メンバー変数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

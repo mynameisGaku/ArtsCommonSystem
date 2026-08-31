@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FShapeId",
+    "kind": "構造体",
+    "header": "gameframework/CollisionWorld2D.h",
+    "summary": "CCollisionWorld2D 内の形状を指すハンドル。 24bit index + 8bit generation の packed u32。 削除済み slot を再利用しても古い handle は無効化される。 0 は invalid。",
+    "when": "形状を更新・削除・クエリ結果として扱う時。",
+    "sample": "FShapeId id = world.AddAabb(box);\nif (id.IsValid()) world.UpdateAabb(id, newBox);"
+  }
+}

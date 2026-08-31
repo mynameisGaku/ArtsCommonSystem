@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "New / Delete / NewArray / DeleteArray",
+    "kind": "関数テンプレート",
+    "header": "memory/New.h",
+    "summary": "グローバル new/delete を使わず、アロケータからオブジェクトを構築/破棄する基本ヘルパ。 確保→配置 new→デストラクタ→Free を 1 関数化。",
+    "when": "IAllocator 直下で生のオブジェクトを作りたい低レベルな場面。 通常は MakeUnique/MakeShared を使う。",
+    "sample": "IAllocator& a = DefaultAllocator();\nMyObj* p = New<MyObj>(a, args...);   // 確保 + コンストラクタ\nDelete(a, p);                        // デストラクタ + Free\n\nint* arr = NewArray<int>(a, 64);\nDeleteArray(a, arr, 64);",
+    "members": [
+      {
+        "sig": "T* New<T>(IAllocator& a, Args&&... args)",
+        "ret": "T*",
+        "desc": "確保してコンストラクタ引数を完全転送。 失敗時 null。"
+      },
+      {
+        "sig": "void Delete<T>(IAllocator& a, T* p)",
+        "desc": "デストラクタ(トリビアルなら省略)→Free。 null は no-op。"
+      },
+      {
+        "sig": "T* NewArray<T>(IAllocator& a, usize n)",
+        "ret": "T*",
+        "desc": "n 個確保して各要素を既定構築。 オーバーフローは null。"
+      },
+      {
+        "sig": "void DeleteArray<T>(IAllocator& a, T* arr, usize n)",
+        "desc": "後ろから順にデストラクタ→一括 Free。"
+      }
+    ]
+  }
+}

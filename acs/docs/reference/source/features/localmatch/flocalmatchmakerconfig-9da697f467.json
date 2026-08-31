@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "localmatch",
+    "title": "localmatch — ローカルマッチメイク",
+    "description": "サーバを使わず、同じプロセスの中だけでプレイヤー同士を引き合わせるマッチメイクの実装です。 検索を出した者同士をレーティング(腕前の数値)が近い順に組ませます。 テストやオフライン開発、ローカル対戦の動作確認に使います。"
+  },
+  "feature": {
+    "name": "FLocalMatchmakerConfig",
+    "kind": "構造体",
+    "header": "localmatch/LocalMatchmaker.h",
+    "summary": "CLocalMatchmaker の設定。 今は『どれだけレーティングが離れていてもマッチさせてよいか』の上限値だけを持ちます。",
+    "when": "腕前の差が大きくても組ませたい(値を大きく)、近い相手だけ組ませたい(値を小さく)を調整したい時。",
+    "sample": "FLocalMatchmakerConfig cfg;\ncfg.MaxRatingDelta = 50;          // ±50 まで離れた相手のみ許可\nFLocalMatchmaker mm(cfg);",
+    "members": [
+      {
+        "sig": "acs::u32 MaxRatingDelta = 150",
+        "ret": "許容レート差",
+        "desc": "2 人のレーティング差がこの値以内なら互換と見なしてマッチさせる。 既定は 150。"
+      }
+    ]
+  }
+}

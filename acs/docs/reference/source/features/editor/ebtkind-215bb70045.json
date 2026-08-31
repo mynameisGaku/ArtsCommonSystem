@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EBtKind",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/btedit/BehaviorTreeEditorPanel.h",
+    "summary": "ABehaviorTreeEditorPanel のメタミラー上の node 種別。 実体 BT は RTTI 無効で種別判定できないため、editor 側で明示保持する。 ABtSelector→Selector / ABtSequence→Sequence / ABtAction→Action に 1:1 対応。",
+    "when": "AddNode で node の種別を指定する時、および tree view の色分け / アイコン判別。",
+    "members": [
+      {
+        "sig": "Selector = 0",
+        "desc": "Selector node (ABtSelector に対応)。"
+      },
+      {
+        "sig": "Sequence = 1",
+        "desc": "Sequence node (ABtSequence に対応)。"
+      },
+      {
+        "sig": "Action = 2",
+        "desc": "Action node (ABtAction に対応)。"
+      }
+    ]
+  }
+}

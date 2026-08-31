@@ -1,0 +1,73 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSeasonPass",
+    "kind": "クラス",
+    "header": "gameframework/SeasonPass.h",
+    "summary": "シーズン (バトルパス) の進行管理。 期間 (開始/終了 timestamp)・累積 XP による tier 進行・各 tier 報酬の請求状態を 1 クラスで扱う。 報酬は固定 (乱数なし)・cosmetic 限定を強く推奨する倫理方針。",
+    "when": "期間限定シーズンや無料/プレミアムのパス報酬を実装する時。 報酬 ID を吐き出すだけで、実体解放は entitlement 側に橋渡しする。",
+    "sample": "CSeasonPass sp;\nFSeasonInfo info{};\ninfo.season_id = \"season.spring_2026\";\ninfo.start_timestamp = 1748736000ull;\ninfo.end_timestamp   = 1756598400ull;\nsp.StartSeason(info);\nsp.DefineTier({ 0, 100, \"cosmetic.frame_t00\", nullptr });\nsp.AwardXp(150);\nsp.Tick(dt);\nif (sp.ClaimReward(0, /*premium=*/false)) { /* 付与 */ }",
+    "members": [
+      {
+        "sig": "void StartSeason(const FSeasonInfo& info)",
+        "desc": "シーズンを開始する (xp=0、tier 定義は破棄、現在時刻 = 開始時刻)。"
+      },
+      {
+        "sig": "void DefineTier(const FTier& t)",
+        "desc": "tier を 1 件登録する。 tier_index 重複は無視。"
+      },
+      {
+        "sig": "void AwardXp(u32 amount)",
+        "desc": "累積 XP を加算する (オーバーフローは max クランプ)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "内部時刻を進め、終了時刻を過ぎたら自動で Ended に遷移する。"
+      },
+      {
+        "sig": "void EndSeason()",
+        "desc": "timestamp を待たず手動でシーズンを終了させる (管理者/デバッグ用)。"
+      },
+      {
+        "sig": "u32 CurrentTier() const / u32 CurrentXp() const / ESeasonStatus Status() const",
+        "desc": "到達中の最大 tier・累積 XP・時刻ベースの状態。"
+      },
+      {
+        "sig": "void SetPremiumPass(bool has) / bool HasPremiumPass() const",
+        "desc": "プレミアムパス所持フラグの設定/取得 (課金検証は entitlement 側)。"
+      },
+      {
+        "sig": "bool ClaimReward(u32 tier_index, bool premium)",
+        "ret": "新規請求できたか",
+        "desc": "報酬を請求する。 未解放/既請求/プレミアム未所持/報酬無しなら false。 冪等。"
+      },
+      {
+        "sig": "bool IsRewardClaimed(u32 tier_index, bool premium) const",
+        "desc": "その報酬が請求済みか。"
+      },
+      {
+        "sig": "const char* GetRewardId(u32 tier_index, bool premium) const",
+        "ret": "報酬 ID",
+        "desc": "tier の報酬 ID を取得する (未定義/無しは nullptr)。"
+      },
+      {
+        "sig": "u32 ClaimableCount() const",
+        "ret": "請求可能数",
+        "desc": "未請求の解放済み報酬数 (UI の赤バッジ用)。"
+      },
+      {
+        "sig": "u32 TierCount() const",
+        "desc": "登録済み tier 件数。"
+      },
+      {
+        "sig": "using FSeasonPass = CSeasonPass",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSeasonPass を使う。"
+      }
+    ]
+  }
+}

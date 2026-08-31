@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのappモジュールに含まれる機能とAPIです。">
+  <title>app モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="app.html">app モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="app.html">app モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="app.html">app モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">app</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">app</h1>
+<p class="lead">app モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 3</span><span class="badge">API 12</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/app/aassetsubsystem-f4854cee.html"><span class="card-title">AAssetSubsystem</span><span class="card-description">applicationが所有し、asset registryへの共通アクセスを提供するsubsystem。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/app/atimersubsystem-ee08383a.html"><span class="card-title">ATimerSubsystem</span><span class="card-description">applicationが所有し、timer更新と取得を提供するsubsystem。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/app/capplication-0be595b7.html"><span class="card-title">CApplication</span><span class="card-description">アプリ全体の実行とapplication subsystemの所有をまとめる。</span><span class="card-meta">クラス</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/app/aassetsubsystem-b0b9f041.html"><span><span class="identifier">acs::AAssetSubsystem</span><span class="summary">CApplication が所有するアセット登録簿を Engine スコープへ公開するアダプター。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/app/capplicationtestaccess-6117e4ae.html"><span><span class="identifier">acs::app_internal::CApplicationTestAccess</span><span class="summary">ACS の app モジュールで CApplicationTestAccess を表すクラスです。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/app/atimersubsystem-d209446a.html"><span><span class="identifier">acs::ATimerSubsystem</span><span class="summary">CApplication が所有するタイマー管理器を Engine スコープへ公開するアダプター。</span></span><span class="kind-label">クラス →</span></a><a class="member-card" href="../symbols/app/capplication-ca52a472.html"><span><span class="identifier">acs::CApplication</span><span class="summary">ゲーム実行 target が継承するアプリケーション基底クラス。 ウィンドウ・レンダラ・ECS CWorld・アセット・タイマー・イベントブローカーといった エンジンサブシステムを所有し、Run() で初期化からメインループ・後始末までを駆動する。 派生クラスは OnStart/OnUpdate/OnRender/OnShutdown/OnEvent を override してロジックと 描画を書く。 non-copy 型で、通常は ACS_DEFINE_MAIN マクロ経由でインスタンス化する。</span></span><span class="kind-label">クラス →</span></a></div><h3>マクロ</h3><div class="member-list"><a class="member-card" href="../symbols/app/acs-define-main-68b7ace6.html"><span><span class="identifier">ACS_DEFINE_MAIN</span><span class="summary">AppClass を既定 FAppConfig で起動するエントリポイントを自動生成する。 AppClass をスタックに構築し、`FAppConfig{}` を渡して Run() を呼ぶ実装関数を作り、 main と、UNICODE 契約に対応する WinMain または wWinMain を出して そこへ委譲する (コンソール・Win32 両サブシステム対応)。 AppClass: CApplication を継承したアプリ型。</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/app/acs-define-main-with-config-3e05547a.html"><span><span class="identifier">ACS_DEFINE_MAIN_WITH_CONFIG</span><span class="summary">cfg_factory が返す FAppConfig で AppClass を起動するエントリポイントを生成する。 ACS_DEFINE_MAIN と同じだが、既定設定の代わりに cfg_factory() の戻り値を Run() に渡す。 AppClass: CApplication を継承したアプリ型。 cfg_factory: FAppConfig を返す呼び出し可能オブジェクト (関数等)。</span></span><span class="kind-label">マクロ →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/app/fapplication-25679f9f.html"><span><span class="identifier">acs::FApplication</span><span class="summary">ACS の app モジュールで FApplication を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a><a class="member-card" href="../symbols/app/fassetsubsystem-e8ed62c7.html"><span><span class="identifier">acs::FAssetSubsystem</span><span class="summary">ACS の app モジュールで FAssetSubsystem を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a><a class="member-card" href="../symbols/app/ftimersubsystem-a05fa762.html"><span><span class="identifier">acs::FTimerSubsystem</span><span class="summary">ACS の app モジュールで FTimerSubsystem を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/app/fappconfig-c1ba0f51.html"><span><span class="identifier">acs::FAppConfig</span><span class="summary">CApplication::Run に渡す起動オプション一式。 ウィンドウ・ロガー・メモリシステム・スレッドプール・レンダラ・背景色の初期値を まとめて保持する集約 struct。 すべてのフィールドに既定値があり、`FAppConfig cfg{};` のまま Run に渡せば標準設定で起動できる。</span></span><span class="kind-label">構造体 →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/app/acsregisterapplicationsubsystems-de6e74c6.html"><span><span class="identifier">acs::AcsRegisterApplicationSubsystems</span><span class="summary">App 組み込みサブシステムを明示的かつ冪等に登録する。 容量不足では false を返す。 成功済み登録は保持され、後続呼び出しで不足分を再試行できる。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/app/tryload-67624616.html"><span><span class="identifier">acs::UiFontDefaults::TryLoad</span><span class="summary">OS 既定 UI フォント候補を優先順に読み込む。 font: 読み込み結果を保持する呼び出し側所有のフォント。 device: グリフ atlas を作成する RHI device。 size_px: 読み込むフォントの pixel size。 atlas_size: グリフ atlas 一辺の pixel 数。 include_cjk: 日本語を含む CJK グリフを atlas へ含める指定。 戻り値: 最初に読み込めた候補では成功、全候補の失敗時は Asset error。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

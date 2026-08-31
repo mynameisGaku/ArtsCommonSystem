@@ -1,0 +1,139 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ACinematicsTimelineEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+    "summary": "CCinematicsDirector を対話編集する timeline editor パネル。 水平タイムライン + 5 トラック (ETimelineKeyKind ごと) + keyframe marker + 再生制御 (Play/Pause/Stop/Step) + scrub slider を提供。 リッチな FEditorKeyframe を panel 所有で持ち、Play 時に director へベイクする。 director は 非所有 (caller 所有)。 非コピー・非ムーブ・全 noexcept。",
+    "when": "cutscene の keyframe を時間軸上で配置・編集し、再生確認したい時。 SetCinematicsDirector(&dir) でバインドする。",
+    "sample": "namespace ct = acs::game::cinetimeline;\nct::ACinematicsTimelineEditorPanel panel;\npanel.Init();\nworkspace.RegisterPanel(&panel);\nacs::game::CCinematicsDirector director;\npanel.SetCinematicsDirector(&director);\npanel.AddKeyframe(ct::ETimelineKeyKind::CameraCut, 0.0f);\npanel.AddKeyframe(ct::ETimelineKeyKind::FadeColor, 2.0f);\npanel.Play();\npanel.Step(0.016f);\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "director 参照を nullptr、selection 未選択、duration を default (10s)、keyframes を空に。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "director 参照 / selection / keyframes を解除。 director 自体は破棄しない。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetCinematicsDirector(acs::game::CCinematicsDirector* dir) noexcept",
+        "ret": "—",
+        "desc": "編集対象 director を raw 参照でセット (nullptr で解除、非所有)。 selection と m_CurrentTime を 0 に戻す。",
+        "when": "編集対象バインド時。"
+      },
+      {
+        "sig": "acs::game::CCinematicsDirector* CurrentDirector() const noexcept",
+        "ret": "director または nullptr",
+        "desc": "現在編集対象の director (未バインドは nullptr)。"
+      },
+      {
+        "sig": "void Play() noexcept",
+        "ret": "—",
+        "desc": "現在位置から再生開始。 director がバインドされていれば全 keyframe を Clear → editor の現状で再 bake → Play する。",
+        "when": "再生時。"
+      },
+      {
+        "sig": "void Pause() noexcept",
+        "ret": "—",
+        "desc": "再生一時停止 (m_Playing=false、m_CurrentTime 保持)。"
+      },
+      {
+        "sig": "void Stop() noexcept",
+        "ret": "—",
+        "desc": "完全停止 (m_Playing=false、m_CurrentTime=0、director.Stop も呼ぶ)。"
+      },
+      {
+        "sig": "void Step(f32 dt) noexcept",
+        "ret": "—",
+        "desc": "再生中に有限で正の dt だけ進める。 非有限値と加算結果が非有限になる値は無視し、director.Tick(dt) と m_CurrentTime を変更しない。",
+        "when": "再生中の毎フレーム。"
+      },
+      {
+        "sig": "bool IsPlaying() const noexcept",
+        "ret": "bool",
+        "desc": "再生中か。"
+      },
+      {
+        "sig": "f32 CurrentTimeSec() const noexcept / void SetCurrentTimeSec(f32 t) noexcept",
+        "ret": "秒",
+        "desc": "タイムカーソルの現在時刻。 有限値は [0, Duration] にクランプし、非有限値は無視する。"
+      },
+      {
+        "sig": "f32 DurationSec() const noexcept / void SetDurationSec(f32 d) noexcept",
+        "ret": "秒",
+        "desc": "タイムライン全体の長さ。 有限値は最低 kMinDurationSec (0.1s) にクランプし、非有限値は無視する。"
+      },
+      {
+        "sig": "i32 SelectedKeyframeIndex() const noexcept",
+        "ret": "index または kNoKeySelected",
+        "desc": "現在選択中の keyframe index (内部 TArray の index)。 未選択は kNoKeySelected。"
+      },
+      {
+        "sig": "void SelectKeyframe(i32 i) noexcept",
+        "ret": "—",
+        "desc": "selection を変更。 -1..KeyframeCount-1 範囲外は kNoKeySelected に丸める。"
+      },
+      {
+        "sig": "void AddKeyframe(ETimelineKeyKind kind, f32 time_sec) noexcept",
+        "ret": "—",
+        "desc": "有限の time_sec で新規 keyframe を追加。 有限値は [0, Duration] にクランプし、配列は time 昇順、追加後は新 keyframe を selection にする。 非有限値は panel と director を変更しない。",
+        "when": "キー追加時。"
+      },
+      {
+        "sig": "void RemoveSelectedKeyframe() noexcept",
+        "ret": "—",
+        "desc": "選択中 keyframe を削除 (selection 無効なら no-op)。 削除後 selection を解除。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Cinematics Timeline\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: Toolbar + Timeline canvas + Inspector + Ruler を描画。"
+      },
+      {
+        "sig": "static constexpr i32 kNoKeySelected = -1",
+        "desc": "「未選択」を表す sentinel (i32 戻り値で使用)。"
+      },
+      {
+        "sig": "static constexpr u32 kTrackCount = 5u",
+        "desc": "タイムライン全 track の数 (= ETimelineKeyKind の要素数)。"
+      },
+      {
+        "sig": "static constexpr f32 kTrackRowHeightPx = 28.0f",
+        "desc": "1 トラックの行高さ (px)。"
+      },
+      {
+        "sig": "static constexpr f32 kMarkerWidthPx = 10.0f",
+        "desc": "marker の幅 (px)。"
+      },
+      {
+        "sig": "static constexpr f32 kMarkerHitSlackPx = 3.0f",
+        "desc": "marker AABB hit-test の余裕 (px)。"
+      },
+      {
+        "sig": "static constexpr f32 kMinDurationSec = 0.1f",
+        "desc": "Duration の最低値 (秒)。"
+      },
+      {
+        "sig": "static constexpr f32 kDefaultDurationSec = 10.0f",
+        "desc": "Duration のデフォルト値 (秒)。"
+      },
+      {
+        "sig": "using FCinematicsTimelineEditorPanel = ACinematicsTimelineEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ACinematicsTimelineEditorPanel を使う。"
+      }
+    ]
+  }
+}

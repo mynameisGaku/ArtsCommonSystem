@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AScene2D",
+  "definition": "Camera2D と Physics2D を既定要求する AScene の空派生。 描画資源は CGame が共有し、AScene が FRenderContext へ配線する。"
+}

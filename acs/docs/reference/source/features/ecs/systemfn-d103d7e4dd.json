@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "SystemFn",
+    "kind": "型エイリアス",
+    "header": "ecs/System.h",
+    "summary": "システム関数の型 void(*)(CWorld&, f32 dt)。 CWorld とデルタタイムを受け取り、毎フレーム呼ばれる処理の単位。",
+    "when": "移動・AI・物理など『毎フレームやること』を 1 つの関数にまとめ、スケジューラに登録する時。",
+    "sample": "void MovementSystem(CWorld& w, f32 dt) {\n    w.Query<Position, Velocity>().Each(\n        [dt](FEntityId, Position& p, Velocity& v){ p.x += v.x * dt; });\n}"
+  }
+}

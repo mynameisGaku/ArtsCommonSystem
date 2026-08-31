@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CVoiceChatBackendStub",
+    "kind": "クラス",
+    "header": "gameframework/VoiceChat.h",
+    "summary": "SDK 未統合ビルド / テスト用の何もしないボイスチャット実装。 すべての API が「未実装」エラーを返し、IsAvailable() は常に false です。",
+    "when": "実 SDK をまだ繋いでいないが、コードはコンパイル / 動作させたい時の既定実装。",
+    "sample": "IVoiceChatBackend& voice = GetVoiceStub();\nif (!voice.IsAvailable()) { /* UI でボイス無効表示 */ }",
+    "members": [
+      {
+        "sig": "bool IsAvailable() const override",
+        "desc": "常に false。"
+      },
+      {
+        "sig": "EVoiceProvider ActiveProvider() const override",
+        "desc": "Init で受けた provider を返す。"
+      },
+      {
+        "sig": "using FVoiceChatBackendStub = CVoiceChatBackendStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CVoiceChatBackendStub を使う。"
+      }
+    ]
+  }
+}

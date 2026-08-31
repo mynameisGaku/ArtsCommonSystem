@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPrefabSystem",
+    "kind": "クラス",
+    "header": "gameframework/PrefabSystem.h",
+    "summary": "名前付きの ANode ツリーテンプレート (Prefab) をファクトリ関数として登録し、ID か名前から TObjectPtr<ANode> を生成 (spawn) する軽量レジストリ。 組み立て済みのノード構成をファイルではなく関数で表現する。",
+    "when": "「敵」「コイン」「弾」などの組み立て済みオブジェクトを 1 度登録しておき、ゲーム中に何度も spawn したい時。",
+    "sample": "static TObjectPtr<ANode> SpawnEnemy(void*) noexcept {\n    auto n = NewObject<ANode>();\n    // 子ノード / コンポーネントを組み立てる\n    return n;\n}\nFPrefabSystem prefabs;\nFPrefabId id = prefabs.Register(\"Enemy\", &SpawnEnemy);\nauto a = prefabs.Spawn(id);\nauto b = prefabs.SpawnByName(\"Enemy\");",
+    "members": [
+      {
+        "sig": "FPrefabId Register(const char* name, PrefabFactoryFn factory, void* user_data = nullptr)",
+        "ret": "新規 ID (失敗時 invalid)",
+        "desc": "Prefab を登録。 name は永続文字列を渡す (複製しない)。 nullptr / 空文字 / factory==nullptr は弾く。 同名でも別 ID を作る (上書きしない)。"
+      },
+      {
+        "sig": "FPrefabId FindByName(const char* name) const",
+        "desc": "名前で検索 (登録順で最初に一致したもの)。 一致しなければ invalid。"
+      },
+      {
+        "sig": "TObjectPtr<ANode> Spawn(FPrefabId id)",
+        "ret": "新しい ANode ツリー",
+        "desc": "ID から factory を 1 回呼んで生成。 invalid / stale / factory==nullptr なら空を返す。"
+      },
+      {
+        "sig": "TObjectPtr<ANode> SpawnByName(const char* name)",
+        "desc": "名前から spawn (FindByName → Spawn 相当)。"
+      },
+      {
+        "sig": "bool Unregister(FPrefabId id)",
+        "desc": "登録解除。 slot 再利用 + generation+1 で古い handle を無効化。 実際に解除したか返す。"
+      },
+      {
+        "sig": "const char* GetName(FPrefabId id) const",
+        "desc": "デバッグ用の名前取得。 invalid / stale なら \"(unknown)\" (nullptr は返さない)。"
+      },
+      {
+        "sig": "u32 Count() const",
+        "desc": "現在 active な登録数。 ClearAll() で全破棄。"
+      },
+      {
+        "sig": "using FPrefabSystem = CPrefabSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPrefabSystem を使う。"
+      }
+    ]
+  }
+}

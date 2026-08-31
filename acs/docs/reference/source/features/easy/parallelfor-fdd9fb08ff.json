@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "ParallelFor",
+    "kind": "関数テンプレート",
+    "header": "easy/Easy.h",
+    "summary": "[begin,end) を全コアで分担して fn(i) を呼び、完了まで待つ（同期）。 内部は本格的なワークスチールスレッドプール。 並列にできない環境では自動的に順次実行へフォールバック。",
+    "when": "大量の独立した計算（パーティクル更新、画像処理など）を一気に速くしたい時。 各 i は独立して処理し、描画など他の easy 関数を中で呼ばないこと（スレッドはメイン専用）。",
+    "sample": "// 1000 個のパーティクルを並列更新（描画はしない）\nParallelFor(0, 1000, [&](int i){\n    particles[i].x += particles[i].vx * dt;\n});\n// 描画は戻ってからメインスレッドで\nfor (int i = 0; i < 1000; ++i) DrawPixel(particles[i].x, particles[i].y, FColor::White);",
+    "members": [
+      {
+        "sig": "void ParallelFor<Fn>(i32 begin, i32 end, Fn fn)",
+        "desc": "区間を自動チャンクで分担して並列実行し、全完了まで待つ。"
+      },
+      {
+        "sig": "void ParallelFor<Fn>(i32 begin, i32 end, i32 grain, Fn fn)",
+        "desc": "grain（1 チャンクの要素数）を明示する版。 0 で自動。"
+      }
+    ]
+  }
+}

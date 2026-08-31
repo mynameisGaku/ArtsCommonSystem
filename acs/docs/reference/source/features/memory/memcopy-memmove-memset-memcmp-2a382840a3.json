@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "MemCopy / MemMove / MemSet / MemCmp",
+    "kind": "関数",
+    "header": "memory/Memory.h",
+    "summary": "SetDefaultAllocator で既定アロケータを差し替えられる。",
+    "when": "生バイト列のコピー/比較/フィル。 型のある配列は通常コンテナ側に任せる。",
+    "sample": "MemCopy(dst, src, n);           // 非重複コピー\nMemMove(dst, src, n);           // 重複可\nMemSet(buf, 0, n);              // 0 クリア\nint c = MemCmp(a, b, n);        // 比較(0=一致)\nSetDefaultAllocator(&myAlloc); // 既定を差し替え(null で System に戻す)",
+    "members": [
+      {
+        "sig": "void MemCopy(void* dst, const void* src, usize n)",
+        "desc": "領域非重複コピー。"
+      },
+      {
+        "sig": "void MemMove(void* dst, const void* src, usize n)",
+        "desc": "領域重複可コピー。"
+      },
+      {
+        "sig": "void MemSet(void* dst, int value, usize n)",
+        "desc": "バイト単位フィル。"
+      },
+      {
+        "sig": "int MemCmp(const void* a, const void* b, usize n)",
+        "ret": "比較結果",
+        "desc": "バイト比較(0=一致)。"
+      },
+      {
+        "sig": "void SetDefaultAllocator(IAllocator* a)",
+        "desc": "既定アロケータを差し替え。 nullptr で CSystemAllocator に戻す。 起動初期に呼ぶ。"
+      }
+    ]
+  }
+}

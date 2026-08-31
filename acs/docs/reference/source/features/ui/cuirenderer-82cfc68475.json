@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "CUiRenderer",
+    "kind": "クラス",
+    "header": "ui/UiRenderer.h",
+    "summary": "AWidget ツリーを CSpriteBatch + FFont で1 フレーム分まとめて描画する描画役。 矩形・枠線・文字・カーソル位置用の文字列計測ヘルパを持ち、各ウィジェットの Render がこれに描画を依頼する。 コピー不可。",
+    "when": "UI を画面に出す中心。 起動時に Init し、毎フレーム Render(root, ...) を呼ぶ。",
+    "sample": "CUiRenderer ur;\nur.Init(*device, GetRenderer().ColorFormat(), default_font);\n// 毎フレーム (Layout も内部で実行):\nur.Render(root, *cmd, w, h);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice& device, EFormat rt_format, FFont* default_font) noexcept",
+        "ret": "成否(Result)",
+        "desc": "内部の CSpriteBatch を初期化し、既定フォントと描画先フォーマットを設定する。",
+        "when": "アプリ起動時に 1 回。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "確保した描画リソースを解放する。"
+      },
+      {
+        "sig": "void Render(AWidget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept",
+        "desc": "visible な root を画面全体へ Layout してからウィジェットを再帰描画し、コマンドリストに発行する。 root.visible == false なら Layout、batch Begin/End、root/child Render をすべて省略する。",
+        "when": "毎フレーム 1 回呼ぶ。"
+      },
+      {
+        "sig": "void DrawRect(f32 x, f32 y, f32 w, f32 h, const FVec4& color)",
+        "desc": "塗りつぶし矩形を描く。 ウィジェットの Render 内から使う低レベル部品。"
+      },
+      {
+        "sig": "void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, const FVec4& color, f32 thickness = 1.0f)",
+        "desc": "枠線(中抜き矩形)を描く。"
+      },
+      {
+        "sig": "void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept",
+        "desc": "UTF-8 文字列を描く。"
+      },
+      {
+        "sig": "f32 MeasureText(const char* utf8) const / f32 MeasureTextBytes(const char* utf8, usize byte_count) const",
+        "desc": "文字列全体または指定 byte prefix の描画幅を測る。 ATextInput の caret 位置計算にも使う。"
+      },
+      {
+        "sig": "const FUiColors& Colors() / FUiColors& Colors()",
+        "ret": "テーマ色",
+        "desc": "ウィジェットが参照するテーマ色一式。 非 const 版で書き換えると見た目を一括変更できる。",
+        "sample": "ur.Colors().button_bg = { 0.8f, 0.2f, 0.2f, 1.0f };"
+      },
+      {
+        "sig": "FFont* DefaultFont() const noexcept",
+        "ret": "既定フォント",
+        "desc": "Init で渡した既定フォント。 所有はしない。"
+      },
+      {
+        "sig": "using FUiRenderer = CUiRenderer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CUiRenderer を使う。"
+      }
+    ]
+  }
+}

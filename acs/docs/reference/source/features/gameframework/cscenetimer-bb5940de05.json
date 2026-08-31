@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneTimer",
+    "kind": "クラス",
+    "header": "gameframework/SceneTimer.h",
+    "summary": "シーンスコープの遅延コールバック。 SetTimeout/SetInterval で『何秒後に』『何秒ごとに』関数を呼ぶ。 シーンが死ぬと自動で破棄されるのがグローバルなタイマーとの違い。",
+    "when": "敵を一定間隔で湧かせる、数秒後にウェーブを終わらせる、など時間ベースの処理を書く時。",
+    "sample": "m_SpawnTimer = m_Timers.SetInterval(2.0f, &SpawnEnemy, this);\nm_Timers.SetTimeout(10.0f, &EndWave, this);\n// OnUpdate から:\nm_Timers.Tick(dt);",
+    "members": [
+      {
+        "sig": "FSceneTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user)",
+        "ret": "シーンタイマーハンドル",
+        "desc": "delay 秒後に 1 回だけ実行する。 delay<=0 や cb=null は invalid。"
+      },
+      {
+        "sig": "FSceneTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user)",
+        "ret": "シーンタイマーハンドル",
+        "desc": "period 秒ごとに繰り返し実行する (Cancel まで永続)。"
+      },
+      {
+        "sig": "bool Cancel(FSceneTimerHandle h)",
+        "desc": "タイマーを止める。 止められたら true。"
+      },
+      {
+        "sig": "void CancelAll()",
+        "desc": "全タイマーを止める。 OnExit 等で。"
+      },
+      {
+        "sig": "bool IsActive(FSceneTimerHandle h) const / u32 ActiveCount() const",
+        "desc": "そのタイマーが生きているか、稼働中の総数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 大きい dt では Interval が同フレームで複数回発火し得る。"
+      },
+      {
+        "sig": "using FSceneTimer = CSceneTimer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneTimer を使う。"
+      }
+    ]
+  }
+}

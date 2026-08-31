@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CDialogueLocalizer",
+  "definition": "会話の各行を翻訳キー扱いにして、現在のロケールで翻訳を解決しコールバックへ渡す多言語化の橋渡し。"
+}

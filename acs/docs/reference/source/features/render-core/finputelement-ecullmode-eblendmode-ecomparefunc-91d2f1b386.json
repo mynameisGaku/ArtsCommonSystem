@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FInputElement / ECullMode / EBlendMode / ECompareFunc",
+    "kind": "構造体 / 列挙(enum)",
+    "header": "render/IRhiPipeline.h",
+    "summary": "パイプラインを組む部品。 FInputElement=頂点 1 要素(POSITION/COLOR 等のセマンティック+フォーマット+オフセット)、ECullMode=面の捨て方、EBlendMode=色の混ぜ方、ECompareFunc=深度/ステンシルの比較関数。",
+    "when": "FPipelineDesc の各フィールドを埋めるとき。",
+    "sample": "FInputElement e{ \"TEXCOORD\", 0, EFormat::R32G32_Float, 12 };\n// 半透明にするなら:\npd.blend_mode = EBlendMode::AlphaBlend;\npd.cull_mode  = ECullMode::Back;",
+    "members": [
+      {
+        "sig": "struct FInputElement{ semantic_name, semantic_index, format, offset }",
+        "desc": "HLSL のセマンティック名・index・フォーマット・頂点内バイトオフセット。"
+      },
+      {
+        "sig": "enum ECullMode: None / Front / Back",
+        "desc": "カリング無し(両面) / 表面 / 裏面(一般的)。"
+      },
+      {
+        "sig": "enum EBlendMode: Opaque / AlphaBlend / Additive",
+        "desc": "不透明 / 一般的な半透明 / 加算。"
+      },
+      {
+        "sig": "enum ECompareFunc: Never / Less / Equal / LessEqual / Greater / NotEqual / GreaterEqual / Always",
+        "desc": "深度・ステンシルテストの比較関数。"
+      }
+    ]
+  }
+}

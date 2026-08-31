@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "timing",
+    "title": "timing — 決定論的な時間変換",
+    "description": "利用側が値として所有する固定更新時計。 可変な経過秒を有界な更新回数と描画補間率へ変換し、ゲームループや共有サービスの寿命から切り離します。"
+  },
+  "feature": {
+    "name": "FFixedStepOptions",
+    "kind": "構造体",
+    "header": "timing/FixedStepOptions.h",
+    "summary": "固定更新の刻み秒、一回の最大更新回数、一回の最大蓄積秒をまとめる設定値。",
+    "when": "simulationごとに固定更新の精度と過負荷時の上限を指定する時。"
+  }
+}

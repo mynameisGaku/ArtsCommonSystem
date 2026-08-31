@@ -1,0 +1,80 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "CTimerManager",
+    "kind": "クラス",
+    "header": "event/TimerManager.h",
+    "summary": "時間差で関数を呼ぶタイマー集。 「N 秒後に 1 回」や「N 秒ごとに繰り返し」を登録し、毎フレーム Tick(dt) を回すと条件を満たしたタイマが発火します。 実時間ではなくフレームの経過時間で進むので、ポーズや早送りにも自然に追従します。",
+    "when": "クールダウン明け、遅延スポーン、定期回復、点滅の切り替え等、「少し後で/定期的に」何かを実行したい時。",
+    "sample": "static void OnFire(void* user) {\n    auto* s = static_cast<FMyState*>(user);\n    s->Spawn();\n}\n\nCTimerManager timers;\nauto h = timers.SetTimeout(2.5f, &OnFire, &st);  // 2.5 秒後に 1 回\n\n// フレームループで毎回:\ntimers.Tick(dt);",
+    "members": [
+      {
+        "sig": "FTimerHandle SetTimeout(f32 delay_seconds, TimerCallback cb, void* user)",
+        "ret": "タイマーハンドル",
+        "desc": "delay_seconds 秒後に cb(user) を1 回だけ呼ぶ。 世代番号の使い切り後は無効なハンドルを返す。",
+        "when": "遅延実行・ワンショットの予約に。"
+      },
+      {
+        "sig": "FTimerHandle SetTimeout(f32 delay_seconds, FSimpleDelegate delegate)",
+        "ret": "タイマーハンドル",
+        "desc": "関数と任意データをまとめたデリゲートを、指定秒数後に1回呼ぶ。"
+      },
+      {
+        "sig": "FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user)",
+        "ret": "タイマーハンドル",
+        "desc": "period_seconds 秒経つごとに繰り返し cb(user) を呼ぶ(発火後に自動で再カウント)。 世代番号の使い切り後は無効なハンドルを返す。",
+        "when": "定期処理(秒間回復、定期スポーン等)に。",
+        "sample": "auto h = timers.SetInterval(1.0f, &OnTick, &st); // 毎秒"
+      },
+      {
+        "sig": "FTimerHandle SetInterval(f32 period_seconds, FSimpleDelegate delegate)",
+        "ret": "タイマーハンドル",
+        "desc": "関数と任意データをまとめたデリゲートを、指定周期で繰り返し呼ぶ。"
+      },
+      {
+        "sig": "template<ETimerSchedulePolicy Policy, auto Callback, typename User> FTimerHandle Schedule(f32 seconds, User* user)",
+        "ret": "タイマーハンドル",
+        "desc": "単発または周期方針と型付きコールバックをコンパイル時に検証して登録する。"
+      },
+      {
+        "sig": "bool Cancel(FTimerHandle h)",
+        "ret": "止められたか",
+        "desc": "指定タイマをキャンセルする。 すでに発火/解放済みなら false。",
+        "when": "周期タイマを止める/予約を取り消す時。"
+      },
+      {
+        "sig": "bool IsActive(FTimerHandle h) const",
+        "ret": "登録中か",
+        "desc": "番号と世代が一致するタイマーが現在も登録中なら true。"
+      },
+      {
+        "sig": "void CancelAll() / void Clear()",
+        "desc": "全タイマーを解除する。 呼出し中は外側の更新完了時に保持領域を解放する。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 dt(前フレームからの秒数)だけ全タイマを進める。 処理からの再入更新は無視し、更新中の新規登録は次回から進める。",
+        "when": "ゲームループの更新部分で必ず 1 回呼ぶ。"
+      },
+      {
+        "sig": "u32 ActiveCount() const",
+        "ret": "稼働中の数",
+        "desc": "現在アクティブなタイマ数。 主にデバッグ用。"
+      },
+      {
+        "sig": "FTimerDiagnostics Diagnostics() const / void ResetDiagnostics()",
+        "ret": "走査診断値",
+        "desc": "直近更新のactive走査量と累積cancel probeを取得し、必要なら診断値だけを0へ戻す。"
+      },
+      {
+        "sig": "using FTimerManager = CTimerManager",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTimerManager を使う。"
+      }
+    ]
+  }
+}

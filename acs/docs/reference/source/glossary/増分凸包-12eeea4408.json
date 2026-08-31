@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "増分凸包",
+  "definition": "点を 1 個ずつ足しながら凸包を更新していく構築アルゴリズム(incremental hull)。"
+}

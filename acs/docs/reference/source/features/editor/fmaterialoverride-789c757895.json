@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FMaterialOverride",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelMaterialPanel.h",
+    "summary": "1 つの material slot 分の PBR override データ(base color / metallic / roughness / normal strength / AO strength / emissive / emissive intensity)。 is_overridden が false の slot は「元の material そのまま」を意味し、各値は物理的に neutral な default で初期化される。 ユーザーが UI で 1 つでも触ると is_overridden が true になる。 TArray Resize 時に MemSet ゼロ初期化される trivially-constructible レイアウト。",
+    "when": "AModelMaterialPanel から callback で 1 件ずつ外部に渡され、受け側が CPbrShader 等の constant buffer に反映する。 CUndoStack には「変更前 → 変更後」を 1 件分として atomic に積める。",
+    "sample": "void OnMatChanged(void* user, u32 slot, const FMaterialOverride& ov) noexcept {\n    if (!ov.is_overridden) return;        // 元のマテリアルそのまま\n    // ov.base_color / ov.metallic / ov.roughness を shader CB に書く\n    (void)user; (void)slot;\n}",
+    "members": [
+      {
+        "sig": "u32 slot_index = 0u",
+        "desc": "slot 番号(0..SlotCount()-1)。 TArray index と一致する冗長情報だが、callback で外部に渡す際に index を引き直さずに済む。"
+      },
+      {
+        "sig": "FVec4 base_color = {1,1,1,1}",
+        "desc": "PBR base color(RGBA)。 既定 white opaque。"
+      },
+      {
+        "sig": "f32 metallic = 0.0f",
+        "desc": "0=dielectric(非金属) / 1=metal。 PBR Metallic workflow に直結。 範囲 [0,1]。"
+      },
+      {
+        "sig": "f32 roughness = 0.5f",
+        "desc": "0=mirror smooth / 1=perfectly rough。 GGX の roughness にそのまま渡す。 範囲 [0,1]。"
+      },
+      {
+        "sig": "f32 normal_strength = 1.0f",
+        "desc": "normal map 影響度の倍率。 1.0 で neutral、<1 で flatten、>1 で誇張。 範囲 [0,2]。"
+      },
+      {
+        "sig": "f32 ao_strength = 1.0f",
+        "desc": "ambient occlusion 影響度。 1.0 で AO テクスチャをそのまま、0 で AO 無効。 範囲 [0,1]。"
+      },
+      {
+        "sig": "FVec3 emissive = {0,0,0}",
+        "desc": "自己発光色(ColorEdit3 値域 [0,1])。 既定 黒(= 発光 OFF)。"
+      },
+      {
+        "sig": "f32 emissive_intensity = 1.0f",
+        "desc": "発光強度倍率。 emissive との積で >1 に増幅され bloom / HDR で光って見える。 範囲 [0,10]。"
+      },
+      {
+        "sig": "bool is_overridden = false",
+        "desc": "ユーザーがこの slot を 1 度でも編集したか。 false なら ModelViewer は override を無視して元 material を使う。"
+      }
+    ]
+  }
+}

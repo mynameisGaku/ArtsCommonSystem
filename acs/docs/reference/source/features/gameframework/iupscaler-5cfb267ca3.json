@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "IUpscaler",
+    "kind": "インターフェース",
+    "header": "gameframework/MlRuntime.h",
+    "summary": "解像度アップスケーラ (AMD FSR / NVIDIA DLSS / Intel XeSS) を差し替える抽象シーム(seam)。 低解像度で描いた最終バッファをターゲット解像度に拡大する後段ステージ。",
+    "when": "アップスケーリングを使いたいが、SDK ライセンスを本体から隔離し、未対応ハードではネイティブ解像度にフォールバックしたい時。",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init(EUpscalerKind k) noexcept = 0",
+        "desc": "指定 kind で初期化。 Off は no-op 成功。"
+      },
+      {
+        "sig": "virtual EUpscalerKind ActiveKind() const noexcept = 0",
+        "desc": "現在 active な kind。 Init 前/Shutdown 後は Off。"
+      },
+      {
+        "sig": "virtual void Shutdown() noexcept = 0",
+        "desc": "破棄 (SDK セッション解放)。 多重 Shutdown は no-op。"
+      },
+      {
+        "sig": "virtual u32 InputWidth/InputHeight/OutputWidth/OutputHeight() const noexcept = 0",
+        "desc": "入力 (低解像度) / 出力 (アップスケール後) のサイズ。"
+      }
+    ]
+  }
+}

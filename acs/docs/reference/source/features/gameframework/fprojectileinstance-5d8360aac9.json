@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FProjectileInstance",
+    "kind": "構造体",
+    "header": "gameframework/ProjectileSystem.h",
+    "summary": "飛んでいる弾 1 発の生データ。 位置・速度・経過時間・命中回数・撃ち主・ダメージを持つ。 AllAlive で描画側に渡される。",
+    "when": "弾を自分で描画する時、各弾の position や def_id を読み取る。",
+    "members": [
+      {
+        "sig": "const char* def_id",
+        "desc": "弾種名 (描画でアセットを引くキー)。"
+      },
+      {
+        "sig": "FVec2 position / FVec2 velocity",
+        "desc": "現在位置と速度。"
+      },
+      {
+        "sig": "u32 owner_id / f32 damage",
+        "desc": "撃った主体の識別子と 1 ヒット当たりのダメージ。"
+      }
+    ]
+  }
+}

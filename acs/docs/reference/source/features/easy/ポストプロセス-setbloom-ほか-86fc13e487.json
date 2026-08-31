@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "ポストプロセス（SetBloom ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "Bloom（発光）・ビネット・カラーグレーディング等、画面全体にかかる効果。 Diligent バックエンドでビルドした時だけ有効（DX12 raw では無視）。 IsPostProcessAvailable() で可否を確認。 既定はすべて無効。",
+    "when": "ネオン調の発光、シネマティックな色味、画面端の暗化などで見た目を底上げしたい時。 文字も含め画面全体にかかる点に注意。",
+    "sample": "if (IsPostProcessAvailable()) {\n    SetBloom(0.6f);                       // 発光\n    SetVignette(0.4f);                    // 画面端を暗く\n    SetColorGrading(1.1f, 1.0f, 0.2f);    // 彩度↑・暖色寄り\n    SetTonemap(0);                        // ACES\n}",
+    "members": [
+      {
+        "sig": "bool IsPostProcessAvailable()",
+        "ret": "使えるか",
+        "desc": "Diligent バックエンドなら true。 false なら以下は無視される。"
+      },
+      {
+        "sig": "void SetBloom(f32 intensity)",
+        "desc": "発光の強さ（0=無効、0.6 が目安）。"
+      },
+      {
+        "sig": "void SetBloomThreshold(f32 threshold)",
+        "desc": "発光させる明るさの閾値。"
+      },
+      {
+        "sig": "void SetExposure(f32 exposure)",
+        "desc": "露出（明るさ。 1.0=標準）。"
+      },
+      {
+        "sig": "void SetVignette(f32 intensity)",
+        "desc": "画面端の暗化（0〜1、0=無効）。"
+      },
+      {
+        "sig": "void SetChromaticAberration(f32 amount)",
+        "desc": "色収差（0=無効、0.002 が目安）。"
+      },
+      {
+        "sig": "void SetFilmGrain(f32 intensity)",
+        "desc": "フィルムノイズ（0=無効）。"
+      },
+      {
+        "sig": "void SetColorGrading(f32 saturation, f32 contrast, f32 temperature)",
+        "desc": "彩度・コントラスト（各 1=標準）・色温度（-1=青寄り〜+1=橙寄り）。"
+      },
+      {
+        "sig": "void SetSharpness(f32 strength)",
+        "desc": "輪郭強調（0〜1、0=無効）。"
+      },
+      {
+        "sig": "void SetTonemap(i32 mode)",
+        "desc": "トーンマップ方式。 0=ACES、1=AgX、2=Reinhard。"
+      },
+      {
+        "sig": "void SetAutoExposure(bool enabled)",
+        "desc": "自動露出（明るさを自動調整）。"
+      }
+    ]
+  }
+}

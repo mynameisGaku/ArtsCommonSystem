@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ゲームの開始・1 フレーム進行・終了。 OpenWindow を最初に 1 回だけ呼び、while (NextFrame()) でループします。">
+  <title>OpenWindow / NextFrame / Quit — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">OpenWindow / NextFrame / Quit</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">OpenWindow / NextFrame / Quit</h1>
+<p class="lead">ゲームの開始・1 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22827">フレーム</button><span class="term-tooltip" id="term-tip-22827" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>進行・終了。 OpenWindow を最初に 1 回だけ呼び、while (NextFrame()) でループします。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/easy/openwindow-96bf1352.html"><code>acs::easy::OpenWindow</code></a><span class="summary"><code>void OpenWindow(i32 width = 1280, i32 height = 720, const char* title = &quot;ACS Game&quot;) noexcept;</code></span></li><li><a href="../../symbols/easy/nextframe-832f79d3.html"><code>acs::easy::NextFrame</code></a><span class="summary"><code>bool NextFrame() noexcept;</code></span></li><li><a href="../../symbols/easy/quit-21731701.html"><code>acs::easy::Quit</code></a><span class="summary"><code>void Quit() noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>すべての easy プログラムの骨格。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22823">描画</button><span class="term-tooltip" id="term-tip-22823" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22824">入力</button><span class="term-tooltip" id="term-tip-22824" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>の関数は必ず NextFrame() の後（ループの中）で呼ぶ。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-72cd6661f380d6512221"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void <a href="../../symbols/easy/openwindow-96bf1352.html">OpenWindow</a>(i32 width=1280, i32 height=720, const char* title=&quot;ACS Game&quot;)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22825">ウィンドウ</button><span class="term-tooltip" id="term-tip-22825" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>を開いて初期化。 失敗時はコンソールにエラーを出し、最初の NextFrame() が false を返す（静かに終了）。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/openwindow-96bf1352.html"><code>acs::easy::OpenWindow</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-23c2b525ac026e50b1d4"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/easy/nextframe-832f79d3.html">NextFrame</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>直前の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22826">フレーム</button><span class="term-tooltip" id="term-tip-22826" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>を画面に出し、次の準備をして true。 閉じられたら後始末して false。 while の条件に使う。</dd></div><div class="fact"><dt>戻り値</dt><dd>続行するか</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/nextframe-832f79d3.html"><code>acs::easy::NextFrame</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-4764f081ccd965fc7e0b"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/easy/quit-21731701.html">Quit</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ゲームを終了する。 以後 NextFrame() が false を返すようになる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/quit-21731701.html"><code>acs::easy::Quit</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="OpenWindow / NextFrame / Quitの使用例"><code>OpenWindow(1280, 720, &quot;My Game&quot;);
+while (NextFrame()) {
+    if (IsKeyPressed(EKey::Escape)) Quit();
+    DrawString(20, 20, &quot;Hello&quot;, FColor::White);
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

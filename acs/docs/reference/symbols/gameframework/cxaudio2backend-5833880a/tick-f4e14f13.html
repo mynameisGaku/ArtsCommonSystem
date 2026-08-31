@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="内部状態を進める (毎フレーム呼ぶ)。 完了した一発再生 voice (BuffersQueued == 0) の slot を回収する。 DeltaSeconds: 実時間の経過秒 (本実装では未使用)。">
+  <title>acs::game::CXAudio2Backend::Tick — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cxaudio2backend-5833880a.html">CXAudio2Backend の概要</a><a class="tree-child" href="activevoicecount-86f9b6e8.html">ActiveVoiceCount</a><a class="tree-child" href="configurelifecycleoperationtestgate-ebc7521c.html">ConfigureLifecycleOperationTestGate</a><a class="tree-child" href="cxaudio2backend-64945422.html">CXAudio2Backend</a><a class="tree-child" href="cxaudio2backend-e789adf4.html">CXAudio2Backend</a><a class="tree-child" href="cxaudio2backend-eb3dc897.html">CXAudio2Backend</a><a class="tree-child" href="fimpl-1c989b06.html">FImpl</a><a class="tree-child" href="haslifecyclestatefortesting-9c127493.html">HasLifecycleStateForTesting</a><a class="tree-child" href="init-3c801193.html">Init</a><a class="tree-child" href="isinitialized-6e458bda.html">IsInitialized</a><a class="tree-child" href="isshutdownrequested-61b28eea.html">IsShutdownRequested</a><a class="tree-child" href="isshutdownrequestedfortesting-5910ae27.html">IsShutdownRequestedForTesting</a><a class="tree-child" href="m-impl-a09cfc35.html">m_Impl</a><a class="tree-child" href="m-lifecyclelock-1a38ec20.html">m_LifecycleLock</a><a class="tree-child" href="m-shutdownrequests-c4d32ab1.html">m_ShutdownRequests</a><a class="tree-child" href="operator-12cdbdbd.html">operator=</a><a class="tree-child" href="operator-7f0e2ce0.html">operator=</a><a class="tree-child" href="playlooped-3f6b4ca1.html">PlayLooped</a><a class="tree-child" href="playoneshot-460c6282.html">PlayOneShot</a><a class="tree-child" href="setmastervolume-c8423f15.html">SetMasterVolume</a><a class="tree-child" href="setvoicevolume-25affec8.html">SetVoiceVolume</a><a class="tree-child" href="shutdown-cc3a12d3.html">Shutdown</a><a class="tree-child" href="shutdownunlocked-68a8c0fa.html">ShutdownUnlocked</a><a class="tree-child" href="stopallvoices-fd16dfa9.html">StopAllVoices</a><a class="tree-child" href="stopvoice-d2985ded.html">StopVoice</a><a class="tree-child" href="tick-f4e14f13.html" aria-current="page">Tick</a><a class="tree-child" href="cxaudio2backend-b3ac12dc.html">~CXAudio2Backend</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cxaudio2backend-5833880a.html">CXAudio2Backend</a><span>/</span><span aria-current="page">Tick</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CXAudio2Backend::Tick</h1>
+<p class="lead">内部<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9504">状態</button><span class="term-tooltip" id="term-tip-9504" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を進める (毎<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9505">フレーム</button><span class="term-tooltip" id="term-tip-9505" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>呼ぶ)。 完了した一発再生 voice (BuffersQueued == 0) の slot を回収する。 DeltaSeconds: 実時間の経過秒 (本実装では未使用)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CXAudio2Backend::Tickの宣言"><code>void <a href="tick-f4e14f13.html" aria-current="page">Tick</a>(<a href="../../foundation/f32-87be3881.html">f32</a> DeltaSeconds) noexcept override;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cxaudio2backend-5833880a.html"><code>acs::game::CXAudio2Backend</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/audio_backend/XAudio2Backend.h:179</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

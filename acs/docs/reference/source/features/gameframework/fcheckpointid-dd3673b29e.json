@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCheckpointId",
+    "kind": "構造体",
+    "header": "gameframework/CheckpointSystem.h",
+    "summary": "チェックポイントを指す軽いハンドル。 32bit に 24bit の index と 8bit の世代 (generation) を詰めてある。 解除後に slot が再利用されても、古いハンドルは世代不一致で弾かれる。 0 は invalid。",
+    "when": "checkpoint を handle 経由で扱う時 (id 文字列の代わり)。",
+    "sample": "FCheckpointId id = cps.Register(info);\nif (id.IsValid()) cps.ActivateCheckpoint(id);"
+  }
+}

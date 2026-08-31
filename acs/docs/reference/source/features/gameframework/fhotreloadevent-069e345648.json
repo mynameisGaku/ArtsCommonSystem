@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FHotReloadEvent",
+    "kind": "構造体",
+    "header": "gameframework/HotReload.h",
+    "summary": "1 件のホットリロード通知。 「どのファイルが」「いつ」「更新か削除か」を表すPOD。",
+    "when": "ConsumeNextEvent やコールバックで受け取り、該当アセットを再読み込みする時。",
+    "sample": "void OnReload(void* user, const FHotReloadEvent& ev) noexcept {\n    static_cast<Importer*>(user)->Queue(ev.file_path, ev.removed);\n}",
+    "members": [
+      {
+        "sig": "const char* file_path",
+        "desc": "watcher が所有する対象ファイルの借用パス。 callback 引数ではその callback が戻るまで、ConsumeNextEvent の出力では次の ConsumeNextEvent / ClearEvents / Shutdown まで有効。"
+      },
+      {
+        "sig": "u64 modified_timestamp",
+        "desc": "変更検出時刻。"
+      },
+      {
+        "sig": "bool removed",
+        "desc": "true=削除、false=更新。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AButton",
+  "definition": "click 完了を TObservable<bool> の pulse として公開する UI button。"
+}

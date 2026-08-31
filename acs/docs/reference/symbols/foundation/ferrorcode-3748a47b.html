@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="1 件のエラーを表す POD 構造体 (TResult の E パラメータの既定型)。 カテゴリ + サブコード + 任意の OS エラー値 + メッセージ + 発生位置をまとめて持つ。 全フィールドが public でトリビアル型なので、TResult&lt;T, FErrorCode&gt; の中で ゼロコストに保持できる。">
+  <title>acs::FErrorCode — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/foundation.html">foundation モジュール</a><a href="ferrorcode-3748a47b.html" aria-current="page">FErrorCode</a><a class="tree-child" href="ferrorcode-3748a47b/category-b0c102fd.html">category</a><a class="tree-child" href="ferrorcode-3748a47b/ferrorcode-08c137ec.html">FErrorCode</a><a class="tree-child" href="ferrorcode-3748a47b/ferrorcode-372fb7f7.html">FErrorCode</a><a class="tree-child" href="ferrorcode-3748a47b/isok-0e8441b4.html">IsOk</a><a class="tree-child" href="ferrorcode-3748a47b/loc-2da72d7c.html">loc</a><a class="tree-child" href="ferrorcode-3748a47b/message-116e2c90.html">message</a><a class="tree-child" href="ferrorcode-3748a47b/operator-bool-2e9834c2.html">operator bool</a><a class="tree-child" href="ferrorcode-3748a47b/os-error-3057aa81.html">os_error</a><a class="tree-child" href="ferrorcode-3748a47b/subcode-d76c4886.html">subcode</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/foundation.html">foundation</a><span>/</span><span aria-current="page">FErrorCode</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / foundation</div>
+<h1 class="identifier">acs::FErrorCode</h1>
+<p class="lead">1 件のエラーを表す <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2872">POD</button><span class="term-tooltip" id="term-tip-2872" role="tooltip">Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。</span></span> 構造体 (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2873">TResult</button><span class="term-tooltip" id="term-tip-2873" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span> の E パラメータの既定型)。 カテゴリ + サブコード + 任意の OS エラー値 + メッセージ + <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2874">発生位置</button><span class="term-tooltip" id="term-tip-2874" role="tooltip">問題が起きたソース上の場所（ファイル名・行・関数名）。 FSourceLoc が表す。</span></span>をまとめて持つ。 全フィールドが public でトリビアル型なので、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2875">TResult</button><span class="term-tooltip" id="term-tip-2875" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span>&lt;T, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2876">FErrorCode</button><span class="term-tooltip" id="term-tip-2876" role="tooltip">ACS の標準エラー型。 カテゴリ・サブコード・OS エラー値・メッセージ・発生位置をまとめて持つ POD。</span></span>&gt; の中で ゼロコストに保持できる。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FErrorCodeの宣言"><code>struct <a href="ferrorcode-3748a47b.html" aria-current="page">FErrorCode</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/foundation.html">foundation</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/foundation/Error.h:71</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="ferrorcode-3748a47b/category-b0c102fd.html"><span><span class="identifier">EErrCategory category = EErrCategory::None;</span><span class="summary">大カテゴリ (None は成功を表す)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/ferrorcode-08c137ec.html"><span><span class="identifier">constexpr FErrorCode() noexcept = default;</span><span class="summary">デフォルト構築する (category=None の「成功」状態)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/ferrorcode-372fb7f7.html"><span><span class="identifier">constexpr FErrorCode(EErrCategory c, u16 sub, const char* msg, FSourceLoc l = FSourceLoc::Current(), u32 os = 0) noexcept;</span><span class="summary">全フィールドを初期化する (ACS_ERR マクロから呼ばれる)。 c: 大カテゴリ。 sub: モジュール固有のサブコード。 msg: エラーメッセージ (静的文字列推奨)。 l: 発生位置 (既定: 呼び出し位置)。 os: OS エラー値 (既定 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/isok-0e8441b4.html"><span><span class="identifier">constexpr bool IsOk() const noexcept;</span><span class="summary">成功状態かを判定する。 戻り値: category が None (= 成功) なら true。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/loc-2da72d7c.html"><span><span class="identifier">FSourceLoc loc = {};</span><span class="summary">エラーの発生位置。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/message-116e2c90.html"><span><span class="identifier">const char* message = nullptr;</span><span class="summary">エラーメッセージ (静的文字列リテラル推奨)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/operator-bool-2e9834c2.html"><span><span class="identifier">constexpr explicit operator bool() const noexcept;</span><span class="summary">bool 変換: エラーを保持しているかを返す (`if (e) { ... }` で判定可能)。 戻り値: エラーあり (category != None) なら true。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/os-error-3057aa81.html"><span><span class="identifier">u32 os_error = 0;</span><span class="summary">OS エラー値 (GetLastError() / HRESULT 等)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="ferrorcode-3748a47b/subcode-d76c4886.html"><span><span class="identifier">u16 subcode = 0;</span><span class="summary">モジュール固有の細分化コード。</span></span><span class="kind-label">メンバー変数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

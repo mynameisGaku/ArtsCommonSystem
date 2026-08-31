@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FSpawnRule",
+    "kind": "構造体",
+    "header": "gameframework/WaveSpawner.h",
+    "summary": "1 つのスポーンルール。 「どの敵を・何体・どの間隔で・どこに」湧かせるかを定義します。 1 つの wave が任意数のルールを持てます。",
+    "when": "wave の中身(敵の出し方)を定義する時。",
+    "sample": "FSpawnRule rule{\n    /*enemy_id=*/\"goblin\", /*count=*/5,\n    /*interval=*/0.5f, /*delay=*/1.0f,\n    /*pos=*/{100,0} };",
+    "members": [
+      {
+        "sig": "const char* enemy_id",
+        "desc": "敵種別の識別子(リテラル推奨、非所有)。"
+      },
+      {
+        "sig": "u32 count",
+        "desc": "この rule で湧かせる総数。"
+      },
+      {
+        "sig": "f32 spawn_interval_sec / f32 initial_delay_sec",
+        "desc": "2 体目以降の間隔(秒) / wave 開始から 1 体目までの遅延(秒)。"
+      },
+      {
+        "sig": "FVec2 spawn_position",
+        "desc": "出現位置(world 座標)。 分散させたいなら別 rule を並べる。"
+      }
+    ]
+  }
+}

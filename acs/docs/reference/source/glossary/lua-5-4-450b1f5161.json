@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Lua 5.4",
+  "definition": "Lua の安定版の 1 つ。 ACS が CLuaVm として同梱する本物のランタイム。"
+}

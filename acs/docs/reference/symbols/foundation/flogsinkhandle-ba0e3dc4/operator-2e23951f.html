@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="同じ購読を表すかを返す。 other: 比較するハンドル。 戻り値: 枠番号と世代番号が一致する場合は true。">
+  <title>acs::FLogSinkHandle::operator== — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/foundation.html">foundation モジュール</a><a href="../flogsinkhandle-ba0e3dc4.html">FLogSinkHandle の概要</a><a class="tree-child" href="generation-c96b5530.html">generation</a><a class="tree-child" href="isvalid-194da0f9.html">IsValid</a><a class="tree-child" href="operator-2e23951f.html" aria-current="page">operator==</a><a class="tree-child" href="slot-3af76b40.html">slot</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/foundation.html">foundation</a><span>/</span><a href="../flogsinkhandle-ba0e3dc4.html">FLogSinkHandle</a><span>/</span><span aria-current="page">operator==</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / foundation</div>
+<h1 class="identifier">acs::FLogSinkHandle::operator==</h1>
+<p class="lead">同じ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2891">購読</button><span class="term-tooltip" id="term-tip-2891" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>を表すかを返す。 other: 比較する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2892">ハンドル</button><span class="term-tooltip" id="term-tip-2892" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>。 戻り値: 枠番号と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2893">世代番号</button><span class="term-tooltip" id="term-tip-2893" role="tooltip">ハンドルに埋め込む小さなカウンタ。 スロット再利用後に古い参照を検出するために使う。</span></span>が一致する場合は true。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FLogSinkHandle::operator==の宣言"><code>constexpr bool operator==(const <a href="../flogsinkhandle-ba0e3dc4.html">FLogSinkHandle</a>&amp; other) const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/foundation.html">foundation</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../flogsinkhandle-ba0e3dc4.html"><code>acs::FLogSinkHandle</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/foundation/LogSinkHandle.h:27</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

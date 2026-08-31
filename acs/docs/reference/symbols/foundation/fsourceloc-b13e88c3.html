@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ソースコード上の発生位置 (ファイル・関数・行・列) を保持する値型。 Current() をデフォルト引数として渡すと、呼び出し位置を自動でキャプチャできる。">
+  <title>acs::FSourceLoc — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/foundation.html">foundation モジュール</a><a href="fsourceloc-b13e88c3.html" aria-current="page">FSourceLoc</a><a class="tree-child" href="fsourceloc-b13e88c3/column-9ed282d8.html">Column</a><a class="tree-child" href="fsourceloc-b13e88c3/create-13c1f26e.html">Create</a><a class="tree-child" href="fsourceloc-b13e88c3/current-78b15e13.html">Current</a><a class="tree-child" href="fsourceloc-b13e88c3/file-49c87fb5.html">File</a><a class="tree-child" href="fsourceloc-b13e88c3/fsourceloc-e7caa800.html">FSourceLoc</a><a class="tree-child" href="fsourceloc-b13e88c3/function-114e12d9.html">Function</a><a class="tree-child" href="fsourceloc-b13e88c3/line-a2b6e77d.html">Line</a><a class="tree-child" href="fsourceloc-b13e88c3/m-col-baf099b3.html">m_Col</a><a class="tree-child" href="fsourceloc-b13e88c3/m-file-99d02344.html">m_File</a><a class="tree-child" href="fsourceloc-b13e88c3/m-func-86b8eeea.html">m_Func</a><a class="tree-child" href="fsourceloc-b13e88c3/m-line-893e5b37.html">m_Line</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/foundation.html">foundation</a><span>/</span><span aria-current="page">FSourceLoc</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / foundation</div>
+<h1 class="identifier">acs::FSourceLoc</h1>
+<p class="lead">ソースコード上の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2929">発生位置</button><span class="term-tooltip" id="term-tip-2929" role="tooltip">問題が起きたソース上の場所（ファイル名・行・関数名）。 FSourceLoc が表す。</span></span> (ファイル・関数・行・列) を保持する値型。 Current() をデフォルト引数として渡すと、呼び出し位置を自動でキャプチャできる。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FSourceLocの宣言"><code>class <a href="fsourceloc-b13e88c3.html" aria-current="page">FSourceLoc</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/foundation.html">foundation</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/foundation/SourceLoc.h:17</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fsourceloc-b13e88c3/column-9ed282d8.html"><span><span class="identifier">constexpr u32 Column() const noexcept;</span><span class="summary">列番号を返す。 戻り値: 列番号 (未設定または GCC では 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/create-13c1f26e.html"><span><span class="identifier">static constexpr FSourceLoc Create(const char* file, const char* function, u32 line, u32 column = 0) noexcept;</span><span class="summary">外部ライブラリなどが渡すファイル・関数・行・列から位置情報を明示生成する。 文字列は FSourceLoc より長く生存する必要がある。 デバッグ情報を持たない引数は空文字列または 0 でよい。 file: ソースファイルパス。 function: 関数名または外部ライブラリの割り当て説明。 line: 行番号。 column: 列番号。 戻り値: 指定値を保持する FSourceLoc。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/current-78b15e13.html"><span><span class="identifier">static consteval FSourceLoc Current( const char* file = __builtin_FILE(), const char* func = __builtin_FUNCTION(), u32 line = __builtin_LINE(), #if ACS_COMPILER_MSVC || ACS_COMPILER_CLANG u32 col = __builtin_COLUMN() #else u32 col = 0 #endif ) noexcept;</span><span class="summary">呼び出し位置をキャプチャした FSourceLoc を生成する。 各引数のデフォルト値がコンパイラ組み込みで埋まるため、引数を渡さずに呼ぶと 呼び出し箇所のファイル・関数・行・列が入る。 col は GCC では __builtin_COLUMN が ないため常に 0。 file: ソースファイルパス (既定: 呼び出し箇所のファイル)。 func: 関数名 (既定: 呼び出し箇所の関数)。 line: 行番号 (既定: 呼び出し箇所の行)。 col: 列番号 (既定: 呼び出し箇所の列、GCC では 0)。 戻り値: 呼び出し位置を反映した FSourceLoc。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/file-49c87fb5.html"><span><span class="identifier">constexpr const char* File() const noexcept;</span><span class="summary">ソースファイルパスを返す。 戻り値: ファイルパス文字列 (未設定なら空文字列)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/fsourceloc-e7caa800.html"><span><span class="identifier">constexpr FSourceLoc() noexcept = default;</span><span class="summary">空の位置情報 (ファイル・関数は空文字列、行・列は 0) を構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/function-114e12d9.html"><span><span class="identifier">constexpr const char* Function() const noexcept;</span><span class="summary">関数名を返す。 戻り値: 関数名文字列 (未設定なら空文字列)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/line-a2b6e77d.html"><span><span class="identifier">constexpr u32 Line() const noexcept;</span><span class="summary">行番号を返す。 戻り値: 行番号 (未設定なら 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/m-col-baf099b3.html"><span><span class="identifier">u32 m_Col = 0;</span><span class="summary">列番号 (既定は 0)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/m-file-99d02344.html"><span><span class="identifier">const char* m_File = &quot;&quot;;</span><span class="summary">ソースファイルパス (既定は空文字列)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/m-func-86b8eeea.html"><span><span class="identifier">const char* m_Func = &quot;&quot;;</span><span class="summary">関数名 (既定は空文字列)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fsourceloc-b13e88c3/m-line-893e5b37.html"><span><span class="identifier">u32 m_Line = 0;</span><span class="summary">行番号 (既定は 0)。</span></span><span class="kind-label">メンバー変数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

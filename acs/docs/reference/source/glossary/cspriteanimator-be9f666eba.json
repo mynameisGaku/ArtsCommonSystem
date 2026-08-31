@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSpriteAnimator",
+  "definition": "経過時間から現在のアニメフレーム番号を計算する部品。"
+}

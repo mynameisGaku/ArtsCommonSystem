@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "IAssetLoader",
+    "kind": "インターフェース",
+    "header": "asset/IAssetLoader.h",
+    "summary": "アセットローダの共通インターフェース。 担当する拡張子と型 ID を申告し、バイト列からアセットを作る役。 CAssetRegistry に登録して使う。",
+    "when": "新しいファイル形式に対応したい時、これを実装して登録する。",
+    "sample": "class FMyLoader final : public IAssetLoader {\n    AssetType   TypeId()    const noexcept override { return FMyAsset::StaticType(); }\n    const char* Extension() const noexcept override { return \"myext\"; }\n    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& b) noexcept override;\n};",
+    "members": [
+      {
+        "sig": "virtual AssetType TypeId() const",
+        "ret": "型 ID",
+        "desc": "このローダが作るアセットの型 ID。"
+      },
+      {
+        "sig": "virtual const char* Extension() const",
+        "ret": "拡張子",
+        "desc": "担当する拡張子(\"png\" など)。 \"*\" は全拡張子のフォールバック。 レジストリがこれでマッチングする。"
+      },
+      {
+        "sig": "virtual TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes)",
+        "ret": "アセット または エラー",
+        "desc": "ファイルのバイト列を解析してアセットを生成する(同期)。 非同期化はレジストリ側がスレッドプールでこれを呼ぶ形で実現。"
+      }
+    ]
+  }
+}

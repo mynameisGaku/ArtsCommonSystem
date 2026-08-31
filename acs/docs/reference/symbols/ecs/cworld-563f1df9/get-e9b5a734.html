@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="エンティティの T コンポーネントへの可変ポインタを返す。 返したポインタは当該 TSparseSet への Add/Remove (再確保・swap-remove) で 無効化され得るため、構造変更をまたいで保持しない。 T: 取得するコンポーネント型。 e: 取得対象のエンティティ。 戻り値: T へのポインタ (e が無効・型未登録・未保持なら nullptr)。">
+  <title>acs::CWorld::Get — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ecs.html">ecs モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ecs.html">ecs モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/ecs.html">ecs モジュール</a><a href="../cworld-563f1df9.html">CWorld の概要</a><a class="tree-child" href="add-b9bd01b6.html">Add</a><a class="tree-child" href="clear-233265ac.html">Clear</a><a class="tree-child" href="copyfrom-b5f38328.html">CopyFrom</a><a class="tree-child" href="create-62597ceb.html">Create</a><a class="tree-child" href="cworld-50e32209.html">CWorld</a><a class="tree-child" href="cworld-59f9ae5d.html">CWorld</a><a class="tree-child" href="destroy-457b0f8a.html">Destroy</a><a class="tree-child" href="entitycount-f9137d33.html">EntityCount</a><a class="tree-child" href="fslot-6cfef741.html">FSlot</a><a class="tree-child" href="get-1464515c.html">Get</a><a class="tree-child" href="get-e9b5a734.html" aria-current="page">Get</a><a class="tree-child" href="getorcreateset-6d85ed33.html">GetOrCreateSet</a><a class="tree-child" href="has-0ab900df.html">Has</a><a class="tree-child" href="isalive-7846bf13.html">IsAlive</a><a class="tree-child" href="m-alivecount-ee4f6333.html">m_AliveCount</a><a class="tree-child" href="m-freeindices-43a02282.html">m_FreeIndices</a><a class="tree-child" href="m-generationseed-bf901b83.html">m_GenerationSeed</a><a class="tree-child" href="m-sets-445a680e.html">m_Sets</a><a class="tree-child" href="m-slots-91fa6470.html">m_Slots</a><a class="tree-child" href="makeidfromindex-ddad88a5.html">MakeIdFromIndex</a><a class="tree-child" href="operator-639e36b3.html">operator=</a><a class="tree-child" href="query-afa42635.html">Query</a><a class="tree-child" href="remove-1e725f0c.html">Remove</a><a class="tree-child" href="trygetset-7a1a0b75.html">TryGetSet</a><a class="tree-child" href="cworld-8d6ae6e2.html">~CWorld</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/ecs.html">ecs</a><span>/</span><a href="../cworld-563f1df9.html">CWorld</a><span>/</span><span aria-current="page">Get</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / ecs</div>
+<h1 class="identifier">acs::CWorld::Get</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2144">エンティティ</button><span class="term-tooltip" id="term-tip-2144" role="tooltip">ゲームの登場物を表すただの ID(番号)。 データ自体は持たず、コンポーネントを付けて意味を与える。</span></span>の T <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2145">コンポーネント</button><span class="term-tooltip" id="term-tip-2145" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>への可変<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2146">ポインタ</button><span class="term-tooltip" id="term-tip-2146" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>を返す。 返した<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2147">ポインタ</button><span class="term-tooltip" id="term-tip-2147" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>は当該 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2148">TSparseSet</button><span class="term-tooltip" id="term-tip-2148" role="tooltip">ACS の Sparse Set 実装。 エンティティ番号→コンポーネント値の高速対応表。</span></span> への Add/Remove (再確保・swap-remove) で 無効化され得るため、構造変更をまたいで保持しない。 T: 取得する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2149">コンポーネント</button><span class="term-tooltip" id="term-tip-2149" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型。 e: 取得対象の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2150">エンティティ</button><span class="term-tooltip" id="term-tip-2150" role="tooltip">ゲームの登場物を表すただの ID(番号)。 データ自体は持たず、コンポーネントを付けて意味を与える。</span></span>。 戻り値: T への<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2151">ポインタ</button><span class="term-tooltip" id="term-tip-2151" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span> (e が無効・型未登録・未保持なら nullptr)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CWorld::Getの宣言"><code>template&lt;typename T&gt; T* <a href="get-e9b5a734.html" aria-current="page">Get</a>(<a href="../fentityid-f2d22107.html">FEntityId</a> e) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/ecs.html">ecs</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cworld-563f1df9.html"><code>acs::CWorld</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/ecs/World.h:132</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

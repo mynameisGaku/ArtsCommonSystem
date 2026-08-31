@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAudioEngine",
+  "definition": "音声再生の中心となるエンジン。 AAudioAsset を鳴らし、音量・停止・一時停止を扱う。 内部は XAudio2。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CDebugDraw",
+  "definition": "1 フレーム分のデバッグ線分(線/AABB/円/十字)を溜めるだけのimmediate-modeバッファ。 実描画は描画側が行う。"
+}

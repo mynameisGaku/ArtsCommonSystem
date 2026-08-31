@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCombatStateMachine",
+    "kind": "クラス",
+    "header": "gameframework/CombatStateMachine.h",
+    "summary": "シーン全体の戦闘フェーズを 6 状態 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) の有限オートマトンで追跡するディレクタ。 敵検出・戦闘開始・ボス出現などを notify すると状態が遷移し、連続値の ThreatLevel() [0,1] も出す。",
+    "when": "戦況に応じて BGM や環境演出を切り替えたい時。 状態が変わったら callback で CMusicDirector 等に通知する。",
+    "sample": "CCombatStateMachine combat;\ncombat.Init();\ncombat.SetOnStateChangeCallback(&OnCombatState, this);\ncombat.NotifyEnemyDetected(enemyId);\ncombat.NotifyCombatStarted(enemyId);  // → Engaged\n// 毎フレーム: combat.Tick(dt);  // ThreatLevel が滑らかに追従",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "Peaceful 状態に初期化 (callback は保持)。 シーン再入時に使う。"
+      },
+      {
+        "sig": "void NotifyEnemyDetected(u32 enemy_id)",
+        "desc": "敵を検出 (Peaceful→Alert)。 awareness を 1.0 に。",
+        "when": "敵がプレイヤーに気づいた / 視認した時。"
+      },
+      {
+        "sig": "void NotifyCombatStarted(u32 enemy_id)",
+        "desc": "交戦開始 (→Engaged)。 その敵を is_engaged=true に。",
+        "when": "実際に戦闘が始まった時。"
+      },
+      {
+        "sig": "void NotifyCombatEnded(u32 enemy_id, bool victory)",
+        "desc": "1 敵分の戦闘解消。 残敵 0 のとき victory=true なら Victory、false なら Retreat へ。",
+        "when": "敵を倒した / 戦闘から離脱した時。"
+      },
+      {
+        "sig": "void NotifyBossEncountered(u32 boss_id)",
+        "desc": "どの状態からでも BossFight に割り込み遷移する。",
+        "when": "ボスが出現した時。"
+      },
+      {
+        "sig": "void NotifyBossDefeated()",
+        "desc": "ボスを倒す。 残り engaged 敵がいれば Engaged、いなければ Victory へ。"
+      },
+      {
+        "sig": "f32 ThreatLevel() const",
+        "ret": "脅威度 [0,1]",
+        "desc": "滑らかに補間された脅威レベル。 BGM intensity / 画面の彩度 / カメラシェイクに流す。",
+        "when": "演出の強さを連続値で駆動したい時。"
+      },
+      {
+        "sig": "ECombatState CurrentState() const",
+        "desc": "現在の戦闘フェーズ。"
+      },
+      {
+        "sig": "bool IsInCombat() const",
+        "desc": "Engaged か BossFight か。 fast-travel 禁止やセーブ抑制の判定に。"
+      },
+      {
+        "sig": "u32 EngagedEnemyCount() const",
+        "desc": "実際に交戦中の敵数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "ThreatLevel を目標値へ指数減衰で追従させる。 Engaged 中は時間ドリフトを加算。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetOnStateChangeCallback(StateChangeCallback cb, void* user)",
+        "desc": "状態遷移時に呼ばれる callback。 from / to を受け取る。"
+      },
+      {
+        "sig": "using FCombatStateMachine = CCombatStateMachine",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCombatStateMachine を使う。"
+      }
+    ]
+  }
+}

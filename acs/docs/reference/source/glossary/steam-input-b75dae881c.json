@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Steam Input",
+  "definition": "各種コントローラ(XInput / DualSense 等)の差を吸収する Steam の入力 API。"
+}

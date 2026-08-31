@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "EAssetState",
+  "definition": "アセットのロード状態を表す列挙。"
+}

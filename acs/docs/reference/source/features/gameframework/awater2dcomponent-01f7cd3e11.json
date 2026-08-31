@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "AWater2DComponent",
+    "kind": "クラス (コンポーネント)",
+    "header": "gameframework/Effects2D.h",
+    "summary": "波打つ水面を描くコンポーネント。 シェーダもアセットも不要で、CSpriteBatch の三角形を時間で手続き生成して描く。",
+    "when": "HLSL を書かずに海・川・池・水溜まりを置きたい時。 ノードに AddComponent するだけで動く。 プレイヤーが触れると波紋を立てる等のインタラクションも可能。",
+    "sample": "auto& w = node->AddComponent<AWater2DComponent>();\nw.SetRect({0, 3}, {16, 2});       // 形 (owner 相対、+Y=下なので水面は下)\nw.SetColor({0.1f, 0.35f, 0.6f});\nw.SetWaves(0.15f, 1.5f);          // 振幅・速度\nw.Disturb(mouse_world, 0.4f);     // 触れた点に波紋",
+    "members": [
+      {
+        "sig": "void SetRect(FVec2 center, FVec2 half_size, u32 top_segments = 32)",
+        "desc": "矩形の水域 (海/プール)。 上辺を分割して波打たせる。 SetArea は旧名エイリアス。"
+      },
+      {
+        "sig": "void SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments = 28)",
+        "desc": "楕円の水域 (池・水溜まり)。"
+      },
+      {
+        "sig": "void SetRiver(const FVec2* path, u32 count, f32 width)",
+        "desc": "折れ線パスを幅 width の帯にして川にする。"
+      },
+      {
+        "sig": "void SetPolygon(const FVec2* pts, u32 count)",
+        "desc": "任意の単純多角形の水域。"
+      },
+      {
+        "sig": "void SetSplineRiver(...) / SetSplineRegion(...)",
+        "desc": "Catmull-Rom スプラインで滑らかな川 / 閉ループの湖を作る。"
+      },
+      {
+        "sig": "void SetColor(FVec3 rgb) / SetAlpha(f32 a) / SetWaves(f32 amplitude, f32 speed)",
+        "desc": "色 (深さ勾配も自動設定) / 不透明度 / 波の振幅と速度。"
+      },
+      {
+        "sig": "void SetFlow(FVec2 dir, f32 speed)",
+        "desc": "波と泡が流れる向きと速さ (川なら流れに沿わせる)。"
+      },
+      {
+        "sig": "void SetFoam(...) / EnableFoam(bool) / SetRim(...) / EnableRim(bool)",
+        "desc": "陸際の白泡 / 水際の縁取りの設定と ON/OFF。"
+      },
+      {
+        "sig": "void SetReflection(bool enable, FVec3 tint, f32 alpha)",
+        "desc": "平面反射で水面上のシーンを鏡像表示 (シーンの反射有効化が前提)。"
+      },
+      {
+        "sig": "void SetStyle(EWaterStyle s)",
+        "desc": "横視点 / 見下ろしを切り替える。"
+      },
+      {
+        "sig": "void EnableCaustics(bool) / SetCaustics(...) / EnableGlints(bool)",
+        "desc": "見下ろし水面の光の網目 (コースティクス) ときらめきの設定。"
+      },
+      {
+        "sig": "void Disturb(FVec2 world_point, f32 strength)",
+        "desc": "指定点から放射状の波紋を立てる。",
+        "when": "キャラや弾が着水した時。"
+      },
+      {
+        "sig": "bool ContainsPoint(FVec2 world) / f32 SurfaceY()",
+        "desc": "点が水域内か / 水面の world Y 座標。 入水判定に。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="種別分岐と関数ポインタ呼び出しを除去してバッチ変換する。 Policy: 点または方向を選ぶコンパイル時方針。 Input: Count 個の入力配列。 Output: Count 個を格納できる出力配列。 Count: 変換する要素数。 Matrix: 各要素へ適用する行列。">
+  <title>acs::TransformBatchStatic — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/math.html">math モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/math.html">math モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/math.html">math モジュール</a><a href="transformbatchstatic-616ebf0d.html" aria-current="page">TransformBatchStatic</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/math.html">math</a><span>/</span><span aria-current="page">TransformBatchStatic</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">関数 / math</div>
+<h1 class="identifier">acs::TransformBatchStatic</h1>
+<p class="lead">種別分岐と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-14766">関数ポインタ</button><span class="term-tooltip" id="term-tip-14766" role="tooltip">関数そのものを指し示す値。 あとで fn() のように呼び出せる。 テスト本体を一覧に登録する仕組みに使う。</span></span>呼び出しを除去して<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-14767">バッチ</button><span class="term-tooltip" id="term-tip-14767" role="tooltip">同じ設定の描画をまとめて 1 回の命令で送り、描画回数を減らして高速化すること。</span></span>変換する。 Policy: 点または方向を選ぶコンパイル時方針。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-14768">Input</button><span class="term-tooltip" id="term-tip-14768" role="tooltip">キーボード・マウス・ゲームパッドの状態を問い合わせで読む静的クラス。 毎フレーム先頭で Update() を呼んでから状態を読む。</span></span>: Count 個の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-14769">入力</button><span class="term-tooltip" id="term-tip-14769" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>配列。 Output: Count 個を格納できる出力配列。 Count: 変換する要素数。 Matrix: 各要素へ適用する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-14770">行列</button><span class="term-tooltip" id="term-tip-14770" role="tooltip">複数の変換（移動・回転・拡大）をまとめて表す数値の表。 3D では FMat4(4x4)。 ベクトルに掛けて座標変換する。</span></span>。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TransformBatchStaticの宣言"><code>template&lt;<a href="ebatchtransformpolicy-2a02f738.html">EBatchTransformPolicy</a> Policy&gt; <a href="../foundation/acs-forceinline-ec240dbe.html">ACS_FORCEINLINE</a> void <a href="transformbatchstatic-616ebf0d.html" aria-current="page">TransformBatchStatic</a>(const FVec3* Input, FVec3* Output, <a href="../foundation/usize-feec11dc.html">usize</a> Count, const FMat4&amp; Matrix) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/math.html">math</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>関数</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/math/BatchTransformPolicy.h:28</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

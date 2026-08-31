@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FSimpleDelegate",
+    "kind": "型エイリアス",
+    "header": "event/SimpleDelegate.h, event/Delegate.h",
+    "summary": "引数なしの関数またはメンバー関数と任意ポインターを、メモリ確保なしで一組だけ保持する TDelegate<void()>。",
+    "when": "処理を後から一度だけ呼ぶ場所や、タイマーへ関数と対象をまとめて渡す時。",
+    "members": [
+      {
+        "sig": "CreateStatic(function, user) / CreateStatic<Function>()",
+        "ret": "設定済みデリゲート",
+        "desc": "静的関数を結び付ける。 空の関数は未設定になる。"
+      },
+      {
+        "sig": "CreateRaw<Method>(object)",
+        "ret": "設定済みデリゲート",
+        "desc": "メンバー関数を対象へ結び付ける。 登録中の対象寿命は呼出し側が保つ。"
+      },
+      {
+        "sig": "bool ExecuteIfBound()",
+        "ret": "実行できたか",
+        "desc": "設定済みなら処理を呼び、未設定なら何もせず false を返す。"
+      },
+      {
+        "sig": "void Unbind()",
+        "desc": "関数と任意ポインターの結び付きを解除する。"
+      }
+    ]
+  }
+}

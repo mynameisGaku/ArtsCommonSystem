@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "ISteamworksBridge",
+    "kind": "インターフェース",
+    "header": "gameframework/SteamworksBridge.h",
+    "summary": "Steam / EOS / PS / Xbox / Switch などのプラットフォーム SDK へ橋渡しする抽象シーム。 実績解除・リーダーボード・プレイヤー情報・クラウドセーブ・フレンド・ボイスなどを共通 API で扱い、実 SDK 結合はビルド時に差し替える。",
+    "when": "実績やランキングなどプラットフォーム機能を、SDK 非依存のゲームコードから呼びたい時。",
+    "sample": "ISteamworksBridge* social = &CSteamworksBridgeStub::GetStub();\n(void)social->Init();\n// ボス撃破時\n(void)social->UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム\nsocial->Tick(dt);",
+    "members": [
+      {
+        "sig": "TResult<void> Init() / void Shutdown() / bool IsInitialized() const",
+        "desc": "SDK の初期化 / 終了 / 状態確認。"
+      },
+      {
+        "sig": "FPlayerIdentity GetLocalPlayer() const",
+        "ret": "ローカルプレイヤー",
+        "desc": "自分のプレイヤー情報。 文字列の寿命は「次の Tick まで」。"
+      },
+      {
+        "sig": "TResult<void> UnlockAchievement(const char* ach_id)",
+        "ret": "成否",
+        "desc": "実績を解除する。 ach_id はプラットフォームの実績 ID 文字列。"
+      },
+      {
+        "sig": "TResult<void> SetLeaderboardScore(const char* board_id, i64 score)",
+        "ret": "成否",
+        "desc": "リーダーボードへスコア送信。"
+      },
+      {
+        "sig": "TResult<i64> GetLeaderboardScore(const char* board_id)",
+        "ret": "スコア",
+        "desc": "自分の現在スコアを取得する。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "コールバックポンプ (SteamAPI_RunCallbacks 相当)。 毎フレーム必須。"
+      },
+      {
+        "sig": "TResult<void> SetStat / TResult<i64> GetStat / SetFloatStat / GetFloatStat",
+        "desc": "永続統計値 (kills, play_minutes 等) の読み書き。"
+      },
+      {
+        "sig": "bool IsDlcOwned(u32 app_id) const / TResult<void> SetRichPresence(key, value)",
+        "desc": "DLC 所有確認 / リッチプレゼンス設定。"
+      },
+      {
+        "sig": "u32 GetFriendCount() const / FPlayerIdentity GetFriendByIndex(u32 index) const",
+        "desc": "フレンド数 / index 番目のフレンド情報。"
+      },
+      {
+        "sig": "TResult<void> CloudWriteFile / TResult<u32> CloudReadFile / CloudFileExists / CloudDeleteFile / CloudGetQuota",
+        "desc": "クラウドセーブ (Steam Cloud 等) のファイル読み書き・存在確認・削除・容量。"
+      },
+      {
+        "sig": "u32 WorkshopGetSubscribedCount() / WorkshopGetSubscribedItem(...)",
+        "desc": "購読中の Workshop (UGC) アイテム数 / 各アイテム情報。"
+      },
+      {
+        "sig": "TResult<void> VoiceStartRecording / VoiceStopRecording / TResult<u32> VoiceGetCompressed",
+        "desc": "ボイスチャットの録音開始 / 停止 / 圧縮音声取得。"
+      },
+      {
+        "sig": "TResult<void> InputInit() / u32 InputGetControllerCount() const",
+        "desc": "Steam Input 初期化 / 接続コントローラ数。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FSpriteSortList",
+    "kind": "クラス",
+    "header": "render/SpriteSortList.h",
+    "summary": "sprite commandをlayer、depth、提出順で安定整列してCSpriteBatchへ再生する。 大量時はcompile-time keyと安定LSD radixを使う。",
+    "when": "2D world、HUD、半透明spriteの前後関係を明示し、同じlayer/depthの合成順を維持したいとき。",
+    "sample": "FSpriteSortList list;\nlist.SubmitRect(0, 0, w, h, color, /*layer=*/0, /*depth=*/0);\nlist.Submit(tex, x, y, w, h, /*layer=*/1, /*depth=*/y);\nlist.Sort();\nlist.Replay(sprite_batch);",
+    "members": [
+      {
+        "sig": "void Submit(...) / SubmitSub(...) / SubmitRect(...)",
+        "desc": "texture sprite、UV範囲sprite、単色矩形をlayer/depth付きで蓄積する。"
+      },
+      {
+        "sig": "void Sort()",
+        "desc": "24件以下は挿入sort、それ以上は最大8 byte passの安定radixでlayer/depth昇順へ並べる。"
+      },
+      {
+        "sig": "void Replay(CSpriteBatch&) const / const FSpriteCmd& Ordered(u32) const",
+        "desc": "整列順にbatchへ流す / 検証や独自replay用に整列済みcommandを返す。"
+      },
+      {
+        "sig": "u32 LastSortPassCount() / u64 LastSortItemVisits()",
+        "desc": "直前sortのradix pass数とkey生成、比較、radixを含む決定的なitem走査数。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "AScene",
+    "kind": "基底クラス",
+    "header": "gameframework/Scene.h",
+    "summary": "1 画面 / 1 状態を表す基底クラス。 root ANode と world/HUD 描画フックを持ち、CGame が共有する描画資源を借りて描く。 タイトル・ゲーム本編・ポーズなどを派生クラスで書き、CGame がスタックで切り替え・更新・描画する。",
+    "when": "ゲームの画面 (状態) を 1 つ作る時の基本。 すべての画面はこれを継承する。",
+    "sample": "class ATitleScene : public acs::game::AScene {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override {\n        if (start) Scenes().ChangeScene(MakeUnique<AGameScene>());\n    }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD描画 */ }\n};",
+    "members": [
+      {
+        "sig": "virtual void OnEnter() / OnExit()",
+        "desc": "シーンが top に来た直後 / 退場する直前に呼ばれる。 アセット読み込みや後片付けに。"
+      },
+      {
+        "sig": "virtual void OnPause() / OnResume()",
+        "desc": "上に別シーンが Push された時 / Pop で戻った時に呼ばれる。"
+      },
+      {
+        "sig": "virtual void OnUpdate(f32 dt)",
+        "desc": "毎フレームのロジック更新。 dt はスケール後の秒。",
+        "when": "ゲームの毎フレーム処理を書く中心。"
+      },
+      {
+        "sig": "virtual void OnFixedUpdate(f32 fixed_dt)",
+        "desc": "固定タイムステップ更新。 物理など一定刻みの処理に。"
+      },
+      {
+        "sig": "virtual void OnRender(FRenderContext& rc)",
+        "desc": "描画。 rc から共有スプライトバッチやフォントを使える。"
+      },
+      {
+        "sig": "ANode& Root() / const ANode& Root() const",
+        "ret": "ルートノード",
+        "desc": "シーンが所有するノードツリーの根。 ここに子ノードをぶら下げる。"
+      },
+      {
+        "sig": "CSpriteBatch& SpriteBatch()",
+        "desc": "CGame が game 寿命で共有する world/HUD 用スプライトバッチを取得する。"
+      },
+      {
+        "sig": "void SetPixelsPerUnit(f32 ppu) / f32 PixelsPerUnit() const",
+        "desc": "1 ワールド単位を何ピクセルにするかの倍率 (既定 64)。"
+      },
+      {
+        "sig": "FVec2 ScreenToWorld(FVec2 screen_px)",
+        "ret": "ワールド座標",
+        "desc": "画面ピクセル座標を、直近の画面サイズ・カメラ・PPUに対応するワールド座標へ変換する。"
+      },
+      {
+        "sig": "virtual void OnReady() / OnTick(f32) / OnFixedTick(f32)",
+        "desc": "override 用フック。 準備・毎フレーム・固定刻みのロジック。"
+      },
+      {
+        "sig": "virtual void OnDrawWorld(FRenderContext&, CSpriteBatch&) / OnDrawHud(...)",
+        "desc": "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。"
+      },
+      {
+        "sig": "virtual void OnEvent(const FEvent& e)",
+        "desc": "ウィンドウ/入力イベントの受け取り。 最上段シーンにのみ届く。"
+      },
+      {
+        "sig": "virtual ESvc WantedServices() const",
+        "ret": "使うサービス",
+        "desc": "このシーンが使うサービスを bit flag で宣言する。",
+        "sample": "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }"
+      },
+      {
+        "sig": "CSceneServices& Services() const",
+        "ret": "サービスハブ",
+        "desc": "宣言済みの CSceneServices を取得する (未宣言で呼ぶと停止)。"
+      },
+      {
+        "sig": "CGame& GetGame() const / CSceneManager& Scenes() const",
+        "desc": "ゲーム本体とシーン管理への参照。 シーン遷移は Scenes().ChangeScene(...)。"
+      },
+      {
+        "sig": "bool HasServices() const",
+        "desc": "このシーンに CSceneServices が attach 済みか。 Services() を呼ぶ前の安全確認に使える (未宣言で Services() を呼ぶと停止する)。"
+      },
+      {
+        "sig": "using FScene = AScene",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AScene を使う。"
+      }
+    ]
+  }
+}

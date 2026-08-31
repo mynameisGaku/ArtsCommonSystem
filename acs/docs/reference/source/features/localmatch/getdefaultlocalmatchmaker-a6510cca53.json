@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "localmatch",
+    "title": "localmatch — ローカルマッチメイク",
+    "description": "サーバを使わず、同じプロセスの中だけでプレイヤー同士を引き合わせるマッチメイクの実装です。 検索を出した者同士をレーティング(腕前の数値)が近い順に組ませます。 テストやオフライン開発、ローカル対戦の動作確認に使います。"
+  },
+  "feature": {
+    "name": "GetDefaultLocalMatchmaker()",
+    "kind": "関数",
+    "header": "localmatch/LocalMatchmaker.h",
+    "summary": "プロセス全体で共有される既定の CLocalMatchmaker(シングルトン)を acs::game::IMatchmaker& として返します。",
+    "when": "ローカル matchmaker の実体に直接触れたい時。 普通はこれを直接呼ばず InstallLocalMatchmakerAsDefault で既定登録し、上位は GetDefaultMatchmaker() を使う。",
+    "sample": "acs::game::IMatchmaker& mm = acs::localmatch::GetDefaultLocalMatchmaker();\nauto t = mm.StartSearch(\"ranked_1v1\", 1500);"
+  }
+}

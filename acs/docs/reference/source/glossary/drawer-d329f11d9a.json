@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "drawer",
+  "definition": "inspector 上で 1 つの property を描画する関数。 ACS では DrawerFn(関数ポインタ)で表現し CPropertyDrawerRegistry に登録する。"
+}

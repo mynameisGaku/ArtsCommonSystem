@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSeqHandle",
+    "kind": "構造体",
+    "header": "gameframework/Sequence.h",
+    "summary": "CSequenceRunner で再生中の 1 本のシーケンスを指すハンドル。 index と generation を持ち、使い回しスロットの取り違えを防ぐ。",
+    "when": "後から特定のシーケンスを止めたい (Cancel) / 生きているか確認したい (IsActive) 時に保持しておく。",
+    "sample": "FSeqHandle h = runner.Start(static_cast<FSequence&&>(s));\nif (h.IsValid()) { /* ... */ }\nrunner.Cancel(h);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "有効なハンドルか (generation != 0)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TDelegate<Signature>",
+    "kind": "クラステンプレート",
+    "header": "event/Delegate.h",
+    "summary": "関数形式を型引数に取り、静的関数またはメンバー関数と任意ポインターをメモリ確保なしで一組だけ保持する。",
+    "when": "引数や戻り値を持つ処理を、対象と一緒に軽量な値として保持したい時。",
+    "members": [
+      {
+        "sig": "CreateStatic(function, user) / CreateStatic<Function>()",
+        "ret": "設定済みデリゲート",
+        "desc": "関数ポインターまたはコンパイル時に指定した静的関数を結び付ける。"
+      },
+      {
+        "sig": "CreateRaw<Method>(object)",
+        "ret": "設定済みデリゲート",
+        "desc": "メンバー関数を対象へ結び付ける。 登録中の対象寿命は呼出し側が保つ。"
+      },
+      {
+        "sig": "bool ExecuteIfBound(arguments...) / bool TryExecute(out_result, arguments...)",
+        "ret": "実行できたか",
+        "desc": "戻り値なしまたは戻り値ありの関数を、設定済みの場合だけ呼ぶ。"
+      },
+      {
+        "sig": "void Unbind() / bool IsBound() const",
+        "desc": "結び付きを解除し、現在設定済みかを確認する。"
+      }
+    ]
+  }
+}

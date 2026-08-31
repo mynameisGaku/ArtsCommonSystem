@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CJobGraph",
+  "definition": "依存関係付きのジョブを並列実行するスケジューラ。"
+}

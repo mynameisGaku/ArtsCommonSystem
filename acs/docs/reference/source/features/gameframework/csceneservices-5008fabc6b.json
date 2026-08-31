@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneServices",
+    "kind": "クラス",
+    "header": "gameframework/SceneServices.h",
+    "summary": "シーンが使うサービスの取り付けハブ。 シーンクロック・トゥイーン・シーケンス・入力マップと固定入力・カメラ・物理・トリガーを、ESvc で宣言した分だけ遅延確保して保持する。 CGame が自動で更新する。",
+    "when": "シーンで時間スケール・補間アニメ・3D/2D入力アクション・2Dカメラ/物理を使いたい時。 AScene::Services() 経由でアクセスする。",
+    "sample": "ESvc WantedServices() const noexcept override { return ESvc::Default2D; }\nvoid OnEnter() noexcept override {\n    Services().Input().BindKey(FActionId(\"Jump\"), EKey::Space);\n    Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);\n}",
+    "members": [
+      {
+        "sig": "bool Has(ESvc s) const / ESvc Wanted() const",
+        "desc": "宣言したサービスを持っているか、何を要求したか。"
+      },
+      {
+        "sig": "CSceneClock& Clock()",
+        "desc": "時間スケールや一時停止を扱うシーンクロック。"
+      },
+      {
+        "sig": "CTweenManager& Tweens()",
+        "desc": "値を滑らかに補間するトゥイーンマネージャ。"
+      },
+      {
+        "sig": "CSequenceRunner& Sequences()",
+        "desc": "時間順の演出を組むシーケンスランナー。"
+      },
+      {
+        "sig": "FInputMap& Input()",
+        "desc": "キー/パッドをアクション名に束ねる入力マップ。"
+      },
+      {
+        "sig": "const IInputStateView& FixedInput() const",
+        "desc": "現在の固定tickで安定した物理入力snapshot。 Input().Evaluateへ渡す。"
+      },
+      {
+        "sig": "CCamera2D& Camera() / CCollisionWorld2D& Physics() / CTriggerWorld2D& Triggers()",
+        "desc": "2D カメラ・衝突ワールド・トリガーワールド。 宣言していなければ呼ぶと停止。"
+      },
+      {
+        "sig": "using FSceneServices = CSceneServices",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneServices を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CParticleEditorPreview",
+    "kind": "クラス",
+    "header": "gameframework/tools/fxedit/ParticleEditorPreview.h",
+    "summary": "編集中の FParticleEmitterDef を 1 個だけ instance 化して、リアルタイムに visual feedback を返す preview canvas + stats。 外部の CParticleEffectSystem 上に 1 emitter を立てる方式で system は所有しない。 frame budget は 60-frame の リングバッファで保持。 非コピー・非ムーブ・全 noexcept。",
+    "when": "ParticleEditor で emitter を編集しながら見た目を即時確認したい時。 値変更時に RecreatePreviewEmitter で再生成すると即反映される。",
+    "sample": "namespace fx = acs::game::fxedit;\nfx::CParticleEditorPreview preview;\npreview.Init();\nacs::game::CParticleEffectSystem system;  // 別途 Init 済とする\nacs::game::FParticleEmitterDef def {};\npreview.RecreatePreviewEmitter(system, &def);\npreview.Tick(0.016f, system);\npreview.DrawUI(system, &def);\npreview.StopAll(system);\npreview.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "frame budget ring (60 frame) を事前確保。 再 Init は履歴をクリアし内部 handle を無効化。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "履歴 / handle をクリア。 引数で system を取らないため DestroyEmitter は行わない (handle を invalid にするだけ)。 明示停止は先に StopAll。"
+      },
+      {
+        "sig": "void Tick(f32 dt, CParticleEffectSystem& system) noexcept",
+        "ret": "—",
+        "desc": "1 フレーム進める。 dt <= 0 は ring に push せず無視。 system 側の Tick は呼ばない (呼出側責務)。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void DrawUI(CParticleEffectSystem& system, const FParticleEmitterDef* def) noexcept",
+        "ret": "—",
+        "desc": "\"Particle Preview\" window を描画。 def == nullptr なら \"no def selected\" を表示。"
+      },
+      {
+        "sig": "void RecreatePreviewEmitter(CParticleEffectSystem& system, const FParticleEmitterDef* def) noexcept",
+        "ret": "—",
+        "desc": "編集中 emitter を即時再生成 (既存 handle が valid なら Destroy 後、新 def の copy で Create)。 def == nullptr は no-op。",
+        "when": "def 変更時。"
+      },
+      {
+        "sig": "void TriggerBurst(CParticleEffectSystem& system) noexcept",
+        "ret": "—",
+        "desc": "burst_count に従い 1 回 Burst (handle が valid のときのみ)。"
+      },
+      {
+        "sig": "void StopAll(CParticleEffectSystem& system) noexcept",
+        "ret": "—",
+        "desc": "preview emitter を破棄 + particle pool 全消去。 編集セッションをクリーンに戻す。"
+      },
+      {
+        "sig": "FVec2 SpawnPos() const noexcept",
+        "ret": "FVec2",
+        "desc": "preview canvas 上の出生座標。 既定は中央 (320, 240)。"
+      },
+      {
+        "sig": "void SetSpawnPos(FVec2 pos) noexcept",
+        "ret": "—",
+        "desc": "出生座標を設定。"
+      },
+      {
+        "sig": "u32 ActiveParticleCount() const noexcept",
+        "ret": "個数",
+        "desc": "直近 Tick で記録した active particle 数。"
+      },
+      {
+        "sig": "u32 MaxParticleCount() const noexcept",
+        "ret": "容量",
+        "desc": "pool 容量 (直近 Tick で更新)。"
+      },
+      {
+        "sig": "bool IsAutoEmit() const noexcept",
+        "ret": "bool",
+        "desc": "連続放出モードか (true なら emitter active、false なら手動 Burst のみ)。"
+      },
+      {
+        "sig": "void SetAutoEmit(bool b) noexcept",
+        "ret": "—",
+        "desc": "連続放出モードを切替。"
+      },
+      {
+        "sig": "f32 GraphFps() const noexcept",
+        "ret": "fps",
+        "desc": "直近 60 frame の平均 fps。 履歴が空なら 0。"
+      },
+      {
+        "sig": "using FParticleEditorPreview = CParticleEditorPreview",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CParticleEditorPreview を使う。"
+      }
+    ]
+  }
+}

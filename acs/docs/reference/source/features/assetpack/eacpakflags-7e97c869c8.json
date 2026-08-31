@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "EAcpakFlags",
+    "kind": "列挙(enum)",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": "ヘッダ flags のビットフラグ。 pak 全体が暗号化されているか/圧縮されているかを表す。 Writer の Open に渡し、Reader が読んで処理を組み立てる。",
+    "when": "CAcpakWriter::Open で圧縮/暗号化を選ぶ時。 複数を | で組み合わせ可(順序は compress→encrypt)。",
+    "sample": "// 圧縮+暗号化で梱包\nw.SetKey(key);\nw.Open(L\"out/game.acpak\",\n       EAcpakFlags(AcpakFlagCompressed | AcpakFlagEncrypted));",
+    "members": [
+      {
+        "sig": "AcpakFlagNone = 0",
+        "desc": "圧縮も暗号化もしない(素の生バイト)。"
+      },
+      {
+        "sig": "AcpakFlagEncrypted = 1 << 0",
+        "desc": "各ファイルを AES-256-GCM 暗号化する。"
+      },
+      {
+        "sig": "AcpakFlagCompressed = 1 << 1",
+        "desc": "各ファイルを LZ4 圧縮する。"
+      }
+    ]
+  }
+}

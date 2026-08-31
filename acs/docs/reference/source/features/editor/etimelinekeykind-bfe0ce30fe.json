@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ETimelineKeyKind",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h",
+    "summary": "ACinematicsTimelineEditorPanel の編集 UI 上で扱う 5 種の 演出概念。 runtime 側の CCinematicsDirector::ETimelineTrackKind とは意図的に概念を分離し、オーサリング向けの要素を表現する。 Play 時に ToTrackKind() 相当で director の TrackKind にマップされる。",
+    "when": "AddKeyframe で新規キーの種別を指定する時、および timeline の 5 トラックの行割り当て。",
+    "members": [
+      {
+        "sig": "CameraCut = 0",
+        "desc": "カメラ位置を瞬時に切り替え (target FVec3)。"
+      },
+      {
+        "sig": "FadeColor = 1",
+        "desc": "画面全体を start_color → end_color にフェード。"
+      },
+      {
+        "sig": "TimeScale = 2",
+        "desc": "ゲーム時間スケールを倍率指定 (1.0 = 等倍、0.5 = スロー)。"
+      },
+      {
+        "sig": "SpawnEffect = 3",
+        "desc": "エフェクト発火 (effect_id + position)。"
+      },
+      {
+        "sig": "TriggerCallback = 4",
+        "desc": "汎用 callback 発火 (event_id をユーザ定義で解釈)。"
+      }
+    ]
+  }
+}

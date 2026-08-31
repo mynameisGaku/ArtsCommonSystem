@@ -1,0 +1,72 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputMap",
+    "kind": "クラス",
+    "header": "gameframework/InputMap.h",
+    "summary": "物理キー/マウス/ゲームパッドを「Jump」「MoveX」のような名前付きアクションに束ねるマッピング層。 ゲームロジックが物理キーから切り離され、キーコンフィグ UI も後付けできる。",
+    "when": "「W / 左stick = MoveForward」のように 1 actionへ複数入力を割り当てたい時。 通常queryはplatform入力を読み、replay・AI・testでは明示snapshotをEvaluateへ渡す。",
+    "sample": "FInputMap im;\nim.BindKey    (FActionId(\"Jump\"),  EKey::Space);\nim.BindGamepad(FActionId(\"Jump\"),  EGamepadButton::A);\nim.BindAxisKeys(FActionId(\"MoveX\"), EKey::A, EKey::D);\nif (im.IsPressed(FActionId(\"Jump\"))) DoJump();\nf32 mx = im.Axis(FActionId(\"MoveX\")); // -1, 0, +1",
+    "members": [
+      {
+        "sig": "void BindKey(FActionId a, EKey key)",
+        "desc": "キーボードのキーをアクションに割り当てる。"
+      },
+      {
+        "sig": "void BindMouseButton(FActionId a, EMouseButton mb)",
+        "desc": "マウスボタンを割り当てる。"
+      },
+      {
+        "sig": "void BindGamepad(FActionId a, EGamepadButton gb, u32 player_index = 0)",
+        "desc": "ゲームパッドボタンを割り当てる。"
+      },
+      {
+        "sig": "void BindAxisKeys(FActionId a, EKey neg, EKey pos)",
+        "desc": "2 キーで -1/+1 の 1D 軸を作る (例: A=-1, D=+1)。 両押しは 0。"
+      },
+      {
+        "sig": "bool TryBindGamepadAxis(FActionId a, EGamepadAxis axis, u32 player, const FInputAxisOptions& options)",
+        "desc": "3D移動や視点用axisを検証して割り当てる。 不正設定ではbindingを変更しない。"
+      },
+      {
+        "sig": "FInputActionState Evaluate(FActionId a, const IInputStateView& input) const",
+        "desc": "明示入力からedge・保持・合成axisを一度に評価する。 deviceやWorldへ依存しない。"
+      },
+      {
+        "sig": "u32 BindingCount() const",
+        "desc": "現在の物理binding数。"
+      },
+      {
+        "sig": "void Unbind(FActionId a) / void ClearAll()",
+        "desc": "指定アクションの全割り当てを削除 / 全削除。"
+      },
+      {
+        "sig": "bool IsPressed(FActionId a) const",
+        "desc": "このフレームで押された瞬間か (OR セマンティクス: どれか 1 つでも該当で true)。"
+      },
+      {
+        "sig": "bool IsHeld(FActionId a) const",
+        "desc": "押されているか。"
+      },
+      {
+        "sig": "bool IsReleased(FActionId a) const",
+        "desc": "このフレームで離された瞬間か。"
+      },
+      {
+        "sig": "f32 Axis(FActionId a) const",
+        "ret": "[-1,+1]",
+        "desc": "1D 軸値。 複数 axis 割り当ては累積して clamp(-1,+1)。"
+      },
+      {
+        "sig": "f32 AxisValue(FActionId a, FInputAxisOptions options) const",
+        "ret": "[-1,+1]",
+        "desc": "既存Axisの合算値へ検査済みのデッドゾーン、倍率、反転を後処理。"
+      }
+    ]
+  }
+}

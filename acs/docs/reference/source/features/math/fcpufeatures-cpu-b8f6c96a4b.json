@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FCpuFeatures / Cpu()",
+    "kind": "構造体・関数",
+    "header": "math/Cpu.h",
+    "summary": "実行中の CPU が対応する命令セット（SSE/AVX/FMA など）を CPUID で 1 度だけ調べてキャッシュする。",
+    "when": "CPU 機能に応じて最適な実装を選びたい時。 通常は FMathDispatch が内部で使うので直接触る必要は少ない。",
+    "sample": "const FCpuFeatures& f = Cpu();\nif (f.avx2)  { /* AVX2 パス */ }\nif (HasAvx2()) { /* 簡易版 */ }",
+    "members": [
+      {
+        "sig": "const FCpuFeatures& Cpu()",
+        "ret": "機能フラグ",
+        "desc": "初回呼び出しで CPUID を実行、以降キャッシュした結果を返す。"
+      },
+      {
+        "sig": "FCpuFeatures{ sse2, sse3, ssse3, sse41, sse42, avx, avx2, fma3, f16c, bmi1, bmi2, aes, popcnt, avx512f }",
+        "desc": "全 14 フラグを bool で持つ: sse2/sse3/ssse3/sse41/sse42(SSE 系)、avx/avx2/avx512f(AVX 系)、fma3(積和)、f16c(半精度変換)、bmi1/bmi2(ビット操作)、aes(暗号)、popcnt(ビット数え)。 sse2 は x64 で常に true。"
+      },
+      {
+        "sig": "bool HasAvx2() / HasSse41()",
+        "ret": "対応するか",
+        "desc": "頻出機能だけの簡易判定ヘルパ。"
+      }
+    ]
+  }
+}

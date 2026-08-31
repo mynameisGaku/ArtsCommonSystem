@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "FSubsystemOwner",
+    "kind": "構造体",
+    "header": "subsystem/SubsystemOwner.h",
+    "summary": "subsystemへ渡す非所有owner pointerと責務種別。",
+    "when": "共通のsubsystem APIからowner固有機能を取得する時。",
+    "members": [
+      {
+        "sig": "void* pointer",
+        "desc": "subsystemが所有しないownerの生pointer。"
+      },
+      {
+        "sig": "ESubsystemOwnerKind kind",
+        "desc": "pointerが満たすowner責務。"
+      }
+    ]
+  }
+}

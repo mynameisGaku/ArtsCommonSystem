@@ -1,0 +1,106 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AModelInspectorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/modelview/ModelInspectorPanel.h",
+    "summary": "ModelViewer 内の読み取り専用 mesh / skeleton / anim 情報ビューア。 AEditorPanel を継承し、UpdateFromModel で push された FMeshSummary / submesh / bone / clip 配列を値コピーでスナップショット保持して ImGui に表示する(Summary / Submeshes テーブル / Bones ツリー / Animations テーブルの 4 セクション)。 callback も編集も GPU リソースも持たない純粋な viewer。 非コピー / 非ムーブ。",
+    "when": "モデルのメタ情報を確認するパネルとして使う。 model load を担当するcallerが完了時に UpdateFromModel を呼んで情報を流し込む。",
+    "sample": "AModelInspectorPanel insp;\ninsp.Init();\nworkspace.RegisterPanel(&insp);\n\nFMeshSummary    sum;       // 集計を埋める\nFSubmeshInfo    subs[1]  = { { \"Body\", 0, 3600, 0 } };\ninsp.UpdateFromModel(sum, subs, 1,\n                     nullptr, 0,    // bones なし\n                     nullptr, 0);   // clips なし",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "内部状態を空にする。 多重呼び出し可。",
+        "when": "生成直後 / 再利用時。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "全配列 + summary をクリアし has_model = false。 多重呼び出し可。",
+        "when": "任意"
+      },
+      {
+        "sig": "void UpdateFromModel(const FMeshSummary& summary, const FSubmeshInfo* submeshes, u32 submesh_count, const FBoneInfo* bones, u32 bone_count, const FAnimationClipInfo* clips, u32 clip_count) noexcept",
+        "ret": "—",
+        "desc": "表示するモデルのスナップショットを更新する。 summary は値コピー、submesh / bone / clip 各配列は TArray に値コピーで PushBack。 各ポインタは nullptr 可(count==0 と整合させる)。 呼び出し後 HasModel() が true に。",
+        "when": "モデル load 完了時に caller が呼ぶ。"
+      },
+      {
+        "sig": "void Clear() noexcept",
+        "ret": "—",
+        "desc": "表示内容を空に戻し \"(No model loaded)\" 表示に切り替える。 多重呼び出し可。",
+        "when": "モデル unload / workspace clear 時。"
+      },
+      {
+        "sig": "const FMeshSummary& Summary() const noexcept",
+        "ret": "summary 参照",
+        "desc": "保持中の集計情報を返す。",
+        "when": "任意"
+      },
+      {
+        "sig": "u32 SubmeshCount() const noexcept",
+        "ret": "件数",
+        "desc": "保持中の submesh 数。",
+        "when": "任意"
+      },
+      {
+        "sig": "const FSubmeshInfo* Submesh(u32 i) const noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "i 番目の submesh。 i >= SubmeshCount() なら nullptr(防衛的アクセス、UB なし)。",
+        "when": "個別 submesh を参照する時。"
+      },
+      {
+        "sig": "u32 BoneCount() const noexcept",
+        "ret": "件数",
+        "desc": "保持中の bone 数。",
+        "when": "任意"
+      },
+      {
+        "sig": "const FBoneInfo* Bone(u32 i) const noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "i 番目の bone。 範囲外は nullptr。",
+        "when": "個別 bone を参照する時。"
+      },
+      {
+        "sig": "u32 AnimationClipCount() const noexcept",
+        "ret": "件数",
+        "desc": "保持中の clip 数。",
+        "when": "任意"
+      },
+      {
+        "sig": "const FAnimationClipInfo* AnimationClip(u32 i) const noexcept",
+        "ret": "要素 または nullptr",
+        "desc": "i 番目の clip。 範囲外は nullptr。",
+        "when": "個別 clip を参照する時。"
+      },
+      {
+        "sig": "bool HasModel() const noexcept",
+        "ret": "真偽",
+        "desc": "UpdateFromModel 経由でモデルが push されたか。",
+        "when": "任意"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Model Info\"",
+        "desc": "ImGui ウインドウタイトル。",
+        "when": "基底からの呼び出し。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "ImGui::Begin(\"Model Info\") + Summary / Submeshes(CollapsingHeader + Table) / Bones(CollapsingHeader + TreeNode 再帰) / Animation Clips(CollapsingHeader + Table) を順に描画。 未 load 時は \"(No model loaded)\" のみ表示。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "using FModelInspectorPanel = AModelInspectorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AModelInspectorPanel を使う。"
+      }
+    ]
+  }
+}

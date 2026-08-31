@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "ゲームパッド入力（IsGamepadDown ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "最大 4 台（player 0〜3、省略時 0）のゲームパッドを読む。 ボタンは EGamepadButton、スティックは -1.0〜+1.0、トリガーは 0.0〜1.0。",
+    "when": "コントローラ対応。 スティックで移動、トリガーでアクセル、など。 接続確認は IsGamepadConnected。",
+    "sample": "if (IsGamepadConnected()) {\n    x += GamepadLeftX() * 5;       // スティックで移動\n    if (IsGamepadPressed(EGamepadButton::A)) Jump();\n    f32 gas = GamepadRightTrigger();\n}",
+    "members": [
+      {
+        "sig": "bool IsGamepadConnected(i32 player=0)",
+        "ret": "接続中か",
+        "desc": "そのパッドが繋がっていれば true。"
+      },
+      {
+        "sig": "bool IsGamepadDown(EGamepadButton button, i32 player=0)",
+        "desc": "ボタンが押下中なら true。"
+      },
+      {
+        "sig": "bool IsGamepadPressed(EGamepadButton button, i32 player=0)",
+        "desc": "押した瞬間だけ true。"
+      },
+      {
+        "sig": "f32 GamepadLeftX/LeftY/RightX/RightY(i32 player=0)",
+        "ret": "-1.0〜+1.0",
+        "desc": "左右スティックの傾き。"
+      },
+      {
+        "sig": "f32 GamepadLeftTrigger/RightTrigger(i32 player=0)",
+        "ret": "0.0〜1.0",
+        "desc": "アナログトリガーの踏み込み量。"
+      }
+    ]
+  }
+}

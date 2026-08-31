@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CNetSnapshot のランタイム設定。 commit 目標 Hz・ring buffer 件数・補間遅延秒・payload 上限。">
+  <title>FNetSnapshotConfig — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FNetSnapshotConfig</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FNetSnapshotConfig</h1>
+<p class="lead">CNetSnapshot のランタイム設定。 commit 目標 Hz・ring buffer 件数・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26286">補間</button><span class="term-tooltip" id="term-tip-26286" role="tooltip">2 つの値 (ここでは前後の snapshot) の間を滑らかにつないで中間の状態を作ること。 少し過去の時刻を狙うことで通信ジッタを吸収する。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26287">遅延</button><span class="term-tooltip" id="term-tip-26287" role="tooltip">必要になるまで計算を先延ばしにする方式(lazy)。 現行 TDerived は生成時と依存通知時に即時評価し、Get の再計算は dirty が残った場合の補完経路。</span></span>秒・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26288">payload</button><span class="term-tooltip" id="term-tip-26288" role="tooltip">ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では &quot;ASSET_PATH&quot; id で wchar_t* を渡す。</span></span> 上限。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362.html"><code>acs::game::FNetSnapshotConfig</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Init に渡す。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/NetSnapshot.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-bf0c1a42c337fd567503"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>u32 <a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/snapshot-rate-hz-42cbfaeb.html">snapshot_rate_hz</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>server の目標 commit Hz (自動 throttle はしない)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/snapshot-rate-hz-42cbfaeb.html"><code>acs::game::FNetSnapshotConfig::snapshot_rate_hz</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-b34546ba44d8a60b18a2"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u32 <a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/buffer-capacity-snapshots-683563de.html">buffer_capacity_snapshots</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>client 側 ring buffer 件数 (&gt;=2 必須)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/buffer-capacity-snapshots-683563de.html"><code>acs::game::FNetSnapshotConfig::buffer_capacity_snapshots</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-62d34b3aa2a1a9f117f9"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>f32 <a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/interpolation-delay-sec-fa3e94e5.html">interpolation_delay_sec</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26282">補間</button><span class="term-tooltip" id="term-tip-26282" role="tooltip">2 つの値 (ここでは前後の snapshot) の間を滑らかにつないで中間の状態を作ること。 少し過去の時刻を狙うことで通信ジッタを吸収する。</span></span>の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26283">遅延</button><span class="term-tooltip" id="term-tip-26283" role="tooltip">必要になるまで計算を先延ばしにする方式(lazy)。 現行 TDerived は生成時と依存通知時に即時評価し、Get の再計算は dirty が残った場合の補完経路。</span></span> (= jitter buffer の深さ)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/interpolation-delay-sec-fa3e94e5.html"><code>acs::game::FNetSnapshotConfig::interpolation_delay_sec</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-c8aa16e60602fe12b522"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>u32 <a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/max-payload-bytes-15442929.html">max_payload_bytes</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>1 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26284">snapshot</button><span class="term-tooltip" id="term-tip-26284" role="tooltip">ある時刻の世界全体の状態を 1 つに固めたもの。 server がこれを配信し、client は受信した複数 snapshot を補間して表示する (FPS/MMO 系で標準)。</span></span> の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26285">payload</button><span class="term-tooltip" id="term-tip-26285" role="tooltip">ImGui のドラッグ &amp; ドロップで運ばれるデータ本体。 ACS の CAssetBrowser では &quot;ASSET_PATH&quot; id で wchar_t* を渡す。</span></span> 上限。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fnetsnapshotconfig-eabd5362/max-payload-bytes-15442929.html"><code>acs::game::FNetSnapshotConfig::max_payload_bytes</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

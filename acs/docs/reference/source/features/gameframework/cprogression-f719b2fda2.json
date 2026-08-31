@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CProgression",
+    "kind": "クラス",
+    "header": "gameframework/Progression.h",
+    "summary": "「累計 XP を加算するとレベルが上がり、所定の XP 閾値で Milestone を達成 → コンテンツが Unlock される」進行システムを 1 クラスにまとめた小型マネージャ。 レベルは floor(log2(xp + 1)) で典型的な RPG カーブを近似。 プラットフォーム SDK 非依存。",
+    "when": "敵撃破やクエスト完了で XP が貯まり、一定値で「Lv.10 到達で新エリア解放」のようなマイルストーンを達成させたい時。 達成時に callback でゲーム側へ通知する。",
+    "sample": "CProgression p;\np.RegisterMilestone({ \"ms.level_5\", \"Lv.5 到達\", 31, \"content.weapon_b\" });\np.RegisterMilestone({ \"ms.level_10\", \"Lv.10 到達\", 1023, \"content.area_2\" });\np.SetOnAchievedCallback(&OnMilestoneAchieved, &game);\np.AwardXp(50);\nu32 lv = p.CurrentLevel();\nu32 done = p.AchievedCount();",
+    "members": [
+      {
+        "sig": "void RegisterMilestone(const FMilestoneDef& def)",
+        "desc": "起動時に 1 度ずつ登録。 同 id の 2 重登録 / id==nullptr は no-op。"
+      },
+      {
+        "sig": "void AwardXp(u32 amount)",
+        "desc": "累計 XP に加算し、各 milestone の達成判定を行う。 u32 超過は max にクランプ。 amount=0 は no-op。"
+      },
+      {
+        "sig": "u32 CurrentXp() const",
+        "desc": "現在の累計 XP。 CurrentLevel() は floor(log2(xp+1)) (xp=1→Lv1, xp=7→Lv3, ...)。"
+      },
+      {
+        "sig": "bool IsMilestoneAchieved(const char* id) const",
+        "desc": "指定 id が達成済みか。 nullptr / 未登録は false。"
+      },
+      {
+        "sig": "u32 MilestoneCount() const",
+        "desc": "登録総数。 AchievedCount() は達成数。 UI の \"5/20 unlocked\" 表示に。"
+      },
+      {
+        "sig": "const FMilestoneState* AllStates(u32& out_count) const",
+        "ret": "状態配列",
+        "desc": "全 milestone 状態の生バッファ。 out_count に件数。 RegisterMilestone / ResetProgress で無効化される。"
+      },
+      {
+        "sig": "void SetOnAchievedCallback(MilestoneCallback cb, void* user)",
+        "desc": "達成時 callback を登録 / 差し替え / 解除。 AwardXp 内で「未達成→達成」遷移ごとに 1 回呼ばれる。"
+      },
+      {
+        "sig": "void ResetProgress()",
+        "desc": "累計 XP=0、全 milestone を未達成に戻す (定義は保持)。 NewGame+ / デバッグ用。"
+      },
+      {
+        "sig": "TResult<void> Save(const wchar_t* file_path)",
+        "desc": "累計 XP + 達成済み milestone を CSaveArchive バイナリ (CRC32 付き) で保存。 Load は同じ Def 群を登録後に呼ぶと復元 (id の hash でマッチ)。"
+      },
+      {
+        "sig": "using FProgression = CProgression",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CProgression を使う。"
+      }
+    ]
+  }
+}

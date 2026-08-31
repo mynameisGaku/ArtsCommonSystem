@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "ABtDecorator",
+    "kind": "クラス",
+    "header": "gameframework/BehaviorTree.h",
+    "summary": "子behavior tree nodeの実行条件や結果を包む管理object。",
+    "when": "一つのnodeへguardや結果変換を追加する時。",
+    "members": [
+      {
+        "sig": "using FBtDecorator = ABtDecorator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtDecorator を使う。"
+      }
+    ]
+  }
+}

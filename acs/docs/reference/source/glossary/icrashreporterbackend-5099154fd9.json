@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ICrashReporterBackend",
+  "definition": "gameframework 側のクラッシュ報告 backend 抽象インターフェース。 crashwin はその Windows 実装。"
+}

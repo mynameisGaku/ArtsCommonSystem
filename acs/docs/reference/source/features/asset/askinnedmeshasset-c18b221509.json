@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "ASkinnedMeshAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/SkinnedMesh.h",
+    "summary": "スキンメッシュ(ボーン + アニメーション付き)。 頂点(位置/法線/UV + ボーン indices/weights) + インデックス + ボーン階層 + アニメーション群を持つ。",
+    "when": "キャラクターなど骨で動かすモデルを扱う時。 MVP ではプログラム的にデータを構築する。",
+    "sample": "ASkinnedMeshAsset mesh;\nmesh.Vertices().Add(FSkinnedVertex{ /* ... */ });\nmesh.Bones().Add(FBone{ /* ... */ });\nmesh.ComputeInverseBindMatrices();   // bind_* 設定後に 1 度",
+    "members": [
+      {
+        "sig": "TArray<FSkinnedVertex>& Vertices()",
+        "ret": "頂点配列",
+        "desc": "FSkinnedVertex(64 バイト、ボーン影響付き)の配列。"
+      },
+      {
+        "sig": "TArray<u32>& Indices()",
+        "ret": "インデックス配列",
+        "desc": "三角形のインデックス。"
+      },
+      {
+        "sig": "TArray<FBone>& Bones()",
+        "ret": "ボーン配列",
+        "desc": "FBone の階層(parent でつながる)。"
+      },
+      {
+        "sig": "TArray<FAnimation>& Animations()",
+        "ret": "アニメ配列",
+        "desc": "FAnimation の一覧。"
+      },
+      {
+        "sig": "void ComputeInverseBindMatrices()",
+        "desc": "全 bind_* を設定してから 1 度呼ぶ。 各 FBone::inverse_bind を計算する。",
+        "when": "ボーンのバインド姿勢を全部入れ終えた直後。"
+      },
+      {
+        "sig": "using FSkinnedMeshAsset = ASkinnedMeshAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ASkinnedMeshAsset を使う。"
+      }
+    ]
+  }
+}

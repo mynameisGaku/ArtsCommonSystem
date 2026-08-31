@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ATilemapComponent",
+  "definition": "タイルマップを画面に描画するコンポーネント。"
+}

@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CEconomyDirector",
+    "kind": "クラス",
+    "header": "gameframework/EconomyDirector.h",
+    "summary": "ゲーム内通貨の残高 + 固定価格のショップアイテム + 購入コールバックをまとめた小型マネージャ。 通貨は soft (ゲーム内獲得) と premium (課金) を区別でき、商品はコスメティック専用フラグを持つ。 ガチャ (ランダム報酬) は意図的に非対応、すべて「払えば必ず指定の品が手に入る」固定価格方式。",
+    "when": "見た目アイテムのショップやゲーム内通貨を実装したい時。 実際の課金トランザクションは別 (ストア層) で行い、ここはゲーム内売買のみ扱う。",
+    "sample": "CEconomyDirector ed;\ned.RegisterCurrency({ \"gold\", \"Gold\", false });  // soft 通貨\ned.SetBalance(\"gold\", 1000);\ned.RegisterItem({ \"skin.knight_red\", \"Red Knight\", \"gold\", 500, ~0u, true });\nif (ed.PurchaseItem(\"skin.knight_red\")) {\n    // 成功 → 残高 500 減、コスメ解放\n}",
+    "members": [
+      {
+        "sig": "void RegisterCurrency(const FCurrencyDef& def)",
+        "desc": "通貨を 1 種定義 (残高 0 で初期化)。 同 id 重複は無視。"
+      },
+      {
+        "sig": "void SetBalance(const char* currency_id, u32 amount)",
+        "desc": "残高を絶対値で設定。 未登録通貨は no-op。"
+      },
+      {
+        "sig": "u32 GetBalance(const char* currency_id)",
+        "ret": "残高",
+        "desc": "指定通貨の残高。 未登録は 0。"
+      },
+      {
+        "sig": "bool AddToBalance(const char* currency_id, u32 delta)",
+        "desc": "残高を加算 (オーバーフロー時は max クランプ)。",
+        "when": "報酬付与やリアル課金後の残高反映で。"
+      },
+      {
+        "sig": "bool DeductFromBalance(const char* currency_id, u32 delta)",
+        "ret": "成功したか",
+        "desc": "残高を減算。 不足なら false で残高据置。"
+      },
+      {
+        "sig": "void RegisterItem(const FShopItem& item)",
+        "desc": "商品を 1 件定義。 同 item_id 重複は無視。 通貨未登録でも登録は受理 (購入時に判定)。"
+      },
+      {
+        "sig": "bool PurchaseItem(const char* item_id)",
+        "ret": "購入成功したか",
+        "desc": "残高・在庫・通貨をチェックし、成功時のみ残高減算 + 在庫減 + コールバック発火。 失敗時は副作用なし。"
+      },
+      {
+        "sig": "const FShopItem* FindItem(const char* item_id)",
+        "desc": "商品を 1 件取得 (未登録は nullptr)。"
+      },
+      {
+        "sig": "u32 ItemCount() / const FShopItem* AllItems(u32& out_count)",
+        "desc": "商品件数 / 全商品の生バッファ。"
+      },
+      {
+        "sig": "void SetOnPurchaseCallback(PurchaseCallback cb, void* user)",
+        "desc": "購入結果 (成功 / 失敗) の通知先を登録。 失敗トースト UI などに使う。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "通貨・残高・商品・在庫・コールバックを全クリア。"
+      },
+      {
+        "sig": "using FEconomyDirector = CEconomyDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEconomyDirector を使う。"
+      }
+    ]
+  }
+}

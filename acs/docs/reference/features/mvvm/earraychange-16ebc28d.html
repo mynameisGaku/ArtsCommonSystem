@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TObservableArray の変更の種類を表す列挙。 通知コールバックの中でこれを switch して処理を分ける。">
+  <title>EArrayChange — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/mvvm.html">mvvm モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/mvvm.html">mvvm</a><span>/</span><span aria-current="page">EArrayChange</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / mvvm</div><h1 class="identifier">EArrayChange</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27680">TObservableArray</button><span class="term-tooltip" id="term-tip-27680" role="tooltip">要素の追加・削除・変更を通知する配列。 リスト UI の差分更新向け。</span></span> の変更の種類を表す列挙。 通知<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27681">コールバック</button><span class="term-tooltip" id="term-tip-27681" role="tooltip">あとで呼んでもらうために登録しておく関数。 ACS では関数ポインタ + void* ユーザーデータの形を取る(STL 不依存方針)。</span></span>の中でこれを switch して処理を分ける。</p></div><div class="badges"><span class="badge">列挙(enum)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/mvvm/earraychange-4498e359.html"><code>acs::EArrayChange</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>配列の変更通知を受け取った時、何が起きたか(追加/削除/書換/全消去)を判別する。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>mvvm</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>mvvm/ObservableArray.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-56776c4943d62eea51d5"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/mvvm/earraychange-4498e359/inserted-f71d2dc7.html">Inserted</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>index に value を挿入した。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/earraychange-4498e359/inserted-f71d2dc7.html"><code>acs::EArrayChange::Inserted</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-097d2f26c7d557967d1f"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/mvvm/earraychange-4498e359/removed-1adb46ea.html">Removed</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>index の要素を削除した(value はもう無いので nullptr)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/earraychange-4498e359/removed-1adb46ea.html"><code>acs::EArrayChange::Removed</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-2891f8a0ef0310e432c0"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/mvvm/earraychange-4498e359/changed-8b79c332.html">Changed</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>index の要素を別の値に書き換えた(value = 新値)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/earraychange-4498e359/changed-8b79c332.html"><code>acs::EArrayChange::Changed</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-1c6bf0521efd05c56396"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/mvvm/earraychange-4498e359/cleared-17298e80.html">Cleared</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全要素を削除した(index=0, value=nullptr)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/mvvm/earraychange-4498e359/cleared-17298e80.html"><code>acs::EArrayChange::Cleared</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="EArrayChangeの使用例"><code>switch (kind) {
+    case EArrayChange::Inserted: /* idx に value を追加 */ break;
+    case EArrayChange::Removed:  /* idx を削除 (value=nullptr) */ break;
+    case EArrayChange::Changed:  /* idx を value に書換 */ break;
+    case EArrayChange::Cleared:  /* 全削除 (value=nullptr) */ break;
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

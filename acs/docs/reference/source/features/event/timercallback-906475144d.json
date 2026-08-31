@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TimerCallback",
+    "kind": "型エイリアス (関数ポインタ)",
+    "header": "event/TimerManager.h",
+    "summary": "CTimerManager のタイマが発火した時に呼ばれる関数の型。 void (*)(void* user)。 user は登録時に渡した任意ポインタで、ここに自分の状態を入れて持ち回ります(スレッドプールのタスク関数と同じ流儀)。",
+    "when": "SetTimeout/SetInterval に渡す関数を書く時の型。",
+    "sample": "static void OnCooldownEnd(void* user) {\n    auto* s = static_cast<FPlayer*>(user);\n    s->canAttack = true;\n}"
+  }
+}

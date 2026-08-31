@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "TStateMachine<Owner>",
+    "kind": "クラステンプレート",
+    "header": "gameframework/StateMachine.h",
+    "summary": "小さな汎用有限状態機械 (FSM)。 状態を u32 ID で識別し、状態ごとに on_enter/on_update/on_exit を関数ポインタで登録する。 <Owner> に所有者型を渡すと各関数が Owner& を受け取る。",
+    "when": "敵 AI・ゲームフロー・アニメ制御など「状態が切り替わる」ロジックを整理したい時 (最大 16 状態)。",
+    "sample": "enum EEnemyState { Idle = 0, Chase };\nTStateMachine<FEnemy> sm;\nsm.Configure(Idle,  { &FEnemy::EnterIdle, &FEnemy::UpdateIdle, nullptr });\nsm.Configure(Chase, { nullptr, &FEnemy::UpdateChase, nullptr });\nsm.Start(Idle, *this);\n// 毎フレーム: sm.Update(*this, dt);",
+    "members": [
+      {
+        "sig": "void Configure(u32 state_id, FState state)",
+        "desc": "状態 ID に enter/update/exit の組を登録する。 範囲外は no-op。"
+      },
+      {
+        "sig": "void Start(u32 initial_state, Owner& owner)",
+        "desc": "初期状態に入る (その状態の on_enter を呼ぶ)。"
+      },
+      {
+        "sig": "void ChangeState(u32 new_state, Owner& owner)",
+        "desc": "即時遷移。 旧の on_exit → 新の on_enter を同期で呼ぶ。",
+        "when": "on_update の中から条件に応じて呼ぶのが典型。"
+      },
+      {
+        "sig": "void Update(Owner& owner, f32 dt)",
+        "desc": "現在状態の on_update を発火する。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "u32 Current() const / bool IsIn(u32 state_id) const",
+        "desc": "現在の状態 ID / 指定状態にいるか。"
+      }
+    ]
+  }
+}

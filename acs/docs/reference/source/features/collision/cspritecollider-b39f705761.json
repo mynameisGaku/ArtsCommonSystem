@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "collision",
+    "title": "collision — 当たり判定",
+    "description": "形(スプライトの絵やメッシュ)から当たり判定の形状を自動で作り、当たっているか・どこで当たったかを調べる道具です。 アルファ画像から輪郭や凸包を起こしたり、点群から 3D 凸包を組み立てたり、メッシュにレイキャストしたりできます。"
+  },
+  "feature": {
+    "name": "CSpriteCollider",
+    "kind": "クラス",
+    "header": "collision/SpriteCollider.h",
+    "summary": "2D スプライトのアルファチャンネル(透明度)から、絵の形に沿った当たり判定形状を作るクラス。 凸包(扱いやすい)と簡略化済みの輪郭ポリゴン(凹形状にも追従)の両方を生成し、点の内外判定や AABB も得られる。",
+    "when": "キャラやアイテムのスプライト画像から、見た目どおりの当たり判定をワンタッチで作りたい時。 手で頂点を並べる必要がなくなる。",
+    "sample": "acs::CSpriteCollider col;\ncol.BuildFromAlpha(rgba, w, h, /*threshold=*/128, /*simplify=*/1.5f);\nif (col.ContainsPoint({mx, my})) { /* 絵の上をクリック */ }\nFConvexPoly2 poly = col.HullPolygon();  // 物理に渡せる凸ポリゴン",
+    "members": [
+      {
+        "sig": "TResult<void> BuildFromAlpha(const u8* rgba, u32 w, u32 h, u8 alpha_threshold = 128, f32 simplify_epsilon = 1.5f)",
+        "ret": "成功/失敗(Result)",
+        "desc": "RGBA8 画像(上から下・左から右に詰めた配列)を読み、alpha >= threshold の画素を「内側」として凸包と輪郭を作る。 simplify_epsilon は輪郭の許容誤差(px)で、大きいほど頂点が減る。",
+        "when": "テクスチャを読み込んだ直後に 1 回呼ぶ。 単一の塊・穴なしの絵が前提。"
+      },
+      {
+        "sig": "bool ContainsPoint(FVec2 p) const",
+        "ret": "内側なら true",
+        "desc": "簡略化済み輪郭ポリゴンで点の内外を判定する(レイ交差法、凹形状にも対応)。 座標はピクセル空間(左上原点)。",
+        "sample": "if (col.ContainsPoint({px, py})) Select();"
+      },
+      {
+        "sig": "FConvexPoly2 HullPolygon() const",
+        "ret": "凸ポリゴン",
+        "desc": "凸包を物理用の FConvexPoly2(最大 16 頂点)に変換して返す。 頂点が多ければ均等に間引く。 CCollisionWorld2D::AddPolygon にそのまま渡せる。",
+        "when": "2D 物理ワールドにこのスプライトを当たり判定として登録する時。"
+      },
+      {
+        "sig": "const FVec2* Hull() const / u32 HullCount() const",
+        "ret": "凸包の頂点配列と個数",
+        "desc": "生成された凸包の頂点列。 常に有効で、物理で扱いやすい形。"
+      },
+      {
+        "sig": "const FVec2* Outline() const / u32 OutlineCount() const",
+        "ret": "輪郭の頂点配列と個数",
+        "desc": "簡略化された輪郭の頂点列。 凹んだ形にも沿う、見た目に忠実な形。"
+      },
+      {
+        "sig": "FAabb2 Bounds() const",
+        "ret": "外接矩形",
+        "desc": "形を囲む 2D のAABB(軸並行の最小矩形)。 粗い当たり判定の前段に使える。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "生成した形状をすべて捨てて空に戻す。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxVertices = 256",
+        "desc": "凸包・輪郭それぞれの頂点数の上限(定数)。"
+      },
+      {
+        "sig": "using FSpriteCollider = CSpriteCollider",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSpriteCollider を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CMotionVector",
+    "kind": "クラス",
+    "header": "render/MotionVector.h",
+    "summary": "シーン全 mesh を再ラスタライズしてモーションベクトル + 法線 G-bufferを書き出すパス。 motion(画面空間の移動量、prev_uv−curr_uv)は TAA の正確な reproject に、world 法線は SSR/SSGI/SSAO の入力に使う。",
+    "when": "TAA で動く物体のゴーストを消したい / 画面空間効果に高品質な法線を供給したいとき。 全対象 draw の成功を確認してから出力を公開する。",
+    "sample": "CMotionVector mv;\nmv.Init(*dev, w, h);\nconst u32 motion_draws = static_cast<u32>(visible_meshes.Size());\nbool motion_valid = false;\nif (mv.BeginFrame(motion_draws) &&\n    mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {\n    bool complete = true;\n    for (auto& m : visible_meshes)\n        if (!mv.DrawMesh(*cl, m.gm, m.model, m.prev_model)) complete = false;\n    mv.End(*cl);\n    motion_valid = complete && mv.ObjectDrawCount() == motion_draws;\n}\npost_params.taa_motion_texture = motion_valid ? mv.OutputTexture() : nullptr;\nif (motion_valid)\n    ssr.Render(..., mv.OutputNormalTexture(), ..., mv.OutputTexture());",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, u32 width, u32 height) / Resize(...)",
+        "desc": "motion RT(RG16F)+ normal RT(RGBA16F)+ 内部 depth を作る。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_draws = 0)",
+        "desc": "毎フレームの pass 前に正確な対象数を渡し、永続 per-object CB pool を先行確保する。 UINT32_MAX は無効 sentinel のため false。 確保失敗時も既存 pool は保持され、後続フレームで再試行できる。"
+      },
+      {
+        "sig": "bool Begin(IRhiCommandList& cl, const FMat4& view_proj, const FMat4& prev_view_proj)",
+        "desc": "motion RT を 0 クリアしパイプライン設定。 jitter なしの VP を渡す。 MRT 開始失敗時は false。"
+      },
+      {
+        "sig": "bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model)",
+        "desc": "1 mesh の motion を描く。 静的 mesh は prev_model に model と同値を渡す。 draw を完全に記録できなければ false。"
+      },
+      {
+        "sig": "void End(IRhiCommandList& cl)",
+        "desc": "パス終了(主パス RT へ復帰)。"
+      },
+      {
+        "sig": "u32 ObjectBufferCapacity() / ObjectDrawCount()",
+        "desc": "永続 pool の使用可能数 / 今フレームに記録できた draw 数。 対象数との一致を出力公開条件に使う。"
+      },
+      {
+        "sig": "IRhiTexture* OutputTexture() / OutputNormalTexture()",
+        "desc": "モーションベクトル / world 法線テクスチャ。 BeginFrame・Begin・全 DrawMesh が成功したフレームだけ後段へ渡す。"
+      },
+      {
+        "sig": "using FMotionVector = CMotionVector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMotionVector を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "TResult<T, E>",
+    "kind": "クラステンプレート",
+    "header": "foundation/Result.h",
+    "summary": "ACS は例外を使わず、失敗をこの戻り値で伝える。 E の既定は FErrorCode。 [[nodiscard]] 付きなので戻り値を捨てると警告。",
+    "when": "失敗し得る関数（ファイルを開く・確保する・パースする等）の戻り型に使う。 呼ぶ側は if (r) や IsOk() でまず成否を確認する。",
+    "sample": "TResult<FFile> r = OpenFile(\"foo\");\nif (!r) {                              // エラーなら\n    ACS_LOG_ERROR(\"開けません: %s\", r.Error().message);\n    return;\n}\nFFile& f = r.Value();                  // 成功 → 値を取り出す\nint n = r.ValueOr(0);                  // ※ T=int の例: 失敗なら 0",
+    "members": [
+      {
+        "sig": "bool IsOk() const / IsErr() const",
+        "ret": "成否",
+        "desc": "成功側を持っていれば IsOk() が true。",
+        "when": "値やエラーに触る前に必ず確認する。"
+      },
+      {
+        "sig": "explicit operator bool() const",
+        "desc": "if (r) で成功判定できる（IsOk() と同じ）。"
+      },
+      {
+        "sig": "T& Value()",
+        "ret": "成功値の参照",
+        "desc": "成功側の値を取り出す。 エラー状態で呼ぶと アサートで即停止するので、先に IsOk() を確認すること。"
+      },
+      {
+        "sig": "E& Error()",
+        "ret": "エラー値の参照",
+        "desc": "エラー側の値（既定は FErrorCode）を取り出す。 成功状態で呼ぶとアサートで停止。"
+      },
+      {
+        "sig": "T ValueOr(T fallback) const",
+        "ret": "値 または 既定",
+        "desc": "成功なら値、失敗なら渡した fallback を返す。 分岐を書かずに既定値で済ませたい時に便利。",
+        "sample": "u32 size = ReadSize().ValueOr(0u);"
+      }
+    ]
+  }
+}

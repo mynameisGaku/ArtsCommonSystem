@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "FStringView",
+    "kind": "クラス",
+    "header": "container/StringView.h",
+    "summary": "UTF-8 バイト列を指す非所有ビュー。 先頭ポインタとバイト長だけを持ち、確保せずに比較、検索、接頭辞・接尾辞判定を行う。",
+    "when": "文字列を『読むだけ』の関数引数。 FString でも C 文字列リテラルでも同じ型で受け取れる。 元の文字列より長生きさせないこと。",
+    "sample": "void Greet(FStringView name) {\n    if (name.StartsWith(\"Mr.\")) { /* ... */ }\n}\nGreet(\"Alice\");      // C 文字列から暗黙変換\nGreet(myString);     // FString からも暗黙変換",
+    "members": [
+      {
+        "sig": "constexpr FStringView(const char* data, usize size)",
+        "desc": "ポインタと長さからビューを作る。"
+      },
+      {
+        "sig": "FStringView(const char* cstr)",
+        "desc": "NUL 終端 C 文字列から長さを数えて作る(暗黙変換)。"
+      },
+      {
+        "sig": "const char* Data() / usize Size() / bool IsEmpty()",
+        "desc": "先頭ポインタ / バイト長 / 空かどうか。"
+      },
+      {
+        "sig": "char operator[](usize i)",
+        "desc": "i バイト目を返す(範囲外はアサート)。"
+      },
+      {
+        "sig": "FStringView SubView(usize offset, usize count)",
+        "ret": "部分ビュー",
+        "desc": "一部分を切り出したビューを返す(コピーしない)。"
+      },
+      {
+        "sig": "bool Equals(FStringView other) const",
+        "ret": "等しいか",
+        "desc": "バイト単位の完全一致比較。 operator== / != も使える。"
+      },
+      {
+        "sig": "bool StartsWith(FStringView prefix) const",
+        "ret": "接頭辞か",
+        "desc": "指定の文字列で始まるか判定する。"
+      },
+      {
+        "sig": "bool EndsWith(FStringView suffix) const",
+        "ret": "接尾辞か",
+        "desc": "指定の文字列で終わるか判定する。"
+      },
+      {
+        "sig": "const char* begin() / end()",
+        "desc": "イテレータ。 range-for に対応。"
+      }
+    ]
+  }
+}

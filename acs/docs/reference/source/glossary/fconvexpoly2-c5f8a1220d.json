@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FConvexPoly2",
+  "definition": "2D の凸多角形コライダー（最大 16 頂点）。 複雑な形のスプライトに。"
+}

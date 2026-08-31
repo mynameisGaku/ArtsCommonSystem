@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FTier",
+    "kind": "構造体",
+    "header": "gameframework/SeasonPass.h",
+    "summary": "シーズンの 1 段階。 tier index・解放に必要な XP 閾値・無料報酬 ID・プレミアム報酬 ID を持つ。 報酬 ID は cosmetic を指す前提で、どちらも nullptr 可。",
+    "when": "DefineTier で各段階の到達条件と報酬を定義する時。",
+    "members": [
+      {
+        "sig": "u32 tier_index / u32 xp_threshold",
+        "desc": "0 起点の一意 index と、解放に必要な累積 XP。"
+      },
+      {
+        "sig": "const char* reward_id_free / const char* reward_id_premium",
+        "desc": "無料/プレミアムストリームの報酬 ID (非所有、nullptr 可)。"
+      }
+    ]
+  }
+}

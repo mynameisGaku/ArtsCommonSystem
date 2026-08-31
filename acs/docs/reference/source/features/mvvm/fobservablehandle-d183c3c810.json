@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "FObservableHandle",
+    "kind": "構造体",
+    "header": "mvvm/Observable.h",
+    "summary": "Subscribe が返す購読チケット。 これを Unsubscribe に渡すと監視を外せる。 id と generation で「同じ枠の使い回し」を誤判定しないようになっている。",
+    "when": "登録した監視を後で解除するために保持しておく。",
+    "sample": "FObservableHandle h = hp.Subscribe(cb, this);\nif (h.IsValid()) hp.Unsubscribe(h);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "id != 0 なら有効なハンドル。"
+      },
+      {
+        "sig": "bool operator==(const FObservableHandle&) const",
+        "desc": "id と generation の両方が一致すれば同じハンドル。"
+      },
+      {
+        "sig": "u32 id / u64 generation",
+        "desc": "枠番号と世代。 直接触る必要はほぼない。"
+      }
+    ]
+  }
+}

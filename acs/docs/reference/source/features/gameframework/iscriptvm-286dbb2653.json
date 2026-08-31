@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "IScriptVm",
+    "kind": "インターフェース",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "スクリプト VM の純粋仮想インターフェース。 Lua 5.4 / Wren / Python3 / 自前 VM などの実体を差し替えるためのシーム。 gameframework 本体は実ライブラリをリンクせず、別モジュールがこれを実装する。",
+    "when": "スクリプトバックエンドを実装/差し替える時。 普通は CScriptHost 経由で間接的に使う。",
+    "sample": "// 実 backend を既定にする (例):\n#if WITH_ACS_SCRIPTING\n    acs::scripting::InstallLuaAsDefault();\n#endif\nIScriptVm& vm = acs::game::GetDefaultScriptVm();",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init() / void Shutdown()",
+        "desc": "VM の初期化と破棄。"
+      },
+      {
+        "sig": "virtual EScriptLanguage Language() const",
+        "desc": "どの言語の backend かを返す。"
+      },
+      {
+        "sig": "virtual TResult<void> LoadScript(const char* source, u32 len, const char* chunk_name)",
+        "desc": "ソース文字列を読み込んで即実行する。"
+      },
+      {
+        "sig": "virtual TResult<void> CallFunction(const char* name, const FScriptValue* args, u32 count, FScriptValue* ret)",
+        "desc": "グローバル関数を呼ぶ。"
+      },
+      {
+        "sig": "virtual TResult<void> RegisterNativeFunction(const char* name, NativeFunction fn, void* user)",
+        "desc": "C++ 関数を script グローバルに bind する。"
+      },
+      {
+        "sig": "virtual void SetGlobalNumber(...) / f64 GetGlobalNumber(...) const",
+        "desc": "グローバル数値変数の設定/取得。"
+      },
+      {
+        "sig": "virtual void CollectGarbage() / u64 MemoryUsageBytes() const",
+        "desc": "強制 GC と概算メモリ使用量。"
+      }
+    ]
+  }
+}

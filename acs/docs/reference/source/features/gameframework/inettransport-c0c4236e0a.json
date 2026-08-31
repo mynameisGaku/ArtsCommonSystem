@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "INetTransport",
+    "kind": "インターフェース",
+    "header": "gameframework/NetSnapshot.h",
+    "summary": "ネットワークの実体を抽象化するシーム(seam)。 Connect / Disconnect / Send / Receive 等の最小 API だけを切り、TCP/UDP/Steam Datagram/loopback fake を派生で差し込む。",
+    "when": "CNetSnapshot に socket を差し替えたい時。 Send/Receive は非ブロッキングでメッセージ境界を保持する契約。",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Connect(const char* address, u16 port) noexcept = 0",
+        "desc": "接続。 address は静的/長寿命文字列。"
+      },
+      {
+        "sig": "virtual void Disconnect() noexcept = 0 / virtual bool IsConnected() const noexcept = 0",
+        "desc": "切断 (べき等) / 接続中か。"
+      },
+      {
+        "sig": "virtual TResult<void> Send(const void* data, u32 size) noexcept = 0",
+        "desc": "1 呼出で 1 message を境界保持して送る。"
+      },
+      {
+        "sig": "virtual TResult<u32> Receive(void* out, u32 capacity) noexcept = 0",
+        "desc": "非ブロッキング受信 (なしなら 0 を返す成功)。 1 呼出で最大 1 message。"
+      },
+      {
+        "sig": "virtual u32 PendingBytesIn() / PendingBytesOut() const noexcept = 0",
+        "desc": "受信待ち / 送信未 flush のバイト数目安。"
+      }
+    ]
+  }
+}

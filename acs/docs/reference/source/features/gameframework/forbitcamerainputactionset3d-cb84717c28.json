@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FOrbitCameraInputActionSet3D",
+    "kind": "構造体",
+    "header": "gameframework/OrbitCameraInputActionSet3D.h",
+    "summary": "6個の名前付きactionを3D orbit camera入力へ変換する値。 固定tick、AI、replayの明示入力状態を同じ経路で評価する。",
+    "when": "FInputMapとIInputStateViewをCOrbitCameraController3Dへ接続したい時。",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "6 action IDが有効かつ互いに異なる場合はtrueを返す。"
+      },
+      {
+        "sig": "bool TryEvaluate(const FInputMap& map, const IInputStateView& input, FOrbitCameraInput3D& output) const",
+        "desc": "明示入力状態を評価し、成功時だけ6軸のcamera入力を反映する。"
+      }
+    ]
+  }
+}

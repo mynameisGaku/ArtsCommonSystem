@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ANode",
+  "definition": "2D/3D 共通シーングラフの唯一のノード。 AddComponent で ASprite2DComponent 等の部品を付ける。"
+}

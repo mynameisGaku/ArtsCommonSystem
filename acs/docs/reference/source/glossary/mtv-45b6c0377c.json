@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "MTV",
+  "definition": "最小並進ベクトル（Minimum Translation Vector）。 重なりを解消する最短の押し戻し方向と距離。"
+}

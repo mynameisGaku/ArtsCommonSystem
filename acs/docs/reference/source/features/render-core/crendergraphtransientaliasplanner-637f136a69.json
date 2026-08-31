@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CRenderGraphTransientAliasPlanner",
+    "kind": "クラス",
+    "header": "render/RenderGraphTransientAlias.h",
+    "summary": "互換性と寿命区間を基に transient 資源を物理 slot へ決定的に割り当てる planner。",
+    "when": "同時に使わない render target や buffer の GPU メモリを再利用する時。",
+    "members": [
+      {
+        "sig": "using FRenderGraphTransientAliasPlanner = CRenderGraphTransientAliasPlanner",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CRenderGraphTransientAliasPlanner を使う。"
+      }
+    ]
+  }
+}

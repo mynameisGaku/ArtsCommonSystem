@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "CSubsystemCollection",
+    "kind": "クラス",
+    "header": "subsystem/SubsystemCollection.h",
+    "summary": "一つのownerに属するsubsystemの生成、取得、終了を管理する。",
+    "when": "owner lifecycleからsubsystemをまとめて扱う時。",
+    "members": [
+      {
+        "sig": "using FSubsystemCollection = CSubsystemCollection",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSubsystemCollection を使う。"
+      }
+    ]
+  }
+}

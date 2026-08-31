@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="用途に合う安全な初期値を返し、未知値ではLakeを返す。">
+  <title>acs::FWaterSurface3DParams::ForProfile — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/render.html">render モジュール</a><a href="../fwatersurface3dparams-6c8518df.html">FWaterSurface3DParams の概要</a><a class="tree-child" href="absorption-24916c4a.html">absorption</a><a class="tree-child" href="deep-color-941ed43a.html">deep_color</a><a class="tree-child" href="flow-direction-e6805047.html">flow_direction</a><a class="tree-child" href="foam-color-332ef1c5.html">foam_color</a><a class="tree-child" href="foam-intensity-6198b491.html">foam_intensity</a><a class="tree-child" href="forprofile-111f170d.html" aria-current="page">ForProfile</a><a class="tree-child" href="normal-strength-67f79efc.html">normal_strength</a><a class="tree-child" href="normal-tiling-a79763ff.html">normal_tiling</a><a class="tree-child" href="optical-depth-93c0b774.html">optical_depth</a><a class="tree-child" href="phase-anisotropy-119d281f.html">phase_anisotropy</a><a class="tree-child" href="refraction-strength-da9aa69d.html">refraction_strength</a><a class="tree-child" href="ripple-damping-fbce88c2.html">ripple_damping</a><a class="tree-child" href="ripple-lifetime-ab426dfc.html">ripple_lifetime</a><a class="tree-child" href="ripple-speed-5dfb4ead.html">ripple_speed</a><a class="tree-child" href="ripple-wavelength-18f2c833.html">ripple_wavelength</a><a class="tree-child" href="roughness-ff9ec754.html">roughness</a><a class="tree-child" href="scattering-a89ede63.html">scattering</a><a class="tree-child" href="shallow-color-7641c5fe.html">shallow_color</a><a class="tree-child" href="wave-amplitude-ff7e545f.html">wave_amplitude</a><a class="tree-child" href="wave-scale-8f3959d0.html">wave_scale</a><a class="tree-child" href="wave-speed-7bad63c5.html">wave_speed</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/render.html">render</a><span>/</span><a href="../fwatersurface3dparams-6c8518df.html">FWaterSurface3DParams</a><span>/</span><span aria-current="page">ForProfile</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / render</div>
+<h1 class="identifier">acs::FWaterSurface3DParams::ForProfile</h1>
+<p class="lead">用途に合う安全な初期値を返し、未知値ではLakeを返す。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FWaterSurface3DParams::ForProfileの宣言"><code>static <a href="../fwatersurface3dparams-6c8518df.html">FWaterSurface3DParams</a> <a href="forprofile-111f170d.html" aria-current="page">ForProfile</a>(<a href="../ewatersurface3dprofile-836b12b7.html">EWaterSurface3DProfile</a> profile) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../fwatersurface3dparams-6c8518df.html"><code>acs::FWaterSurface3DParams</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/render/WaterSurface3DParams.h:73</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

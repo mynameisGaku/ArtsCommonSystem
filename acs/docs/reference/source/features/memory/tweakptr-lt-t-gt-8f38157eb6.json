@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TWeakPtr<T>",
+    "kind": "クラステンプレート",
+    "header": "memory/SharedPtr.h",
+    "summary": "対象の寿命を延ばさない。 生きているか確認し、生きていれば一時的に強参照を得る。",
+    "when": "対象を所有したくないが生死は監視したい時。 とくに循環参照(親子が持ち合う)を断ち切る側に使う。",
+    "sample": "auto p = MakeShared<FEnemy>();\nTWeakPtr<FEnemy> w = p;        // 弱参照(寿命は延ばさない)\nif (auto s = w.Lock()) {          // 生きていれば強参照を取得\n    s->Update();\n}\np.Reset();                        // 強参照ゼロ → 破棄\n// w.Lock() は以後ずっと空を返す",
+    "members": [
+      {
+        "sig": "TSharedPtr<T> Lock() const",
+        "ret": "強参照(空かも)",
+        "desc": "対象が生きていれば TSharedPtr を得る。 破棄済みなら空。 安全に昇格できる(アトミックな確認付き)。",
+        "when": "弱参照から実際に中身を触る直前に毎回呼ぶ。"
+      },
+      {
+        "sig": "bool Expired() const",
+        "ret": "期限切れか",
+        "desc": "対象がすでに破棄されていれば true。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "desc": "!Expired()。 生きていれば true(瞬間値)。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "弱参照を手放す。"
+      }
+    ]
+  }
+}

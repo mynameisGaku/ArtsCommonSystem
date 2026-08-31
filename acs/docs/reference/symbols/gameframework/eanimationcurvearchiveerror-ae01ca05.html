@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="アニメーションカーブの wire / file codec が返す安定した失敗分類。 `FAnimationCurveArchiveResult::error == InvalidCurveData` の場合は、 `curve_error` がより具体的な意味検証エラーを保持する。">
+  <title>acs::game::EAnimationCurveArchiveError — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="eanimationcurvearchiveerror-ae01ca05.html" aria-current="page">EAnimationCurveArchiveError</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/allocationfailure-0aea8cad.html">AllocationFailure</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/buffertoosmall-5fb38ca9.html">BufferTooSmall</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/checksummismatch-fab6e83a.html">ChecksumMismatch</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/invalidcurvedata-d3809d44.html">InvalidCurveData</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/invalidheader-637cd5d7.html">InvalidHeader</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/invalidmagic-bf1ca9db.html">InvalidMagic</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/none-d9818306.html">None</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/nullargument-31fc874b.html">NullArgument</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/persistencefailure-8b50d4b3.html">PersistenceFailure</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/sizemismatch-61eec9f9.html">SizeMismatch</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/toomanykeys-32a9639b.html">TooManyKeys</a><a class="tree-child" href="eanimationcurvearchiveerror-ae01ca05/unsupportedversion-fea49aec.html">UnsupportedVersion</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">EAnimationCurveArchiveError</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / gameframework</div>
+<h1 class="identifier">acs::game::EAnimationCurveArchiveError</h1>
+<p class="lead">アニメーションカーブの wire / file codec が返す安定した失敗分類。 `<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9556">FAnimationCurve</button><span class="term-tooltip" id="term-tip-9556" role="tooltip">キーを打って『時間 → 値』を補間する編集可能なカーブ。 checked 更新・評価、Clamp/Loop/PingPong、33 種の easing preset に対応する。</span></span>Archive<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-9557">Result</button><span class="term-tooltip" id="term-tip-9557" role="tooltip">成功なら値、失敗なら理由を入れて返す型 Result&lt;T,E&gt;。 例外の代わり。</span></span>::error == InvalidCurveData` の場合は、 `curve_error` がより具体的な意味検証エラーを保持する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::EAnimationCurveArchiveErrorの宣言"><code>enum class <a href="eanimationcurvearchiveerror-ae01ca05.html" aria-current="page">EAnimationCurveArchiveError</a> : <a href="../foundation/u8-b0858e19.html">u8</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/AnimationCurveArchive.h:14</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/allocationfailure-0aea8cad.html"><span><span class="identifier">AllocationFailure</span><span class="summary">EAnimationCurveArchiveError が提供する AllocationFailure 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/buffertoosmall-5fb38ca9.html"><span><span class="identifier">BufferTooSmall</span><span class="summary">EAnimationCurveArchiveError が提供する BufferTooSmall 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/checksummismatch-fab6e83a.html"><span><span class="identifier">ChecksumMismatch</span><span class="summary">EAnimationCurveArchiveError が提供する ChecksumMismatch 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/invalidcurvedata-d3809d44.html"><span><span class="identifier">InvalidCurveData</span><span class="summary">EAnimationCurveArchiveError が提供する InvalidCurveData 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/invalidheader-637cd5d7.html"><span><span class="identifier">InvalidHeader</span><span class="summary">EAnimationCurveArchiveError が提供する InvalidHeader 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/invalidmagic-bf1ca9db.html"><span><span class="identifier">InvalidMagic</span><span class="summary">EAnimationCurveArchiveError が提供する InvalidMagic 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/none-d9818306.html"><span><span class="identifier">None = 0</span><span class="summary">EAnimationCurveArchiveError が提供する None 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/nullargument-31fc874b.html"><span><span class="identifier">NullArgument</span><span class="summary">EAnimationCurveArchiveError が提供する NullArgument 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/persistencefailure-8b50d4b3.html"><span><span class="identifier">PersistenceFailure</span><span class="summary">EAnimationCurveArchiveError が提供する PersistenceFailure 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/sizemismatch-61eec9f9.html"><span><span class="identifier">SizeMismatch</span><span class="summary">EAnimationCurveArchiveError が提供する SizeMismatch 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/toomanykeys-32a9639b.html"><span><span class="identifier">TooManyKeys</span><span class="summary">EAnimationCurveArchiveError が提供する TooManyKeys 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="eanimationcurvearchiveerror-ae01ca05/unsupportedversion-fea49aec.html"><span><span class="identifier">UnsupportedVersion</span><span class="summary">EAnimationCurveArchiveError が提供する UnsupportedVersion 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

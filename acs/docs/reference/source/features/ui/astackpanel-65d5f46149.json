@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "AStackPanel",
+    "kind": "クラス",
+    "header": "ui/Widget.h",
+    "summary": "子ウィジェットを縦または横に等間隔で並べるレイアウトパネル。 並べる向き・間隔・余白を指定できる。",
+    "when": "ボタンやラベルを上から順に積みたい/横一列に並べたい時。 UI の一番外側のルートとしてもよく使う。",
+    "sample": "AStackPanel panel;\npanel.dir = EStackDir::Vertical;  // 縦積み\npanel.spacing = 6.0f;             // 部品の間隔\npanel.Add<ALabel>(\"設定\");\npanel.Add<AButton>(\"閉じる\");",
+    "members": [
+      {
+        "sig": "EStackDir dir",
+        "desc": "並べる向き。 Vertical(縦) or Horizontal(横)。 既定は縦。"
+      },
+      {
+        "sig": "f32 spacing",
+        "desc": "部品どうしの間隔(ピクセル)。 既定 4.0。"
+      },
+      {
+        "sig": "FUiPadding padding",
+        "desc": "パネル内側の余白(左/上/右/下)。 既定は四辺 8。"
+      },
+      {
+        "sig": "using FStackPanel = AStackPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AStackPanel を使う。"
+      }
+    ]
+  }
+}

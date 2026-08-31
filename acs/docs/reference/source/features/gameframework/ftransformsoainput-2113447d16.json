@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTransformSoAInput",
+    "kind": "構造体",
+    "header": "gameframework/TransformBatchSoA.h",
+    "summary": "位置、回転、拡大率を別配列で受け渡す transform batch の SoA 入力 view。",
+    "when": "大量 transform を連続配列から SIMD 向けに処理する時。"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "ECosmeticSlot",
+    "kind": "列挙(enum)",
+    "header": "gameframework/CharacterCustomizer.h",
+    "summary": "見た目を装着する位置。 Head / Body / Hands / Legs / Feet / MainHand / OffHand / Backpack / Pet / Mount / ColorPalette の 11 種で固定。 各 slot に最大 1 つ装着できる。",
+    "when": "装着 slot を指定する時。 ColorPalette は色変更用の特殊 slot。",
+    "sample": "if (cc.EquippedInSlot(ECosmeticSlot::Head)) { /* 帽子を着けている */ }"
+  }
+}

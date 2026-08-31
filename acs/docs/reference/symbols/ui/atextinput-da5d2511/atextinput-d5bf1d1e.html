@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="空文字列で構築する。">
+  <title>acs::ATextInput::ATextInput — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/ui.html">ui モジュール</a><a href="../atextinput-da5d2511.html">ATextInput の概要</a><a class="tree-child" href="atextinput-d5bf1d1e.html" aria-current="page">ATextInput</a><a class="tree-child" href="boundaryatorbefore-3db726cf.html">BoundaryAtOrBefore</a><a class="tree-child" href="clearselection-42c83d27.html">ClearSelection</a><a class="tree-child" href="cursorbyteoffset-50c111f2.html">CursorByteOffset</a><a class="tree-child" href="encodecodepoint-69f8012c.html">EncodeCodepoint</a><a class="tree-child" href="extendselectionleft-b921b176.html">ExtendSelectionLeft</a><a class="tree-child" href="extendselectionright-ca3f1bff.html">ExtendSelectionRight</a><a class="tree-child" href="extendselectiontoend-a447a674.html">ExtendSelectionToEnd</a><a class="tree-child" href="extendselectiontostart-af209486.html">ExtendSelectionToStart</a><a class="tree-child" href="hasselection-3600c8c4.html">HasSelection</a><a class="tree-child" href="iscontinuation-a1f7810d.html">IsContinuation</a><a class="tree-child" href="kdefaultmaxtextbytes-01d3783e.html">kDefaultMaxTextBytes</a><a class="tree-child" href="khardmaxtextbytes-827a4bb9.html">kHardMaxTextBytes</a><a class="tree-child" href="m-cursorbyteoffset-3b449084.html">m_CursorByteOffset</a><a class="tree-child" href="m-cursorfollowsend-5f46522d.html">m_CursorFollowsEnd</a><a class="tree-child" href="m-forwardedkeymodifiers-acb9e5fd.html">m_ForwardedKeyModifiers</a><a class="tree-child" href="m-maxtextbytes-90a26d13.html">m_MaxTextBytes</a><a class="tree-child" href="m-selectionanchorbyteoffset-30f45d07.html">m_SelectionAnchorByteOffset</a><a class="tree-child" href="m-selectionanchorfollowsend-bd4563a9.html">m_SelectionAnchorFollowsEnd</a><a class="tree-child" href="maxtextbytes-603eb009.html">MaxTextBytes</a><a class="tree-child" href="movecursorleft-9c3332f3.html">MoveCursorLeft</a><a class="tree-child" href="movecursorright-57d557e4.html">MoveCursorRight</a><a class="tree-child" href="movecursortoend-deb24506.html">MoveCursorToEnd</a><a class="tree-child" href="movecursortostart-58fe0615.html">MoveCursorToStart</a><a class="tree-child" href="nextboundary-cb6f4df9.html">NextBoundary</a><a class="tree-child" href="normalizedcursoroffset-0e43ec02.html">NormalizedCursorOffset</a><a class="tree-child" href="normalizedselectionanchoroffset-44c39037.html">NormalizedSelectionAnchorOffset</a><a class="tree-child" href="normalizeselection-4a30e8f8.html">NormalizeSelection</a><a class="tree-child" href="onkey-4fb7d1a4.html">OnKey</a><a class="tree-child" href="onkey-dd0654bb.html">OnKey</a><a class="tree-child" href="onpointerdown-64ea1a0c.html">OnPointerDown</a><a class="tree-child" href="ontextinput-f646e067.html">OnTextInput</a><a class="tree-child" href="previousboundary-ae7feb92.html">PreviousBoundary</a><a class="tree-child" href="render-3b4bb7ea.html">Render</a><a class="tree-child" href="selectall-b7d7455d.html">SelectAll</a><a class="tree-child" href="selectionend-60cda883.html">SelectionEnd</a><a class="tree-child" href="selectionstart-c5a6db2d.html">SelectionStart</a><a class="tree-child" href="sequencesize-6abb0291.html">SequenceSize</a><a class="tree-child" href="text-3eb54262.html">text</a><a class="tree-child" href="tryeraseatcursor-947f9f2b.html">TryEraseAtCursor</a><a class="tree-child" href="tryerasebeforecursor-90c9e7e9.html">TryEraseBeforeCursor</a><a class="tree-child" href="tryeraserange-12823729.html">TryEraseRange</a><a class="tree-child" href="tryinsertcodepoint-444f4b0f.html">TryInsertCodepoint</a><a class="tree-child" href="trysetcursorbyteoffset-4ef47ce1.html">TrySetCursorByteOffset</a><a class="tree-child" href="trysetmaxtextbytes-768e877e.html">TrySetMaxTextBytes</a><a class="tree-child" href="trysetselection-c3c9077a.html">TrySetSelection</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/ui.html">ui</a><span>/</span><a href="../atextinput-da5d2511.html">ATextInput</a><span>/</span><span aria-current="page">ATextInput</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / ui</div>
+<h1 class="identifier">acs::ATextInput::ATextInput</h1>
+<p class="lead">空文字列で構築する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::ATextInput::ATextInputの宣言"><code><a href="atextinput-d5bf1d1e.html" aria-current="page">ATextInput</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/ui.html">ui</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../atextinput-da5d2511.html"><code>acs::ATextInput</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/ui/Widgets.h:314</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

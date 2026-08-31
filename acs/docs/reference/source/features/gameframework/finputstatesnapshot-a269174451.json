@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputStateSnapshot",
+    "kind": "クラス",
+    "header": "gameframework/InputStateSnapshot.h",
+    "summary": "一入力時点の物理入力を所有する値。 同じsnapshotとinput mapから同じaction結果を再現できる。 setterは範囲外値を拒否する。",
+    "when": "deviceなしのtest、AI入力、replay、rollback用に入力状態を明示して保持する時。",
+    "members": [
+      {
+        "sig": "void Clear()",
+        "desc": "全入力を離された初期状態へ戻す。"
+      },
+      {
+        "sig": "bool TrySetKeyState(...) / TrySetMouseButtonState(...) / TrySetGamepadButtonState(...)",
+        "desc": "保持と今回の押下・解放を検証して設定する。"
+      },
+      {
+        "sig": "bool TrySetGamepadAxis(u32 player, EGamepadAxis axis, f32 value)",
+        "desc": "正規化済みaxisを設定する。 非有限値と範囲外値は拒否する。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "エラーコード",
+  "definition": "失敗の種類を表す値。 ACS では Result と組で扱う。"
+}

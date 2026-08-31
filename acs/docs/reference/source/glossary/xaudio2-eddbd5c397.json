@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "XAudio2",
+  "definition": "Windows 標準の低レベル音声 API。 ACS の音声再生はこの上に実装されている。"
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CommandExecutedCallback",
+    "kind": "型エイリアス(関数ポインタ)",
+    "header": "gameframework/tools/editor_core/UndoStack.h",
+    "summary": "CUndoStack の Push / Undo / Redo 後の副反応 callback 型。 「Undo されたから hierarchy 再描画」「Redo されたから dirty 立て直し」等を書くための出口。 cmd は最終的にスタックに載った command(merge があれば top)、is_redo は Redo 経路なら true(Push / Undo は false)。",
+    "when": "undo / redo 操作に連動した UI 更新や dirty フラグ管理が要る時。",
+    "members": [
+      {
+        "sig": "using CommandExecutedCallback = void (*)(void* user, const class AEditorCommand* cmd, bool is_redo) noexcept",
+        "desc": "副反応通知。 user は SetOnExecutedCallback の第二引数がそのまま戻る。"
+      }
+    ]
+  }
+}

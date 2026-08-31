@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSize",
+    "kind": "定数",
+    "header": "assetpack/AcpakFormat.h",
+    "summary": ".acpak のディスク上の固定バイト数。 kAcpakHeaderDiskSize = 36 はヘッダ実体長(sizeof(FAcpakHeader) は構造体パディングで 40 になり得るため I/O はこの値で明示)。 kAcpakCipherFieldsDiskSize = 28 は暗号化フラグ立ち時に各エントリが追加で持つ nonce(12)+タグ(16) のバイト数。",
+    "when": "Reader/Writer がヘッダ/file table を memcpy で読み書きする時の境界値。 非暗号化 pak(flags=0)では cipher fields は 0 バイト = v1 レイアウトと完全一致。",
+    "sample": "// ヘッダは構造体 sizeof でなくこの定数でディスク I/O する\nReadBytes(head, kAcpakHeaderDiskSize);   // = 36\n// 暗号化 pak は各 entry に +28 バイト(nonce+tag)",
+    "members": [
+      {
+        "sig": "inline constexpr usize kAcpakHeaderDiskSize = 36",
+        "desc": "ディスク上のヘッダ長。 magic8+version4+flags4+file_count4+padding4+file_table_offset8+reserved4 = 36。"
+      },
+      {
+        "sig": "inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u",
+        "desc": "暗号化時に file table の各 entry が追加で持つ nonce(12)+tag(16)=28 バイト。 flags=0 なら 0。"
+      }
+    ]
+  }
+}

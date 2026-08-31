@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "図形を描く（DrawRect ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "四角・円・線・三角・点を描く関数群。 (x,y) は図形の左上（円だけは中心）、回転は図形の中心まわりで角度は度。 Outline 版は枠線だけ、thickness で太さを指定。",
+    "when": "画像を使わずに当たり判定の可視化やシンプルなゲームを作る時。 NextFrame() の後で呼ぶ。",
+    "sample": "DrawRect(100, 100, 80, 40, FColor::Sky);            // 塗り四角\nDrawRectOutline(100, 100, 80, 40, FColor::White);   // 枠だけ\nDrawCircle(400, 300, 30, FColor::Yellow);           // (x,y)=中心\nDrawLine(0, 0, 200, 200, FColor::Red, 3.0f);\nDrawRectRotated(300, 200, 60, 60, 45, FColor::Green);",
+    "members": [
+      {
+        "sig": "void DrawRect(f32 x, f32 y, f32 w, f32 h, FColor color)",
+        "desc": "塗りつぶし長方形。 (x,y) は左上。"
+      },
+      {
+        "sig": "void DrawRectOutline(f32 x, f32 y, f32 w, f32 h, FColor color, f32 thickness=2)",
+        "desc": "長方形の枠線だけ。"
+      },
+      {
+        "sig": "void DrawRectRotated(f32 x, f32 y, f32 w, f32 h, f32 degrees, FColor color)",
+        "desc": "回転した塗り長方形。 (x,y) は回転前の左上、回転は中心まわり、角度は度。"
+      },
+      {
+        "sig": "void DrawCircle(f32 x, f32 y, f32 radius, FColor color)",
+        "desc": "塗りつぶし円。 (x,y) は中心。",
+        "when": "弾やボールなど。"
+      },
+      {
+        "sig": "void DrawCircleOutline(f32 x, f32 y, f32 radius, FColor color, f32 thickness=2)",
+        "desc": "円の枠線だけ。 (x,y) は中心。"
+      },
+      {
+        "sig": "void DrawLine(f32 x1, f32 y1, f32 x2, f32 y2, FColor color, f32 thickness=2)",
+        "desc": "2 点を結ぶ線。"
+      },
+      {
+        "sig": "void DrawTriangle(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3, FColor color)",
+        "desc": "3 頂点の塗り三角形。"
+      },
+      {
+        "sig": "void DrawTriangleOutline(f32 x1,f32 y1,f32 x2,f32 y2,f32 x3,f32 y3, FColor color, f32 thickness=2)",
+        "desc": "三角形の枠線だけ。"
+      },
+      {
+        "sig": "void DrawPixel(f32 x, f32 y, FColor color)",
+        "desc": "1 ピクセルの点を打つ。"
+      }
+    ]
+  }
+}

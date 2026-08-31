@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "EAnimationGraphState",
+    "kind": "列挙(enum)",
+    "header": "gameframework/AnimationGraph.h",
+    "summary": "標準的なキャラ状態 ID の固定 enum (Idle/Walk/Run/Jump/Attack/Hit/Death/Custom1/Custom2 の 9 個)。 Custom1/2 はゲーム固有状態の拡張枠。",
+    "when": "状態ノードや遷移の from/to を指定する時。",
+    "sample": "g.TriggerTransition(EAnimationGraphState::Attack);"
+  }
+}

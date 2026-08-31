@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "EPickupKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/PickupSystem.h",
+    "summary": "拾える物の分類。 HealthOrb / ManaOrb / Coin / Gem / AmmoBox / PowerUp / Key / Custom の 8 種。 数値は Save/Load で永続化される安定値 (途中に挿入しない)。",
+    "when": "pickup を種別ごとに扱う / 統計する / SpawnRandomAt で既定値を選ぶ時。",
+    "sample": "if (ps.CountOfKind(EPickupKind::Coin) == 0) SpawnWave();"
+  }
+}

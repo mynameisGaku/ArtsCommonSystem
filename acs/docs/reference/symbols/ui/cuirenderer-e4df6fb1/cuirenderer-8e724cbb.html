@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="破棄する (CSpriteBatch のリソースは Shutdown / デストラクタで解放)。">
+  <title>acs::CUiRenderer::~CUiRenderer — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/ui.html">ui モジュール</a><a href="../cuirenderer-e4df6fb1.html">CUiRenderer の概要</a><a class="tree-child" href="colors-6e770f7f.html">Colors</a><a class="tree-child" href="colors-8febcb57.html">Colors</a><a class="tree-child" href="cuirenderer-5153a9b2.html">CUiRenderer</a><a class="tree-child" href="cuirenderer-f423912b.html">CUiRenderer</a><a class="tree-child" href="defaultfont-89983ad9.html">DefaultFont</a><a class="tree-child" href="drawrect-257bd34c.html">DrawRect</a><a class="tree-child" href="drawrectoutline-b70c987a.html">DrawRectOutline</a><a class="tree-child" href="drawtext-cd5aa815.html">DrawText</a><a class="tree-child" href="init-ed1a122c.html">Init</a><a class="tree-child" href="m-batch-b19dc3f0.html">m_Batch</a><a class="tree-child" href="m-bframeopen-7fedc6e4.html">m_bFrameOpen</a><a class="tree-child" href="m-colors-073843a8.html">m_Colors</a><a class="tree-child" href="m-font-2b2a076a.html">m_Font</a><a class="tree-child" href="measuretext-cb0f7992.html">MeasureText</a><a class="tree-child" href="measuretextbytes-f56fb1aa.html">MeasureTextBytes</a><a class="tree-child" href="operator-98746a52.html">operator=</a><a class="tree-child" href="render-e494789a.html">Render</a><a class="tree-child" href="shutdown-6d826238.html">Shutdown</a><a class="tree-child" href="cuirenderer-8e724cbb.html" aria-current="page">~CUiRenderer</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/ui.html">ui</a><span>/</span><a href="../cuirenderer-e4df6fb1.html">CUiRenderer</a><span>/</span><span aria-current="page">~CUiRenderer</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / ui</div>
+<h1 class="identifier">acs::CUiRenderer::~CUiRenderer</h1>
+<p class="lead">破棄する (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21983">CSpriteBatch</button><span class="term-tooltip" id="term-tip-21983" role="tooltip">多数のスプライトをまとめて効率よく描画する仕組み。</span></span> のリソースは Shutdown / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21984">デストラクタ</button><span class="term-tooltip" id="term-tip-21984" role="tooltip">オブジェクトが破棄される時に自動で呼ばれる後始末の関数(~ClassName)。</span></span>で解放)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CUiRenderer::~CUiRendererの宣言"><code>~<a href="../cuirenderer-e4df6fb1.html">CUiRenderer</a>() noexcept = default;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/ui.html">ui</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cuirenderer-e4df6fb1.html"><code>acs::CUiRenderer</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/ui/UiRenderer.h:71</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

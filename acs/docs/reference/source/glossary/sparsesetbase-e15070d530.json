@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SparseSetBase",
+  "definition": "SparseSet の型に依らない共通部分を提供する基底クラス。 World がコンポーネント型を知らずに集合を扱うための内部基盤。"
+}

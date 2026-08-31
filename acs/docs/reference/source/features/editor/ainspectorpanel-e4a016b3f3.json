@@ -1,0 +1,90 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AInspectorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/inspector/InspectorPanel.h",
+    "summary": "選択中の ANode に紐づく CInspectorSeam 経由の FInspectableField 配列を、ImGui の field widget (Checkbox / InputInt / SliderFloat / DragFloatN / ColorEdit / InputText / Combo 等) として描画・編集するプロパティエディタパネル。 値の永続化や undo は行わず、変更を FieldChangeCallback で外部へ通知するだけ。 editor_core::AEditorPanel を継承し、ヘッダから ImGui 依存は漏らさない。 ランタイム側の同名 CInspectorSeam とは別レイヤの UI 部品。",
+    "when": "AHierarchyPanel 等で選択された ANode の各フィールドを GUI で編集させたい時。 SetInspectorSeam で provider 解決元を、SetSelectionService で選択取得元を注入し、毎フレーム DrawUI() を呼ぶ。",
+    "sample": "AInspectorPanel insp;\ninsp.Init();\ninsp.SetInspectorSeam(&seam);        // ANode → provider 解決元\ninsp.SetSelectionService(&sel);       // 現在の選択を共有\n// 毎フレーム:\ninsp.DrawUI();\nif (insp.IsAnyFieldDirty()) {          // 何か編集された\n    // ... 永続化 / undo 記録 ...\n    insp.ClearDirtyFlag();\n}",
+    "members": [
+      {
+        "sig": "using FieldChangeCallback = void (*)(void* user, FNodeId target, const char* field_name, EFieldKind kind) noexcept",
+        "desc": "field 変更通知 コールバック型。 user は SetOnFieldChangeCallback 第二引数がそのまま戻る。 field_name は Provider 所有のリテラル (FInspectableField::name)。",
+        "when": "undo / dirty tracker / 永続化を外部に委譲する時。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "内部状態 (dirty / selection / callback) を初期値に戻す。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "dirty / callback / selection を解除する。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetInspectorSeam(CInspectorSeam* seam) noexcept",
+        "ret": "—",
+        "desc": "ANode → Provider 解決に使う CInspectorSeam を事前 set する。 DrawUI 内で seam.GetProvider(node_id) を呼ぶ。"
+      },
+      {
+        "sig": "CInspectorSeam* InspectorSeamPtr() const noexcept",
+        "ret": "seam ポインタ",
+        "desc": "現在設定中の CInspectorSeam を返す。 未設定なら nullptr。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Inspector\"",
+        "desc": "ImGui window タイトル。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "Begin(\"Inspector\") で 1 window を描画。 選択は CSelectionService 設定時はその CurrentSelection() を採用。 Provider が取れなければ \"(No provider)\"、選択無しなら \"(Nothing selected)\" を表示。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void SetSelectionService(CSelectionService* svc) noexcept",
+        "ret": "—",
+        "desc": "選択取得元の CSelectionService を注入する。 nullptr で解除。 保持期間は呼び出し側責務 (non-owning)。"
+      },
+      {
+        "sig": "bool IsAnyFieldDirty() const noexcept",
+        "ret": "編集有無",
+        "desc": "直近の DrawUI 内でいずれかの field が編集されたら true。"
+      },
+      {
+        "sig": "void ClearDirtyFlag() noexcept",
+        "ret": "—",
+        "desc": "dirty フラグをクリアする。 外部の永続化 / undo 処理完了後に呼ぶ。"
+      },
+      {
+        "sig": "void SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "field 変更通知 callback を登録する。 nullptr で解除。"
+      },
+      {
+        "sig": "static constexpr f32 kDefaultSliderMin = -1000.0f",
+        "desc": "F32 を SliderFloat で編集する際の既定下限。"
+      },
+      {
+        "sig": "static constexpr f32 kDefaultSliderMax = 1000.0f",
+        "desc": "同上、既定上限。"
+      },
+      {
+        "sig": "static constexpr u32 kStringBufferSize = 256u",
+        "desc": "FString 編集用スタックバッファ長 (= InputText 制限)。"
+      },
+      {
+        "sig": "using FInspectorPanel = AInspectorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AInspectorPanel を使う。"
+      }
+    ]
+  }
+}

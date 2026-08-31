@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mlonnx",
+    "title": "mlonnx — 機械学習(ONNX)推論",
+    "description": "学習済み AI モデルを ONNX 形式で読み込み、ゲーム内で推論(入力 → 出力の計算)を実行するモジュール。 NPC の行動判断・画像認識・音声処理などに使えます。 ゲーム本体はbackend(具体的な ML 実行エンジン)を意識せず、acs::game の共通窓口越しに呼べるのが特徴です。"
+  },
+  "feature": {
+    "name": "COnnxMlRuntime",
+    "kind": "クラス",
+    "header": "mlonnx/OnnxMlRuntime.h",
+    "summary": "ONNX Runtime(Microsoft 製の ML 実行エンジン)を裏で使う、本物の推論ランタイム。 acs::game::IMlRuntime という抽象インターフェースを実装しているので、ゲーム側は backend 非依存のまま実 ONNX 推論を回せます。",
+    "when": "学習済み .onnx モデルファイルを読み込み、入力データ(f32 配列)を渡して出力を得たい時。 例: 敵 AI の判断、手書き数字認識、簡単な推薦など。",
+    "sample": "acs::mlonnx::COnnxMlRuntime rt;\nif (rt.Init().IsOk()) {\n    auto h = rt.LoadModel(\"models/classifier.onnx\");\n    acs::f32 in[4]  = { 1.0f, 2.0f, 3.0f, 4.0f };\n    acs::f32 out[2] = {};\n    rt.RunInference(h.Value(), in, 4, out, 2);  // 推論 1 回\n    rt.UnloadModel(h.Value());\n}\nrt.Shutdown();",
+    "members": [
+      {
+        "sig": "TResult<void> Init() noexcept",
+        "ret": "成功/失敗",
+        "desc": "backend を初期化する(ONNX Runtime の DLL 読み込み・セッション準備など)。 Result で結果が返るので必ず成否を確認する。",
+        "when": "モデルを読み込む前に最初に 1 度だけ呼ぶ。 失敗したら ML 経路を使わずフォールバックする。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "desc": "backend を破棄する。 読み込み済みのモデルもまとめて解放してよい。",
+        "when": "アプリ終了時やランタイムを使い終えた時に 1 度だけ呼ぶ。"
+      },
+      {
+        "sig": "TResult<FMlModelHandle> LoadModel(const char* ModelPath) noexcept",
+        "ret": "モデルハンドル",
+        "desc": ".onnx ファイルを読み込み、不透明な FMlModelHandle を返す。 ModelPath の寿命は呼び出し側が保証する(文字列リテラル等)。 nullptr は失敗。",
+        "when": "推論したいモデルごとに 1 回。 返ったハンドルを RunInference に渡す。",
+        "sample": "auto h = rt.LoadModel(\"models/npc.onnx\");\nif (h.IsOk()) { /* h.Value() を使う */ }"
+      },
+      {
+        "sig": "TResult<void> UnloadModel(FMlModelHandle h) noexcept",
+        "ret": "成功/失敗",
+        "desc": "モデルハンドルを解放する。 無効ハンドルを渡しても安全(no-op 相当で Ok を返してよい)。",
+        "when": "そのモデルをもう使わない時。 解放後のハンドルは再利用しない。"
+      },
+      {
+        "sig": "TResult<void> RunInference(FMlModelHandle h, const f32* Inputs, u32 InCount, f32* Outputs, u32 OutCount) noexcept",
+        "ret": "成功/失敗",
+        "desc": "推論を 1 回実行する。 Inputs/Outputs は呼び出し側が確保する f32 配列で、InCount/OutCount はモデル定義と一致させる(不一致は失敗)。 この呼び出しは完了までブロックする。",
+        "when": "毎フレーム or イベントごとに、入力を出力へ変換したい時。",
+        "sample": "acs::f32 in[8], out[3] = {};\n// in[] に特徴量を詰める...\nrt.RunInference(h, in, 8, out, 3);\n// out[] に結果が入る"
+      },
+      {
+        "sig": "using FOnnxMlRuntime = COnnxMlRuntime",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは COnnxMlRuntime を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FStencilDesc / EStencilOp",
+    "kind": "構造体 / 列挙(enum)",
+    "header": "render/IRhiPipeline.h",
+    "summary": "ステンシル(マスク描画)の設定。 テスト結果に応じてステンシル値をどう更新するかを EStencilOp で、比較関数を ECompareFunc で指定する。",
+    "when": "任意形状のマスクで描画範囲を制限したいとき(ミニマップの円形クリップ等)。 stencil 付き深度バッファが必要。",
+    "sample": "FStencilDesc s;\ns.enable = true;\ns.func = ECompareFunc::Equal;\ns.pass_op = EStencilOp::Keep;\npd.stencil = s;\npd.depth_format = EFormat::D24_UNorm_S8_UInt;  // stencil 成分が要る",
+    "members": [
+      {
+        "sig": "struct FStencilDesc{ enable, func, pass_op, fail_op, depth_fail_op, read_mask, write_mask }",
+        "desc": "有効化・比較関数・各テスト結果での操作・読み書きマスク。"
+      },
+      {
+        "sig": "enum EStencilOp: Keep / Zero / Replace / IncrSat / DecrSat / Invert / IncrWrap / DecrWrap",
+        "desc": "保持 / 0 化 / 参照値で置換 / ±1(飽和) / ビット反転 / ±1(ラップ)。"
+      }
+    ]
+  }
+}

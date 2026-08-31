@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "MPMC",
+  "definition": "Multi-Producer Multi-Consumer。 複数のスレッドが同時に積み(producer)、複数のスレッドが同時に取り出す(consumer)キュー。"
+}

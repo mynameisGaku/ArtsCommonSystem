@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "IWorkshopBridge",
+    "kind": "インターフェース",
+    "header": "gameframework/WorkshopBridge.h",
+    "summary": "Steam Workshop / EOS UGC / mod.io などのユーザー生成コンテンツ(UGC)プラットフォームへ橋渡しするシーム(純粋仮想インターフェース)。 MOD の公開・購読・ダウンロードを、使う SDK をビルド時に差し替えながら扱えます。",
+    "when": "MOD やステージ共有などの UGC 機能を載せたいが、配信プラットフォームの SDK を後で差し替えたい時。",
+    "sample": "IWorkshopBridge* ws = &GetWorkshopStub();\n(void)ws->Init();\n// 毎フレーム:\nws->Tick(dt);\n// 購読:\n(void)ws->SubscribeItem(itemId);\n(void)ws->DownloadItem(itemId);",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init() / virtual void Shutdown()",
+        "desc": "SDK を初期化 / 終了する。 Shutdown は Init 前でも安全。"
+      },
+      {
+        "sig": "virtual bool IsAvailable() const",
+        "ret": "利用可能か",
+        "desc": "現ビルドで Workshop 機能が使えるか。 Stub は常に false。",
+        "when": "UI で Workshop ボタンの表示判定に使う時。"
+      },
+      {
+        "sig": "virtual TResult<u64> CreateItem(const char* title, const char* content_path)",
+        "ret": "新規 item_id",
+        "desc": "新規 UGC アイテムを公開する。 content_path はローカルパス。"
+      },
+      {
+        "sig": "virtual TResult<void> UpdateItem(u64 item_id, const char* content_path, const char* change_note)",
+        "desc": "既存アイテムを差分更新する(change_note は変更履歴に表示)。"
+      },
+      {
+        "sig": "virtual TResult<FWorkshopItem> QueryItem(u64 item_id)",
+        "ret": "アイテム情報",
+        "desc": "アイテムのメタ情報を取得する。 戻り値の文字列は次 Tick まで有効。"
+      },
+      {
+        "sig": "virtual TResult<u32> QuerySubscribedCount()",
+        "desc": "ローカルプレイヤーが購読中のアイテム数を返す。"
+      },
+      {
+        "sig": "virtual TResult<void> SubscribeItem(u64 item_id) / virtual TResult<void> UnsubscribeItem(u64 item_id)",
+        "desc": "アイテムを購読 / 購読解除する。"
+      },
+      {
+        "sig": "virtual TResult<void> DownloadItem(u64 item_id)",
+        "desc": "明示的にダウンロードを開始する(購読済みの再 DL など)。"
+      },
+      {
+        "sig": "virtual f32 GetDownloadProgress(u64 item_id)",
+        "ret": "進捗 [0,1] / -1",
+        "desc": "ダウンロード進捗を返す。 完了 / 未開始 / 不明は -1。 ポーリング前提。",
+        "when": "DL バーを毎フレーム更新する時。"
+      },
+      {
+        "sig": "virtual void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 SteamAPI_RunCallbacks 相当のイベントポンプを回す。"
+      }
+    ]
+  }
+}

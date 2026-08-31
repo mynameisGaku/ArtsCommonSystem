@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="指定モデルで推論を 1 回同期実行する。 inputs を入力テンソルとして OrtValue 化し、ONNX Runtime の Run を同期呼び出しする。 動的軸 (shape &lt;= 0) が 1 つあれば in_count から逆算し、無ければ in_count が モデルの入力要素数と一致する必要がある。 出力要素数が out_count を超える場合は失敗。 h: 推論に使うモデルハンドル。 inputs: 入力 f32 配列。 in_count: 入力要素数。 outputs: 出力を書き込む f32 配列。 out_count: 出力バッファの要素数。 戻り値: 成功なら空の TResult、未初期化/無効引数/形状不一致/実行失敗ならエラー。">
+  <title>acs::mlonnx::COnnxMlRuntime::RunInference — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/mlonnx.html">mlonnx モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/mlonnx.html">mlonnx モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/mlonnx.html">mlonnx モジュール</a><a href="../connxmlruntime-0d3901f3.html">COnnxMlRuntime の概要</a><a class="tree-child" href="connxmlruntime-787ee4be.html">COnnxMlRuntime</a><a class="tree-child" href="fimpl-c966490c.html">FImpl</a><a class="tree-child" href="init-e3af5d12.html">Init</a><a class="tree-child" href="loadmodel-4a81d67c.html">LoadModel</a><a class="tree-child" href="m-impl-66fa6e3c.html">m_Impl</a><a class="tree-child" href="runinference-80237267.html" aria-current="page">RunInference</a><a class="tree-child" href="shutdown-c7ea78cb.html">Shutdown</a><a class="tree-child" href="unloadmodel-2e2b55b0.html">UnloadModel</a><a class="tree-child" href="connxmlruntime-5c95fe4e.html">~COnnxMlRuntime</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/mlonnx.html">mlonnx</a><span>/</span><a href="../connxmlruntime-0d3901f3.html">COnnxMlRuntime</a><span>/</span><span aria-current="page">RunInference</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / mlonnx</div>
+<h1 class="identifier">acs::mlonnx::COnnxMlRuntime::RunInference</h1>
+<p class="lead">指定モデルで<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16021">推論</button><span class="term-tooltip" id="term-tip-16021" role="tooltip">学習済みモデルに入力を与えて出力(予測・分類など)を計算すること。 学習(training)ではなく実行(inference)の側。</span></span>を 1 回<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16022">同期</button><span class="term-tooltip" id="term-tip-16022" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>実行する。 inputs を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16023">入力</button><span class="term-tooltip" id="term-tip-16023" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>テンソルとして OrtValue 化し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16024">ONNX Runtime</button><span class="term-tooltip" id="term-tip-16024" role="tooltip">Microsoft 製の、ONNX モデルを実際に実行する推論エンジン。 mlonnx が裏で使う backend。</span></span> の Run を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16025">同期</button><span class="term-tooltip" id="term-tip-16025" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>呼び出しする。 動的軸 (shape &lt;= 0) が 1 つあれば in_count から逆算し、無ければ in_count が モデルの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16026">入力</button><span class="term-tooltip" id="term-tip-16026" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>要素数と一致する必要がある。 出力要素数が out_count を超える場合は失敗。 h: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16027">推論</button><span class="term-tooltip" id="term-tip-16027" role="tooltip">学習済みモデルに入力を与えて出力(予測・分類など)を計算すること。 学習(training)ではなく実行(inference)の側。</span></span>に使うモデル<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16028">ハンドル</button><span class="term-tooltip" id="term-tip-16028" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>。 inputs: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16029">入力</button><span class="term-tooltip" id="term-tip-16029" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16030">f32</button><span class="term-tooltip" id="term-tip-16030" role="tooltip">32bit の浮動小数(float 相当)。 座標・時間・係数など小数値に使う基本型。</span></span> 配列。 in_count: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16031">入力</button><span class="term-tooltip" id="term-tip-16031" role="tooltip">キーボード・マウス・ゲームパッドからの操作。 ACS では CInput でその瞬間の状態を読む。</span></span>要素数。 outputs: 出力を書き込む <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16032">f32</button><span class="term-tooltip" id="term-tip-16032" role="tooltip">32bit の浮動小数(float 相当)。 座標・時間・係数など小数値に使う基本型。</span></span> 配列。 out_count: 出力バッファの要素数。 戻り値: 成功なら空の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16033">TResult</button><span class="term-tooltip" id="term-tip-16033" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span>、未初期化/無効引数/形状不一致/実行失敗ならエラー。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::mlonnx::COnnxMlRuntime::RunInferenceの宣言"><code>acs::TResult&lt;void&gt; <a href="runinference-80237267.html" aria-current="page">RunInference</a>(acs::game::<a href="../../gameframework/fmlmodelhandle-08b51e92.html">FMlModelHandle</a> h, const acs::<a href="../../foundation/f32-87be3881.html">f32</a>* inputs, acs::<a href="../../foundation/u32-4ce4a209.html">u32</a> in_count, acs::<a href="../../foundation/f32-87be3881.html">f32</a>* outputs, acs::<a href="../../foundation/u32-4ce4a209.html">u32</a> out_count) noexcept override;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/mlonnx.html">mlonnx</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../connxmlruntime-0d3901f3.html"><code>acs::mlonnx::COnnxMlRuntime</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/mlonnx/OnnxMlRuntime.h:75</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

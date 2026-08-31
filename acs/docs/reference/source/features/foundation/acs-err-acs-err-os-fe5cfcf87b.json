@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "ACS_ERR / ACS_ERR_OS",
+    "kind": "マクロ",
+    "header": "foundation/Error.h",
+    "summary": "FErrorCode を 1 行で作るマクロ。 発生位置を自動でキャプチャするので、どこで失敗したかが常に残る。",
+    "when": "失敗を返したい箇所すべて。 手で FSourceLoc を埋める必要がない。",
+    "sample": "return ACS_ERR(IO, 1, \"開けません\");\n// OS のエラー値も一緒に運ぶ:\nreturn ACS_ERR_OS(OS, 5, \"CreateFile 失敗\", GetLastError());",
+    "members": [
+      {
+        "sig": "ACS_ERR(cat, sub, msg)",
+        "desc": "カテゴリ cat・サブコード sub・メッセージ msg でエラーを生成。 位置は自動。"
+      },
+      {
+        "sig": "ACS_ERR_OS(cat, sub, msg, os_err)",
+        "desc": "上記に加え OS エラー値 os_err も格納する。"
+      }
+    ]
+  }
+}

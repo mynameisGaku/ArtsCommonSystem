@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CPostProcess / FPostProcessParams",
+    "kind": "クラス / 構造体",
+    "header": "render/PostProcess.h",
+    "summary": "HDR ポストプロセスパイプライン。 シーンを HDR RT に描いてから Bloom + トーンマップ(ACES/AgX/Reinhard) + ビネット/色収差/フィルムグレイン + カラーグレーディング + シャープ化 + TAA + 自動露出を一括適用して画面に出す。 Diligent backend 前提。",
+    "when": "映画的な仕上がり(発光のにじみ・露出・色調整・アンチエイリアス)を最終段でかけたいとき。",
+    "sample": "CPostProcess pp;\npp.Init(*rdr.Device(), w, h, rdr.ColorFormat());\n// OnCustomFrame 内:\ncl->BeginRenderToTexture(*pp.HdrRenderTarget(), clear, rdr.DepthBuffer());\n// ... シーンを HDR で描画 ...\ncl->EndRenderToTexture(*pp.HdrRenderTarget());\nFPostProcessParams p; p.bloom_intensity = 0.6f; p.exposure = 1.0f;\npp.Render(*cl, *rdr.Swapchain(), buf_idx, p);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, u32 width, u32 height, EFormat color_format)",
+        "desc": "HDR RT + Bloom ミップチェイン + 各パイプラインを作る。"
+      },
+      {
+        "sig": "TResult<void> Resize(u32 width, u32 height)",
+        "desc": "ウィンドウサイズ変更時に内部 RT を作り直す。"
+      },
+      {
+        "sig": "IRhiTexture* HdrRenderTarget() / EFormat HdrFormat()",
+        "desc": "シーンを描く HDR RT とそのフォーマット。"
+      },
+      {
+        "sig": "void Render(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buffer_index, const FPostProcessParams& params)",
+        "desc": "Bloom + Tonemap 一式を実行してバックバッファへ書き出す。"
+      },
+      {
+        "sig": "FPostProcessParams{ bloom_*, exposure, gamma, tonemap_kind, vignette_*, chromatic_aberration, grain_*, cg_* (color grading), cas_strength, taa_*, auto_exposure_* }",
+        "desc": "各効果のパラメータ。 bloom / トーンマップ種別 / シネマティック FX / カラーグレーディング / シャープ / TAA / 自動露出。"
+      },
+      {
+        "sig": "using FPostProcess = CPostProcess",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPostProcess を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TUniquePtr<T>",
+    "kind": "クラステンプレート",
+    "header": "memory/UniquePtr.h",
+    "summary": "コピー不可・ムーブのみ。 スコープを抜けると自動で解放。",
+    "when": "あるデータの持ち主が常に 1 箇所だけ、と言い切れる時。 最も軽く安全な既定の選択肢。",
+    "sample": "auto p = MakeUnique<FMesh>(args...);  // 確保\np->Draw();                         // -> でアクセス\nauto q = static_cast<TUniquePtr<FMesh>&&>(p); // 所有権をムーブ(p は空に)\n// スコープ脱出で自動解放",
+    "members": [
+      {
+        "sig": "T* Get() const",
+        "ret": "生ポインタ",
+        "desc": "中身の生ポインタを返す。 所有権は渡さない。",
+        "when": "生ポインタを要求する API に一時的に渡す時。"
+      },
+      {
+        "sig": "T& operator*() / T* operator->()",
+        "desc": "中身にアクセスする。 空の時に使うと未定義動作。"
+      },
+      {
+        "sig": "explicit operator bool() const",
+        "ret": "中身があるか",
+        "desc": "if (p) で空かどうか判定できる。"
+      },
+      {
+        "sig": "T* Release()",
+        "ret": "生ポインタ",
+        "desc": "所有権を手放して生ポインタを返す。 以後の解放責任は呼び出し側に移る。",
+        "when": "C API に所有権ごと引き渡す等、自動解放を止めたい時。"
+      },
+      {
+        "sig": "void Reset(T* p = nullptr)",
+        "desc": "今の中身を破棄し、新しい対象(または空)を持つ。"
+      },
+      {
+        "sig": "IAllocator* GetAllocator() const",
+        "ret": "アロケータ",
+        "desc": "解放に使うアロケータを返す。"
+      }
+    ]
+  }
+}

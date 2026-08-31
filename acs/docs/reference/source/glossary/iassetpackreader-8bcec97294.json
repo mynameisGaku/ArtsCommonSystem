@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IAssetPackReader",
+  "definition": "アセットパック(.acpak 等)からファイルを読み出す共通インターフェース。 Mount してパス指定で中身を取り出す。"
+}

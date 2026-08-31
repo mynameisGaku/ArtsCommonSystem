@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "2D 衝突関数 (Intersect / Resolve / Raycast)",
+    "kind": "自由関数群",
+    "header": "math/Collision2D.h",
+    "summary": "2D 形状同士の重なり判定（Intersect）、めり込みを押し戻すMTV（Resolve）、レイの命中判定（Raycast）。 FAabb2/FCircle/FConvexPoly2/FObb2 の組み合わせにオーバーロードされている。",
+    "when": "2D の当たり判定そのもの。 衝突したか（Intersect）、どれだけ押し戻すか（Resolve）、レイが当たった点と法線（Raycast）を得る。",
+    "sample": "if (Intersect(player, wall)) { /* 重なり */ }\nFVec2 push;\nif (Resolve(playerBox, wallBox, push)) player.center += push; // めり込み解消\nRayHit2 h = RaycastAabb(sight, wall);\nif (h.hit) { drawHit(h.point, h.normal); }\nbool inside = Contains(wall, mousePos);",
+    "members": [
+      {
+        "sig": "bool Intersect(A, B)",
+        "ret": "重なるか",
+        "desc": "2 形状が重なっていれば true。 AABB/円/凸多角形/OBB の全組合せ対応。"
+      },
+      {
+        "sig": "bool Contains(shape, FVec2 p)",
+        "ret": "内側か",
+        "desc": "点 p が形状の内部にあるか。 マウス当たり判定などに。"
+      },
+      {
+        "sig": "bool Resolve(A, B, FVec2& push)",
+        "ret": "衝突したか",
+        "desc": "衝突時 true。 push に「A を B から離す最小移動量」(MTV)が入る。"
+      },
+      {
+        "sig": "FRayHit2 RaycastAabb/RaycastCircle/RaycastConvexPoly2/RaycastObb2(ray, shape, t_max)",
+        "ret": "命中情報",
+        "desc": "レイと形状の交差。 hit・t・point・normal を返す。"
+      }
+    ]
+  }
+}

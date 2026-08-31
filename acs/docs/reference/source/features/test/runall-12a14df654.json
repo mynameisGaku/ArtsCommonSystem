@@ -1,0 +1,24 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "test",
+    "title": "test — テスト基盤(ACS_TEST / EXPECT)",
+    "description": "ACS_TEST でテストを書き、EXPECT_* マクロで結果を検証し、RunAll() でまとめて実行します。"
+  },
+  "feature": {
+    "name": "RunAll()",
+    "kind": "関数",
+    "header": "test/Test.h",
+    "summary": "登録済みの全テストケースを順に実行する。 失敗が 1 件でもあれば 1 を、すべて成功なら 0 を返す。",
+    "when": "テスト実行ファイルの main の戻り値にそのまま使う。 CI はこの終了コードで成否を判定する。",
+    "sample": "int main() {\n    return ::acs::test::RunAll();\n}",
+    "members": [
+      {
+        "sig": "int RunAll() noexcept",
+        "ret": "失敗があれば 1、全成功なら 0",
+        "desc": "全ケースを実行し、結果サマリを出力してプロセスの終了コードを返す。",
+        "when": "main の return に直接書くのが定石。"
+      }
+    ]
+  }
+}

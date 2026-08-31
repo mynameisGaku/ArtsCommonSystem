@@ -1,0 +1,89 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "CInput",
+    "kind": "クラス（静的）",
+    "header": "platform/Input.h",
+    "summary": "キーボード・マウス・ゲームパッドの状態をポーリング（その瞬間に問い合わせ）で読む入口。 すべて静的関数なので CInput::IsKeyDown(...) のように呼ぶ。",
+    "when": "ゲームの操作処理。 毎フレーム先頭で Update() を呼んでから状態を読む。",
+    "sample": "CInput::Update();          // フレーム先頭で1回\nw.PollEvents();\nif (CInput::IsKeyDown(EKey::Space))            Jump();\nif (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();\nFVec2 m = CInput::MousePos();",
+    "members": [
+      {
+        "sig": "static void Update()",
+        "desc": "フレームの先頭で 1 回呼ぶ。 前フレームの状態を保存し、Pressed/Released の判定を成立させる。 呼び忘れると Pressed が効かない。",
+        "when": "メインループの一番上。"
+      },
+      {
+        "sig": "static void OnEvent(const FEvent& e)",
+        "desc": "FWindow から来たイベントを CInput に流し込む橋渡し。 SetEventCallback でこれを呼ぶよう繋ぐ。"
+      },
+      {
+        "sig": "static bool IsKeyDown(EKey k)",
+        "ret": "押されているか",
+        "desc": "そのキーが今押されているか（押しっぱなしの間ずっと true）。",
+        "when": "移動キーなど、押している間ずっと反応させたい時。"
+      },
+      {
+        "sig": "static bool IsKeyPressed(EKey k)",
+        "ret": "今押されたか",
+        "desc": "このフレームで押された瞬間だけ true（前フレームは押されていない）。",
+        "when": "ジャンプや決定など、1 回だけ反応させたい時。"
+      },
+      {
+        "sig": "static bool IsKeyReleased(EKey k)",
+        "ret": "今離されたか",
+        "desc": "このフレームで離された瞬間だけ true。"
+      },
+      {
+        "sig": "static bool IsMouseButtonDown / Pressed / Released(EMouseButton b)",
+        "desc": "マウスボタン版の Down / Pressed / Released。 意味はキーと同じ。"
+      },
+      {
+        "sig": "static FVec2 MousePos()",
+        "ret": "カーソル位置",
+        "desc": "現在のマウス位置（クライアント座標、左上原点）。"
+      },
+      {
+        "sig": "static FVec2 MouseDelta()",
+        "ret": "移動量",
+        "desc": "前フレームからのマウス移動量。",
+        "when": "FPS 視点の回転など、相対移動で操作する時。"
+      },
+      {
+        "sig": "static f32 MouseWheel()",
+        "ret": "ホイール量",
+        "desc": "このフレームのホイール回転（正で奥、負で手前）。"
+      },
+      {
+        "sig": "static const char* TextInput()",
+        "ret": "入力文字列",
+        "desc": "このフレームに確定した文字列（UTF-8、IME 確定後）。 無ければ空文字。",
+        "when": "名前入力欄やチャットなど、文字を打たせる時。"
+      },
+      {
+        "sig": "static bool IsGamepadConnected(u32 player_index)",
+        "ret": "接続中か",
+        "desc": "指定プレイヤー番号（0〜3）のゲームパッドが繋がっているか。"
+      },
+      {
+        "sig": "static bool IsGamepadButtonDown / Pressed(u32 idx, EGamepadButton b)",
+        "desc": "ゲームパッドのボタン状態。 Down=押している間、Pressed=押した瞬間。"
+      },
+      {
+        "sig": "static f32 GamepadAxisValue(u32 idx, EGamepadAxis axis)",
+        "ret": "軸の値",
+        "desc": "スティックは -1.0〜+1.0、トリガーは 0.0〜1.0。",
+        "sample": "f32 x = CInput::GamepadAxisValue(0, EGamepadAxis::LeftX);"
+      },
+      {
+        "sig": "using FInput = CInput",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CInput を使う。"
+      }
+    ]
+  }
+}

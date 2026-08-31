@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "CSubsystemAutoRegister",
+    "kind": "構造体",
+    "header": "subsystem/SubsystemRegistry.h",
+    "summary": "静的初期化時にsubsystem factoryをregistryへ登録する補助。",
+    "when": "subsystem登録macroの生成コードから使う時。",
+    "members": [
+      {
+        "sig": "using FSubsystemAutoRegister = CSubsystemAutoRegister",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSubsystemAutoRegister を使う。"
+      }
+    ]
+  }
+}

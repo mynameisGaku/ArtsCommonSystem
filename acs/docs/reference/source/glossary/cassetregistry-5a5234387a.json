@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAssetRegistry",
+  "definition": "パスからアセットを読み込み、TSharedPtr でキャッシュ共有する中心クラス。"
+}

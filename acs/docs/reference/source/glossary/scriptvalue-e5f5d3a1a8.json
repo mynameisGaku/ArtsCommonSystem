@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ScriptValue",
+  "definition": "C++ とスクリプトの間で引数・戻り値を受け渡すための動的型付け値。 Nil/Bool/Number/FString/Handle のタグ付き POD。"
+}

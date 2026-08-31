@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "バイトコード",
+  "definition": "HLSL をコンパイルした GPU 向け中間表現(DXBC 等)。 パイプライン作成時に GPU へ渡す。"
+}

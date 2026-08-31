@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TSparseSet",
+  "definition": "ACS の Sparse Set 実装。 エンティティ番号→コンポーネント値の高速対応表。"
+}

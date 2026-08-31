@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "LoadSprite / LoadSound",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "画像・音を読み込んでハンドルを返す。 同じパスは読み直さず同じハンドルを返す。 失敗しても落ちず、無効ハンドル（id==0）を返す。",
+    "when": "ゲーム開始時にまとめて読む（ループ内で毎回呼んでも再読込はされないが、開始時が分かりやすい）。 OpenWindow の後で呼ぶ。",
+    "sample": "FSprite hero = LoadSprite(\"assets/hero.png\");\nFSound  bgm  = LoadSound(\"assets/bgm.ogg\");\n// パスは実行時のカレントディレクトリからの相対。\n// 見つからない時は絶対パスか exe の隣に置く。",
+    "members": [
+      {
+        "sig": "FSprite LoadSprite(const char* path)",
+        "ret": "画像ハンドル",
+        "desc": "画像ファイルを読む。 失敗で id==0。"
+      },
+      {
+        "sig": "FSound LoadSound(const char* path)",
+        "ret": "音ハンドル",
+        "desc": "音ファイルを読む。 失敗で id==0。"
+      }
+    ]
+  }
+}

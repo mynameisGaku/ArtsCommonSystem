@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Steam",
+  "definition": "Valve のゲーム配信プラットフォーム。 実績・フレンド・クラウドセーブ等の機能を Steamworks SDK 経由で使える。"
+}

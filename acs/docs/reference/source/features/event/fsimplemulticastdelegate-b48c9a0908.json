@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FSimpleMulticastDelegate",
+    "kind": "型エイリアス",
+    "header": "event/SimpleMulticastDelegate.h",
+    "summary": "引数なしの複数処理を登録できる TMulticastDelegate<void()>。",
+    "when": "引数のない変更通知や完了通知を複数の受信先へ送る時。"
+  }
+}

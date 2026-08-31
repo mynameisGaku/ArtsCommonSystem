@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CWeaponSystem",
+    "kind": "クラス",
+    "header": "gameframework/WeaponSystem.h",
+    "summary": "1 体ぶんの武器ロードアウト + 弾薬 + 連射制御をまとめた小型マネージャ。 fire rate・リロード時間・マガジン / 予備弾薬・拡散 / ペレット数を一体管理し、発射可否を判定します。 実際の弾生成はコールバックで呼び出し側に任せます。",
+    "when": "FPS / TPS / シューティングで、複数武器の切替・残弾・連射クールダウンを扱いたい時(1 体につき 1 インスタンス)。",
+    "sample": "CWeaponSystem ws;\nws.RegisterWeapon({ \"pistol\", \"9mm\", EWeaponKind::Pistol,\n                   6.0f, 1.4f, 12, 48, 18.0f, 1.5f, 1, \"proj.9mm\" });\nws.EquipWeapon(\"pistol\");\nws.SetOnFireCallback(&OnFire, this);\n// 毎フレーム:\nws.Tick(dt);\nif (input.JustPressed(EKey::Mouse0)) ws.TryFire();\nif (input.JustPressed(EKey::R))      ws.StartReload();",
+    "members": [
+      {
+        "sig": "void RegisterWeapon(const FWeaponDef& def)",
+        "desc": "武器を登録する。 同 id の二重登録は警告して no-op。 reserve スロットも 0 で初期化。"
+      },
+      {
+        "sig": "bool EquipWeapon(const char* weapon_id)",
+        "ret": "成功したか",
+        "desc": "武器を装備する。 未登録 / nullptr は false。 reload 中でも切替可能(元武器の reload は破棄)。",
+        "when": "武器スロット切替時。"
+      },
+      {
+        "sig": "bool TryFire()",
+        "ret": "発射できたか",
+        "desc": "fire rate / mag / reload を満たせば 1 発消費し FireCallback を発火、true を返す。 失敗時は副作用なしで false。"
+      },
+      {
+        "sig": "void StartReload() / void CancelReload()",
+        "desc": "リロード開始 / 中断。 装備なし / reload 中 / mag 満タン / reserve 0 では開始しない。 reload_sec<=0 は即時完了。"
+      },
+      {
+        "sig": "void AddReserveAmmo(const char* weapon_id, u32 amount)",
+        "desc": "予備弾薬を加算する(max_reserve でクランプ)。 未登録 / amount==0 は no-op。"
+      },
+      {
+        "sig": "u32 GetAmmoInMag() const / u32 GetReserveAmmo() const",
+        "desc": "マガジン内残弾 / 予備弾薬を返す。"
+      },
+      {
+        "sig": "const FWeaponDef* CurrentDef() const / const FWeaponState& State() const",
+        "desc": "装備中武器の定義 / ランタイム状態を返す。"
+      },
+      {
+        "sig": "bool IsReloading() const / f32 ReloadProgress() const",
+        "desc": "reload 中か / reload 進行度 [0,1] を返す。",
+        "when": "リロードゲージを描く時。"
+      },
+      {
+        "sig": "void SetOnFireCallback(FireCallback cb, void* user)",
+        "desc": "発射時のコールバックを登録する(弾種 / ダメージ / 拡散 / ペレット数を通知)。"
+      },
+      {
+        "sig": "void SetOnReloadCompleteCallback(ReloadCallback cb, void* user)",
+        "desc": "リロード完了時のコールバックを登録する。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 内部時計を進め、reload 中なら残り時間を減らし完了処理する。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "武器定義 / reserve / 状態 / コールバックを全消去する。"
+      },
+      {
+        "sig": "using FWeaponSystem = CWeaponSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWeaponSystem を使う。"
+      }
+    ]
+  }
+}

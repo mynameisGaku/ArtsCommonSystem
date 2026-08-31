@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ABinaryAsset",
+  "definition": "生バイト列をそのまま持つ最小アセット(フォールバック)。"
+}

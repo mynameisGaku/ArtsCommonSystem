@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "ASubsystem",
+    "kind": "クラス",
+    "header": "subsystem/Subsystem.h",
+    "summary": "ownerと寿命を持つsubsystemの基底object。",
+    "when": "共有機能をapplication、game、sceneへ組み込む時。",
+    "members": [
+      {
+        "sig": "FManagementAdapter ManagementAccess()",
+        "desc": "collectionやtestがowner配線だけを明示的に行う短寿命adapterを返す。 内部処理はprivate。"
+      },
+      {
+        "sig": "using FSubsystem = ASubsystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ASubsystem を使う。"
+      }
+    ]
+  }
+}

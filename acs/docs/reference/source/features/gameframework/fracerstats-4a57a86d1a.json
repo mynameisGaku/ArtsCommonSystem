@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FRacerStats",
+    "kind": "構造体",
+    "header": "gameframework/LapTimer.h",
+    "summary": "レース中/終了時に読む racer 統計。 名前・現在ラップ・通過 checkpoint 数・累計時間・ベストラップ・順位。",
+    "when": "GetStats で受け取り、HUD に表示する時。",
+    "members": [
+      {
+        "sig": "const char* display_name",
+        "desc": "AddRacer で渡した名前 (非所有)。"
+      },
+      {
+        "sig": "u32 current_lap / checkpoints_passed",
+        "desc": "完了周回数 / 現ラップで踏んだ checkpoint 数。"
+      },
+      {
+        "sig": "f32 total_time_sec / best_lap_time_sec",
+        "desc": "累計秒数 / 自己ベストラップ秒 (未確定 0)。"
+      },
+      {
+        "sig": "u32 racer_position",
+        "desc": "1-origin 順位 (未計算 0、フィニッシュ後は確定値で固定)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CLocalizationDirector",
+    "kind": "クラス",
+    "header": "gameframework/LocalizationDirector.h",
+    "summary": "「ロケール + 文字列 ID」を「翻訳済みの文字列」に解決するi18n (多言語化) ストア。 UI ラベル / セリフ / メニュー文言を言語非依存に引ける。",
+    "when": "ゲームを多言語対応させたい時。 現 locale → Default(En) → key 自身、の 3 段フォールバックで、未翻訳箇所が画面で key として見えるので発見しやすい。",
+    "sample": "CLocalizationDirector loc;\nloc.RegisterString(ELocale::En, \"ui.title\", \"Adventure\");\nloc.RegisterString(ELocale::Ja, \"ui.title\", \"クロードの冒険\");\nloc.SetLocale(ELocale::Ja);\nconst char* t = loc.Get(\"ui.title\"); // -> \"クロードの冒険\"",
+    "members": [
+      {
+        "sig": "void SetLocale(ELocale loc) / ELocale CurrentLocale() const",
+        "desc": "取得対象ロケールの切替 / 現在値。 UI 言語切替で呼ぶ。"
+      },
+      {
+        "sig": "void RegisterString(ELocale loc, const char* key, const char* value)",
+        "desc": "指定ロケールに key→value を 1 件登録。 key/value とも非所有 (リテラル想定)。"
+      },
+      {
+        "sig": "const char* Get(const char* key) const",
+        "ret": "翻訳済み文字列",
+        "desc": "現 locale で引く → 無ければ Default(En) → それでも無ければ key 自身を返す。 key が nullptr なら空文字。"
+      },
+      {
+        "sig": "const char* GetForLocale(ELocale loc, const char* key) const",
+        "desc": "指定 locale で引く (Default フォールバックなし、欠落は key 自身)。"
+      },
+      {
+        "sig": "bool Has(const char* key) const",
+        "desc": "現 locale に key が登録されているか (Default は見ない)。"
+      },
+      {
+        "sig": "u32 KeyCount(ELocale loc) const",
+        "desc": "指定 locale の登録件数。"
+      },
+      {
+        "sig": "void Clear() / void ClearLocale(ELocale loc)",
+        "desc": "全削除 / 指定 locale のみ削除。"
+      },
+      {
+        "sig": "using FLocalizationDirector = CLocalizationDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalizationDirector を使う。"
+      }
+    ]
+  }
+}

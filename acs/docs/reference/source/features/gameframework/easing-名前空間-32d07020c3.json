@@ -1,0 +1,106 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "Easing (名前空間)",
+    "kind": "関数群 (名前空間)",
+    "header": "gameframework/Easing.h",
+    "summary": "イージング関数群 (acs::game::Easing)。 従来の関数ポインタ互換を保ちつつ、標準 31 種 (Linear + 10 family の In/Out/InOut) と SmoothStep/SmootherStep を合わせた全 33 種を EEasingType catalog で扱える。 直接関数は入力を [0,1] へ安全に正規化し、checked API は無効 type と非有限入力を診断する。",
+    "when": "アニメーションを「等速」ではなく「最初ゆっくり後で加速」「行き過ぎて戻る」のように自然に動かしたい時。 CTweenManager::Tween と FSequence::Tween には関数ポインタ版と enum 版の両 overload がある。",
+    "sample": "using namespace acs::game;\nconst auto type = Easing::EEasingType::InOutCubic;\nf32 e = Easing::Evaluate(type, 0.5f);  // 型付き評価\ntweens.Tween(&player.x, 0.0f, 100.0f, 0.5f, type);\nsequence.Tween(&alpha, 0.0f, 1.0f, 0.25f, Easing::EEasingType::SmoothStep);\nEasing::EEasingType parsed = Easing::EEasingType::Linear;\nif (Easing::TryParseName(\"OutBounce\", parsed)) { /* 保存名を復元 */ }",
+    "members": [
+      {
+        "sig": "f32 Linear(f32 t)",
+        "ret": "= t",
+        "desc": "等速 (補間なし)。"
+      },
+      {
+        "sig": "f32 InQuad/OutQuad/InOutQuad(f32 t)",
+        "desc": "2 乗カーブ。 In=徐々に加速、Out=徐々に減速、InOut=両端なめらか。",
+        "when": "もっとも素直で自然な加減速。 迷ったらこれ。"
+      },
+      {
+        "sig": "f32 InCubic/OutCubic/InOutCubic(f32 t)",
+        "desc": "3 乗カーブ。 Quad より強めの加減速。"
+      },
+      {
+        "sig": "f32 InQuart/.../InQuint/...(f32 t)",
+        "desc": "4 乗 / 5 乗カーブ。 さらに鋭い加減速。"
+      },
+      {
+        "sig": "f32 InSine/OutSine/InOutSine(f32 t)",
+        "desc": "正弦カーブ。 やわらかい加減速。"
+      },
+      {
+        "sig": "f32 InExpo/OutExpo/InOutExpo(f32 t)",
+        "desc": "指数カーブ。 非常に急な立ち上がり / 立ち下がり。"
+      },
+      {
+        "sig": "f32 InCirc/OutCirc/InOutCirc(f32 t)",
+        "desc": "円弧カーブ。"
+      },
+      {
+        "sig": "f32 InBack/OutBack/InOutBack(f32 t)",
+        "desc": "一度行き過ぎてから戻る (overshoot) 演出。 一時的に [0,1] を外れる。",
+        "when": "ポップアップが少し弾んで出る等。"
+      },
+      {
+        "sig": "f32 InElastic/OutElastic/InOutElastic(f32 t)",
+        "desc": "ゴムのように振動しながら収束する。"
+      },
+      {
+        "sig": "f32 InBounce/OutBounce/InOutBounce(f32 t)",
+        "desc": "ボールが跳ねるような減衰バウンド。",
+        "when": "落下物の着地演出など。"
+      },
+      {
+        "sig": "f32 SmoothStep/SmootherStep(f32 t)",
+        "desc": "端点の微分を滑らかにする 3 次 / 5 次 smooth step。 全 33 種の末尾 2 catalog 値。"
+      },
+      {
+        "sig": "enum class EEasingType : u8",
+        "desc": "Linear、10 family の In/Out/InOut、SmoothStep、SmootherStep という評価可能な 33 曲線を順序付きで列挙する型付き catalog。 Count = 33 は末尾 sentinel で、評価可能な曲線ではない。"
+      },
+      {
+        "sig": "FEasingResult TryEvaluate(EEasingType type, f32 t, f32& out)",
+        "desc": "checked 評価。 無効 type、非有限 t、非有限な計算結果を拒否し、失敗時は out を変更しない。 finite t は [0,1] に clamp。"
+      },
+      {
+        "sig": "f32 Evaluate(EEasingType type, f32 t, f32 fallback = 0)",
+        "desc": "型付き評価。 checked 評価が失敗した場合は fallback を返す。"
+      },
+      {
+        "sig": "FEasingResult TrySampleCurve(EEasingType type, f32* out, usize sample_count)",
+        "desc": "[0,1] を 2〜65536 点で等間隔サンプリングする。 先頭・末尾は厳密な端点。 無効 type、点数範囲外、null出力、非有限結果を分類し、失敗時は配列全体を変更しない。 確保なし・noexcept。"
+      },
+      {
+        "sig": "EasingFn GetFunction(EEasingType) / const char* GetName(EEasingType)",
+        "desc": "型付き catalog から従来の関数ポインタまたは canonical 名を取得。 無効 type は nullptr / \"Invalid\"。"
+      },
+      {
+        "sig": "FEasingResult TryGetName(EEasingType type, const char*& out)",
+        "desc": "canonical 名の checked 取得。 無効 type は InvalidType で拒否し、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "bool TryParseName(const char* name, EEasingType& out)",
+        "desc": "canonical 名を enum に変換。 null・未知名は false で、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "FEasingResult TryParseNameChecked(const char* name, EEasingType& out)",
+        "desc": "canonical 名を大文字小文字を区別して解析する checked API。 null は NullName、空・未知名は UnknownName で拒否し、失敗時は out を変更しない。"
+      },
+      {
+        "sig": "CTweenManager::Tween(..., EEasingType) / FSequence::Tween(..., EEasingType)",
+        "desc": "f32/FVec2/FVec3 の tween を catalog enum で指定する overload。 無効 enum は安全に Linear へ fallback。"
+      },
+      {
+        "sig": "using EasingFn = f32 (*)(f32) noexcept",
+        "desc": "既存コードと互換の関数ポインタ型。 直接関数は finite 入力を [0,1] に clamp し、NaN や無限大でも NaN/domain error を生成しない。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CTlsfAllocator / CShardedTlsfAllocator",
+    "kind": "クラス",
+    "header": "memory/Tlsf.h / ShardedTlsf.h",
+    "summary": "TLSF=任意サイズを O(1)・低断片化で確保できる汎用アロケータ。 確保開始位置を 16B ごとの外部ビットマップ(プール容量の約 0.78%)でも照合し、内部ポインタの偽装解放を拒否する。 Sharded=N 個の TLSF に分けて複数スレッドからの同時確保でも競合しにくくした版(kMaxShards=8)。 どちらも既定構築してから Init() で初期化する二段階(コンストラクタにサイズは渡さない)。",
+    "when": "汎用の高速確保が欲しい時。 マルチスレッドで確保が多いなら Sharded。",
+    "sample": "// TLSF: 自前のプール buffer を渡して Init する\nalignas(16) static acs::u8 pool[1u << 24];   // 16MB\nFTlsfAllocator tlsf;\nif (tlsf.Init(pool, sizeof(pool)).IsErr()) { /* 失敗 */ }\nvoid* p = tlsf.Alloc(200, 16, FSourceLoc::Current());\n\n// Sharded: 予約サイズ・初期コミット量で Init(shard_count 0=コア数で自動)\nFShardedTlsfAllocator sharded;\nsharded.Init(256u << 20, 8u << 20);          // 256MB 予約 / 8MB コミット",
+    "members": [
+      {
+        "sig": "TResult<void> CTlsfAllocator::Init(void* pool_base, usize pool_size)",
+        "ret": "成否",
+        "desc": "16B 整列のプール buffer を登録(pool_size は 1KB 以上推奨)。",
+        "when": "サイズ引数のコンストラクタは無い。 必ず既定構築→Init。"
+      },
+      {
+        "sig": "TResult<void> CShardedTlsfAllocator::Init(usize total_reserve_bytes, usize commit_initial_bytes, u32 shard_count = 0)",
+        "ret": "成否",
+        "desc": "予約全体をシャードで分割。 shard_count=0 で論理コア数から自動(最大 8)。 粒度整列の加算オーバーフローは VM 予約前に拒否する。"
+      },
+      {
+        "sig": "void CShardedTlsfAllocator::EnableThreadCache()",
+        "desc": "スレッドローカルの固定長ポインタ配列で小確保のヒット経路をロックなし化。 管理リンクを解放済み payload 内へ置かないため、UAF 書込みを次のアドレスとして参照しない。 Free は所有シャードをロックして正規の確保開始位置を確認してから格納する。 アロケータ切替、スレッド終了、Shutdown/再Initは寿命世代で検証し、二重解放はブロック状態遷移で拒否する。"
+      },
+      {
+        "sig": "void* Alloc / void Free / void* Realloc",
+        "desc": "IAllocator の確保 API。 Sharded の Realloc-to-zero は所有権を先に検証し、不正ポインタなら元の pointer を返して未解放を通知する。"
+      },
+      {
+        "sig": "CTlsfAllocator::FStats CTlsfAllocator::GetStats() const",
+        "ret": "統計",
+        "desc": "bytes_used / bytes_peak / free_blocks / used_blocks / largest_free_block を返す。"
+      },
+      {
+        "sig": "bool CTlsfAllocator::ValidateHeap() const",
+        "ret": "健全か",
+        "desc": "物理ブロックチェイン/フラグの一貫性を検証(O(ブロック数)、診断用)。 Alloc/Free と同じロック下で呼ぶこと。"
+      },
+      {
+        "sig": "bool CTlsfAllocator::ContainsPtr(const void* pointer) const",
+        "ret": "所属か",
+        "desc": "pointer がこのアロケータの管理範囲か。 予約所有時は O(1)。"
+      },
+      {
+        "sig": "TResult<void> CTlsfAllocator::AddPool(void* pool_base, usize pool_size) / InitWithReservation(FVmReservation&& reservation, usize initial_commit_bytes)",
+        "ret": "成否",
+        "desc": "追加プール登録 / FVmReservation を保持して初期コミット分をプール化。 重複範囲、表現上限超過、追跡上限(64プール)を状態変更前に拒否する。"
+      },
+      {
+        "sig": "TResult<void> CTlsfAllocator::Reset()",
+        "ret": "成否",
+        "desc": "未初期化状態へ戻し、VM予約と確保開始ビットマップを解放する。 VM予約の解放に失敗した場合は再試行できるよう状態を保持してエラーを返す。"
+      },
+      {
+        "sig": "static usize CTlsfAllocator::PayloadBlockSize(const void* pointer)",
+        "ret": "ブロックサイズ",
+        "desc": "払い出した payload のブロックサイズをレイアウトだけからロック無しで読む(thread-cache 用)。"
+      },
+      {
+        "sig": "u32 CShardedTlsfAllocator::ShardCount() const",
+        "ret": "シャード数",
+        "desc": "分割されているシャードの数(最大 kMaxShards=8)。"
+      },
+      {
+        "sig": "bool CShardedTlsfAllocator::ThreadCacheEnabled() const / u64 Epoch() const",
+        "ret": "状態/世代",
+        "desc": "thread-cache 有効か / Init ごとに更新されるエポック(マガジン世代検証用)。"
+      },
+      {
+        "sig": "bool CShardedTlsfAllocator::ValidateHeap()",
+        "ret": "健全か",
+        "desc": "全シャードをロックして整合検証する(診断用)。"
+      },
+      {
+        "sig": "using FShardedTlsfAllocator = CShardedTlsfAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CShardedTlsfAllocator を使う。"
+      },
+      {
+        "sig": "using FTlsfAllocator = CTlsfAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTlsfAllocator を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "型特性 (IsSameV / RemoveRefT / EnableIfT 等)",
+    "kind": "型特性テンプレート",
+    "header": "foundation/TypeTraits.h",
+    "summary": "<type_traits> の最小代替。 型を調べる（整数か・ポインタか・同じ型か）／変形する（参照や const を外す）／テンプレートを条件付きで有効化する道具一式。 主にテンプレートを書く時の部品。",
+    "when": "汎用コンテナやアロケータ、TResult のようなテンプレートを自作・拡張する時。 普通のゲームロジックでは表に出ない。",
+    "sample": "static_assert(IsSameV<u32, unsigned int>);\nusing Bare = RemoveCVRefT<const int&>;   // → int\n// 整数型のときだけ有効になる関数:\ntemplate<typename T, typename = EnableIfT<IsIntegralV<T>>>\nT Double(T x) { return x * 2; }",
+    "members": [
+      {
+        "sig": "bool IsSameV<A,B>",
+        "desc": "2 つの型が同一か。"
+      },
+      {
+        "sig": "RemoveRefT<T> / RemoveConstT<T> / RemoveCVT<T> / RemoveCVRefT<T>",
+        "desc": "参照 / const / cv / その両方を取り除いた素の型を得る。"
+      },
+      {
+        "sig": "bool IsIntegralV<T> / IsFloatingV<T> / IsArithmeticV<T>",
+        "desc": "整数型 / 浮動小数型 / 算術型かどうか。"
+      },
+      {
+        "sig": "bool IsPointerV<T> / IsLvalueRefV<T> / IsRvalueRefV<T>",
+        "desc": "ポインタ / lvalue 参照 / rvalue 参照かどうか。"
+      },
+      {
+        "sig": "bool IsTriviallyCopyableV<T> / IsTriviallyDestructibleV<T> / IsTriviallyConstructibleV<T>",
+        "desc": "コンパイラ組み込み trait の薄いラッパ（自明コピー可 / 自明破棄可 / 自明構築可）。"
+      },
+      {
+        "sig": "bool IsEnumV<T> / IsEmptyV<T> / IsAbstractV<T> / IsBaseOfV<Base,Derived>",
+        "desc": "列挙型か / 空クラス（メンバ無し）か / 抽象クラス（純粋仮想あり）か / Base が Derived の基底かを判定する組み込み trait ラッパ。"
+      },
+      {
+        "sig": "EnableIfT<C, T>",
+        "desc": "SFINAE 用。 条件 C が真の時だけ型 T を露出させ、テンプレートの有効/無効を切り替える。"
+      },
+      {
+        "sig": "ConditionalT<C, A, B>",
+        "desc": "コンパイル時の三項演算子。 C が真なら A、偽なら B 型を選ぶ。"
+      }
+    ]
+  }
+}

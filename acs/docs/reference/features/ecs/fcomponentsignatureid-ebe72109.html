@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="コンポーネント型からコンパイル時に求める u64 の署名。 型パックの比較や特殊化に使うビルド内の値で、保存データの永続IDには使わない。">
+  <title>FComponentSignatureId — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ecs.html">ecs モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ecs.html">ecs</a><span>/</span><span aria-current="page">FComponentSignatureId</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / ecs</div><h1 class="identifier">FComponentSignatureId</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23013">コンポーネント</button><span class="term-tooltip" id="term-tip-23013" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型からコンパイル時に求める <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23014">u64</button><span class="term-tooltip" id="term-tip-23014" role="tooltip">64bit の符号なし整数(0 以上)。 サイズ・ハンドル・大きな個数などに使う基本型。</span></span> の署名。 型パックの比較や特殊化に使うビルド内の値で、保存データの永続IDには使わない。</p></div><div class="badges"><span class="badge">型エイリアス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html"><code>acs::FComponentSignatureId</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>実行時の密な番号ではなく、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23010">テンプレート</button><span class="term-tooltip" id="term-tip-23010" role="tooltip">型を後から指定できる部品。 TArray&lt;int&gt; は『int の配列』というように中身の型を差し替えられる。</span></span>処理で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23011">コンポーネント</button><span class="term-tooltip" id="term-tip-23011" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型を比較・識別する時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>ecs</dd></div><div class="fact"><dt>分類</dt><dd>型エイリアス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>ecs/ComponentId.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-113503b2c3a11e0a238b"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html">FComponentSignatureId</a> = u64</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>署名の実体は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23012">u64</button><span class="term-tooltip" id="term-tip-23012" role="tooltip">64bit の符号なし整数(0 以上)。 サイズ・ハンドル・大きな個数などに使う基本型。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html"><code>acs::FComponentSignatureId</code></a> <span class="kind-label">型alias</span></dd></div></dl></article><article class="card" id="member-7ffb83fd1a16bf078c69"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>constexpr <a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html">FComponentSignatureId</a> <a href="../../symbols/ecs/getcomponentsignatureid-29b8524d.html">GetComponentSignatureId</a>&lt;T&gt;()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>コンパイラの型署名からビルド内で安定した値を返す。</dd></div><div class="fact"><dt>戻り値</dt><dd>型 T の署名</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html"><code>acs::FComponentSignatureId</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/getcomponentsignatureid-29b8524d.html"><code>acs::GetComponentSignatureId</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-19fbd5184481cde3e471"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/ecs/componentsignatureid-3f970fc2.html">ComponentSignatureId</a> = <a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html">FComponentSignatureId</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは FComponentSignatureId を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/componentsignatureid-3f970fc2.html"><code>acs::ComponentSignatureId</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponentsignatureid-33f869f1.html"><code>acs::FComponentSignatureId</code></a> <span class="kind-label">型alias</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FComponentSignatureIdの使用例"><code>constexpr FComponentSignatureId signature = GetComponentSignatureId&lt;Position&gt;();
+static_assert(signature == TComponentTypeTraits&lt;Position&gt;::Signature);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

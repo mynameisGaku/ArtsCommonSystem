@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": ".acpak エラー subcode (crypto)",
+    "kind": "定数群",
+    "header": "assetpack/AcpakCrypto.h",
+    "summary": "AES-256-GCM / PBKDF2 周りの暗号エラー subcode(1314〜1319)。 多くは ACS_ERR_OS(CNG/BCrypt の OS エラー付き)。 タグ検証失敗だけは改竄/破損の単一窓口として扱う。",
+    "when": "CAcpakCrypto や暗号化 pak の Read/Write が失敗した時、原因(初期化/鍵/演算/タグ/乱数/KDF)を判別する時。",
+    "sample": "auto k = CAcpakCrypto::DeriveKey(pw, n, salt, m);\nif (k.IsErr() && k.Error().subcode == kAcpakSubCryptoKdf) {\n    // KDF 計算に失敗\n}",
+    "members": [
+      {
+        "sig": "kAcpakSubCryptoInit = 1314",
+        "desc": "BCryptOpenAlgorithmProvider 失敗(algorithm provider 取得)。"
+      },
+      {
+        "sig": "kAcpakSubCryptoKey = 1315",
+        "desc": "BCryptGenerateSymmetricKey 失敗(鍵未設定で暗号化 pak を扱った時にも返る)。"
+      },
+      {
+        "sig": "kAcpakSubCryptoOp = 1316",
+        "desc": "BCryptEncrypt / BCryptDecrypt 失敗。"
+      },
+      {
+        "sig": "kAcpakSubCryptoTag = 1317",
+        "desc": "認証タグ検証失敗(改竄)。"
+      },
+      {
+        "sig": "kAcpakSubCryptoRand = 1318",
+        "desc": "BCryptGenRandom 失敗(GenerateRandomNonce が返す)。"
+      },
+      {
+        "sig": "kAcpakSubCryptoKdf = 1319",
+        "desc": "BCryptDeriveKeyPBKDF2 失敗(KDF 計算)。"
+      }
+    ]
+  }
+}

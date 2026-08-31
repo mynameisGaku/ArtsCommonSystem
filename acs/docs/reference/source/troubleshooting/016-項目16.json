@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "アロケータを差し替えたい / フレーム毎に大量確保して遅い",
+  "item": {
+    "q": "アロケータを差し替えたい / フレーム毎に大量確保して遅い",
+    "tags": [
+      "メモリ",
+      "アロケータ",
+      "パフォーマンス"
+    ],
+    "a": "用途別に使い分けます。 毎フレーム捨てる一時確保は CArenaAllocator(リセットで一括解放)、汎用は TSharedPtr/MakeShared の既定(DefaultAllocator)。 MakeSharedIn(alloc, ...) でアロケータを明示指定できます。"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FStatState",
+    "kind": "構造体",
+    "header": "gameframework/HungerSystem.h",
+    "summary": "ある survivor の 1 stat の実状態。 現在値・上限・危険フラグ。",
+    "when": "内部状態の表現 (主に CHungerSystem 内部で使われる)。"
+  }
+}

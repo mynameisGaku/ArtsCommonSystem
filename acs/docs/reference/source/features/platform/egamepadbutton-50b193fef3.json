@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EGamepadButton",
+    "kind": "列挙(enum)",
+    "header": "platform/InputCodes.h",
+    "summary": "ゲームパッドのボタンを表す列挙（XInput 互換）。 フェイスボタン・十字キー・バンパー・スティック押し込み・システムボタン。",
+    "when": "CInput::IsGamepadButtonDown / Pressed に渡す。",
+    "sample": "if (CInput::IsGamepadButtonPressed(0, EGamepadButton::A))     Jump();\nif (CInput::IsGamepadButtonDown(0, EGamepadButton::RightBumper)) Guard();",
+    "members": [
+      {
+        "sig": "A / B / X / Y",
+        "desc": "フェイスボタン（XInput 配置）。"
+      },
+      {
+        "sig": "Up / Down / Left / Right",
+        "desc": "十字キー（D-Pad）。"
+      },
+      {
+        "sig": "LeftBumper / RightBumper",
+        "desc": "左右のバンパー（L1/R1 相当）。"
+      },
+      {
+        "sig": "LeftStick / RightStick",
+        "desc": "スティックの押し込み（L3/R3 相当）。"
+      },
+      {
+        "sig": "Start / Back / Guide",
+        "desc": "スタート・バック・ガイド（中央）ボタン。"
+      }
+    ]
+  }
+}

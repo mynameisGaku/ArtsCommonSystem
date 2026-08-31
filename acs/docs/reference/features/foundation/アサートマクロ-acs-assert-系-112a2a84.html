@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="条件が偽なら FPanic を呼んでその場で止めるチェック群。 バグを早期に・確実に検出する。 デバッグ専用（リリースで消える）と常時有効の 2 系統がある。">
+  <title>アサートマクロ (ACS_ASSERT 系) — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/foundation.html">foundation モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/foundation.html">foundation</a><span>/</span><span aria-current="page">アサートマクロ (ACS_ASSERT 系)</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / foundation</div><h1 class="identifier">アサートマクロ (ACS_ASSERT 系)</h1>
+<p class="lead">条件が偽なら <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24174">FPanic</button><span class="term-tooltip" id="term-tip-24174" role="tooltip">回復不能な状況でログとスタックトレースを出してプロセスを終了させる最終経路。 通常はアサートから呼ばれる。</span></span> を呼んでその場で止めるチェック群。 バグを早期に・確実に検出する。 デバッグ専用（リリースで消える）と常時有効の 2 系統がある。</p></div><div class="badges"><span class="badge">マクロ</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/foundation/acs-assert-a943f6fa.html"><code>ACS_ASSERT</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>事前条件・不変条件・到達しないはずの分岐を主張する時。 安いチェックは ACS_A<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24170">SSE</button><span class="term-tooltip" id="term-tip-24170" role="tooltip">x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。</span></span>RT、リリースでも守りたい不変条件は ACS_CHECK。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>foundation</dd></div><div class="fact"><dt>分類</dt><dd>マクロ</dd></div><div class="fact"><dt>ヘッダー</dt><dd>foundation/Assert.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-ccf93d6e1a3b76fab0d8"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/foundation/acs-assert-a943f6fa.html">ACS_ASSERT</a>(expr)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>デバッグ専用。 偽なら停止。 リリース（-DACS_ENABLE_A<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24171">SSE</button><span class="term-tooltip" id="term-tip-24171" role="tooltip">x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。</span></span>RTS=OFF）では除去。</dd></div><div class="fact"><dt>使う場面</dt><dd>安価な事前条件・範囲チェック。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-assert-a943f6fa.html"><code>ACS_ASSERT</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-3d6c5cc305e16c64dd68"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/foundation/acs-assertf-d383c553.html">ACS_ASSERTF</a>(expr, fmt, ...)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ACS_A<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24172">SSE</button><span class="term-tooltip" id="term-tip-24172" role="tooltip">x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。</span></span>RT に printf 風メッセージを付けた版。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-assertf-d383c553.html"><code>ACS_ASSERTF</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-e07f630d7ebbe8ef539f"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/foundation/acs-verify-609f2141.html">ACS_VERIFY</a>(expr)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>デバッグ専用だが expr は常に評価される。 副作用のある式のチェックに使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-verify-609f2141.html"><code>ACS_VERIFY</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-24e37d4158bc59305da6"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/foundation/acs-check-6c2efa72.html">ACS_CHECK</a>(expr) / <a href="../../symbols/foundation/acs-checkf-beff99ed.html">ACS_CHECKF</a>(...)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>常に有効。 リリースでも偽なら停止。 範囲外・null・セキュリティ前提など倒れた方が安全な不変条件に。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-check-6c2efa72.html"><code>ACS_CHECK</code></a> <span class="kind-label">マクロ</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-checkf-beff99ed.html"><code>ACS_CHECKF</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-e8ecab393eeed3b5199b"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code><a href="../../symbols/foundation/acs-notreached-e29b3ac1.html">ACS_NOTREACHED</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>到達したら必ず停止する防御マーカー（リリースでも有効）。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-notreached-e29b3ac1.html"><code>ACS_NOTREACHED</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-b5400a1e754a2f10e84f"><h3>API項目 6</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 6 の宣言"><code><a href="../../symbols/foundation/acs-not-implemented-db2e4efe.html">ACS_NOT_IMPLEMENTED</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>未実装の分岐に置く。 リリースでもパニックする。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-not-implemented-db2e4efe.html"><code>ACS_NOT_IMPLEMENTED</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article><article class="card" id="member-c2aaf6f2b9d1f72c7601"><h3>API項目 7</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 7 の宣言"><code><a href="../../symbols/foundation/acs-unreachable-fccd8df0.html">ACS_UNREACHABLE</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>「絶対に来ない」と最適化器に教える。 デバッグでは停止、リリースでは最適化ヒント（来ると<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24173">未定義動作</button><span class="term-tooltip" id="term-tip-24173" role="tooltip">C++ 規格が結果を保証しない操作(配列外アクセス・寿命切れポインタ等)。 最適化で表面化しやすい。</span></span>）。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/acs-unreachable-fccd8df0.html"><code>ACS_UNREACHABLE</code></a> <span class="kind-label">マクロ</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="アサートマクロ (ACS_ASSERT 系)の使用例"><code>ACS_ASSERT(idx &lt; size);                         // デバッグのみ
+ACS_ASSERTF(p != nullptr, &quot;id=%u&quot;, id);          // メッセージ付き
+ACS_CHECK(buffer != nullptr);                    // リリースでも検査
+if (kind == 0) { /*...*/ } else { ACS_NOTREACHED(); }</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FNodeId",
+  "definition": "シーン内の ANode を指す index(24bit) + generation(8bit) の packed ハンドル。 stale 検出に使う。"
+}

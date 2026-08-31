@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "AEventBus",
+    "kind": "クラス",
+    "header": "gameframework/EventBus.h",
+    "summary": "owner単位でevent購読と配送を保持する管理object。",
+    "when": "sceneやgameの寿命へevent配送を結び付ける時。",
+    "members": [
+      {
+        "sig": "using FEventBus = AEventBus",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AEventBus を使う。"
+      }
+    ]
+  }
+}

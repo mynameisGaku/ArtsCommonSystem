@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CFixedStepClock",
+  "definition": "可変な経過秒を固定更新回数と描画補間率へ変換する、利用側所有の決定論的な時計。"
+}

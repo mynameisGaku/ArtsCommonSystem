@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CPU",
+  "definition": "中央演算装置。 対応するSIMD命令により計算速度が変わる。"
+}

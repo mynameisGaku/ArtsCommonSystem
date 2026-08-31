@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "CClock",
+    "kind": "クラス（静的）",
+    "header": "platform/Time.h",
+    "summary": "高精度なタイマ。 起動からの経過時間を秒・ミリ秒・ティックで取得できる。 すべて静的関数。",
+    "when": "ベンチマークや経過時間の計測。 フレーム間の dt が欲しいだけなら FFrameTimer の方が便利。",
+    "sample": "f64 t0 = CClock::SecondsSinceStartup();\nDoHeavyWork();\nf64 elapsed = CClock::SecondsSinceStartup() - t0;",
+    "members": [
+      {
+        "sig": "static f64 SecondsSinceStartup()",
+        "ret": "経過秒",
+        "desc": "起動からの経過秒（高精度）。"
+      },
+      {
+        "sig": "static u64 MillisSinceStartup()",
+        "ret": "経過ミリ秒",
+        "desc": "起動からの経過ミリ秒。"
+      },
+      {
+        "sig": "static u64 Ticks()",
+        "ret": "経過ティック",
+        "desc": "起動からの生のティック値。 最も細かい計測に。 1 ティックの粒度はプラットフォーム依存（多くの環境でナノ秒）なので、固定値を仮定せず必ず TicksPerSecond() で秒に換算する。"
+      },
+      {
+        "sig": "static u64 TicksPerSecond()",
+        "ret": "1秒分のティック数",
+        "desc": "1 秒あたりのティック数。 Ticks() を秒に換算する時の分母に使う（例: 秒 = Ticks() / TicksPerSecond()）。"
+      },
+      {
+        "sig": "using FClock = CClock",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CClock を使う。"
+      }
+    ]
+  }
+}

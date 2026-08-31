@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AssetType",
+  "definition": "アセット型を識別する 32-bit の数値 ID。"
+}

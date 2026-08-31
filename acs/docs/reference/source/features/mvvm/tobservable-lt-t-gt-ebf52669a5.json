@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TObservable<T>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Observable.h",
+    "summary": "監視できる 1 個の値(MVVM の中核)。 Set で値を変えると、変わった時だけ購読者へ通知が飛ぶ。 通知中の解除に加え、nested 通知中に listener が所有 object ごと TObservable 自身を同期破棄するケースも stack lifetime guard で検出し、破棄済み member へ触れず残りの通知を停止する。 同じ storage に新実体を placement-new しても old Notify は新しい frame chain へ侵入しない。 owner を破棄する callback は破棄を最後の操作にし、その後 new_value、user、owner を再参照せず直ちに return する必要がある。 UI thread 専用・コピー禁止。",
+    "when": "HP やレベルなど「変わったら画面に反映したい」値を持たせる時。 CViewModel のメンバとして公開するのが基本形。",
+    "sample": "TObservable<f32> hp { 100.0f };         // 初期値つき\nauto h = hp.Subscribe([](const f32& v, void*){\n    ACS_LOG_INFO(\"HP=%.1f\", v);              // 値が変わるたび呼ばれる\n}, nullptr);\nhp.Set(75.0f);                              // → 通知発火\nhp.Unsubscribe(h);                          // 監視解除",
+    "members": [
+      {
+        "sig": "explicit TObservable(T initial)",
+        "desc": "初期値を与えて作る。 引数なしなら T{} から開始。"
+      },
+      {
+        "sig": "const T& Get() const",
+        "ret": "現在値",
+        "desc": "今の値を読む。 operator const T&() で暗黙変換もできる。"
+      },
+      {
+        "sig": "void Set(const T& v) / Set(T&& v)",
+        "desc": "値を変更する。 前と違う値の時だけ(operator== で判定)購読者へ通知する。",
+        "when": "値を更新して UI に反映させたい時。 毎フレーム同値を入れても無駄な通知は飛ばない。"
+      },
+      {
+        "sig": "void ForceNotify()",
+        "desc": "値が同じでも強制的に通知する。 中のコンテナを直接書き換えた後などに使う。"
+      },
+      {
+        "sig": "FObservableHandle Subscribe(Listener cb, void* user)",
+        "ret": "購読ハンドル",
+        "desc": "値変更時に呼ばれるコールバックを登録する。 cb は void(const T&, void*) の関数ポインタ(捕獲なしラムダ可)。 callback が所有 object ごとこの TObservable を同期破棄した場合は、その callback 復帰後に通知を終了し、後続 listener は呼ばない。 破棄は callback の最後に行い、破棄後は new_value、user、owner を再参照せず直ちに return する。",
+        "sample": "auto h = hp.Subscribe(&OnHpChanged, this);"
+      },
+      {
+        "sig": "bool Unsubscribe(FObservableHandle h)",
+        "ret": "解除できたか",
+        "desc": "登録した監視を外す。 通知の最中でも安全(遅延キャンセルされる)。"
+      },
+      {
+        "sig": "u32 SubscriberCount() const",
+        "ret": "購読者数",
+        "desc": "今アクティブな購読者の数。 主にデバッグ用。"
+      }
+    ]
+  }
+}

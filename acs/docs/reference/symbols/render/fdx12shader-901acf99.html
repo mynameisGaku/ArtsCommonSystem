@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="D3DCompile で HLSL をコンパイルして保持する DX12 版シェーダ。 Init で desc.hlsl_source を D3DCompile に通し、結果のバイトコード ID3DBlob を 単独所有する。 target 未指定時は stage から vs_5_1 / ps_5_1 / cs_5_1 を自動選択する。 Bytecode / BytecodeSize で blob の中身を返し、パイプライン作成時にバックエンドが 内部参照する。 IRhiShader を実装する final クラス。">
+  <title>acs::FDx12Shader — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render.html">render モジュール</a><a href="fdx12shader-901acf99.html" aria-current="page">FDx12Shader</a><a class="tree-child" href="fdx12shader-901acf99/bytecode-3c791fc4.html">Bytecode</a><a class="tree-child" href="fdx12shader-901acf99/bytecodesize-9ef98df3.html">BytecodeSize</a><a class="tree-child" href="fdx12shader-901acf99/fdx12shader-c3d17386.html">FDx12Shader</a><a class="tree-child" href="fdx12shader-901acf99/init-192c567e.html">Init</a><a class="tree-child" href="fdx12shader-901acf99/m-blob-1fed5f7c.html">m_Blob</a><a class="tree-child" href="fdx12shader-901acf99/m-stage-b074b4d4.html">m_Stage</a><a class="tree-child" href="fdx12shader-901acf99/reset-14547adf.html">Reset</a><a class="tree-child" href="fdx12shader-901acf99/stage-e999876a.html">Stage</a><a class="tree-child" href="fdx12shader-901acf99/fdx12shader-c1105d76.html">~FDx12Shader</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render.html">render</a><span>/</span><span aria-current="page">FDx12Shader</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / render</div>
+<h1 class="identifier">acs::FDx12Shader</h1>
+<p class="lead">D3DCompile で <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20075">HLSL</button><span class="term-tooltip" id="term-tip-20075" role="tooltip">DirectX 系のシェーダ言語(High-Level Shading Language)。</span></span> をコンパイルして保持する <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20076">DX12</button><span class="term-tooltip" id="term-tip-20076" role="tooltip">Direct3D 12。 Windows の低レベル GPU API。 ACS の Dx12* 系がネイティブ実装。</span></span> 版<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20077">シェーダ</button><span class="term-tooltip" id="term-tip-20077" role="tooltip">GPU 上で頂点やピクセルを計算する小さなプログラム。 ACS では HLSL で書く。</span></span>。 Init で desc.hlsl_source を D3DCompile に通し、結果の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20078">バイトコード</button><span class="term-tooltip" id="term-tip-20078" role="tooltip">HLSL をコンパイルした GPU 向け中間表現(DXBC 等)。 パイプライン作成時に GPU へ渡す。</span></span> ID3DBlob を 単独所有する。 target 未指定時は stage から vs_5_1 / ps_5_1 / cs_5_1 を自動選択する。 Bytecode / BytecodeSize で blob の中身を返し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20079">パイプライン</button><span class="term-tooltip" id="term-tip-20079" role="tooltip">1 回の描画方式(VS+PS・頂点レイアウト・ブレンド・深度等)を丸ごと固めたオブジェクト。 PSO とも。</span></span>作成時に<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-20080">バックエンド</button><span class="term-tooltip" id="term-tip-20080" role="tooltip">抽象的な機能呼び出しを、実際のライブラリや OS API につなぐ実装側のこと。 差し替え可能。</span></span>が 内部参照する。 IRhiShader を実装する final クラス。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FDx12Shaderの宣言"><code>class <a href="fdx12shader-901acf99.html" aria-current="page">FDx12Shader</a> final : public <a href="irhishader-e79f0153.html">IRhiShader</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/render/Dx12/Dx12Shader.h:22</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fdx12shader-901acf99/bytecode-3c791fc4.html"><span><span class="identifier">const byte* Bytecode() const noexcept override;</span><span class="summary">コンパイル済みバイトコードの先頭ポインタを返す。 戻り値: バイトコード先頭へのポインタ (未コンパイルなら nullptr)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/bytecodesize-9ef98df3.html"><span><span class="identifier">usize BytecodeSize() const noexcept override;</span><span class="summary">コンパイル済みバイトコードのバイト数を返す。 戻り値: バイトコードのサイズ (バイト、未コンパイルなら 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/fdx12shader-c3d17386.html"><span><span class="identifier">FDx12Shader() noexcept = default;</span><span class="summary">空状態で構築する (blob は Init でコンパイルして確保)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/init-192c567e.html"><span><span class="identifier">FHrResult Init(const FShaderDesc&amp; desc) noexcept;</span><span class="summary">HLSL ソースをコンパイルしてバイトコードを確保する。 desc.target が null なら desc.stage から vs_5_1 / ps_5_1 / cs_5_1 を自動選択する。 デバッグビルドでは最適化なし + デバッグ情報付き、リリースでは最適化レベル3 で コンパイルする。 hlsl_source が null なら E_INVALIDARG、コンパイル失敗時は エラーメッセージをログ出力する。 desc: コンパイル対象の HLSL ソース・エントリポイント等の生成パラメータ。 戻り値: 成功なら正常な FHrResult、失敗なら HRESULT を含むエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/m-blob-1fed5f7c.html"><span><span class="identifier">ID3DBlob* m_Blob = nullptr;</span><span class="summary">コンパイル済みバイトコードを保持する blob (単独所有)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fdx12shader-901acf99/m-stage-b074b4d4.html"><span><span class="identifier">EShaderStage m_Stage = EShaderStage::Vertex;</span><span class="summary">このシェーダのステージ種別。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fdx12shader-901acf99/reset-14547adf.html"><span><span class="identifier">void Reset() noexcept;</span><span class="summary">コンパイル済み blob を解放し、空状態へ戻す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/stage-e999876a.html"><span><span class="identifier">EShaderStage Stage() const noexcept override;</span><span class="summary">このシェーダのステージ種別を返す。 戻り値: Init で確定したシェーダステージ。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fdx12shader-901acf99/fdx12shader-c1105d76.html"><span><span class="identifier">~FDx12Shader() noexcept override;</span><span class="summary">保持しているバイトコード blob を解放する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

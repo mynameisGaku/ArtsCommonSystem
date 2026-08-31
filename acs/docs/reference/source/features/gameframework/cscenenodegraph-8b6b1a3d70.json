@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CSceneNodeGraph",
+    "kind": "クラス",
+    "header": "gameframework/SceneNodeGraph.h",
+    "summary": "scene文脈から独立してroot node treeと世代付きpoolを所有し、構造更新、検索、3D bounds queryを提供するgraph。",
+    "when": "scene、checked loader、editor stagingで同じnode graph操作を使う時。",
+    "members": [
+      {
+        "sig": "FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const",
+        "desc": "world rayと最初に交わるmesh nodeを返す通常pick。"
+      },
+      {
+        "sig": "FNodeId RaycastActiveRange(const FRay3& ray, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const",
+        "desc": "有効かつ可視なsubtreeだけを有限t区間で検索する。"
+      },
+      {
+        "sig": "FNodeId SweepSphereActiveRange(const FRay3& center_ray, f32 radius, f32 minimum_t, f32 maximum_t, f32* out_t = nullptr) const",
+        "desc": "world球半径でmesh boundsを安全側へ拡張し、camera本体を含む最初の接触を返す。"
+      }
+    ]
+  }
+}

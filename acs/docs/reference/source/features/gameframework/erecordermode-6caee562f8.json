@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "ERecorderMode",
+    "kind": "列挙(enum)",
+    "header": "gameframework/InputRecorder.h",
+    "summary": "CInputRecorder の動作モード。 Idle (何もしない) / Recording (録画) / Replaying (再生) の 3 値。",
+    "when": "CurrentMode() で現在の状態を判定する時。"
+  }
+}

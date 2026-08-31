@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSaveArchive",
+    "kind": "クラス (static のみ)",
+    "header": "gameframework/SaveArchive.h",
+    "summary": "低レベルなセーブファイル I/O。 任意の POD バイト列を .acssave 形式 (24 バイトヘッダ + payload + CRC32) で読み書きする。 TSaveSlot の土台。",
+    "when": "可変長データを扱いたい、テンプレートを介さず生バイトを保存したい時。 普通は TSaveSlot を使えば十分。",
+    "sample": "auto wr = CSaveArchive::WriteToFile(L\"profile.acssave\", 1u, &p, sizeof(p));\nif (wr.IsErr()) { /* 報告 */ }\nu64 actual = 0;\nFSaveArchive::ReadFromFile(L\"profile.acssave\", &p, sizeof(p), 1u, actual);",
+    "members": [
+      {
+        "sig": "static TResult<void> WriteToFile(const wchar_t* path, u32 version, const void* payload, u64 size)",
+        "desc": "payload を 1 ファイルに書き出す。 先頭に magic とヘッダ、末尾に CRC32 を付ける。"
+      },
+      {
+        "sig": "static TResult<u32> ReadFromFile(const wchar_t* path, void* out, u64 cap, u32 expected_version, u64& out_size)",
+        "ret": "実 version",
+        "desc": "検証して payload を読み込む。 version 不一致なら kSubMigrationNeeded を返す。"
+      },
+      {
+        "sig": "static TResult<u32> PeekVersion(const wchar_t* path)",
+        "ret": "version",
+        "desc": "ヘッダだけ読んで version を返す。",
+        "when": "『セーブデータが古い』表示を出す事前判定に。"
+      },
+      {
+        "sig": "static TResult<u64> PeekPayloadSize(const wchar_t* path)",
+        "ret": "payload バイト数",
+        "desc": "読み込み前にバッファサイズを知りたい時。"
+      },
+      {
+        "sig": "static constexpr usize kHeaderSize = 24",
+        "desc": "固定ヘッダのバイト数。"
+      },
+      {
+        "sig": "using FSaveArchive = CSaveArchive",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSaveArchive を使う。"
+      }
+    ]
+  }
+}

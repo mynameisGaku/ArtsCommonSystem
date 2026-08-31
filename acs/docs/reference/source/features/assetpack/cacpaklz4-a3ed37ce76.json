@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "CAcpakLz4",
+    "kind": "クラス(static 関数群)",
+    "header": "assetpack/AcpakLz4.h",
+    "summary": ".acpak の各ファイルを圧縮/解凍する自前 LZ4 実装(外部依存ゼロ)。 LZ4 は「速い・そこそこ縮む」高速圧縮形式。 インスタンス化はせず静的関数を使う。",
+    "when": "通常は Writer/Reader が内部で使う。 任意のバイト列を手早く圧縮/解凍したい時に直接呼んでもよい。",
+    "sample": "u32 cap = CAcpakLz4::MaxCompressedSize(srcLen);\nu8* dst = MyAlloc(cap);\nauto n = CAcpakLz4::Compress(src, srcLen, dst, cap);\n// n.Value() = 圧縮後の実バイト数",
+    "members": [
+      {
+        "sig": "u32 MaxCompressedSize(u32 input_size)",
+        "ret": "最悪ケースの出力サイズ",
+        "desc": "入力サイズから「これ以下に必ず収まる」圧縮後サイズを返す。 圧縮できないデータでもこの範囲。 出力バッファ確保に使う。",
+        "when": "Compress に渡す出力バッファのサイズを決める時。"
+      },
+      {
+        "sig": "TResult<u32> Compress(const u8* src, u32 src_size, u8* dst, u32 dst_capacity)",
+        "ret": "圧縮後バイト数",
+        "desc": "src を dst へ圧縮する。 dst_capacity は MaxCompressedSize 以上推奨。 13 バイト未満は素通し。"
+      },
+      {
+        "sig": "TResult<u32> Decompress(const u8* src, u32 src_size, u8* dst, u32 dst_capacity)",
+        "ret": "解凍後バイト数",
+        "desc": "圧縮データを dst へ解凍する。 dst_capacity は元サイズ以上必要。 不正な入力でも境界検査で安全に弾く。"
+      },
+      {
+        "sig": "using FAcpakLz4 = CAcpakLz4",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAcpakLz4 を使う。"
+      }
+    ]
+  }
+}

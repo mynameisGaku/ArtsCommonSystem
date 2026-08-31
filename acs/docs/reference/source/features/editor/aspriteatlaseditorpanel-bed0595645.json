@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ASpriteAtlasEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/spriteatlas/SpriteAtlasEditorPanel.h",
+    "summary": "FSpritePack の atlas texture path + 名前付き FSpriteFrame 列を ImGui で対話編集する エディタパネル。 toolbar (New Frame / Delete / Pivot 切替) + viewport (atlas placeholder + 矩形 overlay + 8 handle resize) + frame list + inspector の構成。 FSpritePack は 非所有 (caller 所有)。 新規 frame 名は内部静的プールに書き込む。 非コピー・非ムーブ・全 noexcept。",
+    "when": "sprite atlas の frame 矩形と pivot を編集したい時。 SetSpritePack(&pack) で注入する。",
+    "sample": "namespace sa = acs::game::spriteatlas;\nsa::ASpriteAtlasEditorPanel panel;\npanel.Init();\nacs::game::FSpritePack pack;  // 別途 Init 済とする\npanel.SetSpritePack(&pack);\nworkspace.RegisterPanel(&panel);\npanel.AddFrame();\npanel.SetPivotPreset(sa::EPivotPreset::Center);\nworkspace.UnregisterPanel(&panel);\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "FSpritePack 参照を nullptr、selection 解除、zoom=1.0、pivot=Center に。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "frame name pool / selection / FSpritePack* をクリア。 OnShutdown とは別の panel 単体 reset API。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetSpritePack(acs::game::FSpritePack* pack) noexcept",
+        "ret": "—",
+        "desc": "編集対象 FSpritePack を注入 (raw / 非所有)。 nullptr で「未接続」状態 (UI が gracefully 退化)。 selection は 0 にリセット。",
+        "when": "編集対象注入時。"
+      },
+      {
+        "sig": "acs::game::FSpritePack* CurrentPack() const noexcept",
+        "ret": "pack または nullptr",
+        "desc": "現在注入されている FSpritePack。 未注入は nullptr。"
+      },
+      {
+        "sig": "i32 SelectedFrameIndex() const noexcept",
+        "ret": "index または -1",
+        "desc": "現在の選択 frame index。 未選択は -1。"
+      },
+      {
+        "sig": "void SelectFrame(i32 idx) noexcept",
+        "ret": "—",
+        "desc": "frame を選択。 範囲外 (<0 or >=FrameCount) は -1 に正規化。"
+      },
+      {
+        "sig": "void AddFrame() noexcept",
+        "ret": "—",
+        "desc": "新規 frame を default 64x64 (原点 0,0) で追加。 名前は内部プールに \"Frame_NN\" で書く。 selection を新規へ。 pack 未注入 / 上限到達は no-op。",
+        "when": "追加時。"
+      },
+      {
+        "sig": "void DeleteSelectedFrame() noexcept",
+        "ret": "—",
+        "desc": "選択中 frame を FSpritePack から削除。 selection を前 index に詰め、FSpritePack::AllFrames を再走査して index 整合を取り直す。 未選択 / 範囲外 / pack 未注入は no-op。"
+      },
+      {
+        "sig": "f32 ZoomLevel() const noexcept / void SetZoomLevel(f32 z) noexcept",
+        "ret": "倍率",
+        "desc": "atlas placeholder 表示の倍率 (1.0 = 等倍)。 setter は [kMinZoom, kMaxZoom] にクランプ。"
+      },
+      {
+        "sig": "EPivotPreset PivotPreset() const noexcept / void SetPivotPreset(EPivotPreset p) noexcept",
+        "ret": "preset",
+        "desc": "Pivot toggle の取得 / 設定。 Custom 以外を選ぶと selected frame に pivot 値が流し込まれる。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Sprite Atlas Editor\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void OnInit(editor_core::CEditorWorkspace& workspace) noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: workspace 登録時。 基底実装 + frame name pool の終端 0 確認。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: toolbar / list / viewport / inspector を描画。 IsVisible() が false なら早期 return。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxOwnedFrames = 64u",
+        "desc": "panel 内で命名する default frame name の最大個数。 超えると AddFrame は no-op。"
+      },
+      {
+        "sig": "static constexpr u32 kFrameNameMaxChars = 32u",
+        "desc": "1 frame name の最大文字数 (内部プール 1 slot)。"
+      },
+      {
+        "sig": "static constexpr f32 kMinZoom = 0.25f",
+        "desc": "Zoom 下限 (1/4 縮小)。"
+      },
+      {
+        "sig": "static constexpr f32 kMaxZoom = 8.0f",
+        "desc": "Zoom 上限 (8x 拡大)。"
+      },
+      {
+        "sig": "static constexpr u32 kDefaultFrameW = 64u",
+        "desc": "AddFrame で作る default frame の幅 (px)。"
+      },
+      {
+        "sig": "static constexpr u32 kDefaultFrameH = 64u",
+        "desc": "AddFrame で作る default frame の高さ (px)。"
+      },
+      {
+        "sig": "using FSpriteAtlasEditorPanel = ASpriteAtlasEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ASpriteAtlasEditorPanel を使う。"
+      }
+    ]
+  }
+}

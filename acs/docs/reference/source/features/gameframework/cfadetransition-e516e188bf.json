@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CFadeTransition",
+    "kind": "クラス",
+    "header": "gameframework/FadeTransition.h",
+    "summary": "シーン切替時のフェード演出を司るstate holder。 描画はせず、現在の overlay の alpha・色・フェーズだけを返す。 フルスクリーン矩形をその色・alpha で塗れば、フェードイン / アウト / 暗転切替 / 軽いクロスフェードが成立する。",
+    "when": "シーン切替の暗転や、タイトル画面の明け演出を入れたい時。",
+    "sample": "CFadeTransition fade;\n// 暗黒から明けるフェードイン\nfade.StartFade(EFadeKind::FadeIn, 0.0f, 0.5f);\n// 毎フレーム:\nfade.Tick(dt);\nif (fade.IsMidPause()) Manager().ChangeScene<AGameplayScene>();  // 暗転中に切替\n// 描画:\nif (fade.IsActive()) {\n    FVec3 c = fade.OverlayColor(); f32 a = fade.OverlayAlpha();\n    batch.FillFullScreen(c.x, c.y, c.z, a);\n}",
+    "members": [
+      {
+        "sig": "void StartFade(EFadeKind kind, f32 out_duration = 0.3f, f32 in_duration = 0.3f, f32 mid_pause = 0.0f)",
+        "desc": "フェードを開始。 種別と各区間の秒数を指定する。"
+      },
+      {
+        "sig": "bool IsActive() / bool IsMidPause()",
+        "desc": "演出中か / 暗転待機中か。 MidPause はシーン切替の想定タイミング (mid_pause=0 でも必ず 1 Tick は true)。"
+      },
+      {
+        "sig": "f32 OverlayAlpha() / FVec3 OverlayColor()",
+        "desc": "描画側が塗る overlay の不透明度 [0,1] と色 (既定は黒)。"
+      },
+      {
+        "sig": "void SetOverlayColor(FVec3 c)",
+        "desc": "overlay の色を変える (白フラッシュにするなど)。"
+      },
+      {
+        "sig": "EFadePhase CurrentPhase() / EFadeKind CurrentKind()",
+        "desc": "現在のフェーズと種別。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "フェード進行を進める driver。"
+      },
+      {
+        "sig": "void Cancel()",
+        "desc": "直ちに Idle に戻す (alpha=0)。 途中キャンセル用。"
+      },
+      {
+        "sig": "using FFadeTransition = CFadeTransition",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CFadeTransition を使う。"
+      }
+    ]
+  }
+}

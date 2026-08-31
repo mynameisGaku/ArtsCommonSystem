@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AEditorPanel",
+  "definition": "ACS の editor_core が提供するエディタパネルの抽象基底クラス。 Title / DrawUI / OnInit などを override し、CEditorWorkspace に登録して使う。"
+}

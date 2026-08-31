@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "IInputFrameSource",
+    "kind": "インターフェース",
+    "header": "gameframework/InputFrameSource.h",
+    "summary": "描画frameごとの所有snapshotをCGameへ供給する非所有の差し替え境界。",
+    "when": "Player以外のAI入力やheadless test入力を固定更新まで蓄積したい時。"
+  }
+}

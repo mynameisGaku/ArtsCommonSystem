@@ -1,0 +1,66 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CBuffSystem",
+    "kind": "クラス",
+    "header": "gameframework/BuffSystem.h",
+    "summary": "状態異常・バフ・デバフの管理マネージャ。 複数の owner (キャラ) に時間制限付きの効果を載せ、毎フレーム進行させて tick (毒ダメージ等) / 期限切れを通知する。 実際のステータス計算は呼出側が AllBuffsOfOwner() で列挙して行う。",
+    "when": "RPG/アクション/ローグライクで「攻撃力アップ」「毒」「シールド」などの効果を一元管理したい時。",
+    "sample": "CBuffSystem bs;\nbs.RegisterBuff({ \"poison.snake\", EBuffKind::Poison, 8.0f, 1.0f, 5.0f,\n                 EBuffStackPolicy::Stack, 5, true });\nFBuffOwnerId player = bs.CreateOwner();\nbs.SetOnTickCallback(&OnBuffTick, &ctx);\nbs.ApplyBuff(player, \"poison.snake\");\n// 毎フレーム:\nbs.Tick(dt);",
+    "members": [
+      {
+        "sig": "void RegisterBuff(const FBuffDef& def)",
+        "desc": "バフ定義を登録する (起動時に一括)。 同 id の 2 重登録は無視。"
+      },
+      {
+        "sig": "FBuffOwnerId CreateOwner()",
+        "ret": "owner ハンドル",
+        "desc": "効果を載せる対象 (キャラ) を発行する。 空き slot を再利用する世代付きハンドル。"
+      },
+      {
+        "sig": "void DestroyOwner(FBuffOwnerId owner)",
+        "desc": "owner を破棄して全 buff をクリアする (ExpireCallback は発火しない)。"
+      },
+      {
+        "sig": "bool ApplyBuff(FBuffOwnerId owner, const char* buff_id)",
+        "ret": "適用できたか",
+        "desc": "owner にバフを適用する。 既存への挙動は定義の StackPolicy (Refresh/Stack/Ignore) に従う。"
+      },
+      {
+        "sig": "bool RemoveBuff(FBuffOwnerId owner, const char* buff_id)",
+        "desc": "owner から指定バフを完全に外す (ExpireCallback を 1 回発火)。"
+      },
+      {
+        "sig": "bool HasBuff(...) const / u32 GetStack(...) const / f32 GetRemaining(...) const",
+        "desc": "バフの有無 / 重ねがけ数 / 残り秒を問い合わせる。"
+      },
+      {
+        "sig": "const FBuffInstance* AllBuffsOfOwner(FBuffOwnerId owner, u32& out_count) const",
+        "ret": "buff の配列",
+        "desc": "owner の全バフを生バッファで返す。 毎フレーム列挙して効果倍率を計算する用途。",
+        "when": "AttackUp などの倍率を反映したい時、毎フレーム読む。"
+      },
+      {
+        "sig": "void SetOnTickCallback(TickCallback cb, void* user) / void SetOnExpireCallback(ExpireCallback cb, void* user)",
+        "desc": "tick (周期効果) / 期限切れ時に呼ぶコールバックを登録する。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "全 owner の全バフを dt 進める。 周期 tick 発火 + 期限切れ除去をまとめて行う。 dt<=0 は no-op。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全 owner・全 buff・registry・コールバックを破棄する。"
+      },
+      {
+        "sig": "using FBuffSystem = CBuffSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBuffSystem を使う。"
+      }
+    ]
+  }
+}

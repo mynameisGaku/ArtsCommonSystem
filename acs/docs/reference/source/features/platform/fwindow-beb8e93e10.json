@@ -1,0 +1,69 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FWindow",
+    "kind": "クラス",
+    "header": "platform/Window.h",
+    "summary": "OS のウィンドウそのもの。 タイトルバー付きの四角い領域を開き、× ボタンや入力などのイベントを受け取る。 ゲームの一番外側のループはこれを中心に回す。",
+    "when": "ゲームを起動して最初に作るもの。 1 つ作って、閉じる要求が来るまでメインループを回し続ける。",
+    "sample": "FWindowConfig cfg;\ncfg.title = L\"MyGame\"; cfg.width = 1280; cfg.height = 720;\nauto wr = FWindow::Create(cfg);\nif (wr.IsErr()) return -1;\nFWindow& w = wr.Value();\nwhile (!w.ShouldClose()) {\n    w.PollEvents();   // OS メッセージを処理\n    // ...ゲーム処理...\n}",
+    "members": [
+      {
+        "sig": "static TResult<FWindow> Create(const FWindowConfig& cfg)",
+        "ret": "ウィンドウ または エラー",
+        "desc": "設定どおりにウィンドウを生成する。 失敗すると Err を返す（Result なので必ず成否を確認する）。",
+        "when": "起動時に 1 回。"
+      },
+      {
+        "sig": "void PollEvents()",
+        "desc": "OS にたまったイベント（入力・サイズ変更・閉じる要求など）を取り出して処理する。 毎フレーム必ず呼ぶ。 呼ばないとウィンドウが固まる。"
+      },
+      {
+        "sig": "bool ShouldClose() const",
+        "ret": "閉じる要求が来たか",
+        "desc": "× ボタンなどで閉じる要求が出たら true。 メインループの継続条件に使う。"
+      },
+      {
+        "sig": "void Close()",
+        "desc": "ゲームのコード側から「閉じたい」と要求する（次の ShouldClose() が true になる）。",
+        "when": "「ゲーム終了」メニューを押した時など。"
+      },
+      {
+        "sig": "u32 Width() const / u32 Height() const",
+        "ret": "中身の幅・高さ",
+        "desc": "描画できる領域（クライアント領域）のピクセルサイズ。"
+      },
+      {
+        "sig": "void* NativeHandle() const",
+        "ret": "HWND",
+        "desc": "Windows の生のウィンドウハンドル（HWND）。 スワップチェーン作成など描画モジュールに渡す。",
+        "when": "Render モジュールに描画先を教える時。"
+      },
+      {
+        "sig": "void SetEventCallback(EventCallback cb, void* user)",
+        "desc": "イベントが起きた時に呼ぶ関数を登録する。 user はそのままコールバックに渡される任意のポインタ。",
+        "when": "CInput にイベントを橋渡しする時など。",
+        "sample": "w.SetEventCallback([](void* u, const FEvent& e){ CInput::OnEvent(e); }, nullptr);"
+      },
+      {
+        "sig": "void SetTitle(const wchar_t* title)",
+        "desc": "タイトルバーの文字を変える。",
+        "when": "FPS や状態をタイトルに出したい時。"
+      },
+      {
+        "sig": "void SetFullscreen(bool on)",
+        "desc": "ボーダーレス全画面の ON/OFF。 元のウィンドウ位置・サイズを覚えていて、OFF にすると元に戻る。"
+      },
+      {
+        "sig": "bool IsFullscreen() const",
+        "ret": "全画面中か",
+        "desc": "今が全画面なら true。"
+      }
+    ]
+  }
+}

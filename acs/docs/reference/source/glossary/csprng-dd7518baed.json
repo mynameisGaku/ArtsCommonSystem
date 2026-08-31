@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSPRNG",
+  "definition": "暗号に使える品質の乱数生成器(Cryptographically Secure PRNG)。 nonce 生成などに使う。"
+}

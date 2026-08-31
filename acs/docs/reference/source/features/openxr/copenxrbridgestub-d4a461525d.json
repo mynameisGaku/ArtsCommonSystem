@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "COpenXrBridgeStub",
+    "kind": "クラス",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "「常に未初期化/原点ポーズ/パススルー非対応」を返す stub 実装。 実 backend をリンクしていない状態でも、上位がフォールバック(2D 描画)を書けるようにする placeholder。",
+    "when": "HMD が無い開発機/CI での既定。 直接 new せず GetXrStub() で得る。",
+    "sample": "auto& xr = acs::game::GetXrStub();\nauto r = xr.Init();   // 常に NotImplemented で失敗\n// → IsTracking() も false なので 2D 経路へ",
+    "members": [
+      {
+        "sig": "TResult<void> Init(EXrPlatform = Unknown)",
+        "desc": "常に NotImplemented を返す(副作用なし)。"
+      },
+      {
+        "sig": "FXrPose HeadPose() const",
+        "desc": "常にゼロポーズ。"
+      },
+      {
+        "sig": "bool IsPassthroughSupported() const",
+        "desc": "常に false。 SetPassthrough() は no-op。"
+      },
+      {
+        "sig": "using FOpenXrBridgeStub = COpenXrBridgeStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは COpenXrBridgeStub を使う。"
+      }
+    ]
+  }
+}

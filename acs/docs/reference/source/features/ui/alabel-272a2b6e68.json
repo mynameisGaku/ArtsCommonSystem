@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "ALabel",
+    "kind": "クラス",
+    "header": "ui/Widgets.h",
+    "summary": "静的テキストを表示するだけのウィジェット。 文字列は TObservable なので、データを Bind すれば自動で表示が更新される。",
+    "when": "見出し・説明・スコア表示など、押せない文字を出したい時。",
+    "sample": "ALabel* l = root.Add<ALabel>(\"HP\");\nl->text.Set(FString{\"HP: 100\"});  // 文字を変える\n// vm.score と Bind すれば自動更新も可",
+    "members": [
+      {
+        "sig": "TObservable<FString> text",
+        "desc": "表示する文字列。 Set で変更、Bind でViewModelと同期できる。"
+      },
+      {
+        "sig": "using FLabel = ALabel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ALabel を使う。"
+      }
+    ]
+  }
+}

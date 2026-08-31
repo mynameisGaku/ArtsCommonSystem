@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CDialogueLocalizer",
+    "kind": "クラス",
+    "header": "gameframework/DialogueLocalizer.h",
+    "summary": "会話とローカライズ (多言語化) を疎結合で繋ぐ橋渡し。 本文を持たず「行 → 翻訳キー」だけを保持し、現在のロケールで翻訳を解決してコールバックに渡す。 発話者名も翻訳キー扱い。",
+    "when": "同じシナリオ行を言語ごとに別文字列で出したい時。 CLocalizationDirector (翻訳辞書) と CDialogueSystem を直結せず繋ぎたい時。",
+    "sample": "CDialogueLocalizer dl;\ndl.RegisterLine({ \"char.alice\", \"scene1.line0\", 30.0f });\ndl.SetLocalizer(&loc);   // 翻訳辞書を差し込む\ndl.StartFromLine(0, [](void*, const char* sp, const char* tx, f32 cps) noexcept {\n    // sp=\"アリス\", tx=\"こんにちは\" のように現ロケールで解決される\n}, nullptr);",
+    "members": [
+      {
+        "sig": "void RegisterLine(const FLocalizedDialogueLine& line)",
+        "desc": "行を末尾に追加 (0,1,2... と index が振られる)。 本文ではなく翻訳キーを登録する。"
+      },
+      {
+        "sig": "void RegisterChoice(u32 at_line_index, const FLocalizedDialogueChoice* choices, u32 count)",
+        "desc": "指定行に紐づく選択肢群を登録。 同じ行に複数回は無視。"
+      },
+      {
+        "sig": "void SetLocalizer(CLocalizationDirector* loc)",
+        "desc": "翻訳ソースを差し込む。 nullptr で切り離し (以降はキー文字列がそのまま返る)。 所有しない。"
+      },
+      {
+        "sig": "void StartFromLine(u32 line_index, BindCallback cb, void* user)",
+        "desc": "指定行の発話者と本文を現ロケールで解決し cb を発火。 未翻訳時もキー自身が返るので空欄事故は起きない。"
+      },
+      {
+        "sig": "u32 LineCount()",
+        "ret": "登録行数",
+        "desc": "登録済みの行数。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全行・全選択肢を破棄 (Localizer 参照は保持)。"
+      },
+      {
+        "sig": "using FDialogueLocalizer = CDialogueLocalizer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDialogueLocalizer を使う。"
+      }
+    ]
+  }
+}

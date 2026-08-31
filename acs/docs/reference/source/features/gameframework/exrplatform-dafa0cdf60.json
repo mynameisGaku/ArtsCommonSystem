@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "EXrPlatform",
+    "kind": "列挙(enum)",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "想定する XR backend プラットフォームの種別。 Unknown / MetaQuest / ValveIndex / HtcVive / PicoNeo / AppleVisionPro / PsVr2 / WindowsMR / SteamLink。",
+    "when": "IOpenXrBridge::Init() に「この HMD を使う」と明示したい時。 Unknown を渡すと backend が自動検出する。",
+    "sample": "xr.Init(EXrPlatform::MetaQuest);"
+  }
+}

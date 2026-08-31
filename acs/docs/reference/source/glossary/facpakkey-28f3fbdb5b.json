@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAcpakKey",
+  "definition": "acpak の暗号化/復号に使う 256bit(32 バイト)の鍵。"
+}

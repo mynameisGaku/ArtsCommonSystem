@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="簡略化済み輪郭ポリゴンの頂点 (OutlineCount 個有効)。">
+  <title>acs::CSpriteCollider::m_Outline — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/collision.html">collision モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/collision.html">collision モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/collision.html">collision モジュール</a><a href="../cspritecollider-438fc226.html">CSpriteCollider の概要</a><a class="tree-child" href="bounds-1c3fe35c.html">Bounds</a><a class="tree-child" href="buildfromalpha-aca106c1.html">BuildFromAlpha</a><a class="tree-child" href="clear-c38812c3.html">Clear</a><a class="tree-child" href="containspoint-1187320f.html">ContainsPoint</a><a class="tree-child" href="cspritecollider-3955971b.html">CSpriteCollider</a><a class="tree-child" href="cspritecollider-f01fd5e6.html">CSpriteCollider</a><a class="tree-child" href="hull-0fa47326.html">Hull</a><a class="tree-child" href="hullcount-5aa1a2ea.html">HullCount</a><a class="tree-child" href="hullpolygon-e0fadfd2.html">HullPolygon</a><a class="tree-child" href="kmaxvertices-4c6858d6.html">kMaxVertices</a><a class="tree-child" href="m-bounds-c93bd6d2.html">m_Bounds</a><a class="tree-child" href="m-hull-402e508d.html">m_Hull</a><a class="tree-child" href="m-hullcount-6cb5e05b.html">m_HullCount</a><a class="tree-child" href="m-outline-bb802d51.html" aria-current="page">m_Outline</a><a class="tree-child" href="m-outlinecount-729d4750.html">m_OutlineCount</a><a class="tree-child" href="operator-aa5571fc.html">operator=</a><a class="tree-child" href="outline-3e54126e.html">Outline</a><a class="tree-child" href="outlinecount-2f1d6da3.html">OutlineCount</a><a class="tree-child" href="cspritecollider-7c8a771f.html">~CSpriteCollider</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/collision.html">collision</a><span>/</span><a href="../cspritecollider-438fc226.html">CSpriteCollider</a><span>/</span><span aria-current="page">m_Outline</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / collision</div>
+<h1 class="identifier">acs::CSpriteCollider::m_Outline</h1>
+<p class="lead">簡略化済み<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1213">輪郭</button><span class="term-tooltip" id="term-tip-1213" role="tooltip">形の縁(ふち)をなぞった線。 凸包と違いへこみ(凹み)にも沿う。</span></span>ポリゴンの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-1214">頂点</button><span class="term-tooltip" id="term-tip-1214" role="tooltip">メッシュを構成する点。 位置・法線・UV などの属性を持つ。</span></span> (OutlineCount 個有効)。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CSpriteCollider::m_Outlineの宣言"><code>FVec2 <a href="m-outline-bb802d51.html" aria-current="page">m_Outline</a>[<a href="kmaxvertices-4c6858d6.html">kMaxVertices</a>]{};</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/collision.html">collision</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cspritecollider-438fc226.html"><code>acs::CSpriteCollider</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/collision/SpriteCollider.h:118</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSkinnedVertex",
+  "definition": "ボーン番号とウェイトを持つスキンメッシュの頂点(64 バイト)。"
+}

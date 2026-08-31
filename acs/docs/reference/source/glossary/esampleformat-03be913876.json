@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ESampleFormat",
+  "definition": "音声サンプルの形式(16-bit 整数 / 32-bit float)を表す列挙。"
+}

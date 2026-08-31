@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FDialogueChoice",
+    "kind": "構造体",
+    "header": "gameframework/DialogueSystem.h",
+    "summary": "分岐選択肢 1 つ。 表示テキストとジャンプ先行 index を持つ。 next_line_index が行数以上なら「会話終了」を表す。",
+    "when": "CDialogueSystem::AddChoices に渡す選択肢配列を作る時。",
+    "sample": "FDialogueChoice ch[2];\nch[0] = { \"はい\", 5 };   // 行 5 へジャンプ\nch[1] = { \"いいえ\", 0xFFFFFFFFu }; // 範囲外 = 会話終了\ndlg.AddChoices(/*at_line=*/4, ch, 2);"
+  }
+}

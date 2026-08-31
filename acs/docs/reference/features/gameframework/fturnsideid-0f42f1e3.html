@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ターンの陣営(side)を識別する 32bit のハンドル(24bit index + 8bit世代)。 除外→再追加でスロットが再利用されても、古い ID を無効と検出できます。">
+  <title>FTurnSideId — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FTurnSideId</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FTurnSideId</h1>
+<p class="lead">ターンの陣営(side)を識別する 32bit の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26564">ハンドル</button><span class="term-tooltip" id="term-tip-26564" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>(24bit index + 8bit<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26565">世代</button><span class="term-tooltip" id="term-tip-26565" role="tooltip">再利用される番号(ID)に付ける通し番号。 古いハンドルと新しい中身を取り違えないための目印。</span></span>)。 除外→再追加でスロットが再利用されても、古い ID を無効と検出できます。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fturnsideid-0ae3e16b.html"><code>acs::game::FTurnSideId</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26559">CTurnManager</button><span class="term-tooltip" id="term-tip-26559" role="tooltip">ターン制ゲームの進行を管理する部品。 複数の陣営を行動順で並べ、各陣営が AP(行動ポイント)予算で行動する。</span></span> の各 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26560">API</button><span class="term-tooltip" id="term-tip-26560" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> で陣営を指す時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/TurnManager.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-03e561c34aa5b333c869"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/gameframework/fturnsideid-0ae3e16b/isvalid-952fbcae.html">IsValid</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>有効な ID なら true(packed != 0)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fturnsideid-0ae3e16b/isvalid-952fbcae.html"><code>acs::game::FTurnSideId::IsValid</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-e9ab2aafe3ebdd6e596f"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u32 <a href="../../symbols/gameframework/fturnsideid-0ae3e16b/index-6d1bd7df.html">Index</a>() const / u8 <a href="../../symbols/gameframework/fturnsideid-0ae3e16b/gen-d24dc6ed.html">Gen</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>index 部 / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26561">世代</button><span class="term-tooltip" id="term-tip-26561" role="tooltip">再利用される番号(ID)に付ける通し番号。 古いハンドルと新しい中身を取り違えないための目印。</span></span>部を取り出す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fturnsideid-0ae3e16b/index-6d1bd7df.html"><code>acs::game::FTurnSideId::Index</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fturnsideid-0ae3e16b/gen-d24dc6ed.html"><code>acs::game::FTurnSideId::Gen</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-5863139ebb141534a4dd"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>static <a href="../../symbols/gameframework/fturnsideid-0ae3e16b.html">FTurnSideId</a> <a href="../../symbols/gameframework/fturnsideid-0ae3e16b/pack-2999c6b0.html">Pack</a>(u32 index, u8 <a href="../../symbols/gameframework/cturnmanager-5f7ca7a9/fsideslot-62bbaa33/gen-6ea137f7.html">gen</a>)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>index と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26562">世代</button><span class="term-tooltip" id="term-tip-26562" role="tooltip">再利用される番号(ID)に付ける通し番号。 古いハンドルと新しい中身を取り違えないための目印。</span></span>から<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26563">ハンドル</button><span class="term-tooltip" id="term-tip-26563" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>を組み立てる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fturnsideid-0ae3e16b.html"><code>acs::game::FTurnSideId</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fturnsideid-0ae3e16b/pack-2999c6b0.html"><code>acs::game::FTurnSideId::Pack</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cturnmanager-5f7ca7a9/fsideslot-62bbaa33/gen-6ea137f7.html"><code>acs::game::CTurnManager::FSideSlot::gen</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FTurnSideIdの使用例"><code>FTurnSideId id = tm.AddSide(&quot;Enemy&quot;, 2, 50, false);
+if (id.IsValid()) tm.RemoveSide(id);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CCameraShakePresets",
+    "kind": "クラス",
+    "header": "gameframework/CameraShakePresets.h",
+    "summary": "「爆発 / 地震 / 着弾」などのジャンル別 shake パラメータを 1 行で流し込む preset ライブラリ。 trauma/amplitude/decay を名前付きで提供し、ゲームコードに magic number を書かずに済む。 trauma を吸う側は IShakeTarget 抽象で受ける。",
+    "when": "CCamera2D 等に「爆発っぽい振動」を即座に与えたい時。 カスタム preset も名前付きで登録できる。",
+    "sample": "CCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", FShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
+    "members": [
+      {
+        "sig": "static FShakeParams GetPreset(EShakePreset preset)",
+        "ret": "shake パラメータ",
+        "desc": "組み込み preset の trauma/amplitude/decay/freq 値を返す (Custom は中立値)。"
+      },
+      {
+        "sig": "static void ApplyPreset(IShakeTarget& target, EShakePreset preset)",
+        "desc": "preset を target に流し込む (SetAmp→SetDecay→AddShake の順、trauma は加算)。"
+      },
+      {
+        "sig": "void RegisterCustomPreset(const char* name, const FShakeParams& params)",
+        "desc": "名前付きカスタム preset を登録する (同名は上書き、null は no-op)。"
+      },
+      {
+        "sig": "bool ApplyCustomByName(IShakeTarget& target, const char* name)",
+        "ret": "見つかったか",
+        "desc": "名前で引いたカスタム preset を target に適用する。"
+      },
+      {
+        "sig": "u32 CustomCount() const",
+        "desc": "登録済みカスタム preset 数を返す。"
+      },
+      {
+        "sig": "using FCameraShakePresets = CCameraShakePresets",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCameraShakePresets を使う。"
+      }
+    ]
+  }
+}

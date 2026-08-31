@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSsr",
+    "kind": "クラス",
+    "header": "render/Ssr.h",
+    "summary": "SSR(Screen-Space Reflection)。 シーンの HDR 色 + 深度 + 法線 G-buffer から、各ピクセルの反射レイを画面空間で レイマーチ(DDA)して映り込みを作る。 テンポラル累積でジャギーを均し、Hi-Z で高速化できる。",
+    "when": "床や水面に周囲が映り込む反射を、リアルタイムで(IBL より動的に)出したいとき。 CPbrShader::SetSsr や CPostProcess に渡す。",
+    "sample": "CSsr ssr;\nssr.Init(*dev, EFormat::R16G16B16A16_Float, w, h);\nssr.Render(*dev, *cl, scene_color, scene_depth, mv.OutputNormalTexture(),\n           vp, inv_vp, prev_vp, eye, /*intensity=*/0.6f,\n           mv.OutputTexture(), hiz.Texture());\npbr.SetSsr(ssr.OutputTexture(), 1.0f);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat hdr_format, u32 width, u32 height) / Resize(...)",
+        "desc": "出力テクスチャと march/temporal パイプラインを作る。"
+      },
+      {
+        "sig": "void Render(IRhiDevice&, IRhiCommandList&, scene_color, scene_depth, normal_gbuffer, view_proj, inv_view_proj, prev_view_proj, eye, intensity, motion_texture, hiz_texture)",
+        "desc": "raw march → temporal の 2 pass。 motion/Hi-Z は任意(高速・ghost 低減)。"
+      },
+      {
+        "sig": "IRhiTexture* OutputTexture() / RawTexture() / EFormat OutputFormat()",
+        "desc": "temporal 累積後 / raw / 出力フォーマット。"
+      },
+      {
+        "sig": "using FSsr = CSsr",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSsr を使う。"
+      }
+    ]
+  }
+}

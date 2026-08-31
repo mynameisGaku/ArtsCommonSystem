@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Intersect",
+  "definition": "2 形状が重なっているかを bool で返す判定関数。"
+}

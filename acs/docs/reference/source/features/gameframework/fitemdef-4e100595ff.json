@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FItemDef",
+    "kind": "構造体",
+    "header": "gameframework/InventorySystem.h",
+    "summary": "アイテム 1 種類の定義 (不変)。 id・表示名・分類・最大スタック数・アイコンパス・落とせるか。",
+    "when": "RegisterItem に渡す。 文字列はすべて非所有 (リテラル想定)。",
+    "sample": "FItemDef d{ \"ore.iron\", \"Iron Ore\",\n           EItemCategory::Material, 999,\n           \"ui/ore_iron.png\", true };",
+    "members": [
+      {
+        "sig": "const char* id / display_name / icon_path",
+        "desc": "一意キー / UI 表示名 / アイコン画像パス (すべて非所有)。"
+      },
+      {
+        "sig": "EItemCategory category",
+        "desc": "分類 (UI フィルタ用、Manager は値保存のみ)。"
+      },
+      {
+        "sig": "u32 max_stack",
+        "desc": "同スロットに重ねられる最大数。 1=スタック不可。 0 指定は 1 にクランプ。"
+      },
+      {
+        "sig": "bool can_drop",
+        "desc": "DropSlot で落とせるか。 quest / key 系は false 推奨。"
+      }
+    ]
+  }
+}

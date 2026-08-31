@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FEditorThemeColors",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/editor_core/EditorTheme.h",
+    "summary": "preset 1 個分のカラーパレット。 各メンバは RGBA [0,1] の acs::FVec4(ImGui の ImVec4 と同じ意味論)。 window 背景 / タイトルバー / ボタン各状態 / frame / text / border / separator / accent(強調色 = ACS ブランド色相当) / warning / error をまとめる。",
+    "when": "SetCustomColors で独自配色を渡す / Colors() で現パレットを読む時。",
+    "members": [
+      {
+        "sig": "FVec4 window_bg",
+        "desc": "ImGuiCol_WindowBg(パネル背景)。"
+      },
+      {
+        "sig": "FVec4 title_bg",
+        "desc": "ImGuiCol_TitleBg / Active(タイトルバー)。"
+      },
+      {
+        "sig": "FVec4 button_bg / button_hover / button_active",
+        "desc": "ボタンの通常 / ホバー / 押下色。"
+      },
+      {
+        "sig": "FVec4 frame_bg",
+        "desc": "ImGuiCol_FrameBg(InputText / Combo 等の枠内)。"
+      },
+      {
+        "sig": "FVec4 text / text_disabled",
+        "desc": "通常文字 / グレーアウト文字。"
+      },
+      {
+        "sig": "FVec4 border / separator",
+        "desc": "枠線 / 区切り線。"
+      },
+      {
+        "sig": "FVec4 accent",
+        "desc": "CheckMark / SliderGrab / TabActive 等の強調色(ACS ブランド色相当)。"
+      },
+      {
+        "sig": "FVec4 warning / error",
+        "desc": "警告 / エラーメッセージ用(本 theme で手動適用する用途)。"
+      }
+    ]
+  }
+}

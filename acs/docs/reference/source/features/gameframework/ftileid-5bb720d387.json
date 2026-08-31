@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FTileId",
+    "kind": "構造体",
+    "header": "gameframework/Tilemap.h",
+    "summary": "タイル 1 セルの ID (u16)。 0 を「空 (タイル無し)」として予約。 描画側が アトラスの index や辞書キーとして解釈する。",
+    "when": "FTilemap のセルにタイル種別を入れる時。",
+    "sample": "FTileId wall{5};\nif (!map.GetTile(x, y, 0).IsEmpty()) { /* 何か置いてある */ }",
+    "members": [
+      {
+        "sig": "bool IsEmpty() const",
+        "desc": "空セル (value == 0) か。"
+      }
+    ]
+  }
+}

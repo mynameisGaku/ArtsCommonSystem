@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="IPv4 アドレス(4 個の数値)とポート番号をまとめた小さな値。 通信相手や自分の待ち受け先を指すのに使う。 v1 では IPv6 は未対応。">
+  <title>FIpAddress — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/network.html">network モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/network.html">network モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/network.html">network モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/network.html">network</a><span>/</span><span aria-current="page">FIpAddress</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / network</div><h1 class="identifier">FIpAddress</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27825">IPv4</button><span class="term-tooltip" id="term-tip-27825" role="tooltip">192.168.0.1 のような 4 数値で表す主流のネットワークアドレス形式。</span></span> アドレス(4 個の数値)とポート番号をまとめた小さな値。 通信相手や自分の待ち受け先を指すのに使う。 v1 では <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27826">IPv6</button><span class="term-tooltip" id="term-tip-27826" role="tooltip">IPv4 を拡張した新しいアドレス形式。 ACS v1 では未対応。</span></span> は未対応。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/network/fipaddress-fd8a8549.html"><code>acs::FIpAddress</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>接続先・待ち受け先を指定するあらゆる場面。 文字列 \&quot;127.0.0.1\&quot; から作るか、定型の Any() / Loopback() を使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>network</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>network/IpAddress.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-47999c7168cadf02e515"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>u8 <a href="../../symbols/network/fipaddress-fd8a8549/octets-73861cde.html">octets</a>[4]</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>アドレスの 4 数値。 例 192.168.0.1 なら {192,168,0,1}。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549/octets-73861cde.html"><code>acs::FIpAddress::octets</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-cd7e0d040928fb232399"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u16 <a href="../../symbols/network/fipaddress-fd8a8549/port-3f683095.html">port</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ポート番号。 0 は『OS 任せ/未指定』を意味する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549/port-3f683095.html"><code>acs::FIpAddress::port</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-3ab0312dfcd2af6eac09"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>static <a href="../../symbols/network/fipaddress-fd8a8549.html">FIpAddress</a> <a href="../../symbols/network/fipaddress-fd8a8549/any-b74d35f9.html">Any</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全ネットワークインターフェイスを表す。 サーバが待ち受ける時に使う。</dd></div><div class="fact"><dt>戻り値</dt><dd>0.0.0.0</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549.html"><code>acs::FIpAddress</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549/any-b74d35f9.html"><code>acs::FIpAddress::Any</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-e81bc2d9e61735ad416e"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>static <a href="../../symbols/network/fipaddress-fd8a8549.html">FIpAddress</a> <a href="../../symbols/network/fipaddress-fd8a8549/loopback-86091a8f.html">Loopback</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>同じ PC 内(自分自身)を指す。 ローカルテストに便利。</dd></div><div class="fact"><dt>戻り値</dt><dd>127.0.0.1</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549.html"><code>acs::FIpAddress</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549/loopback-86091a8f.html"><code>acs::FIpAddress::Loopback</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-caa3f045dc10c90e578a"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>static <a href="../../symbols/network/fipaddress-fd8a8549.html">FIpAddress</a> <a href="../../symbols/network/fipaddress-fd8a8549/fromstring-60fa4a1c.html">FromString</a>(const char* dotted)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>\&quot;192.168.0.1\&quot; のような文字列から作る。 書式が不正なら 0.0.0.0 を返す。</dd></div><div class="fact"><dt>戻り値</dt><dd>アドレス</dd></div><div class="fact"><dt>使用例</dt><dd><pre class="signature" tabindex="0"><code>FIpAddress a = FIpAddress::FromString(\&quot;10.0.0.5\&quot;);</code></pre></dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549.html"><code>acs::FIpAddress</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/network/fipaddress-fd8a8549/fromstring-60fa4a1c.html"><code>acs::FIpAddress::FromString</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FIpAddressの使用例"><code>FIpAddress addr = FIpAddress::FromString(\&quot;192.168.0.10\&quot;);
+addr.port = 8080;             // ポートはフィールドで直接設定
+FIpAddress any = FIpAddress::Any();      // 0.0.0.0 (全インターフェイス)
+FIpAddress lo  = FIpAddress::Loopback(); // 127.0.0.1 (自分自身)</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

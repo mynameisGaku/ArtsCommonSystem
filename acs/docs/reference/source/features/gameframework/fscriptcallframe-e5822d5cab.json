@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FScriptCallFrame",
+    "kind": "構造体",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "ネイティブ関数呼び出し時の引数/戻り値ホルダ。 引数配列・件数・戻り値書き込み先を持つ。 メモリは backend が所有する。",
+    "when": "NativeFunction の中で frame.args を読み、frame.ret に結果を書く時。",
+    "members": [
+      {
+        "sig": "const FScriptValue* args / u32 arg_count",
+        "desc": "引数配列とその長さ。"
+      },
+      {
+        "sig": "FScriptValue* ret",
+        "desc": "戻り値の書き込み先 (nullptr なら戻り値は捨てられる)。"
+      }
+    ]
+  }
+}

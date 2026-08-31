@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCrashReporterStub / GetCrashStub / GetDefaultCrashReporter",
+    "kind": "クラス / 関数",
+    "header": "gameframework/CrashReporter.h",
+    "summary": "CCrashReporterStub は全 API が NotImplemented を返すnull-object 実装。 GetCrashStub() で共有 stub を取得。 GetDefaultCrashReporter() は実 backend が登録済ならそれを、未登録なら stub を返す。 SetCrashReporterProvider() で実 backend を結線する。",
+    "when": "実 backend が無い環境でもリンクを通したい時、または backend 非依存に既定 reporter を取りたい時。",
+    "sample": "// 起動時、実 backend がリンクされていれば:\n#if WITH_ACS_CRASH_REPORTER\n    acs::crashwin::InstallWindowsCrashReporterAsDefault();\n#endif\nauto& cr = acs::game::GetDefaultCrashReporter();",
+    "members": [
+      {
+        "sig": "using FCrashReporterStub = CCrashReporterStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCrashReporterStub を使う。"
+      }
+    ]
+  }
+}

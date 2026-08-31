@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="コンポーネント型ごとに一意な番号(u32)を割り当てる仕組み。 GetComponentTypeId&lt;T&gt;() は型 T に固有の番号を返し、ストレージ配列の添字に使う。 初回呼び出しで割り当て、以降は同じ値(スレッド安全)。">
+  <title>FComponentTypeId — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ecs.html">ecs モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ecs.html">ecs モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ecs.html">ecs</a><span>/</span><span aria-current="page">FComponentTypeId</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / ecs</div><h1 class="identifier">FComponentTypeId</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23017">コンポーネント</button><span class="term-tooltip" id="term-tip-23017" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型ごとに一意な番号(u32)を割り当てる仕組み。 GetComponentTypeId&lt;T&gt;() は型 T に固有の番号を返し、ストレージ配列の添字に使う。 初回呼び出しで割り当て、以降は同じ値(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23018">スレッド</button><span class="term-tooltip" id="term-tip-23018" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>安全)。</p></div><div class="badges"><span class="badge">型エイリアス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html"><code>acs::FComponentTypeId</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>通常ユーザーが直接触ることは少なく、CWorld 内部が<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23015">コンポーネント</button><span class="term-tooltip" id="term-tip-23015" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>の保管場所を引くために使う。 低レベルに自前管理したい時のみ。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>ecs</dd></div><div class="fact"><dt>分類</dt><dd>型エイリアス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>ecs/ComponentId.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-f2eb028216cf3a81a354"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>constexpr <a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html">FComponentTypeId</a> <a href="../../symbols/ecs/kmaxcomponenttypes-0e08fee5.html">kMaxComponentTypes</a> = 256</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>扱える<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23016">コンポーネント</button><span class="term-tooltip" id="term-tip-23016" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>型の上限(0..255)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html"><code>acs::FComponentTypeId</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/kmaxcomponenttypes-0e08fee5.html"><code>acs::kMaxComponentTypes</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-f0cd8d89b0ebaf7c1013"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html">FComponentTypeId</a> <a href="../../symbols/ecs/getcomponenttypeid-1ec9f08e.html">GetComponentTypeId</a>&lt;T&gt;()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>型 T に対応する番号を返す。 初めて呼んだ型に新しい番号を振る。</dd></div><div class="fact"><dt>戻り値</dt><dd>型固有の番号</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html"><code>acs::FComponentTypeId</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/getcomponenttypeid-1ec9f08e.html"><code>acs::GetComponentTypeId</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-b7d71e1e130fb602947c"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/ecs/componenttypeid-b438cfa0.html">ComponentTypeId</a> = <a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html">FComponentTypeId</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは FComponentTypeId を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/componenttypeid-b438cfa0.html"><code>acs::ComponentTypeId</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ecs/fcomponenttypeid-e29b0146.html"><code>acs::FComponentTypeId</code></a> <span class="kind-label">型alias</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FComponentTypeIdの使用例"><code>FComponentTypeId pid = GetComponentTypeId&lt;Position&gt;();
+FComponentTypeId vid = GetComponentTypeId&lt;Velocity&gt;();
+// pid != vid（型ごとに別番号）</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneEventBus",
+    "kind": "クラス",
+    "header": "gameframework/SceneEventBus.h",
+    "summary": "シーン内の pub/sub メッセージング。 同じシーンのコンポーネント同士が、相手を直接知らずに通知をやり取りできる。 イベント名はコンパイル時ハッシュで u32 に畳む。",
+    "when": "『プレイヤーが死んだ』『敵が湧いた』などの出来事を、疎結合に複数の相手へ知らせたい時。",
+    "sample": "// 購読側\nFSceneEventBus events;\nm_Sub = events.Subscribe(FEventId(\"PlayerDied\"), &OnDied, this);\n// 発行側\nFPlayerDiedPayload p{ pos, cause };\nevents.Publish(FEventId(\"PlayerDied\"), &p, sizeof(p));",
+    "members": [
+      {
+        "sig": "u32 Subscribe(FEventId id, HandlerFn fn, void* user)",
+        "ret": "解除用ハンドル",
+        "desc": "イベントにハンドラを登録する。 0 は失敗。"
+      },
+      {
+        "sig": "void Unsubscribe(u32 handle)",
+        "desc": "ハンドルで購読を解除する。 発行中に呼んでも安全。"
+      },
+      {
+        "sig": "void Publish(FEventId id, const void* payload = nullptr, u32 size = 0)",
+        "desc": "イベントを発行し、登録順に購読者を呼ぶ。"
+      },
+      {
+        "sig": "u32 SubscriberCount(FEventId id) const",
+        "desc": "そのイベントの購読者数 (デバッグ用)。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全購読を破棄する。 OnExit 等で。"
+      },
+      {
+        "sig": "using FSceneEventBus = CSceneEventBus",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneEventBus を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ATextInput",
+  "definition": "UTF-8 codepoint 境界を守る cursor 挿入・削除・移動と byte 上限を持つ 1 行入力欄。"
+}

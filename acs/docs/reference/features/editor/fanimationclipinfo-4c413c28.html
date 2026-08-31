@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Inspector が表示する 1 つの animation clip のメタ情報(名前 / 長さ / サンプル数 / ループ可否)。 AModelAnimationPanel の FAnimationClipBinding とは別物(こちらは read-only 表示用)。">
+  <title>FAnimationClipInfo — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/editor.html">editor モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/editor.html">editor</a><span>/</span><span aria-current="page">FAnimationClipInfo</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / editor</div><h1 class="identifier">FAnimationClipInfo</h1>
+<p class="lead">Inspector が表示する 1 つの animation clip のメタ情報(名前 / 長さ / サンプル数 / ループ可否)。 AModelAnimationPanel の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23794">FAnimation</button><span class="term-tooltip" id="term-tip-23794" role="tooltip">1 つのボーンアニメーション(尺と時刻ごとの姿勢キー)。</span></span>Clip<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23795">Bind</button><span class="term-tooltip" id="term-tip-23795" role="tooltip">Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。</span></span>ing とは別物(こちらは read-only 表示用)。</p></div><div class="badges"><span class="badge">構造体(POD)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fanimationclipinfo-c82fa611.html"><code>acs::game::modelview::FAnimationClipInfo</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Inspector の Animations テーブルに clip 行を表示するため、clip ごとに 1 件作って配列で渡す。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>editor</dd></div><div class="fact"><dt>分類</dt><dd>構造体(POD)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/tools/modelview/ModelInspectorPanel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-566019aa2c0c4ce38814"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/name-242a2b58.html">name</a> = nullptr</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>clip 名(例: &quot;<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23791">Idle</button><span class="term-tooltip" id="term-tip-23791" role="tooltip">状態機械の「何もしていない/開始前」を表す既定状態。 Idle→Walk のように、ここから他状態へ遷移する。</span></span>&quot;, &quot;Run&quot;, &quot;Attack01&quot;)。 caller 所有の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23792">ポインタ</button><span class="term-tooltip" id="term-tip-23792" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/name-242a2b58.html"><code>acs::game::modelview::FAnimationClipInfo::name</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-f380a76aa3f7f8a28f4e"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/duration-sec-e0fcacd9.html">duration_sec</a> = 0.0f</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>クリップの長さ(秒)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/duration-sec-e0fcacd9.html"><code>acs::game::modelview::FAnimationClipInfo::duration_sec</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-ea852f56d23cadc03b4f"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u32 <a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/sample-count-c53fc0b3.html">sample_count</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>サンプル数(= keyframe 数の合計など)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/sample-count-c53fc0b3.html"><code>acs::game::modelview::FAnimationClipInfo::sample_count</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-07b886fb59c11ecd0b05"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>bool <a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/is-looping-f52cd5e2.html">is_looping</a> = false</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ループ再生<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23793">フラグ</button><span class="term-tooltip" id="term-tip-23793" role="tooltip">ON/OFF を表す印。 ここでは暗号化/圧縮の有無。</span></span>(clip metadata)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fanimationclipinfo-c82fa611/is-looping-f52cd5e2.html"><code>acs::game::modelview::FAnimationClipInfo::is_looping</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FAnimationClipInfoの使用例"><code>FAnimationClipInfo c;
+c.name         = &quot;Idle&quot;;
+c.duration_sec = 2.0f;
+c.sample_count = 60;
+c.is_looping   = true;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

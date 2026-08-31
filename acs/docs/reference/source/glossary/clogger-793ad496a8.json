@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CLogger",
+  "definition": "非同期でスレッド安全なログ出力クラス。 ACS_LOG_* マクロ経由で使う。"
+}

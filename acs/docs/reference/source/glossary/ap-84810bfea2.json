@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AP",
+  "definition": "アクションポイント。 ターン制で各陣営が 1 ターンに使える行動予算。 CTurnManager が管理する。"
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSの名前の付け方(接頭辞)に関するガイドです。">
+  <title>名前の付け方(接頭辞) — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><a href="../guide.html">はじめる</a><span>/</span><span aria-current="page">名前の付け方(接頭辞)</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS ガイド</div><h1>名前の付け方(接頭辞)</h1></div></header>
+<article class="doc-blocks" id="guide-content"><h2>名前の付け方(接頭辞)</h2><p>型名の頭文字でだいたいの種類が分かります。</p><ul><li>T… … <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29717">テンプレート</button><span class="term-tooltip" id="term-tip-29717" role="tooltip">型を後から指定できる部品。 TArray&lt;int&gt; は『int の配列』というように中身の型を差し替えられる。</span></span>(型を後から指定する部品)。 例: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29718">TArray</button><span class="term-tooltip" id="term-tip-29718" role="tooltip">末尾追加が速く要素は連続メモリに並ぶ。 コピー禁止・ムーブ専用。</span></span>&lt;int&gt;, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29719">TSharedPtr</button><span class="term-tooltip" id="term-tip-29719" role="tooltip">複数で共有するスマートポインタ。 参照カウントが 0 で自動解放。</span></span>&lt;Mesh&gt;</li><li>F… … データ、値、handleを表す型。 例: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29720">FVec3</button><span class="term-tooltip" id="term-tip-29720" role="tooltip">3 次元ベクトル(x, y, z)。 3D の位置・方向・色などに使う最重要型で、SIMD演算に最適化されている。</span></span>, F<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29721">Event</button><span class="term-tooltip" id="term-tip-29721" role="tooltip">ウィンドウや入力で起きた『出来事』1 つ分を表す構造体。 種別に応じて中のunionの対応フィールドだけが有効になる。</span></span>TypeId</li><li>C… … 処理や振る舞いを持つ通常のクラス。 例: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29722">CAudioEngine</button><span class="term-tooltip" id="term-tip-29722" role="tooltip">音声再生の中心となるエンジン。 AAudioAsset を鳴らし、音量・停止・一時停止を扱う。 内部は XAudio2。</span></span>, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29723">CMessageBroker</button><span class="term-tooltip" id="term-tip-29723" role="tooltip">型ごとにイベントを同期配信するpub/subバス。 1 スレッド内で使う。</span></span></li><li>A… … ownerまたはregistryに所有され、多態的に扱われるobject。 現waveでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29724">AObject</button><span class="term-tooltip" id="term-tip-29724" role="tooltip">参照カウント管理されるオブジェクトの基底。 生ポインタからも強/弱参照を作れる。</span></span> の推移派生、または実際の登録macro使用を機械的な根拠にします。 例: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29725">AObject</button><span class="term-tooltip" id="term-tip-29725" role="tooltip">参照カウント管理されるオブジェクトの基底。 生ポインタからも強/弱参照を作れる。</span></span>, <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29726">ANode</button><span class="term-tooltip" id="term-tip-29726" role="tooltip">2D/3D 共通シーングラフの唯一のノード。 AddComponent で ASprite2DComponent 等の部品を付ける。</span></span>, AComponent。 既存の AAsset familyは、所有と多態性、registry、ABIを確認して A / C を後続waveで決める未判定の移行対象です。</li><li>E… … 列挙(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29727">enum</button><span class="term-tooltip" id="term-tip-29727" role="tooltip">決まった選択肢の集合を表す型(列挙)。 例: 上下左右のキー。</span></span>、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29728">選択肢</button><span class="term-tooltip" id="term-tip-29728" role="tooltip">会話などで提示する分岐の候補。 プレイヤーが選ぶと進行が分かれる。</span></span>の集合)。 例: EKey, EMemoryOrder</li><li>I… … <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29729">インターフェース</button><span class="term-tooltip" id="term-tip-29729" role="tooltip">実装を差し替えられるようにするための約束事(純粋仮想クラス)。 I で始まる。</span></span>(実装を差し替えられる約束事)。 例: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29730">IAssetLoader</button><span class="term-tooltip" id="term-tip-29730" role="tooltip">ファイル形式ごとのローダ共通インターフェース。</span></span></li><li>型 alias … namespace公開の意味付きscalar/value aliasは F で始めます。 delegate / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29731">callback</button><span class="term-tooltip" id="term-tip-29731" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> / <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29732">関数ポインタ</button><span class="term-tooltip" id="term-tip-29732" role="tooltip">関数そのものを指し示す値。 あとで fn() のように呼び出せる。 テスト本体を一覧に登録する仕組みに使う。</span></span>は頭文字を指定せず、template aliasは今回のscalar監査対象外です。 新規宣言は using を使い、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29733">AssetType</button><span class="term-tooltip" id="term-tip-29733" role="tooltip">アセット型を識別する 32-bit の数値 ID。</span></span> は後続移行まで登録済み<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29734">例外</button><span class="term-tooltip" id="term-tip-29734" role="tooltip">C++ の throw/catch による失敗伝搬。 ACS は性能と単純さのため使わず TResult を選ぶ。</span></span>として維持します。</li><li>m_… … メンバ変数(クラスが内部に持つ変数)。</li></ul></article>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#guide-content">名前の付け方(接頭辞)</a></nav></aside>
+  </div>
+</body>
+</html>

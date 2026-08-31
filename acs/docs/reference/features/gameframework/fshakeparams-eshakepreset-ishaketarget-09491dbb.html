@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FShakeParams=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。 EShakePreset=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。 IShakeTarget=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。">
+  <title>FShakeParams / EShakePreset / IShakeTarget — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FShakeParams / EShakePreset / IShakeTarget</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FShakeParams / EShakePreset / IShakeTarget</h1>
+<p class="lead">FShakeParams=<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26458">preset</button><span class="term-tooltip" id="term-tip-26458" role="tooltip">テーマの色 / spacing / corner をまとめた既定スナップショット。 ACS では EEditorThemePreset(Dark / DarkBlue / Light など)。</span></span> 1 個分のパラメータ (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26459">trauma</button><span class="term-tooltip" id="term-tip-26459" role="tooltip">画面振動 (camera shake) の強さを表す [0,1] の連続値。 被弾などで加算し、毎フレーム減衰させる。</span></span>/amplitude/decay_rate/frequency/duration_hint)。 EShakePreset=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26460">IShakeTarget</button><span class="term-tooltip" id="term-tip-26460" role="tooltip">画面ゆれ(shake)の trauma を受け取る側の純粋仮想インターフェース。 AddShake など揺れ量の設定 API を持つ。</span></span>=<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26461">trauma</button><span class="term-tooltip" id="term-tip-26461" role="tooltip">画面振動 (camera shake) の強さを表す [0,1] の連続値。 被弾などで加算し、毎フレーム減衰させる。</span></span> を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。</p></div><div class="badges"><span class="badge">構造体・列挙(enum)・インターフェース</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/gameframework/fshakeparams-0727e378.html"><code>acs::game::FShakeParams</code></a><span class="summary"><code>struct FShakeParams;</code></span></li><li><a href="../../symbols/gameframework/eshakepreset-c4d44b65.html"><code>acs::game::EShakePreset</code></a><span class="summary"><code>enum class EShakePreset : u8;</code></span></li><li><a href="../../symbols/gameframework/ishaketarget-b4954864.html"><code>acs::game::IShakeTarget</code></a><span class="summary"><code>class IShakeTarget;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26456">preset</button><span class="term-tooltip" id="term-tip-26456" role="tooltip">テーマの色 / spacing / corner をまとめた既定スナップショット。 ACS では EEditorThemePreset(Dark / DarkBlue / Light など)。</span></span> の値を組み立てたり、自前の振動対象を <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26457">CCameraShakePresets</button><span class="term-tooltip" id="term-tip-26457" role="tooltip">『爆発/地震/着弾』などジャンル別の画面振動パラメータを名前付きで提供する preset ライブラリ。</span></span> に渡せるようにする時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体・列挙(enum)・インターフェース</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/CameraShakePresets.h</dd></div></dl></section>
+
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FShakeParams / EShakePreset / IShakeTargetの使用例"><code>FShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};
+FCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

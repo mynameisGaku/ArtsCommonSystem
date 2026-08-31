@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IBL",
+  "definition": "Image-Based Lighting。 環境マップを事前積分し、周囲全体からの光として材質に映り込ませる手法。"
+}

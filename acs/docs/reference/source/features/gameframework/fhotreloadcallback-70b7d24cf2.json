@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FHotReloadCallback",
+    "kind": "関数ポインタ型",
+    "header": "gameframework/HotReload.h",
+    "summary": "ホットリロード通知を受け取るコールバックの型。 void(*)(void* user, const FHotReloadEvent&) noexcept。",
+    "when": "RegisterCallback に渡す関数を定義する時の型。",
+    "sample": "using FHotReloadCallback =\n    void(*)(void* user, const FHotReloadEvent& ev) noexcept;"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FTelemetryEvent",
+    "kind": "構造体",
+    "header": "gameframework/TelemetryDirector.h",
+    "summary": "送信待ちキューに積まれる解析イベント 1 件の POD。 イベント名 / カテゴリ / JSON ペイロード / 優先度 / タイムスタンプを持つ。 文字列はすべて非所有。",
+    "when": "通常は TrackEvent が内部で生成する。 中身を参照したい時に触る。",
+    "sample": "// TrackEvent が 1 件ずつ生成しキューへ積む。"
+  }
+}

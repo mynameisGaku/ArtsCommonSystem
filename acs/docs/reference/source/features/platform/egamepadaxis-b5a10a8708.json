@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EGamepadAxis",
+    "kind": "列挙(enum)",
+    "header": "platform/InputCodes.h",
+    "summary": "ゲームパッドのアナログ軸を表す列挙。 左右スティックの X/Y と、左右トリガー。",
+    "when": "CInput::GamepadAxisValue に渡す。 スティックは -1.0〜+1.0、トリガーは 0.0〜1.0 が返る。",
+    "sample": "f32 mx = CInput::GamepadAxisValue(0, EGamepadAxis::LeftX);\nf32 my = CInput::GamepadAxisValue(0, EGamepadAxis::LeftY);\nf32 rt = CInput::GamepadAxisValue(0, EGamepadAxis::RightTrigger);",
+    "members": [
+      {
+        "sig": "LeftX / LeftY",
+        "desc": "左スティックの横・縦（-1.0〜+1.0）。"
+      },
+      {
+        "sig": "RightX / RightY",
+        "desc": "右スティックの横・縦（-1.0〜+1.0）。"
+      },
+      {
+        "sig": "LeftTrigger / RightTrigger",
+        "desc": "左右トリガーの踏み込み（0.0〜1.0）。"
+      }
+    ]
+  }
+}

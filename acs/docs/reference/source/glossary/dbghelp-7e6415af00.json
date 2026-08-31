@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DbgHelp",
+  "definition": "Windows 標準のデバッグ支援ライブラリ。 MiniDumpWriteDump でミニダンプを生成できる。"
+}

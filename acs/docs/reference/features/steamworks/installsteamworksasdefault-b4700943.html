@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="実 Bridge を acs::game 側の既定 providerとして登録する。 これを呼ぶと、以降ゲームコードは バックエンド非依存に acs::game::GetDefaultSteamworksBridge() で実 Bridge を取得できる(未登録なら自動で Stub が返る)。">
+  <title>InstallSteamworksAsDefault() — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/steamworks.html">steamworks モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/steamworks.html">steamworks モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/steamworks.html">steamworks モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/steamworks.html">steamworks</a><span>/</span><span aria-current="page">InstallSteamworksAsDefault()</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / steamworks</div><h1 class="identifier">InstallSteamworksAsDefault()</h1>
+<p class="lead">実 Bridge を acs::game 側の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29308">既定 provider</button><span class="term-tooltip" id="term-tip-29308" role="tooltip">明示指定が無い時に使われる既定の実装を返す登録関数。 後勝ちで差し替えられる。</span></span>として登録する。 これを呼ぶと、以降ゲームコードは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29309">バックエンド</button><span class="term-tooltip" id="term-tip-29309" role="tooltip">抽象的な機能呼び出しを、実際のライブラリや OS API につなぐ実装側のこと。 差し替え可能。</span></span>非依存に acs::game::GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29310">Steam</button><span class="term-tooltip" id="term-tip-29310" role="tooltip">Valve のゲーム配信プラットフォーム。 実績・フレンド・クラウドセーブ等の機能を Steamworks SDK 経由で使える。</span></span>worksBridge() で実 Bridge を取得できる(未登録なら自動で <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29311">Stub</button><span class="term-tooltip" id="term-tip-29311" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> が返る)。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/steamworks/installsteamworksasdefault-dd06f5c5.html"><code>acs::steamworks::InstallSteamworksAsDefault</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>アプリ起動時に一度だけ呼ぶ。 gameframework はこのモジュールに直接依存できない(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29307">循環依存</button><span class="term-tooltip" id="term-tip-29307" role="tooltip">モジュール A が B を、B が A を必要とし合い、まっすぐ組めなくなる状態。 登録関数などで断ち切る。</span></span>回避)ため、登録はこの関数経由で行う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>steamworks</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>steamworks/SteamworksBridgeImpl.h</dd></div></dl></section>
+
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="InstallSteamworksAsDefault()の使用例"><code>// 起動時に一度だけ
+#if WITH_ACS_STEAMWORKS
+    acs::steamworks::InstallSteamworksAsDefault();
+#endif
+// 以降どこでも backend 非依存に取得
+auto&amp; s = acs::game::GetDefaultSteamworksBridge();</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

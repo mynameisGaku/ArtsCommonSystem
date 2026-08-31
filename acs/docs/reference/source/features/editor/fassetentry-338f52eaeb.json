@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FAssetEntry",
+    "kind": "構造体",
+    "header": "gameframework/tools/editor_core/AssetBrowser.h",
+    "summary": "列挙された 1 件のディレクトリ / ファイル。 path / short_name は CAssetBrowser の内部 pool を指し、寿命は次の Refresh() まで(再列挙で pool がクリアされ pointer 無効化)。 保持したいなら利用側でバッファに退避する。",
+    "when": "CAssetBrowser::GetEntry で current directory のエントリを 1 件ずつ読む時。",
+    "members": [
+      {
+        "sig": "const wchar_t* path = nullptr",
+        "desc": "assets/ ルートからの相対パス(区切りは \\)。"
+      },
+      {
+        "sig": "const char* short_name = nullptr",
+        "desc": "path の末尾セグメント(UTF-8)。"
+      },
+      {
+        "sig": "EAssetKind kind = EAssetKind::Unknown",
+        "desc": "拡張子から判定したアセット種別。"
+      },
+      {
+        "sig": "u64 file_size_bytes = 0",
+        "desc": "ファイルサイズ。 is_directory == true なら 0。"
+      },
+      {
+        "sig": "u64 last_modified = 0",
+        "desc": "Win32 FILETIME(100ns 単位)。"
+      },
+      {
+        "sig": "bool is_directory = false",
+        "desc": "ディレクトリなら true。"
+      }
+    ]
+  }
+}

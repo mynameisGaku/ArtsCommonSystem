@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSubsurfaceScattering",
+    "kind": "クラス",
+    "header": "render/SubsurfaceScattering.h",
+    "summary": "subsurface scatteringの描画資源とpost processを管理する。",
+    "when": "肌や蝋のような表面下散乱を表現する時。",
+    "members": [
+      {
+        "sig": "using FSubsurfaceScattering = CSubsurfaceScattering",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSubsurfaceScattering を使う。"
+      }
+    ]
+  }
+}

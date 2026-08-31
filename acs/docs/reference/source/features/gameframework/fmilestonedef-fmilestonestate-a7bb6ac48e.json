@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FMilestoneDef / FMilestoneState",
+    "kind": "構造体",
+    "header": "gameframework/Progression.h",
+    "summary": "FMilestoneDef = 起動時に登録する immutable な定義 (id / display_name / required_xp / unlock_content_id)。 FMilestoneState = 実行時の達成状態 (id / achieved / achieved_timestamp)。 同 index で 1:1 対応する。 文字列は非所有。",
+    "when": "RegisterMilestone() に渡す定義、および AllStates() / GetState() で読む状態のデータ単位。",
+    "sample": "FMilestoneDef d{ \"ms.veteran\", \"Veteran\", 16383, \"content.title_x\" };\np.RegisterMilestone(d);\nif (const FMilestoneState* s = p.GetState(\"ms.veteran\"))\n    if (s->achieved) ShowBadge();"
+  }
+}

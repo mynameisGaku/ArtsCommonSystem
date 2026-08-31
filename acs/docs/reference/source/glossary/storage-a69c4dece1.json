@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Storage",
+  "definition": "設定やセーブデータ用の key-value ストア(INI 形式)。 音量・解像度・進行度などを人間が読める形で永続化する。"
+}

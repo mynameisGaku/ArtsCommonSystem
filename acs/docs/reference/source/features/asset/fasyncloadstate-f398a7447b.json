@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FAsyncLoadState",
+    "kind": "構造体",
+    "header": "asset/AssetFuture.h",
+    "summary": "FAssetFuture とワーカーが共有する内部状態。 完了カウンタ・結果・エラーを保持する。 通常ユーザが直接触ることはない。",
+    "when": "非同期ロードの仕組みを理解・拡張する時の内部構造。",
+    "sample": "// 内部用。CAssetRegistry::LoadAsync が生成し future へ渡す。",
+    "members": [
+      {
+        "sig": "FCompletionCounter counter{1}",
+        "desc": "1 → 0 で完了を表す完了カウンタ。"
+      },
+      {
+        "sig": "TSharedPtr<AAsset> result",
+        "desc": "成功時の読み込み結果。"
+      },
+      {
+        "sig": "FErrorCode error; bool has_error",
+        "desc": "失敗時のエラーコードとその有無。"
+      }
+    ]
+  }
+}

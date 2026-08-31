@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "FScriptValue",
+    "kind": "構造体",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "C++ と Lua の間で値を受け渡すためのタグ付き共用体風の POD。 kind で種類を、v で中身を表す。 種類は Nil / Bool / Number / String / Handle の 5 つ。 CLuaVm の引数 / 戻り値はすべてこの型の配列で表現する。",
+    "when": "CallFunction に引数を渡す / 戻り値を受け取る時や、NativeFunction の中で値を読み書きする時に使う。",
+    "sample": "acs::game::FScriptValue v;\nv.kind = acs::game::EScriptValueKind::Number;\nv.v.num = 3.14;          // Number は f64\n// 文字列は所有しない(寿命は呼び出し側が保証)\nacs::game::FScriptValue s;\ns.kind = acs::game::EScriptValueKind::String;\ns.v.str = \"hello\";",
+    "members": [
+      {
+        "sig": "EScriptValueKind kind",
+        "desc": "値の種類(既定は Nil)。 これを見てから v の正しいフィールドを読む。"
+      },
+      {
+        "sig": "union { bool b; f64 num; const char* str; u32 handle; } v",
+        "desc": "中身。 Number は num(整数も f64 に丸めて格納)、文字列は str(所有しない)、Handle は handle(エンティティ等の不透明 ID)。"
+      }
+    ]
+  }
+}

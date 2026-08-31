@@ -1,0 +1,79 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CPbrShader",
+    "kind": "クラス",
+    "header": "render/PbrShader.h",
+    "summary": "物理ベースレンダリング(PBR、Cook-Torrance / Metalness-Roughness)の本格シェーダ。 金属/粗さ + 環境光 + IBL + 影に加え、法線マップ・SSAO/SSGI/SSR・フォグ・布(Sheen)・薄膜(Iridescence)・サブサーフェスなど多彩な質感を載せられる。",
+    "when": "IBL、影、画面空間効果を組み合わせる 3D 描画。 金属・プラスチック・肌・布などを描き分けたいとき。",
+    "sample": "CPbrShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, 1, ambient);\nshd.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());\nshd.DrawMesh(*rdr.CommandList(), gm, model,\n             FVec3{1,1,1}, /*metallic=*/0.0f, /*roughness=*/0.4f, /*ao=*/1.0f);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)",
+        "desc": "シェーダ・パイプライン・定数バッファ・fallback テクスチャを作る。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_object_draws = 0)",
+        "desc": "PBR draw記録前に共有upload arenaの必要sliceを予約し、CPU cursorを先頭へ戻す。 失敗時も既存容量は利用できる。"
+      },
+      {
+        "sig": "u32 ObjectBufferCapacity() / ObjectDrawCount() / ObjectBufferPageCount()",
+        "desc": "論理object slot容量、frame使用数、全slotを保持する実GPU buffer数。"
+      },
+      {
+        "sig": "void SetLights(...) / SetPointLights(...) / SetAreaLights(const FAreaLight*, u32)",
+        "desc": "有向光源 4 灯 / 点光源 4 灯 / 矩形エリアライト 2 個。"
+      },
+      {
+        "sig": "void SetIbl(IRhiTexture* irradiance, IRhiTexture* prefilter, IRhiTexture* brdf_lut, u32 prefilter_mips)",
+        "desc": "IBL 用 3 テクスチャをバインド。 3 つ揃うと環境光が IBL になる。",
+        "when": "CImageBasedLighting の各 Map をそのまま渡す。"
+      },
+      {
+        "sig": "void BindIblTextures(IRhiCommandList& cmd)",
+        "desc": "albedo と並んで IBL slot 1/2/3 を bind するヘルパ。"
+      },
+      {
+        "sig": "void SetNormalMap(IRhiTexture*) / SetSsao(...) / SetSsgi(...) / SetSsr(...) / SetLightmap(...)",
+        "desc": "法線マップ / SSAO / SSGI / SSR / ライトマップを差し込む。 null で OFF。"
+      },
+      {
+        "sig": "void SetSh9(const FVec4* sh9_or_null) / SetProbeGrid(const FLightProbe*, u32)",
+        "desc": "球面調和(SH9)1 個 / 静的光プローブグリッド(最大 4)で間接光を与える。"
+      },
+      {
+        "sig": "void SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base)",
+        "desc": "指数高さフォグ。 density=0 で OFF。"
+      },
+      {
+        "sig": "void SetShadowMap(IRhiTexture* depth, const FMat4& light_vp, ...) / SetShadowMapCascades(...)",
+        "desc": "単一 / CSM(カスケード)のシャドウマップ。 null で OFF。"
+      },
+      {
+        "sig": "void SetObject(const FMat4& model, base_color, metallic, roughness, ao)",
+        "desc": "PBR 材質。 metallic/roughness/ao を直接 GGX に渡す。"
+      },
+      {
+        "sig": "void SetExtParams(clearcoat, clearcoat_roughness, anisotropy, tangent) / SetEmissive(...) / SetSheen(...) / SetIridescence(...) / SetSubsurface(...)",
+        "desc": "クリアコート・異方性・自己発光・布の毛羽・薄膜干渉・内部散乱の拡張材質。 SetObject の直後に呼ぶ。"
+      },
+      {
+        "sig": "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, base_color, metallic, roughness, ao, IRhiTexture* albedo = nullptr)",
+        "desc": "材質設定 + 描画をまとめた便利 API。"
+      },
+      {
+        "sig": "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()",
+        "desc": "手描き用アクセサ。"
+      },
+      {
+        "sig": "using FPbrShader = CPbrShader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPbrShader を使う。"
+      }
+    ]
+  }
+}

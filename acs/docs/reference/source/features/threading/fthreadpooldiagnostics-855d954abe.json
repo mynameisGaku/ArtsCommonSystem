@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FThreadPoolDiagnostics",
+    "kind": "構造体",
+    "header": "threading/ThreadPoolDiagnostics.h",
+    "summary": "投入 drain、通知、競合、queued work、callable 保持経路を集計する診断 snapshot。",
+    "when": "batch submit が余分な lock、wake、heap 確保を発生させていないか確認する時。"
+  }
+}

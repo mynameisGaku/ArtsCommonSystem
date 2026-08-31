@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FTransform2D",
+  "definition": "2D の位置 / 回転 / スケールを表す値型。"
+}

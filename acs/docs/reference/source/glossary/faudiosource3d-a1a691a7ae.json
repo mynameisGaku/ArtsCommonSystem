@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAudioSource3D",
+  "definition": "3D 空間内の音源 1 個 (位置 / 音量 / 減衰)。"
+}

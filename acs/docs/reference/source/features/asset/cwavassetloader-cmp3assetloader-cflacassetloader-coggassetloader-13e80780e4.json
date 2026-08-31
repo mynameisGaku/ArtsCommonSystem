@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CWavAssetLoader / CMp3AssetLoader / CFlacAssetLoader / COggAssetLoader",
+    "kind": "クラス(IAssetLoader 派生)",
+    "header": "asset/AudioAsset.h",
+    "summary": "音声フォーマット別のローダ。 それぞれ wav / mp3 / flac / ogg を担当し、デコード結果はすべて AAudioAsset(統一 PCM)になる。",
+    "when": "標準ローダ登録で自動使用。 特定形式だけ手動で足したい時に個別登録。",
+    "sample": "CWavAssetLoader  wav;\nFOggAssetLoader  ogg;\nreg.RegisterLoader(&wav);\nreg.RegisterLoader(&ogg);",
+    "members": [
+      {
+        "sig": "const char* Extension()",
+        "desc": "各クラスが \"wav\" / \"mp3\" / \"flac\" / \"ogg\" を返す。"
+      },
+      {
+        "sig": "using FFlacAssetLoader = CFlacAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CFlacAssetLoader を使う。"
+      },
+      {
+        "sig": "using FMp3AssetLoader = CMp3AssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMp3AssetLoader を使う。"
+      },
+      {
+        "sig": "using FOggAssetLoader = COggAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは COggAssetLoader を使う。"
+      },
+      {
+        "sig": "using FWavAssetLoader = CWavAssetLoader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWavAssetLoader を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "ECurveInterpolation",
+    "kind": "列挙(enum)",
+    "header": "gameframework/AnimationCurve.h",
+    "summary": "曲線セグメントの補間方式。 Step=直前キーの値を保持 (階段)、Linear=線形、Hermite=接線を使う 3 次補間。",
+    "when": "AddKey() の第 3 引数として補間の種類を選ぶ時。",
+    "sample": "curve.AddKey(0.2f, 1.0f, ECurveInterpolation::Step);"
+  }
+}

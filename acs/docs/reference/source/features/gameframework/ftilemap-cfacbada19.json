@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FTilemap",
+    "kind": "クラス",
+    "header": "gameframework/Tilemap.h",
+    "summary": "2D グリッドに FTileId を並べるデータ専用のタイルマップ。 レイヤー対応・tile↔world 座標変換・Fill / FillRect を提供。 Tiled の JSON も読める。",
+    "when": "2D マップ (床 / 壁 / 背景) をグリッドで持ちたい時。 描画は別途 ATilemapComponent 等で行う。",
+    "sample": "FTilemap map;\nmap.Init(/*w=*/64, /*h=*/48, /*layers=*/2, /*tile_size=*/16.0f);\nmap.Fill(FTileId{1}, 0);\nmap.SetTile(10, 5, FTileId{2}, 0);\nmap.FillRect(0, 0, 4, 4, FTileId{3}, 1);",
+    "members": [
+      {
+        "sig": "void Init(u32 width, u32 height, u32 layer_count = 1, f32 tile_size = 16.0f)",
+        "desc": "グリッドとレイヤーを確保し全タイルを 0 (空) に。 不正値は安全な既定に。"
+      },
+      {
+        "sig": "TResult<void> LoadTiledJson(const char* json_text, usize len)",
+        "ret": "成否",
+        "desc": "Tiled Map Editor の JSON を読み込む (tilelayer のみ対象)。",
+        "when": "ツールで作ったマップを取り込む時。"
+      },
+      {
+        "sig": "void SetTile(u32 x, u32 y, FTileId tile, u32 layer = 0)",
+        "desc": "個別タイルを設定。 範囲外は no-op。"
+      },
+      {
+        "sig": "FTileId GetTile(u32 x, u32 y, u32 layer = 0) const",
+        "ret": "タイル ID",
+        "desc": "個別タイルを取得。 範囲外は空 FTileId{0}。"
+      },
+      {
+        "sig": "void Fill(FTileId tile, u32 layer = 0)",
+        "desc": "指定レイヤー全体を 1 種で埋める。"
+      },
+      {
+        "sig": "void FillRect(u32 x0, u32 y0, u32 x1, u32 y1, FTileId tile, u32 layer = 0)",
+        "desc": "閉区間の矩形を塗る (境界 clamp)。"
+      },
+      {
+        "sig": "u32 Width() / Height() / LayerCount() / f32 TileSize() const",
+        "desc": "マップの寸法・レイヤー数・タイル辺長。"
+      },
+      {
+        "sig": "FVec2 TileToWorld(u32 x, u32 y) const",
+        "ret": "world 座標",
+        "desc": "tile (x,y) の中心ワールド座標 (+Y = 画面下)。"
+      },
+      {
+        "sig": "bool WorldToTile(FVec2 world, u32& out_x, u32& out_y) const",
+        "ret": "範囲内か",
+        "desc": "world → tile 変換。 範囲外 / 負値は false。",
+        "when": "マウス座標がどのタイルかを当てる時。"
+      },
+      {
+        "sig": "const FTileId* LayerData(u32 layer) const",
+        "ret": "生バッファ",
+        "desc": "row-major (y*width+x) のタイル配列先頭。 GPU upload / レンダラ用。 範囲外 layer は nullptr。"
+      }
+    ]
+  }
+}

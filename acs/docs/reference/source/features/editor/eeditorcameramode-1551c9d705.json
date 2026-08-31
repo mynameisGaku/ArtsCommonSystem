@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EEditorCameraMode",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/EditorCamera.h",
+    "summary": "CEditorCamera の操作モデル。 Mode2D は pan / zoom のみ(top-down / tilemap editor)、Mode3D は target を中心に orbit + pan + dolly(model viewer)。",
+    "when": "CEditorCamera::Init / SetMode で 2D / 3D を選ぶ時。",
+    "members": [
+      {
+        "sig": "Mode2D = 0",
+        "desc": "2D pan / zoom 操作。"
+      },
+      {
+        "sig": "Mode3D = 1",
+        "desc": "3D orbit + pan + dolly 操作。"
+      }
+    ]
+  }
+}

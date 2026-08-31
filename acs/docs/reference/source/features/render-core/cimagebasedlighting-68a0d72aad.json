@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CImageBasedLighting",
+    "kind": "クラス",
+    "header": "render/Ibl.h",
+    "summary": "IBL(環境マップから事前積分した光)を構築する。 BRDF LUT・環境キューブマップ・拡散 irradiance・鏡面 prefilter を生成し、CPbrShader::SetIbl に渡す。 equirect HDR(.hdr)読込や 球面調和(SH9)計算、skybox 描画も持つ。 Diligent backend 専用。",
+    "when": "PBR の環境光を本格化して、金属に映り込みを、全体に自然な間接光を与えたいとき。",
+    "sample": "CImageBasedLighting ibl;\nibl.EnsureBrdfLut(*dev, *cl);\nibl.EnsureEnvCubemap(*dev, *cl, sky);   // CSky からキャプチャ\nibl.EnsureIrradiance(*dev, *cl);\nibl.EnsurePrefilter(*dev, *cl);\npbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(),\n           ibl.BrdfLut(), ibl.PrefilterMips());",
+    "members": [
+      {
+        "sig": "TResult<void> EnsureBrdfLut(IRhiDevice&, IRhiCommandList&)",
+        "desc": "BRDF LUT(256x256 RG16F)を初回だけ生成。"
+      },
+      {
+        "sig": "TResult<void> EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const CSky& sky)",
+        "desc": "CSky から環境 cubemap(256² ×6)をキャプチャ。"
+      },
+      {
+        "sig": "TResult<void> LoadEquirectHdrFromMemory(IRhiDevice&, IRhiCommandList&, const f32* rgba_float, u32 width, u32 height)",
+        "desc": "equirect HDR 画像(.hdr 等)から env cubemap を作り直す。"
+      },
+      {
+        "sig": "TResult<void> EnsureIrradiance(...) / EnsurePrefilter(...)",
+        "desc": "環境から拡散 irradiance(32² ×6) / 鏡面 prefilter(128² ×6, 5 mip)を生成。"
+      },
+      {
+        "sig": "static void ComputeSh9FromEquirect(const f32* rgba_float, u32 w, u32 h, FVec4 out_sh_rgb[9])",
+        "desc": "equirect 画像から SH9 係数 9 個を CPU 計算(diffuse irradiance の圧縮版)。"
+      },
+      {
+        "sig": "void DrawSkybox(...) / void DrawEnvSkybox(...)",
+        "desc": "cubemap を全画面 skybox として現在の RT に描く。"
+      },
+      {
+        "sig": "IRhiTexture* BrdfLut() / EnvCubemap() / IrradianceMap() / PrefilterMap() / u32 PrefilterMips()",
+        "desc": "生成済みテクスチャの取得(SetIbl に渡す)。"
+      },
+      {
+        "sig": "bool HasBrdfLut() / HasEnvCubemap() / HasIrradianceMap() / HasPrefilterMap()",
+        "desc": "各リソースが生成済みか。"
+      },
+      {
+        "sig": "void ResetEnvCubemap()",
+        "desc": "env(と依存先)だけ破棄。 CSky preset 切替で作り直す前に WaitIdle() 必須。"
+      },
+      {
+        "sig": "using FImageBasedLighting = CImageBasedLighting",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CImageBasedLighting を使う。"
+      }
+    ]
+  }
+}

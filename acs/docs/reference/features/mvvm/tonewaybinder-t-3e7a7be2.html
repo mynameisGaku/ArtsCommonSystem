@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="片方向同期(src → dst のみ)。 src が変わると dst へ流れるが、逆は流れない。 生成時に src の値を dst へ初期反映。">
+  <title>TOneWayBinder&lt;T&gt; — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/mvvm.html">mvvm モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/mvvm.html">mvvm モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/mvvm.html">mvvm</a><span>/</span><span aria-current="page">TOneWayBinder&lt;T&gt;</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / mvvm</div><h1 class="identifier">TOneWayBinder&lt;T&gt;</h1>
+<p class="lead">片方向<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27800">同期</button><span class="term-tooltip" id="term-tip-27800" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>(src → dst のみ)。 src が変わると dst へ流れるが、逆は流れない。 生成時に src の値を dst へ初期反映。</p></div><div class="badges"><span class="badge">クラステンプレート</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/mvvm/tonewaybinder-e3a35fd0.html"><code>acs::TOneWayBinder</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Model → View のように一方通行で十分な時。 View → <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27798">VM</button><span class="term-tooltip" id="term-tip-27798" role="tooltip">Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。</span></span> 方向にしたいなら <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27799">TOneWayBinder</button><span class="term-tooltip" id="term-tip-27799" role="tooltip">Observable 同士を片方向(src→dst)で同期させる小さなクラス。</span></span>(view, vm) と引数の順で表す(別名は提供しない)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>mvvm</dd></div><div class="fact"><dt>分類</dt><dd>クラステンプレート</dd></div><div class="fact"><dt>ヘッダー</dt><dd>mvvm/Binder.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-f8a59e4a049fed9a70aa"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TOneWayBinder(TObservable&lt;T&gt;&amp; src, TObservable&lt;T&gt;&amp; dst)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>src を dst へ片方向結合する。</dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>TOneWayBinder</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/mvvm/tonewaybinder-e3a35fd0.html"><code>acs::TOneWayBinder</code></a><span class="summary"><code>template&lt;typename T&gt; class TOneWayBinder;</code></span></li><li><a href="../../symbols/mvvm/tonewaybinder-e3a35fd0/tonewaybinder-5716754e.html"><code>acs::TOneWayBinder::TOneWayBinder</code></a><span class="summary"><code>TOneWayBinder(TObservable&lt;T&gt;&amp; src, TObservable&lt;T&gt;&amp; dst) noexcept;</code></span></li><li><a href="../../symbols/mvvm/tonewaybinder-e3a35fd0/tonewaybinder-b2546c9b.html"><code>acs::TOneWayBinder::TOneWayBinder</code></a><span class="summary"><code>TOneWayBinder(const TOneWayBinder&amp;) = delete;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="TOneWayBinder&lt;T&gt;の使用例"><code>TObservable&lt;i32&gt; score { 0 };
+TObservable&lt;i32&gt; ui_score;
+TOneWayBinder&lt;i32&gt; b(score, ui_score);
+score.Set(10);   // ui_score も 10
+// ui_score.Set(99) は score に影響しない</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

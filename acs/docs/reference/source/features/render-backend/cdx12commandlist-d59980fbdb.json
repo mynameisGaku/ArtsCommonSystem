@@ -1,0 +1,86 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "CDx12CommandList",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12CommandList.h",
+    "summary": "DX12 のコマンドリスト(IRhiCommandList 派生)。 1 フレーム分の描画命令(クリア・パイプライン設定・バインド・Draw)を ID3D12GraphicsCommandList へ記録し、GPU に投入します。 リソース状態のバリアも内部で面倒を見ます。",
+    "when": "毎フレームの描画ループの主役。 CreateRhiCommandList() で作り、Begin→各種パス→End→Submit の順に回す。",
+    "sample": "auto cmd = CreateRhiCommandList(*dev).Value();\ncmd->Begin();\nu32 i = swap->AcquireNextImage();\ncmd->BeginRenderToSwapchain(*swap, i, {0.1f,0.1f,0.2f,1});\ncmd->SetPipeline(*pso);\ncmd->SetVertexBuffer(*vb, sizeof(FVertex));\ncmd->Draw(3);\ncmd->EndRenderToSwapchain(*swap, i);\ncmd->End();\nif (!cmd->Submit() || !swap->Present()) { /* 描画ループを停止 */ }",
+    "members": [
+      {
+        "sig": "void Begin() / End(); bool Submit()",
+        "desc": "記録の開始・終了・GPU 投入。 1 フレームにつき 1 セット。 投入/fence failure は false。"
+      },
+      {
+        "sig": "void BeginRenderToSwapchain(sc, idx, clear, depth=null, depth_clear=1)",
+        "desc": "バックバッファをレンダーターゲットにして指定色でクリア。 深度も任意で同時バインド。",
+        "when": "通常の画面描画パスの開始。"
+      },
+      {
+        "sig": "void EndRenderToSwapchain(sc, idx)",
+        "desc": "バックバッファ描画を終え、Present 可能状態へ遷移させる。"
+      },
+      {
+        "sig": "void BeginShadowPass(depth, depth_clear=1) / EndShadowPass(depth)",
+        "desc": "深度のみの RT(シャドウマップ)を bind+clear し、終了時に SHADER_RESOURCE 状態へ遷移して主パスでサンプル可能にする。"
+      },
+      {
+        "sig": "void BeginRenderToTexture(rt, clear, depth=null, depth_clear=1)",
+        "desc": "オフスクリーン RT へ描く(HDR / ポストプロセス用)。 終了は EndRenderToTexture。",
+        "when": "HDR バッファや中間テクスチャに描いてから合成する時。"
+      },
+      {
+        "sig": "void BeginRenderToTextureLoad(rt, depth=null)",
+        "desc": "クリアせず既存内容の上に追記する load 版(opaque の上に屈折オブジェクトを足す等)。"
+      },
+      {
+        "sig": "void BeginRenderToTextureSlice(rt, slice, mip, clear)",
+        "desc": "cubemap 1 面 / 配列 1 スライス / 特定 mip に描く(per_slice_rtv=true で作成済が前提)。",
+        "when": "IBL の prefilter cube を面・mip 別に焼く時。"
+      },
+      {
+        "sig": "bool BeginRenderToTextureMrt(rts, rt_count, clear, depth=null, depth_clear=1)",
+        "desc": "複数 color RT を同時 bind する MRT 開始。 Raw DX12 でも実装済み。 全 attachment の view・寸法・sample count を bind 前に検証し、成功時だけ true。 false では backend state は変わらず、Draw と EndRenderToTextureMrt は禁止。"
+      },
+      {
+        "sig": "void SetViewport(vp) / SetScissor(sr) / SetStencilRef(ref)",
+        "desc": "ビューポート・シザー矩形・ステンシル参照値を設定。 ステンシル ref は PSO と独立に切り替えられる。"
+      },
+      {
+        "sig": "void SetPipeline(pipeline)",
+        "desc": "次の Draw で使うパイプライン(PSO + ルートシグネチャ)を設定。"
+      },
+      {
+        "sig": "void SetVertexBuffer(vb, stride) / SetIndexBuffer(ib)",
+        "desc": "頂点/インデックスバッファをバインド。 インデックス型は EBufferUsage から判定。"
+      },
+      {
+        "sig": "void SetConstantBuffer(u32 slot, cb) / SetTexture(u32 slot, tex)",
+        "desc": "定数バッファ・テクスチャを register(bN)/register(tN) に対応する slot へバインド。"
+      },
+      {
+        "sig": "void Draw(vertex_count, first_vertex=0)",
+        "desc": "非インデックス描画。"
+      },
+      {
+        "sig": "void DrawIndexed(index_count, first_index=0, base_vertex=0)",
+        "desc": "インデックス描画。"
+      },
+      {
+        "sig": "void* NativeHandle()",
+        "ret": "ID3D12GraphicsCommandList*",
+        "desc": "生のコマンドリスト。 ImGui 等の外部統合用。"
+      },
+      {
+        "sig": "using FDx12CommandList = CDx12CommandList",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDx12CommandList を使う。"
+      }
+    ]
+  }
+}

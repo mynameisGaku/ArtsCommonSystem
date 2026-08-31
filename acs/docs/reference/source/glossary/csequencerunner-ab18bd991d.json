@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CSequenceRunner",
+  "definition": "複数の FSequence を同時に再生・管理する実行係。 Start で所有して走らせ、毎フレーム Tick で進める。"
+}

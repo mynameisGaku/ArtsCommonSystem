@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "TResult<void, E>",
+    "kind": "クラステンプレート(特殊化)",
+    "header": "foundation/Result.h",
+    "summary": "返す値が無い処理用の TResult。 「成功したか、失敗したか」だけを表す。",
+    "when": "保存・初期化・送信など、結果の成否だけ知りたい関数の戻り型に使う。",
+    "sample": "TResult<void> Save() {\n    ACS_TRY(WriteHeader());   // 失敗なら即 return\n    return Ok();              // 成功\n}\n\nif (auto r = Save(); !r)\n    ACS_LOG_ERROR(\"save failed\");",
+    "members": [
+      {
+        "sig": "TResult()",
+        "desc": "既定構築は成功。 引数なしで返すと「成功」を意味する。"
+      },
+      {
+        "sig": "bool IsOk() / IsErr() / operator bool()",
+        "desc": "成否を判定する（値版と同じ）。"
+      },
+      {
+        "sig": "E& Error()",
+        "ret": "エラー値",
+        "desc": "失敗時のエラーを取り出す。 成功状態で呼ぶとアサート停止。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CCooldownTimer",
+    "kind": "クラス",
+    "header": "gameframework/CooldownTimer.h",
+    "summary": "複数のクールダウン (スキル / アビリティ / リロード等) を同時追跡する軽量マネージャ。 各 cooldown は label と長さを持ち、Tick で残り時間を減らし、0 で使用可 (charged) になる。 TryUse は charged の時だけ true を返して即リロード開始。",
+    "when": "「このスキルは 3 秒に 1 回しか撃てない」のような再使用待ち時間を管理する時。",
+    "sample": "CCooldownTimer cd;\nFCooldownId fireball = cd.Register(\\\"fireball\\\", 3.0f);\ncd.ForceReady(fireball);  // 初手は即撃てる\nvoid OnUpdate(f32 dt) {\n    cd.Tick(dt);\n    if (pressed && cd.TryUse(fireball)) SpawnFireball();\n}",
+    "members": [
+      {
+        "sig": "FCooldownId Register(const char* label, f32 duration_sec)",
+        "ret": "cooldown handle を返します。",
+        "desc": "cooldown を登録する。 duration<=0 は invalid。 登録直後はリロード中扱い。",
+        "when": "スキルを定義する時。"
+      },
+      {
+        "sig": "void Unregister(FCooldownId id)",
+        "desc": "cooldown を削除する (slot 再利用、stale 検出可)。"
+      },
+      {
+        "sig": "bool TryUse(FCooldownId id)",
+        "ret": "使えたか",
+        "desc": "charged なら remaining=duration にして true。 リロード中は false。",
+        "when": "スキルを発動しようとする時。",
+        "sample": "if (cd.TryUse(dash)) DoDash();"
+      },
+      {
+        "sig": "bool IsCharged(FCooldownId id) const",
+        "desc": "今すぐ使えるか。"
+      },
+      {
+        "sig": "f32 Progress(FCooldownId id) const",
+        "ret": "[0,1]",
+        "desc": "リロード進捗。 1.0 で charged。 HUD のゲージ表示に使う。"
+      },
+      {
+        "sig": "f32 Remaining(FCooldownId id) const",
+        "desc": "残り秒数 (charged / stale は 0)。"
+      },
+      {
+        "sig": "void ForceReady(FCooldownId id)",
+        "desc": "即座に charged にする (ReadyCallback も発火)。",
+        "when": "初期化時に「最初から撃てる」状態にしたい時。"
+      },
+      {
+        "sig": "void Reset(FCooldownId id)",
+        "desc": "即座に duration までリロードし直す (charged=false)。"
+      },
+      {
+        "sig": "void SetDuration(FCooldownId id, f32 new_duration_sec)",
+        "desc": "進行中 cooldown の長さを変更する (バフ / デバフで短縮・延長)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "全 cooldown の remaining を減らす。 0 を跨いだ瞬間に charged 遷移 + ReadyCallback 発火。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetOnReadyCallback(ReadyCallback cb, void* user)",
+        "desc": "charged になった瞬間に呼ばれる callback (HUD の \\\"Ready!\\\" 点滅等)。"
+      },
+      {
+        "sig": "using FCooldownTimer = CCooldownTimer",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCooldownTimer を使う。"
+      }
+    ]
+  }
+}

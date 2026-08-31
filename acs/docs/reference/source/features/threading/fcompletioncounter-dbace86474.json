@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FCompletionCounter",
+    "kind": "クラス",
+    "header": "threading/ThreadPool.h",
+    "summary": "投げたタスク群が『あと何個残っているか』を数えるアトミックカウンタ。 0 になったら全完了。 Done は 0 で飽和し、呼びすぎても下にあふれない(待ちがハングしない)。 コピー不可。",
+    "when": "複数タスクをまとめて投入し、全部終わるのを CThreadPool::Wait で待ちたい時の合図役。",
+    "sample": "FCompletionCounter c;\nfor (auto& job : jobs)\n    CThreadPool::Submit(FTask{ job.fn, job.user, &c }); // 自動 Add\nFThreadPool::Wait(c);  // 全部終わるまで(自分も手伝いつつ)待つ",
+    "members": [
+      {
+        "sig": "explicit FCompletionCounter(u32 initial)",
+        "desc": "初期残数を指定して作る(既定は 0)。"
+      },
+      {
+        "sig": "void Add(u32 n = 1)",
+        "desc": "残数を n 増やす(タスク投入時)。 Submit 経由なら自動。"
+      },
+      {
+        "sig": "void Done()",
+        "desc": "残数を 1 減らす(タスク完了時)。 0 では何もしない(下限飽和)。"
+      },
+      {
+        "sig": "u32 Pending() const",
+        "ret": "残数",
+        "desc": "まだ終わっていないタスクの数。"
+      },
+      {
+        "sig": "bool Finished() const",
+        "ret": "全完了か",
+        "desc": "残数が 0、つまり全タスク完了なら true。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "imgui",
+    "title": "imgui — ImGui 連携",
+    "description": "デバッグ用の GUI ライブラリ Dear ImGui を ACS のウィンドウとレンダラに繋ぐ薄いラッパです。 たった数行で、開発中のパラメータ調整パネルやデバッグ表示を画面に出せます。"
+  },
+  "feature": {
+    "name": "FImGuiCtx",
+    "kind": "クラス",
+    "header": "imgui/ImGuiContext.h",
+    "summary": "Dear ImGui を ACS に統合する入口クラス。 内部で Win32 backend(入力)と DX12 backend(描画)を初期化し、ImGui::Begin() などの素の ImGui API をそのまま使えるようにします。 コピーは禁止(片付けを 1 つに保つため)。",
+    "when": "ゲームやツールに『その場でいじれるデバッグパネル』を足したい時。 スライダーでパラメータを調整したり、内部状態をテキスト表示したりするのに使います。",
+    "sample": "FImGuiCtx imgui;\nimgui.Init(window, renderer);             // 1 回だけ\nwhile (!window.ShouldClose()) {\n    renderer.BeginFrame(...);\n    imgui.NewFrame();                     // フレーム開始\n    ImGui::Begin(\"Hello\");                 // 素の ImGui API\n    ImGui::Text(\"Hello, world!\");\n    ImGui::End();\n    imgui.Render();                       // 描画コマンド発行\n    renderer.EndFrame();\n}\nimgui.Shutdown();                         // 片付け",
+    "members": [
+      {
+        "sig": "TResult<void> Init(FWindow& window, CRenderer& renderer)",
+        "ret": "成功 または エラー",
+        "desc": "ImGui を起動し、与えたウィンドウとレンダラに紐付ける。 フォント用の SRV ヒープもここで確保する。 レンダラが未初期化だとエラー(Result)を返す。",
+        "when": "アプリ起動時に 1 回だけ。 失敗し得るので戻り値を確認する。",
+        "sample": "if (auto r = imgui.Init(window, renderer); r.IsErr()) {\n    // 初期化失敗(レンダラ未準備など)\n}"
+      },
+      {
+        "sig": "void NewFrame()",
+        "desc": "新しいフレームの ImGui 入力を開始する。 この後に ImGui::Begin() 等の UI 構築を書く。 レンダラの BeginFrame() の後に呼ぶ。",
+        "when": "毎フレーム、UI を組み立てる直前に 1 回。"
+      },
+      {
+        "sig": "void Render()",
+        "desc": "組み立てた UI の描画コマンドを、今のコマンドリストに発行する。 レンダラの EndFrame() の前に呼ぶ。 コマンドリストが無い場合は安全に何もしない。",
+        "when": "毎フレーム、UI を組み終えた直後に 1 回。"
+      },
+      {
+        "sig": "void OnEvent(const Event& e)",
+        "desc": "ウィンドウイベント(マウス移動・クリック・ホイール・文字入力など)を ImGui に転送する。 これを呼ばないと UI がマウス操作に反応しない。",
+        "when": "CApplication::OnEvent など、イベントを受け取る場所から毎回呼ぶ。",
+        "sample": "void OnEvent(const Event& e) override {\n    imgui.OnEvent(e);   // ImGui にも入力を渡す\n    // ...自分のゲーム入力処理...\n}"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "ImGui と両 backend を破棄し、確保した SRV ヒープを解放する。 何度呼んでも安全(二重解放しない)。 デストラクタからも自動で呼ばれる。",
+        "when": "アプリ終了時。 明示的に呼ばなくてもオブジェクト破棄時に走る。"
+      }
+    ]
+  }
+}

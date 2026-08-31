@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputRecordingView",
+    "kind": "クラス",
+    "header": "gameframework/InputRecordingView.h",
+    "summary": "caller-owned の .acsr バイト列を全検証し、sample 領域をコピーせず借用する immutable decoder。 header、製品上限、厳密サイズ、CRC32、mouse の有限値を allocation 前に検査する。",
+    "when": "mapped file や受信バッファを所有配列へ展開せず、安全に順次参照したい時。 記録を長期保持・編集する場合は CInputRecorder::TryLoadFromBuffer を使う。",
+    "sample": "TSpan<const u8> bytes(fileData, fileSize); // view より長く生存し、不変に保つ\nTResult<FInputRecordingView> result = FInputRecordingView::Decode(bytes);\nif (result.IsOk()) {\n    FInputSample sample;\n    result.Value().DecodeSample(0u, sample);\n}",
+    "members": [
+      {
+        "sig": "static TResult<FInputRecordingView> Decode(TSpan<const u8> bytes)",
+        "ret": "検証済み view または FErrorCode",
+        "desc": "magic/version、tick rate・件数上限、厳密サイズ、CRC32、全 sample の有限 mouse 値を検査する。 null、truncation、破損、上限超過は失敗し、入力を所有しない。"
+      },
+      {
+        "sig": "bool DecodeSample(u32 index, FInputSample& out) const",
+        "ret": "範囲内なら true",
+        "desc": "固定 29 byte の ABI 非依存 layout から一件を復元する。 範囲外では false を返し、out を変更しない。"
+      },
+      {
+        "sig": "u32 TickRateHz() const / SampleCount() const",
+        "desc": "検証済み header の tick rate と sample 件数を返す。"
+      }
+    ]
+  }
+}

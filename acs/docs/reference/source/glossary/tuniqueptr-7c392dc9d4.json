@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TUniquePtr",
+  "definition": "コピー不可・ムーブのみで、スコープを抜けると自動解放。"
+}

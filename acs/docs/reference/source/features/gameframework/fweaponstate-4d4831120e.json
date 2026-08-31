@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FWeaponState",
+    "kind": "構造体",
+    "header": "gameframework/WeaponSystem.h",
+    "summary": "現在装備中武器のランタイム状態 snapshot。 残弾・次発射可能時刻・reload 中フラグ / 残り時間を持ち、主に UI / デバッグ表示に使います。",
+    "when": "HUD に残弾やリロードゲージを出す時。",
+    "sample": "const FWeaponState& s = ws.State();",
+    "members": [
+      {
+        "sig": "const char* current_def_id",
+        "desc": "装備中武器の id。"
+      },
+      {
+        "sig": "u32 ammo_in_mag / u32 reserve_ammo",
+        "desc": "マガジン内残弾 / 予備弾薬。"
+      },
+      {
+        "sig": "f32 next_fire_time_sec",
+        "desc": "この時刻まで TryFire は失敗する(連射間隔の基準)。"
+      },
+      {
+        "sig": "bool reloading / f32 reload_remaining_sec",
+        "desc": "reload 中フラグ / 完了までの残り秒。"
+      }
+    ]
+  }
+}

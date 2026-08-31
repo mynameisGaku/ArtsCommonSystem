@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "crashwin",
+    "title": "crashwin — クラッシュレポート",
+    "description": "ゲームが落ちた時に Windows のミニダンプ（.dmp）とテキスト報告書を自動で吐き出す実 backend です。 gameframework の抽象 ICrashReporterBackend を Windows の DbgHelp で実装し、起動時に 1 行登録するだけで使えます。"
+  },
+  "feature": {
+    "name": "GetDefaultWindowsCrashReporter()",
+    "kind": "関数",
+    "header": "crashwin/WindowsCrashReporter.h",
+    "summary": "プロセス全体で共有される既定の CWindowsCrashReporter singletonを返す。 これが provider として登録される実体。",
+    "when": "通常は直接呼ばず InstallWindowsCrashReporterAsDefault を使う。 明示的に同じ singleton を触りたい時だけ使う。",
+    "sample": "auto& crash = acs::crashwin::GetDefaultWindowsCrashReporter();\ncrash.AddBreadcrumb(\"boot\", \"engine init 完了\");",
+    "members": [
+      {
+        "sig": "ICrashReporterBackend& GetDefaultWindowsCrashReporter()",
+        "ret": "既定 backend 参照",
+        "desc": "プロセス共有の CWindowsCrashReporter を ICrashReporterBackend 参照として返す。"
+      }
+    ]
+  }
+}

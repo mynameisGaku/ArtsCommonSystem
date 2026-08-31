@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "FLogSinkHandle / FLogSinkSubscription",
+    "kind": "構造体 / クラス",
+    "header": "foundation/LogSinkHandle.h / foundation/LogSinkSubscription.h",
+    "summary": "複数利用者向けログ通知先の世代付き識別子と、破棄時に解除する移動専用所有権。",
+    "when": "エディタ、開発用表示、外部診断など複数の利用者が同じ CLogger のログを受け取る時。",
+    "sample": "auto subscription = CLogger::SubscribeSinkOwned(\n    [](ELogSeverity severity, const char* message, void* user) noexcept {\n        ConsumeLog(user, severity, message);\n    }, context);\n// subscription の破棄時に自動解除",
+    "members": [
+      {
+        "sig": "bool FLogSinkHandle::IsValid() const",
+        "desc": "枠番号と世代番号が有効範囲内かを返す。"
+      },
+      {
+        "sig": "bool FLogSinkSubscription::IsValid() const",
+        "desc": "保持中の購読が現在も有効かを返す。"
+      },
+      {
+        "sig": "bool FLogSinkSubscription::Reset()",
+        "desc": "保持中の購読を解除する。"
+      },
+      {
+        "sig": "FLogSinkHandle FLogSinkSubscription::Handle() const",
+        "desc": "保持中の世代付きハンドルを返す。"
+      }
+    ]
+  }
+}

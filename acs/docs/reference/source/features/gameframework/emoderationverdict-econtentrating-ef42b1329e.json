@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "EModerationVerdict / EContentRating",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ContentModerator.h",
+    "summary": "Verdict=UI フロー制御の 3 値 (Allow / Warn / Block)。 Rating=年齢ゲート用の 5 値 (Safe / Mild / Mature / Explicit / SexualMinor_HardcodedBlock)。 最後の 1 つは実装に関わらず必ず Block される法令遵守ガードレール。",
+    "when": "判定結果を分岐する時。",
+    "sample": "switch (r.Value().verdict) {\n  case EModerationVerdict::Allow: Post(); break;\n  case EModerationVerdict::Block: Reject(); break;\n}"
+  }
+}

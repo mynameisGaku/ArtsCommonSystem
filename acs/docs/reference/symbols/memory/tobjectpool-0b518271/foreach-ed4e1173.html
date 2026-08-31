@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="生存オブジェクトを密に反復する (キャッシュ効率の良い順)。 Function(T&amp;, Handle)。 反復中に Create/Destroy しないこと (生存リストを変更するため)。">
+  <title>acs::TObjectPool::ForEach — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/memory.html">memory モジュール</a><a href="../tobjectpool-0b518271.html">TObjectPool の概要</a><a class="tree-child" href="advancegeneration-0f5494af.html">AdvanceGeneration</a><a class="tree-child" href="clear-ba9d83dd.html">Clear</a><a class="tree-child" href="count-3bd3cb3a.html">Count</a><a class="tree-child" href="create-efab49f7.html">Create</a><a class="tree-child" href="destroy-db8af969.html">Destroy</a><a class="tree-child" href="ensurechunkfor-210c37ec.html">EnsureChunkFor</a><a class="tree-child" href="fchunk-fcb3f910.html">FChunk</a><a class="tree-child" href="foreach-ed4e1173.html" aria-current="page">ForEach</a><a class="tree-child" href="freechunks-624e3ec9.html">FreeChunks</a><a class="tree-child" href="fslot-bf9fccc7.html">FSlot</a><a class="tree-child" href="get-99d0d457.html">Get</a><a class="tree-child" href="get-ba3618c9.html">Get</a><a class="tree-child" href="handle-0a1d83a8.html">Handle</a><a class="tree-child" href="isalive-239e12d1.html">IsAlive</a><a class="tree-child" href="kchunksize-530ac124.html">kChunkSize</a><a class="tree-child" href="m-alloc-54905141.html">m_Alloc</a><a class="tree-child" href="m-chunks-f7f45d48.html">m_Chunks</a><a class="tree-child" href="m-free-91c3e55e.html">m_Free</a><a class="tree-child" href="m-generationseed-02e08abf.html">m_GenerationSeed</a><a class="tree-child" href="m-live-59aa58e1.html">m_Live</a><a class="tree-child" href="m-slotcount-36b5db15.html">m_SlotCount</a><a class="tree-child" href="operator-f97df048.html">operator=</a><a class="tree-child" href="releasestorage-589d4878.html">ReleaseStorage</a><a class="tree-child" href="resolve-6c54cbe5.html">Resolve</a><a class="tree-child" href="resolve-b09535be.html">Resolve</a><a class="tree-child" href="slotref-00d3f799.html">SlotRef</a><a class="tree-child" href="slotref-356af1e5.html">SlotRef</a><a class="tree-child" href="tobjectpool-30261f2b.html">TObjectPool</a><a class="tree-child" href="tobjectpool-4995ddf2.html">TObjectPool</a><a class="tree-child" href="tryclear-34f82845.html">TryClear</a><a class="tree-child" href="tobjectpool-5e4c8b1c.html">~TObjectPool</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/memory.html">memory</a><span>/</span><a href="../tobjectpool-0b518271.html">TObjectPool</a><span>/</span><span aria-current="page">ForEach</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / memory</div>
+<h1 class="identifier">acs::TObjectPool::ForEach</h1>
+<p class="lead">生存オブジェクトを密に反復する (キャッシュ効率の良い順)。 Function(T&amp;, Handle)。 反復中に Create/Destroy しないこと (生存リストを変更するため)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TObjectPool::ForEachの宣言"><code>template&lt;class Fn&gt; void <a href="foreach-ed4e1173.html" aria-current="page">ForEach</a>(Fn&amp;&amp; Function) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/memory.html">memory</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../tobjectpool-0b518271.html"><code>acs::TObjectPool</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/memory/ObjectPool.h:181</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

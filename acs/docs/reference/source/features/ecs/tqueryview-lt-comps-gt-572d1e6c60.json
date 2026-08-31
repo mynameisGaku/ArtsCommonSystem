@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "TQueryView<Comps...>",
+    "kind": "クラステンプレート",
+    "header": "ecs/Query.h",
+    "summary": "CWorld::Query<A, B, ...>() が返す反復ヘルパ。 指定した全コンポーネントを持つエンティティだけを選び、各々にラムダを適用する。 内部では一番要素の少ない集合を主軸にして効率良く絞り込む。",
+    "when": "毎フレームの処理(移動・当たり判定・描画準備など)を『該当する全エンティティ』に対して回す時。 ECS の主役。",
+    "sample": "w.Query<Position, Velocity>().Each(\n    [dt](FEntityId id, Position& p, Velocity& v) {\n        p.x += v.x * dt;\n        p.y += v.y * dt;\n    });",
+    "members": [
+      {
+        "sig": "void Each(Fn fn)",
+        "desc": "条件に合う各エンティティへ fn(FEntityId, Comps&...) を呼ぶ。 反復前に dense 列をスナップショットするので、fn 内で Add/Remove しても安全。",
+        "when": "通常の毎フレーム処理。",
+        "sample": "w.Query<Health>().Each([](FEntityId e, Health& h){ if (h.hp <= 0) {/* 死亡処理 */} });"
+      },
+      {
+        "sig": "void EachParallel(Fn fn, u32 grain = 1024)",
+        "desc": "CThreadPool で chunk 分割し並列に fn を呼ぶ。 各エンティティは独立に処理される前提。 共有資源を触るなら自分で同期する。 grain は 1 chunk の最小エンティティ数。",
+        "when": "エンティティ数が非常に多く、各処理が独立しているとき。",
+        "sample": "w.Query<Position, Velocity>().EachParallel(\n    [](FEntityId, Position& p, Velocity& v){ p.x += v.x; }, 1024);"
+      }
+    ]
+  }
+}

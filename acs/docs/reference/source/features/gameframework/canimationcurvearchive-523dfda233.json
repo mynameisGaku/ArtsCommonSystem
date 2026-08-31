@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAnimationCurveArchive",
+    "kind": "クラス",
+    "header": "gameframework/AnimationCurveArchive.h",
+    "summary": "FAnimationCurve を固定幅 little-endian wire record として保存・復元する bounded codec。 CRC、version、exact size、全 key と wrap mode を検証し、失敗時は出力 buffer と復元先曲線を変更しない。",
+    "when": "曲線をエディタデータや save file に永続化し、破損・旧 version・過大入力を明示的に診断したい時。",
+    "sample": "u64 size = CAnimationCurveArchive::EncodedSize(curve);\nTArray<u8> bytes;\nbytes.TrySetNum(static_cast<usize>(size));\nu64 written = 0;\nauto saved = CAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = CAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
+    "members": [
+      {
+        "sig": "u64 EncodedSize(const FAnimationCurve&) noexcept",
+        "desc": "正準 wire record の必要 byte 数を返す。"
+      },
+      {
+        "sig": "FAnimationCurveArchiveResult Encode(const FAnimationCurve&, void*, u64 capacity, u64& out_size) noexcept",
+        "desc": "全入力を検証後に caller buffer へ正準 encoding する。 容量不足でも必要量を返し、buffer は変更しない。"
+      },
+      {
+        "sig": "FAnimationCurveArchiveResult Decode(const void*, u64 size, FAnimationCurve&) noexcept",
+        "desc": "magic/version/size/CRC/key を全検証し、成功時だけ復元先を置換する。 trailing data も拒否する。"
+      },
+      {
+        "sig": "FAnimationCurveArchiveResult SaveToFile(const wchar_t*, const FAnimationCurve&) / LoadFromFile(const wchar_t*, FAnimationCurve&)",
+        "desc": "CSaveArchive の検証済み atomic envelope を介して file 保存/復元する。"
+      },
+      {
+        "sig": "kWireVersion / kHeaderSize / kKeyRecordSize / kMaxEncodedSize",
+        "desc": "wire format と最大 65,536 keys に対応する公開境界。"
+      },
+      {
+        "sig": "using FAnimationCurveArchive = CAnimationCurveArchive",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAnimationCurveArchive を使う。"
+      }
+    ]
+  }
+}

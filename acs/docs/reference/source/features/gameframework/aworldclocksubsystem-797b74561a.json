@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "AWorldClockSubsystem",
+    "kind": "クラス",
+    "header": "gameframework/WorldClockSubsystem.h",
+    "summary": "worldが所有し、simulation時刻とscaleを更新するsubsystem。",
+    "when": "world単位の時刻を取得または進める時。",
+    "members": [
+      {
+        "sig": "using FWorldClockSubsystem = AWorldClockSubsystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AWorldClockSubsystem を使う。"
+      }
+    ]
+  }
+}

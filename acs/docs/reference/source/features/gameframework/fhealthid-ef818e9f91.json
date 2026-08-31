@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "FHealthId",
+    "kind": "構造体",
+    "header": "gameframework/HealthSystem.h",
+    "summary": "HP 管理対象 entity の識別子。 32bit に 24bit index + 8bit 世代を詰めたハンドル。 0 は invalid 予約。 Despawn → 再利用しても古いハンドルは世代不一致で弾かれる。",
+    "when": "CHealthSystem の各操作で entity を指す時。",
+    "sample": "FHealthId id = hp.Spawn(100.0f);\nif (id.IsValid() && hp.IsAlive(id)) { /* ... */ }",
+    "members": [
+      {
+        "sig": "u32 Index() / u8 Generation() / bool IsValid()",
+        "desc": "詰め込まれた index / 世代 / 有効性 (m_Packed != 0)。"
+      },
+      {
+        "sig": "bool operator==/!=(FHealthId o)",
+        "desc": "ハンドル同士の等値比較。"
+      }
+    ]
+  }
+}

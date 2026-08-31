@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "シェーダ",
+  "definition": "GPU 上で頂点やピクセルを計算する小さなプログラム。 ACS では HLSL で書く。"
+}

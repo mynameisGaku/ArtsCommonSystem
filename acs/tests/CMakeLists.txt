@@ -1141,32 +1141,125 @@ set_tests_properties(
     ACS.CppPrefixConsumerAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
-# 手書き API リファレンスの class/struct/enum 表記を現行 C++ 宣言と照合し、
-# 大規模 rename 後に利用側の表記だけ旧名へ戻る drift を防ぐ。
+# 型機能ページを現行C++宣言と照合し、未解決、誤解決、headerずれを防ぐ。
 set(ACS_REFERENCE_TYPE_NAMES_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_reference_type_names.py")
+set(ACS_REFERENCE_SITE_GENERATOR
+    "${ACS_TREE_ROOT}/scripts/generate_reference_site.py")
+set(ACS_REFERENCE_SOURCE
+    "${ACS_TREE_ROOT}/docs/reference/source")
+set(ACS_REFERENCE_SYMBOL_PARSER_TEST
+    "${ACS_TREE_ROOT}/tests/reference_symbol_parser_tests.py")
+set(ACS_REFERENCE_SOURCE_SANITIZER_TEST
+    "${ACS_TREE_ROOT}/tests/reference_source_sanitizer_tests.py")
+set(ACS_REFERENCE_SOURCE_MANIFEST_CHECK
+    "${ACS_TREE_ROOT}/scripts/rebuild_reference_source_manifest.py")
+set(ACS_REFERENCE_FEATURE_MEMBER_TEST
+    "${ACS_TREE_ROOT}/tests/reference_feature_member_tests.py")
+set(ACS_REFERENCE_SITE_TEST
+    "${ACS_TREE_ROOT}/tests/reference_site_tests.py")
+set(ACS_REFERENCE_SITE_ATOMIC_GENERATION_TEST
+    "${ACS_TREE_ROOT}/tests/reference_site_atomic_generation_tests.py")
+set(ACS_REFERENCE_CSS_TEST
+    "${ACS_TREE_ROOT}/tests/reference_css_tests.py")
+set(ACS_DOCS_IMAGE_INTEGRITY_TEST
+    "${ACS_TREE_ROOT}/tests/docs_image_tests.py")
+set(ACS_DOCS_INTEGRITY_TEST
+    "${ACS_TREE_ROOT}/tests/docs_integrity_tests.py")
 
 add_custom_target(acs_reference_check
-    COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
-            "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
-            --root "${ACS_TREE_ROOT}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SYMBOL_PARSER_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SOURCE_SANITIZER_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SOURCE_MANIFEST_CHECK}" --check
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_FEATURE_MEMBER_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SITE_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SITE_ATOMIC_GENERATION_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_CSS_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_DOCS_IMAGE_INTEGRITY_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_DOCS_INTEGRITY_TEST}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+            --root "${ACS_TREE_ROOT}" --source "${ACS_REFERENCE_SOURCE}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_SITE_GENERATOR}"
+            --acs-root "${ACS_TREE_ROOT}" --source "${ACS_REFERENCE_SOURCE}" --check
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
-    COMMENT "ACS: 手書き API リファレンスの型名を現行宣言と照合"
+    COMMENT "ACS: リファレンス正本、文書画像、型解決、生成差分を検査"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_reference_check PROPERTIES FOLDER "Tools")
 
 add_test(NAME ACS.ReferenceTypeNamesAuditSelfTest
-         COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
-                 "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+         COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
                  --self-test)
 add_test(NAME ACS.ReferenceTypeNamesAudit
-         COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
-                 "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
-                 --root "${ACS_TREE_ROOT}")
+         COMMAND "${Python3_EXECUTABLE}" -B "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+                 --root "${ACS_TREE_ROOT}" --source "${ACS_REFERENCE_SOURCE}")
 set_tests_properties(
     ACS.ReferenceTypeNamesAuditSelfTest
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 60)
+set_tests_properties(
     ACS.ReferenceTypeNamesAudit
-    PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 120)
+
+add_test(
+    NAME ACS.ReferenceSymbolParserRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SYMBOL_PARSER_TEST}")
+add_test(
+    NAME ACS.ReferenceSourceSanitizerRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SOURCE_SANITIZER_TEST}")
+add_test(
+    NAME ACS.ReferenceSourceManifest
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SOURCE_MANIFEST_CHECK}" --check)
+add_test(
+    NAME ACS.ReferenceFeatureMemberRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_FEATURE_MEMBER_TEST}")
+add_test(
+    NAME ACS.ReferenceSiteRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SITE_TEST}")
+add_test(
+    NAME ACS.ReferenceSiteAtomicGenerationRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SITE_ATOMIC_GENERATION_TEST}")
+add_test(
+    NAME ACS.ReferenceCssRegression
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_CSS_TEST}")
+add_test(
+    NAME ACS.DocsImageIntegrity
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_DOCS_IMAGE_INTEGRITY_TEST}")
+add_test(
+    NAME ACS.DocsIntegrity
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_DOCS_INTEGRITY_TEST}")
+add_test(
+    NAME ACS.ReferenceSiteDrift
+    COMMAND "${Python3_EXECUTABLE}" -B
+            "${ACS_REFERENCE_SITE_GENERATOR}"
+            --acs-root "${ACS_TREE_ROOT}"
+            --source "${ACS_REFERENCE_SOURCE}"
+            --check)
+set_tests_properties(
+    ACS.ReferenceSourceSanitizerRegression
+    ACS.ReferenceSourceManifest
+    ACS.ReferenceFeatureMemberRegression
+    ACS.ReferenceSiteRegression
+    ACS.ReferenceSiteAtomicGenerationRegression
+    ACS.ReferenceCssRegression
+    ACS.DocsIntegrity
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 30)
+set_tests_properties(
+    ACS.ReferenceSymbolParserRegression
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 180)
+set_tests_properties(
+    ACS.DocsImageIntegrity
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 180)
+set_tests_properties(
+    ACS.ReferenceSiteDrift
+    PROPERTIES LABELS "StaticAnalysis;Reference" TIMEOUT 300)
 
 # assembled Module.cmake を含め、全 compile source の登録漏れと削除済み entry を監査する。
 set(ACS_MODULE_SOURCES_AUDIT

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FEventId",
+    "kind": "構造体",
+    "header": "gameframework/SceneEventBus.h",
+    "summary": "イベント識別子。 文字列リテラルからコンパイル時ハッシュ (FNV-1a) で u32 を生成する。 実行時の文字列比較なしで高速。",
+    "when": "イベントを Subscribe/Publish する時の名前付けに。",
+    "sample": "FEventId id(\"EnemySpawned\");  // コンパイル時に u32 化"
+  }
+}

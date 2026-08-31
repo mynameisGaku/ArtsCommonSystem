@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ATextAsset",
+  "definition": "UTF-8 テキストを保持するアセット。"
+}

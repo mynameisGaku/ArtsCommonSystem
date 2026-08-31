@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAmbientDirector",
+    "kind": "クラス",
+    "header": "gameframework/AmbientDirector.h",
+    "summary": "1 日の時刻 (0〜24h) に応じて空の色・環境光・太陽方向を補間する時刻ドライバ (time-of-day)。 レンダラは 3 つの色/ベクトルを毎フレーム pull するだけで朝昼夕夜の表情が出る。",
+    "when": "屋外シーンで時間経過の昼夜サイクルを出したい時。",
+    "sample": "CAmbientDirector amb;\namb.SetTimeOfDay(6.5f);      // 朝焼け開始\namb.SetTimeScale(0.1f);      // リアル 1s = 0.1 game-hour\n// 毎フレーム:\namb.Tick(dt);\nrenderer.SetSkyColor(amb.SkyColor());\nrenderer.SetSunDir (amb.SunDirection());",
+    "members": [
+      {
+        "sig": "void SetTimeOfDay(f32 hours)",
+        "desc": "現在時刻を [0,24) で設定する (範囲外は剰余で正規化)。"
+      },
+      {
+        "sig": "void AdvanceTime(f32 dt_hours)",
+        "desc": "ゲーム時間を dt_hours だけ進める (負値は 0 にクランプ)。"
+      },
+      {
+        "sig": "FVec3 SkyColor() const / FVec3 AmbientColor() const / FVec3 SunDirection() const",
+        "ret": "補間結果",
+        "desc": "現在時刻での空色・環境光色・太陽方向ベクトルを返す。"
+      },
+      {
+        "sig": "bool IsDay() const / bool IsNight() const",
+        "desc": "6:00〜18:00 を昼として昼夜を判定する。"
+      },
+      {
+        "sig": "void SetTimeScale(f32 game_hours_per_real_sec)",
+        "desc": "リアル 1 秒で進めるゲーム時間を設定する。 既定 1/60 (= リアル 1 分でゲーム 1 時間)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "リアル秒 dt をタイムスケール換算してゲーム時間を進める。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "using FAmbientDirector = CAmbientDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAmbientDirector を使う。"
+      }
+    ]
+  }
+}

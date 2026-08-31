@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="カメラが LookAt すべき world 座標を返す。 戻り値: trigger 時の killer 位置。">
+  <title>acs::game::CDamageFeedback::DeathCamTarget — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cdamagefeedback-ae7692ba.html">CDamageFeedback の概要</a><a class="tree-child" href="cdamagefeedback-0cad981e.html">CDamageFeedback</a><a class="tree-child" href="cdamagefeedback-3abbddfd.html">CDamageFeedback</a><a class="tree-child" href="cdamagefeedback-4647e544.html">CDamageFeedback</a><a class="tree-child" href="deathcamprogress-760ddf50.html">DeathCamProgress</a><a class="tree-child" href="deathcamtarget-704df1f3.html" aria-current="page">DeathCamTarget</a><a class="tree-child" href="directionalindicator-9b50f7ca.html">DirectionalIndicator</a><a class="tree-child" href="directionalindicatoralpha-0e5d72b7.html">DirectionalIndicatorAlpha</a><a class="tree-child" href="exitdeathcam-c4f5cf24.html">ExitDeathCam</a><a class="tree-child" href="hasdirectionalindicator-a0e038a7.html">HasDirectionalIndicator</a><a class="tree-child" href="isdeathcamactive-5cd6e7cd.html">IsDeathCamActive</a><a class="tree-child" href="m-deathcamactive-bb9cf066.html">m_DeathCamActive</a><a class="tree-child" href="m-deathcamt-6ab1c8af.html">m_DeathCamT</a><a class="tree-child" href="m-dirintensity-3b8a0878.html">m_DirIntensity</a><a class="tree-child" href="m-dirvec-03aa80e3.html">m_DirVec</a><a class="tree-child" href="m-killerpos-e6cf1f9b.html">m_KillerPos</a><a class="tree-child" href="m-recentdamagetotal-b67c307d.html">m_RecentDamageTotal</a><a class="tree-child" href="m-redintensity-93e31035.html">m_RedIntensity</a><a class="tree-child" href="operator-1e0f84cd.html">operator=</a><a class="tree-child" href="operator-641ab0d8.html">operator=</a><a class="tree-child" href="reset-dbd95ad7.html">Reset</a><a class="tree-child" href="screenedgeredintensity-7fc95429.html">ScreenEdgeRedIntensity</a><a class="tree-child" href="takedamage-c20e624e.html">TakeDamage</a><a class="tree-child" href="tick-5d1d0ce6.html">Tick</a><a class="tree-child" href="triggerdeathcam-4f54174e.html">TriggerDeathCam</a><a class="tree-child" href="cdamagefeedback-a7356774.html">~CDamageFeedback</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cdamagefeedback-ae7692ba.html">CDamageFeedback</a><span>/</span><span aria-current="page">DeathCamTarget</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CDamageFeedback::DeathCamTarget</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5602">カメラ</button><span class="term-tooltip" id="term-tip-5602" role="tooltip">視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。</span></span>が LookAt すべき world 座標を返す。 戻り値: trigger 時の killer 位置。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CDamageFeedback::DeathCamTargetの宣言"><code>FVec3 <a href="deathcamtarget-704df1f3.html" aria-current="page">DeathCamTarget</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cdamagefeedback-ae7692ba.html"><code>acs::game::CDamageFeedback</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/DamageFeedback.h:167</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

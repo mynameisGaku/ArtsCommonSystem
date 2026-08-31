@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "Rgb / Rgba / Fade",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "0〜255 の整数から FColor を作るヘルパと、不透明度だけ変える Fade。",
+    "when": "0〜255の整数で色を作るときに使用します。 フェードイン/アウトや半透明描画に Fade。",
+    "sample": "FColor c  = Rgb(255, 128, 0);          // 橙\nFColor c2 = Rgba(0, 0, 0, 128);        // 半透明の黒\nFColor c3 = Fade(FColor::White, 0.3f); // 30% の白",
+    "members": [
+      {
+        "sig": "FColor Rgb(u8 r, u8 g, u8 b)",
+        "ret": "不透明な色",
+        "desc": "0〜255 の RGB から色を作る。"
+      },
+      {
+        "sig": "FColor Rgba(u8 r, u8 g, u8 b, u8 a)",
+        "desc": "不透明度も 0〜255 で指定する版。"
+      },
+      {
+        "sig": "FColor Fade(FColor color, f32 alpha)",
+        "ret": "半透明にした色",
+        "desc": "色はそのままで不透明度（0〜1）だけ差し替える。"
+      }
+    ]
+  }
+}

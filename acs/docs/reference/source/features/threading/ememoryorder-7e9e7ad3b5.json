@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "EMemoryOrder",
+    "kind": "列挙(enum)",
+    "header": "threading/MemoryOrder.h",
+    "summary": "強いほど安全だが遅い。",
+    "when": "TAtomic の各操作に渡す。 迷ったら既定の SeqCst でよい。 性能を詰める段階で緩める。",
+    "sample": "a.Store(1, EMemoryOrder::Release);   // これ以前の書き込みを公開\nu32 v = a.Load(EMemoryOrder::Acquire); // 公開された書き込みを取り込む\nb.FetchAdd(1);                         // RMW(FetchAdd 等)は順序引数を取らない",
+    "members": [
+      {
+        "sig": "Relaxed",
+        "desc": "順序保証なし。 値そのものはアトミックだが、周りの読み書きの順序は守られない。 最速。"
+      },
+      {
+        "sig": "Acquire",
+        "desc": "このロード以降の読み書きが上に動かない。 Release された値を取り込む側。"
+      },
+      {
+        "sig": "Release",
+        "desc": "このストア以前の読み書きが下に動かない。 書いた内容を他スレッドへ公開する側。"
+      },
+      {
+        "sig": "AcqRel",
+        "desc": "読み書き両方を行う RMW 操作向け(Acquire + Release)の意味タグ。 ただし TAtomic の RMW(FetchAdd/Exchange/CompareExchange 等)は順序引数を取らない(x64 では常に完全バリア)ため、この値を渡す先は Load/Store のみ。 Load は Relaxed 以外なら Acquire、Store は Relaxed 以外なら Release として扱われる(SeqCst も同じ扱いで、Load/Store に完全バリアは入らない)。"
+      },
+      {
+        "sig": "SeqCst",
+        "desc": "全スレッドで唯一の順序が見える最強の保証。 既定値。"
+      }
+    ]
+  }
+}

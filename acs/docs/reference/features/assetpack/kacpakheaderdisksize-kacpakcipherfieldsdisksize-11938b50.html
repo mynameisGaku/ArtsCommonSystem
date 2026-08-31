@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content=".acpak のディスク上の固定バイト数。 kAcpakHeaderDiskSize = 36 はヘッダ実体長(sizeof(FAcpakHeader) は構造体パディングで 40 になり得るため I/O はこの値で明示)。 kAcpakCipherFieldsDiskSize = 28 は暗号化フラグ立ち時に各エントリが追加で持つ nonce(12)+タグ(16) のバイト数。">
+  <title>kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSize — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/assetpack.html">assetpack モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/assetpack.html">assetpack モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/assetpack.html">assetpack モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/assetpack.html">assetpack</a><span>/</span><span aria-current="page">kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSize</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / assetpack</div><h1 class="identifier">kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSize</h1>
+<p class="lead">.<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22500">acpak</button><span class="term-tooltip" id="term-tip-22500" role="tooltip">ACS のアセットアーカイブ形式(.acpak)。 出荷時に複数ファイルを 1 つにまとめる。</span></span> のディスク上の固定バイト数。 kAcpakHeaderDiskSize = 36 はヘッダ実体長(sizeof(FAcpakHeader) は構造体パディングで 40 になり得るため I/O はこの値で明示)。 kAcpakCipherFieldsDiskSize = 28 は<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22501">暗号化</button><span class="term-tooltip" id="term-tip-22501" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22502">フラグ</button><span class="term-tooltip" id="term-tip-22502" role="tooltip">ON/OFF を表す印。 ここでは暗号化/圧縮の有無。</span></span>立ち時に各エントリが追加で持つ <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22503">nonce</button><span class="term-tooltip" id="term-tip-22503" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span>(12)+<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22504">タグ</button><span class="term-tooltip" id="term-tip-22504" role="tooltip">AES-GCM が出力する 16 バイトの認証データ。 これが合わないとデータが改竄/破損とみなす。</span></span>(16) のバイト数。</p></div><div class="badges"><span class="badge">定数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/assetpack/kacpakheaderdisksize-06df01b2.html"><code>acs::assetpack::kAcpakHeaderDiskSize</code></a><span class="summary"><code>inline constexpr usize kAcpakHeaderDiskSize = 36;</code></span></li><li><a href="../../symbols/assetpack/kacpakcipherfieldsdisksize-524bff08.html"><code>acs::assetpack::kAcpakCipherFieldsDiskSize</code></a><span class="summary"><code>inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22495">Reader</button><span class="term-tooltip" id="term-tip-22495" role="tooltip">.acpak などのアセットを読む側の部品。 pak をマウントして仮想ファイルを取り出す(対になる書き出し側が Writer)。</span></span>/Writer がヘッダ/file table を memcpy で読み書きする時の境界値。 非<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22496">暗号化</button><span class="term-tooltip" id="term-tip-22496" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span> pak(flags=0)では cipher fields は 0 バイト = v1 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22497">レイアウト</button><span class="term-tooltip" id="term-tip-22497" role="tooltip">各ウィジェットを画面のどこにどの大きさで置くかを決めて配置すること。 Layout で行う。</span></span>と完全一致。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>assetpack</dd></div><div class="fact"><dt>分類</dt><dd>定数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>assetpack/AcpakFormat.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-d5961f4cd42afa081d8f"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>inline constexpr usize <a href="../../symbols/assetpack/kacpakheaderdisksize-06df01b2.html">kAcpakHeaderDiskSize</a> = 36</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ディスク上のヘッダ長。 magic8+version4+flags4+file_count4+padding4+file_table_offset8+reserved4 = 36。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/assetpack/kacpakheaderdisksize-06df01b2.html"><code>acs::assetpack::kAcpakHeaderDiskSize</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-e8257d92f589488cd40a"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>inline constexpr usize <a href="../../symbols/assetpack/kacpakcipherfieldsdisksize-524bff08.html">kAcpakCipherFieldsDiskSize</a> = 12u + 16u</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22498">暗号化</button><span class="term-tooltip" id="term-tip-22498" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>時に file table の各 entry が追加で持つ <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22499">nonce</button><span class="term-tooltip" id="term-tip-22499" role="tooltip">暗号化のたびに変える使い捨ての値。 同じ鍵で再利用すると安全性が崩れるため毎回変える。</span></span>(12)+tag(16)=28 バイト。 flags=0 なら 0。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/assetpack/kacpakcipherfieldsdisksize-524bff08.html"><code>acs::assetpack::kAcpakCipherFieldsDiskSize</code></a> <span class="kind-label">定数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="kAcpakHeaderDiskSize / kAcpakCipherFieldsDiskSizeの使用例"><code>// ヘッダは構造体 sizeof でなくこの定数でディスク I/O する
+ReadBytes(head, kAcpakHeaderDiskSize);   // = 36
+// 暗号化 pak は各 entry に +28 バイト(nonce+tag)</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

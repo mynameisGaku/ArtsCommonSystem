@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "セマンティック",
+  "definition": "頂点要素の役割を示す HLSL の名前(POSITION / TEXCOORD / COLOR 等)。"
+}

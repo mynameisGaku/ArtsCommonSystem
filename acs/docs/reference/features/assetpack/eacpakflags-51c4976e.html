@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ヘッダ flags のビットフラグ。 pak 全体が暗号化されているか/圧縮されているかを表す。 Writer の Open に渡し、Reader が読んで処理を組み立てる。">
+  <title>EAcpakFlags — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/assetpack.html">assetpack モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/assetpack.html">assetpack モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/assetpack.html">assetpack モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/assetpack.html">assetpack</a><span>/</span><span aria-current="page">EAcpakFlags</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / assetpack</div><h1 class="identifier">EAcpakFlags</h1>
+<p class="lead">ヘッダ flags の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22449">ビットフラグ</button><span class="term-tooltip" id="term-tip-22449" role="tooltip">各 bit に意味を割り当て、OR で複数の状態を 1 個の整数にまとめて持つ手法。 pause 理由や同意カテゴリの複合表現に使う。</span></span>。 pak 全体が<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22450">暗号化</button><span class="term-tooltip" id="term-tip-22450" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>されているか/<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22451">圧縮</button><span class="term-tooltip" id="term-tip-22451" role="tooltip">データを規則性を使って小さくすること。 ここでは LZ4 を使う。</span></span>されているかを表す。 Writer の Open に渡し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22452">Reader</button><span class="term-tooltip" id="term-tip-22452" role="tooltip">.acpak などのアセットを読む側の部品。 pak をマウントして仮想ファイルを取り出す(対になる書き出し側が Writer)。</span></span> が読んで処理を組み立てる。</p></div><div class="badges"><span class="badge">列挙(enum)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/assetpack/eacpakflags-6b1d8adf.html"><code>acs::assetpack::EAcpakFlags</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>CAcpakWriter::Open で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22441">圧縮</button><span class="term-tooltip" id="term-tip-22441" role="tooltip">データを規則性を使って小さくすること。 ここでは LZ4 を使う。</span></span>/<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22442">暗号化</button><span class="term-tooltip" id="term-tip-22442" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>を選ぶ時。 複数を | で組み合わせ可(順序は compress→encrypt)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>assetpack</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>assetpack/AcpakFormat.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-732de703c5fec4a9a358"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagnone-e556409a.html">AcpakFlagNone</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22443">圧縮</button><span class="term-tooltip" id="term-tip-22443" role="tooltip">データを規則性を使って小さくすること。 ここでは LZ4 を使う。</span></span>も<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22444">暗号化</button><span class="term-tooltip" id="term-tip-22444" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>もしない(素の生バイト)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagnone-e556409a.html"><code>acs::assetpack::EAcpakFlags::AcpakFlagNone</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-63e0f5e704174891eda0"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagencrypted-07e03f11.html">AcpakFlagEncrypted</a> = 1 &lt;&lt; 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>各ファイルを <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22445">AES-256-GCM</button><span class="term-tooltip" id="term-tip-22445" role="tooltip">256bit 鍵の共通鍵暗号化方式。 暗号化と同時に改竄検知(認証タグ)も行う AEAD。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22446">暗号化</button><span class="term-tooltip" id="term-tip-22446" role="tooltip">鍵を知らないと中身を読めない形にデータを変換すること。</span></span>する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagencrypted-07e03f11.html"><code>acs::assetpack::EAcpakFlags::AcpakFlagEncrypted</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-6af2974ad008996556d4"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagcompressed-4c70b153.html">AcpakFlagCompressed</a> = 1 &lt;&lt; 1</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>各ファイルを <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22447">LZ4</button><span class="term-tooltip" id="term-tip-22447" role="tooltip">速度重視の可逆圧縮形式。 そこそこ縮み、展開がとても速い。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22448">圧縮</button><span class="term-tooltip" id="term-tip-22448" role="tooltip">データを規則性を使って小さくすること。 ここでは LZ4 を使う。</span></span>する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/assetpack/eacpakflags-6b1d8adf/acpakflagcompressed-4c70b153.html"><code>acs::assetpack::EAcpakFlags::AcpakFlagCompressed</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="EAcpakFlagsの使用例"><code>// 圧縮+暗号化で梱包
+w.SetKey(key);
+w.Open(L&quot;out/game.acpak&quot;,
+       EAcpakFlags(AcpakFlagCompressed | AcpakFlagEncrypted));</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

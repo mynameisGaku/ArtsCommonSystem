@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "MatchTicket",
+  "definition": "検索 1 件分を表す不透明な ID(u64)。 0 は無効。 StartSearch で発行され、PollStatus / AcceptMatch / CancelSearch に渡す。"
+}

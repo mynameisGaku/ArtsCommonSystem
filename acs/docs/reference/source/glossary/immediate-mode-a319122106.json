@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "immediate-mode",
+  "definition": "状態を保持せず、毎フレーム「今出したいもの」をその場で積み上げる API スタイル。 CDebugDraw がこの方式。"
+}

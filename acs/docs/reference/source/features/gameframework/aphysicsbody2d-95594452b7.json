@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "APhysicsBody2D",
+    "kind": "クラス (AComponent 派生)",
+    "header": "gameframework/PhysicsBody2D.h",
+    "summary": "kinematic な 2D 物理ボディのコンポーネント。 velocity + acceleration + gravity を統合し、CCollisionWorld2D に登録された他の形状とぶつかったら止まる / 滑る (collide-and-slide)。 剛体ソルバではなく「2D プラットフォーマー / トップダウン用の swept kinematic」。",
+    "when": "重力で落ちて床で止まる、壁に沿って滑る、といった素朴な 2D キャラ移動を ANode に付けたい時。 形状は円 / AABB / 多角形 / OBB から選ぶ。",
+    "note": "公開フィールド: FVec2 velocity / acceleration / gravity (動力学)、bool slide (既定 true。 false で旧来の軸独立 block に切替)。",
+    "sample": "auto ball = NewObject<ANode>();\nball->SetPosition2D(FVec2{0, 5});\nauto& body = ball->AddComponent<APhysicsBody2D>(Services().Physics());\nbody.SetCircle(0.5f);\nbody.gravity  = FVec2{0, 10};   // +Y=下\nbody.velocity = FVec2{1, 0};\nroot.AddChild(Move(ball));",
+    "members": [
+      {
+        "sig": "explicit APhysicsBody2D(CCollisionWorld2D& world)",
+        "desc": "衝突ワールドへの参照を必須で受け取る (constructor)。"
+      },
+      {
+        "sig": "void SetCircle(f32 radius)",
+        "desc": "円形状に設定。 SetAabb / SetPolygon / SetObb で AABB / 凸多角形 / 回転矩形にもできる (再設定で上書き)。"
+      },
+      {
+        "sig": "void SetObb(FVec2 half_size, f32 rotation)",
+        "desc": "回転矩形 (OBB) ボディ。 回転を中心原点の local poly に焼き込む。"
+      },
+      {
+        "sig": "FShapeId Handle() const",
+        "desc": "現在の衝突ハンドル (deregister 時に無効化される)。"
+      },
+      {
+        "sig": "void OnUpdate(f32 dt)",
+        "desc": "コンポーネントの毎フレーム処理。 dt で velocity / gravity を統合し、衝突したら止まる / 滑る。",
+        "when": "AScene の更新ループから自動で呼ばれる (直接は呼ばない)。"
+      }
+    ]
+  }
+}

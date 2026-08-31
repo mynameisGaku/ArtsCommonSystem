@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FSafetyResult",
+    "kind": "構造体",
+    "header": "gameframework/LlmSafetyPipeline.h",
+    "summary": "1 回の Validate / Filter 呼び出しの結果。 判定・フィルタ済みテキスト・拒否理由・概算トークン数。",
+    "when": "ValidateInput / FilterOutput の戻り値を受け取る時。 文字列は内部 static バッファを指すので、次の呼び出し前にコピー or 消費すること。",
+    "members": [
+      {
+        "sig": "ESafetyVerdict verdict",
+        "desc": "判定結果。"
+      },
+      {
+        "sig": "const char* filtered_text",
+        "desc": "Pass/Filtered で有効な (置換済み) テキスト。 それ以外 nullptr。"
+      },
+      {
+        "sig": "const char* refusal_reason",
+        "desc": "Refused で有効な拒否理由。"
+      },
+      {
+        "sig": "u32 input_tokens / output_tokens",
+        "desc": "概算トークン数 (FilterOutput でのみ output が有効)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSphere",
+  "definition": "3D の球コライダー（中心+半径）。"
+}

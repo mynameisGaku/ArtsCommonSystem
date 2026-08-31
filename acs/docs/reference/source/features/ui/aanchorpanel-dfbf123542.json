@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "AAnchorPanel",
+    "kind": "クラス",
+    "header": "ui/Widget.h",
+    "summary": "子widgetをanchor基準で配置し、所有するpanel object。",
+    "when": "親領域の端や中央を基準にUIを配置する時。",
+    "members": [
+      {
+        "sig": "using FAnchorPanel = AAnchorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AAnchorPanel を使う。"
+      }
+    ]
+  }
+}

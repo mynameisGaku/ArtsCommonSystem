@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "CThreadPool",
+    "kind": "クラス",
+    "header": "threading/ThreadPool.h",
+    "summary": "あらかじめ用意したワーカースレッド群に小さなタスクを投げて並列実行させるスレッドプール。 ワークスチール方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。 全 static の単一プール。 ParallelFor は 32 分割まで stack、超過分は再利用 block を使う。 内部では実行制御・タスク流量・API寿命の共有値を別cache lineへ分け、投入とworker loopの干渉を抑える。",
+    "when": "数百〜数千の独立した小タスク(描画準備・更新・計算)を CPU 全コアで捌きたい時。 FThread を毎回作るより遥かに軽い。 依存関係があるなら CJobGraph。",
+    "sample": "CThreadPool::Init();                 // 論理CPU数でワーカー起動\nFCompletionCounter done;\nFTask t{ &MyTask, &ctx, &done };\nFThreadPool::Submit(t);              // 投入(counter は自動 Add)\nFThreadPool::Wait(done);            // 完了待ち(待機中も手伝う)\nFThreadPool::Shutdown();",
+    "members": [
+      {
+        "sig": "static TResult<void> Init(u32 worker_count = 0)",
+        "ret": "成否",
+        "desc": "プールを起動する。 0 で論理 CPU 数を採用。 二重 Init はエラー。"
+      },
+      {
+        "sig": "static void Shutdown()",
+        "desc": "全ワーカーを停止しプールを片付ける。"
+      },
+      {
+        "sig": "static u32 WorkerCount()",
+        "ret": "ワーカー数",
+        "desc": "起動中のワーカースレッド数。"
+      },
+      {
+        "sig": "static u32 CurrentWorkerIndex()",
+        "ret": "0..N-1 または kNotAWorker",
+        "desc": "呼び出しスレッドがプールのワーカーなら通し番号、そうでなければ kNotAWorker。"
+      },
+      {
+        "sig": "static FParallelForDiagnostics CaptureParallelForDiagnostics()",
+        "ret": "診断 snapshot",
+        "desc": "ParallelFor の stack、固定 block、heap 退避と同時使用量を返す。 既存 FThreadPoolDiagnostics の 96 byte ABI は変えない。"
+      },
+      {
+        "sig": "static constexpr u32 kNotAWorker = 0xFFFFFFFF",
+        "desc": "CurrentWorkerIndex() がワーカー外スレッドで返す番兵値。"
+      },
+      {
+        "sig": "static TResult<void> Submit(const FTask& t)",
+        "ret": "成否",
+        "desc": "タスクを投入する。 t.counter が非 null なら自動で Add(1) される。",
+        "when": "1 個のタスクを並列キューに積む時。"
+      },
+      {
+        "sig": "static void Wait(FCompletionCounter& counter)",
+        "desc": "counter が 0 になるまで待つ。 待機中の呼び出しスレッドも仕事を手伝う(スティーリング参加)。"
+      },
+      {
+        "sig": "static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, body, void* user)",
+        "ret": "成否",
+        "desc": "[begin, end) を grain 個ずつに分割して並列実行し、全部終わるまで待つ。",
+        "when": "配列を範囲分割して並列処理したい時の定番。",
+        "sample": "CThreadPool::ParallelFor(0, n, 64,\n  [](u32 i, u32 w, void* u){ /* i 番目を処理 */ }, &ctx);"
+      },
+      {
+        "sig": "using FThreadPool = CThreadPool",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CThreadPool を使う。"
+      }
+    ]
+  }
+}

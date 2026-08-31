@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="アロケータ実装で多用する整列ヘルパ。 AlignUp=値/ポインタを 2 のべき乗の倍数へ切り上げ。 IsPow2=2 のべき乗判定。 kDefaultAlignment=既定整列(SIMD 16B と一般 8B の妥協で 16)。">
+  <title>AlignUp / IsPow2 / kDefaultAlignment — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/memory.html">memory モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/memory.html">memory</a><span>/</span><span aria-current="page">AlignUp / IsPow2 / kDefaultAlignment</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / memory</div><h1 class="identifier">AlignUp / IsPow2 / kDefaultAlignment</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27341">アロケータ</button><span class="term-tooltip" id="term-tip-27341" role="tooltip">メモリの確保/解放のやり方を担当する部品。 用途に応じて差し替えられる。</span></span>実装で多用する整列ヘルパ。 AlignUp=値/<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27342">ポインタ</button><span class="term-tooltip" id="term-tip-27342" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>を 2 のべき乗の倍数へ切り上げ。 IsPow2=2 のべき乗判定。 kDefaultAlignment=既定整列(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27343">SIMD</button><span class="term-tooltip" id="term-tip-27343" role="tooltip">1 命令で複数のデータをまとめて計算する CPU 機能。 ベクトル計算を高速化する。</span></span> 16B と一般 8B の妥協で 16)。</p></div><div class="badges"><span class="badge">関数 / 定数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/memory/alignup-c20270ab.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE usize AlignUp(usize Value, usize Alignment) noexcept;</code></span></li><li><a href="../../symbols/memory/alignup-14a02fe7.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE void* AlignUp(void* Pointer, usize Alignment) noexcept;</code></span></li><li><a href="../../symbols/memory/ispow2-bc4fff10.html"><code>acs::IsPow2</code></a><span class="summary"><code>ACS_FORCEINLINE bool IsPow2(usize Value) noexcept;</code></span></li><li><a href="../../symbols/memory/kdefaultalignment-c2ea7a55.html"><code>acs::kDefaultAlignment</code></a><span class="summary"><code>inline constexpr usize kDefaultAlignment = alignof(void*) &gt; 8 ? alignof(void*) : 16;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>独自<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27337">アロケータ</button><span class="term-tooltip" id="term-tip-27337" role="tooltip">メモリの確保/解放のやり方を担当する部品。 用途に応じて差し替えられる。</span></span>やバッファ計算で整列を扱う時。 AlignUp の a は必ず 2 のべき乗(Debug で ACS_A<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27338">SSE</button><span class="term-tooltip" id="term-tip-27338" role="tooltip">x86 CPU のSIMD命令セットの一系統。 SSE2 は 64bit で常に使える。</span></span>RT)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>memory</dd></div><div class="fact"><dt>分類</dt><dd>関数 / 定数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>memory/Allocator.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-8b926130b95d694b25ab"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>constexpr usize <a href="../../symbols/memory/kdefaultalignment-c2ea7a55.html">kDefaultAlignment</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>既定アライメント(alignof(void*) が 8 超ならそれ、でなければ 16)。 実質 16。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/kdefaultalignment-c2ea7a55.html"><code>acs::kDefaultAlignment</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-9a89f52e9a934f7d2e69"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>bool <a href="../../symbols/memory/ispow2-bc4fff10.html">IsPow2</a>(usize v) noexcept</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>v != 0 &amp;&amp; (v &amp; (v - 1)) == 0のときtrueを返します。</dd></div><div class="fact"><dt>戻り値</dt><dd>2 のべき乗か</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/ispow2-bc4fff10.html"><code>acs::IsPow2</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-b2bf5458694e27d1d7a3"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>usize AlignUp(usize n, usize a) noexcept</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>n を a(2 のべき乗)の倍数へ切り上げる。</dd></div><div class="fact"><dt>戻り値</dt><dd>切り上げ値</dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>AlignUp</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/memory/alignup-c20270ab.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE usize AlignUp(usize Value, usize Alignment) noexcept;</code></span></li><li><a href="../../symbols/memory/alignup-14a02fe7.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE void* AlignUp(void* Pointer, usize Alignment) noexcept;</code></span></li></ul></dd></div></dl></article><article class="card" id="member-8404a56b5f369c0f1f8d"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>void* AlignUp(void* p, usize a) noexcept</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27339">ポインタ</button><span class="term-tooltip" id="term-tip-27339" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>版。 a 境界へ切り上げる。</dd></div><div class="fact"><dt>戻り値</dt><dd>切り上げ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27340">ポインタ</button><span class="term-tooltip" id="term-tip-27340" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span></dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>AlignUp</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/memory/alignup-c20270ab.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE usize AlignUp(usize Value, usize Alignment) noexcept;</code></span></li><li><a href="../../symbols/memory/alignup-14a02fe7.html"><code>acs::AlignUp</code></a><span class="summary"><code>ACS_FORCEINLINE void* AlignUp(void* Pointer, usize Alignment) noexcept;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="AlignUp / IsPow2 / kDefaultAlignmentの使用例"><code>usize n = AlignUp(13, 16);        // 16
+void* q = AlignUp(p, 64);         // 64B 境界へ
+if (IsPow2(align)) { /* 妥当 */ }
+usize a = kDefaultAlignment;      // 16</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

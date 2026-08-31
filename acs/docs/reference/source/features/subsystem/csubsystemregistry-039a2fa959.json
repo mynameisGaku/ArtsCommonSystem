@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "CSubsystemRegistry",
+    "kind": "クラス",
+    "header": "subsystem/SubsystemRegistry.h",
+    "summary": "subsystem factoryとscope情報を登録、検索する。",
+    "when": "登録済みsubsystemをcollectionから生成する時。",
+    "members": [
+      {
+        "sig": "using FSubsystemRegistry = CSubsystemRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSubsystemRegistry を使う。"
+      }
+    ]
+  }
+}

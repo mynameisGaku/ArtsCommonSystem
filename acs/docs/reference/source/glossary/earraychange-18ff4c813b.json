@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "EArrayChange",
+  "definition": "TObservableArray の変更種別(追加/削除/書換/全消去)を表す列挙。"
+}

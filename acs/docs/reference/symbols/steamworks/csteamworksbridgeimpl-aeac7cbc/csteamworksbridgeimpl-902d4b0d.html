@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="コピー禁止 (Pimpl 状態を単独所有するため)。">
+  <title>acs::steamworks::CSteamworksBridgeImpl::CSteamworksBridgeImpl — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/steamworks.html">steamworks モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/steamworks.html">steamworks モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/steamworks.html">steamworks モジュール</a><a href="../csteamworksbridgeimpl-aeac7cbc.html">CSteamworksBridgeImpl の概要</a><a class="tree-child" href="clouddeletefile-98e6f32e.html">CloudDeleteFile</a><a class="tree-child" href="cloudfileexists-20f59ba1.html">CloudFileExists</a><a class="tree-child" href="cloudgetquota-076e3336.html">CloudGetQuota</a><a class="tree-child" href="cloudreadfile-05d389c6.html">CloudReadFile</a><a class="tree-child" href="cloudwritefile-f984dcd7.html">CloudWriteFile</a><a class="tree-child" href="csteamworksbridgeimpl-2ff2568f.html">CSteamworksBridgeImpl</a><a class="tree-child" href="csteamworksbridgeimpl-902d4b0d.html" aria-current="page">CSteamworksBridgeImpl</a><a class="tree-child" href="csteamworksbridgeimpl-bcceba4f.html">CSteamworksBridgeImpl</a><a class="tree-child" href="fimpl-97f73f59.html">FImpl</a><a class="tree-child" href="getfloatstat-5b5436d2.html">GetFloatStat</a><a class="tree-child" href="getfriendbyindex-7357a904.html">GetFriendByIndex</a><a class="tree-child" href="getfriendcount-e6ecbd09.html">GetFriendCount</a><a class="tree-child" href="getleaderboardscore-fbd523c4.html">GetLeaderboardScore</a><a class="tree-child" href="getlocalplayer-8110b264.html">GetLocalPlayer</a><a class="tree-child" href="getstat-19ef6695.html">GetStat</a><a class="tree-child" href="init-1fa7154c.html">Init</a><a class="tree-child" href="inputgetcontrollercount-71de25fb.html">InputGetControllerCount</a><a class="tree-child" href="inputinit-42afbf17.html">InputInit</a><a class="tree-child" href="isdlcowned-d741c2bd.html">IsDlcOwned</a><a class="tree-child" href="isinitialized-27324d4f.html">IsInitialized</a><a class="tree-child" href="m-binitialized-1cc9fca7.html">m_bInitialized</a><a class="tree-child" href="m-impl-bfb26697.html">m_Impl</a><a class="tree-child" href="operator-e3c818df.html">operator=</a><a class="tree-child" href="operator-fa385bed.html">operator=</a><a class="tree-child" href="setfloatstat-b6bbf63c.html">SetFloatStat</a><a class="tree-child" href="setleaderboardscore-208773a0.html">SetLeaderboardScore</a><a class="tree-child" href="setrichpresence-14af524f.html">SetRichPresence</a><a class="tree-child" href="setstat-5e3c3e10.html">SetStat</a><a class="tree-child" href="shutdown-e5c04117.html">Shutdown</a><a class="tree-child" href="tick-3e639000.html">Tick</a><a class="tree-child" href="unlockachievement-1beae669.html">UnlockAchievement</a><a class="tree-child" href="voicegetcompressed-9e1c519b.html">VoiceGetCompressed</a><a class="tree-child" href="voicestartrecording-57b3744a.html">VoiceStartRecording</a><a class="tree-child" href="voicestoprecording-fecb7223.html">VoiceStopRecording</a><a class="tree-child" href="workshopgetsubscribedcount-94219264.html">WorkshopGetSubscribedCount</a><a class="tree-child" href="workshopgetsubscribeditem-e38ed725.html">WorkshopGetSubscribedItem</a><a class="tree-child" href="csteamworksbridgeimpl-871a5415.html">~CSteamworksBridgeImpl</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/steamworks.html">steamworks</a><span>/</span><a href="../csteamworksbridgeimpl-aeac7cbc.html">CSteamworksBridgeImpl</a><span>/</span><span aria-current="page">CSteamworksBridgeImpl</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / steamworks</div>
+<h1 class="identifier">acs::steamworks::CSteamworksBridgeImpl::CSteamworksBridgeImpl</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21116">コピー</button><span class="term-tooltip" id="term-tip-21116" role="tooltip">中身をそっくり複製すること。 ACS では高コストや所有権の事故を避けるため、多くの型でコピーを禁止しムーブのみ許す。</span></span>禁止 (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21117">Pimpl</button><span class="term-tooltip" id="term-tip-21117" role="tooltip">実装詳細を前方宣言した型のポインタ先に隠し、公開 header の依存を減らす構成です。FLuaVm は lua_State をこの構成で隠します。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21118">状態</button><span class="term-tooltip" id="term-tip-21118" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を単独所有するため)。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::steamworks::CSteamworksBridgeImpl::CSteamworksBridgeImplの宣言"><code><a href="csteamworksbridgeimpl-902d4b0d.html" aria-current="page">CSteamworksBridgeImpl</a>(const <a href="csteamworksbridgeimpl-902d4b0d.html" aria-current="page">CSteamworksBridgeImpl</a>&amp;) = delete;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/steamworks.html">steamworks</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../csteamworksbridgeimpl-aeac7cbc.html"><code>acs::steamworks::CSteamworksBridgeImpl</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/steamworks/SteamworksBridgeImpl.h:68</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

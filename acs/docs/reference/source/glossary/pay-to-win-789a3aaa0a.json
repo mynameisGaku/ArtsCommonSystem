@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "pay-to-win",
+  "definition": "課金で性能 (戦闘力) を直接買えてしまう設計。 CCharacterCustomizer は見た目のみ扱い、性能をいじらないことで構造的にこれを避ける。"
+}

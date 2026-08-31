@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "crashwin",
+    "title": "crashwin — クラッシュレポート",
+    "description": "ゲームが落ちた時に Windows のミニダンプ（.dmp）とテキスト報告書を自動で吐き出す実 backend です。 gameframework の抽象 ICrashReporterBackend を Windows の DbgHelp で実装し、起動時に 1 行登録するだけで使えます。"
+  },
+  "feature": {
+    "name": "FWindowsCrashReporterConfig",
+    "kind": "構造体",
+    "header": "crashwin/WindowsCrashReporter.h",
+    "summary": "CWindowsCrashReporter の初期設定。 今はダンプ／報告書の出力先フォルダを 1 つ指定するだけのシンプルな設定です。",
+    "when": "クラッシュ報告ファイルの保存先を既定の \"crash_dumps\" 以外にしたい時。",
+    "sample": "FWindowsCrashReporterConfig cfg;\ncfg.DumpDirectory = \"Saved/Crashes\";   // 出力先を変更\nFWindowsCrashReporter reporter(cfg);",
+    "members": [
+      {
+        "sig": "const char* DumpDirectory = \"crash_dumps\"",
+        "ret": "出力フォルダ名",
+        "desc": "ダンプ（.dmp）とテキスト報告書（.txt）を書き出すフォルダ。 呼出側が寿命を保証する文字列（static / リテラル推奨）。"
+      }
+    ]
+  }
+}

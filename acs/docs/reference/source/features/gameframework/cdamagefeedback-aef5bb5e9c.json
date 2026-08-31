@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CDamageFeedback",
+    "kind": "クラス",
+    "header": "gameframework/DamageFeedback.h",
+    "summary": "プレイヤー被弾時の視覚フィードバックを集中管理する純粋な state machine。 赤い被弾オーバーレイ・攻撃源を指す方向矢印・death cam の 3 要素を扱う。 自分では描画もカメラ操作もせず、描画 / UI / カメラ層が値を pull する。",
+    "when": "FPS / アクションで「ダメージを受けたら画面端が赤くなる」「どこから撃たれたか矢印で示す」「死亡時にキラーをズーム」を入れたい時。",
+    "sample": "CDamageFeedback dmg;\nvoid OnHit(f32 amount, FVec2 attackerPos) {\n    dmg.TakeDamage(amount, player.Pos() - attackerPos);\n    if (player.HP() <= 0) dmg.TriggerDeathCam(killerWorldPos);\n}\nvoid OnUpdate(f32 dt) { dmg.Tick(dt); }\n// 描画: overlay.Apply(dmg.ScreenEdgeRedIntensity());",
+    "members": [
+      {
+        "sig": "void TakeDamage(f32 amount, FVec2 source_direction = {})",
+        "desc": "ダメージを受けたと通知。 赤エッジを累積加算し、source_direction (相手→自分) があれば矢印を更新する。 正規化は内部で行う。",
+        "when": "プレイヤーが被弾した瞬間。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "各エフェクトの decay を進める (赤エッジ・矢印は約 0.5 秒で消える)。 death cam progress も進める。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "f32 ScreenEdgeRedIntensity() const",
+        "ret": "[0,1]",
+        "desc": "画面端を赤く染める強度。 描画 overlay が vignette に掛ける。"
+      },
+      {
+        "sig": "bool HasDirectionalIndicator() const",
+        "desc": "方向矢印を描くべきか。"
+      },
+      {
+        "sig": "FVec2 DirectionalIndicator() const",
+        "desc": "矢印が指す向き (正規化済み)。 HasDirectionalIndicator() で守ってから読む。"
+      },
+      {
+        "sig": "f32 DirectionalIndicatorAlpha() const",
+        "desc": "矢印の不透明度 [0,1]。"
+      },
+      {
+        "sig": "void TriggerDeathCam(FVec3 killer_pos)",
+        "desc": "death cam 演出を開始する。 killer_pos はカメラを向ける対象座標。",
+        "when": "致命傷を検知した時。"
+      },
+      {
+        "sig": "bool IsDeathCamActive() const",
+        "desc": "death cam 中か。"
+      },
+      {
+        "sig": "f32 DeathCamProgress() const",
+        "ret": "[0,1]",
+        "desc": "dramatic zoom の進行 (2 秒で 0→1、その後 1.0 維持)。 カメラ制御がイージングに使う。"
+      },
+      {
+        "sig": "void ExitDeathCam()",
+        "desc": "death cam を明示的に解除する (リスポーン開始時等)。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "全 state を初期化する (シーン切替 / respawn 用)。"
+      },
+      {
+        "sig": "using FDamageFeedback = CDamageFeedback",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDamageFeedback を使う。"
+      }
+    ]
+  }
+}

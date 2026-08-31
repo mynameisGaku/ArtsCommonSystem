@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "ICrashReporterBackend",
+    "kind": "インターフェース",
+    "header": "gameframework/CrashReporter.h",
+    "summary": "本体は具象 HTTP/IPC を抱えず、I/F と Stub だけを持つ。 失敗は黙って握り潰す (二次クラッシュ防止)。",
+    "when": "クラッシュレポートやエラー報告・breadcrumb をサービスに送りたい時。 実装は各タイトルで差し込む。",
+    "sample": "ICrashReporterBackend& cr = acs::game::GetDefaultCrashReporter();\ncr.Init(\\\"com.example.game\\\", \\\"1.2.3\\\");\ncr.AddBreadcrumb(\\\"save\\\", \\\"autosave start\\\");\n// 毎フレーム: cr.Tick(dt);",
+    "members": [
+      {
+        "sig": "virtual TResult<void> Init(const char* product_id, const char* version)",
+        "desc": "SDK を初期化する。 product_id / version は集計キー。",
+        "when": "起動時に 1 度。"
+      },
+      {
+        "sig": "virtual TResult<void> ReportCrash(const FCrashContext& ctx)",
+        "desc": "クラッシュ 1 件を送信する (プロセスがまだ生きている前提)。"
+      },
+      {
+        "sig": "virtual TResult<void> ReportError(const char* category, const char* message)",
+        "desc": "非致命的エラーを送信する。 category は \\\"net\\\" / \\\"save\\\" 等の集計キー。"
+      },
+      {
+        "sig": "virtual TResult<void> AddBreadcrumb(const char* category, const char* message)",
+        "desc": "クラッシュ前の足跡を 1 件追加する (送信せず ReportCrash 時に添付)。",
+        "when": "重要操作の前後に挟んで後で追跡できるようにする。"
+      },
+      {
+        "sig": "virtual void SetUserId(const char* anonymous_id)",
+        "desc": "匿名ユーザー ID を設定する (生 email でなく UUID 推奨、GDPR/CCPA 配慮)。"
+      },
+      {
+        "sig": "virtual void Tick(f32 dt)",
+        "desc": "非同期送信キューのポンプ。 毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "virtual bool IsAvailable() const",
+        "desc": "Init 済みで送信可能なら true。 Stub は常に false。"
+      }
+    ]
+  }
+}

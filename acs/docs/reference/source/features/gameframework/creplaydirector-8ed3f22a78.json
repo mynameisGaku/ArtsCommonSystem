@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CReplayDirector",
+    "kind": "クラス",
+    "header": "gameframework/ReplayDirector.h",
+    "summary": "高レベルなリプレイ制御。 録画開始/停止・再生・一時停止・倍速・任意位置へのシークを、ゲーム UI の粒度で扱う。 低レベルの入力記録 (CInputRecorder) とロックステップ (CLockstep) をまとめる。",
+    "when": "プレイのリプレイを残したい、ベストプレイを後で再生したい、バグ再現用に録画したい時。",
+    "sample": "CReplayDirector dir;\ndir.Init();\ndir.SetSources(&recorder, &lockstep);\nFReplayMetadata m{}; m.game_version = \"1.0.0\"; m.level_id = \"stage_01\";\ndir.StartRecording(m);\n// ...プレイ...\ndir.StopRecording();\ndir.SaveReplay(L\"user/replay_01.acsr\");",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "Idle 状態にリセットする。 再生速度 1.0・tick 0。"
+      },
+      {
+        "sig": "void SetSources(CInputRecorder* recorder, CLockstep* lockstep)",
+        "desc": "保存/復元の対象となる低レベル source を注入する (非所有)。"
+      },
+      {
+        "sig": "TResult<void> StartRecording(const FReplayMetadata& meta)",
+        "desc": "録画を開始し、メタデータをコピー保存する。 Idle 以外で呼ぶと kSub_BadMode。"
+      },
+      {
+        "sig": "TResult<void> StopRecording()",
+        "desc": "録画を止め、総 tick 数を duration_ticks に確定する。"
+      },
+      {
+        "sig": "TResult<void> StartPlayback()",
+        "desc": "録画したものを先頭から再生開始する。"
+      },
+      {
+        "sig": "void PausePlayback() / ResumePlayback() / StopPlayback()",
+        "desc": "再生の一時停止・再開・停止。 状態が合わない呼び出しは no-op。"
+      },
+      {
+        "sig": "void SetPlaybackSpeed(f32 speed)",
+        "desc": "0.25x〜16x の倍速を設定する。 範囲外は近い有効値に丸める。"
+      },
+      {
+        "sig": "void SeekToTick(u32 tick)",
+        "desc": "再生位置を任意の tick に飛ばす。 末尾を超えたら末尾にクランプ。",
+        "when": "スクラブバー UI やバグ再現ジャンプ。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 録画中は tick を進め、再生中は速度倍で進める。"
+      },
+      {
+        "sig": "TResult<void> SaveReplay(const wchar_t* file_path)",
+        "desc": "metadata + 入力 blob を 1 ファイル (.acsr) にアトミック書き込みで保存する。"
+      },
+      {
+        "sig": "TResult<void> LoadReplay(const wchar_t* file_path)",
+        "desc": "container を読み、magic/version/CRC を検証して復元する。"
+      },
+      {
+        "sig": "EReplayMode CurrentMode() const / f32 ProgressNormalized() const",
+        "desc": "現在の動作モードと、再生進捗 [0,1] を返す。"
+      },
+      {
+        "sig": "using FReplayDirector = CReplayDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CReplayDirector を使う。"
+      }
+    ]
+  }
+}

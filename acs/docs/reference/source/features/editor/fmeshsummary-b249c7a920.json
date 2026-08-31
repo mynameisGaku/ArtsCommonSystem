@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FMeshSummary",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelInspectorPanel.h",
+    "summary": "model 全体の集計情報を 1 インスタンスにまとめた値型。 model load を担当するcallerが集計し、AModelInspectorPanel::UpdateFromModel に渡す。 全フィールド値型なので Mesh / Skeleton 側のリソース解放と panel 表示が完全に decouple される。",
+    "when": "Inspector パネルに「頂点数 / 三角形数 / submesh / material slot / ボーン / クリップ数 / バウンディング球」を渡す時に組み立てる。",
+    "sample": "FMeshSummary s;\ns.vertex_count    = 12000;\ns.triangle_count  = 4000;\ns.submesh_count   = 3;\ns.bone_count      = 52;\ns.bounding_radius = 1.8f;",
+    "members": [
+      {
+        "sig": "u32 vertex_count = 0",
+        "desc": "全 vertex 数(submesh 跨ぎ合算後)。"
+      },
+      {
+        "sig": "u32 triangle_count = 0",
+        "desc": "全 triangle 数(index_count / 3 合算)。"
+      },
+      {
+        "sig": "u32 submesh_count = 0",
+        "desc": "submesh セクション数。"
+      },
+      {
+        "sig": "u32 material_slot_count = 0",
+        "desc": "material slot 数(= 異なる material の数)。"
+      },
+      {
+        "sig": "u32 bone_count = 0",
+        "desc": "skeleton 内 bone 数(skeleton 無しなら 0)。"
+      },
+      {
+        "sig": "u32 animation_clip_count = 0",
+        "desc": "関連付けられた animation clip 数(0 可)。"
+      },
+      {
+        "sig": "f32 bounding_radius = 0.0f",
+        "desc": "model 全体の bounding sphere 半径。"
+      },
+      {
+        "sig": "acs::FVec3 bounding_center = {}",
+        "desc": "同 bounding sphere の中心(object 空間)。"
+      }
+    ]
+  }
+}

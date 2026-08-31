@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CAchievementManager",
+    "kind": "クラス",
+    "header": "gameframework/AchievementManager.h",
+    "summary": "実績 (アチーブメント) の定義・進捗・解除を一括管理し、解除時に Steamworks 等のプラットフォーム SDK へ伝える高レベルマネージャ。 SDK 未接続ならローカル進捗だけ追うオフラインモードで動く。",
+    "when": "「ボス撃破」「累計 100km 歩いた」のような実績を扱いたい時。 起動時に全実績を登録し、ゲーム中に進捗を流し込む。",
+    "sample": "CAchievementManager am;\nam.RegisterAchievement({ \"ACH_WALK_100KM\", \"Marathon\", \"...\", 100, false });\nam.AttachSteamworks(&bridge);             // 任意。null で detach\nam.IncrementProgress(\"ACH_WALK_100KM\", 1); // 1km 歩いた\nam.Unlock(\"ACH_BOSS_01\");                  // 即時解除",
+    "members": [
+      {
+        "sig": "void RegisterAchievement(const FAchievementDef& def)",
+        "desc": "実績を定義として登録する (起動時に 1 度ずつ)。 同 id の 2 重登録は無視。",
+        "when": "ゲーム起動時に全実績をまとめて登録する。"
+      },
+      {
+        "sig": "void SetProgress(const char* id, u32 progress)",
+        "desc": "進捗を絶対値で設定。 max に達したら自動で解除 + SDK 送信。"
+      },
+      {
+        "sig": "void IncrementProgress(const char* id, u32 delta = 1)",
+        "desc": "進捗を delta だけ加算する (上限でクランプ)。",
+        "when": "「歩いた距離」など積み上げ式の実績。"
+      },
+      {
+        "sig": "void Unlock(const char* id)",
+        "desc": "即時解除する (進捗を max に固定 + SDK 送信)。 既に解除済みなら何もしない。"
+      },
+      {
+        "sig": "bool IsUnlocked(const char* id) const",
+        "ret": "解除済みか",
+        "desc": "指定実績がもう解除されているかを返す。"
+      },
+      {
+        "sig": "u32 TotalCount() const / u32 UnlockedCount() const",
+        "desc": "総数・解除済み数。 「23/50 unlocked」表示用。"
+      },
+      {
+        "sig": "const FAchievementProgress* AllStates(u32& out_count) const",
+        "ret": "全状態の配列",
+        "desc": "全実績の状態を連続バッファで返す。 一覧 UI で走査する。"
+      },
+      {
+        "sig": "void AttachSteamworks(ISteamworksBridge* bridge)",
+        "desc": "Storefront SDK を接続する。 nullptr で切断 (= ローカルのみ追跡)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "現状は no-op。"
+      },
+      {
+        "sig": "using FAchievementManager = CAchievementManager",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAchievementManager を使う。"
+      }
+    ]
+  }
+}

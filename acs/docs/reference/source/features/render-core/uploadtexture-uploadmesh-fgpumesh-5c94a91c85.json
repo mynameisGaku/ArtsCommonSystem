@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "UploadTexture / UploadMesh / FGpuMesh",
+    "kind": "関数 / 構造体",
+    "header": "render/RenderAssets.h",
+    "summary": "アセット(AImageAsset / AMeshAsset)を GPU リソースに変換する高レベルヘルパ。 画像→テクスチャ、メッシュ→頂点+インデックスバッファ(FGpuMesh)に一発で持っていける。",
+    "when": "ロードした画像やモデルをそのまま描きたいとき。 これだけ呼べば描画できる。",
+    "sample": "auto img = registry.Load(L\"hero.png\").Value();\nauto tex = UploadTexture(*dev, *img).Value();\n\nauto m = registry.Load(L\"cube.gltf\").Value();\nFGpuMesh gm;\nUploadMesh(*dev, *m, gm);   // 位置+法線+UV、stride=32B",
+    "members": [
+      {
+        "sig": "TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice&, const AImageAsset&)",
+        "ret": "テクスチャ",
+        "desc": "画像アセットを GPU テクスチャに同期アップロード。"
+      },
+      {
+        "sig": "TResult<void> UploadMesh(IRhiDevice&, const AMeshAsset&, FGpuMesh& out)",
+        "desc": "メッシュアセットを FGpuMesh に変換(位置+法線+UV)。"
+      },
+      {
+        "sig": "struct FGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }",
+        "desc": "描画に必要な VB/IB と数。"
+      },
+      {
+        "sig": "TResult<void> UploadSkinnedMesh(IRhiDevice&, const ASkinnedMeshAsset&, FSkinnedGpuMesh& out)",
+        "desc": "スキンメッシュを FSkinnedGpuMesh に変換(CSkinnedShader が消費)。"
+      },
+      {
+        "sig": "struct FSkinnedGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }",
+        "desc": "スキンメッシュ用の VB/IB と数。 vertex_stride は FSkinnedVertex のサイズ(BLENDINDICES/WEIGHT を含む)。"
+      }
+    ]
+  }
+}

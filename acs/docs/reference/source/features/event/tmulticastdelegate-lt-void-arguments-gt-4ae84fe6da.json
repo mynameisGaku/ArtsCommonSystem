@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "TMulticastDelegate<void(Arguments...)>",
+    "kind": "クラステンプレート",
+    "header": "event/MulticastDelegate.h",
+    "summary": "TEventを使い、静的関数やメンバー関数を複数登録して型付き引数を一斉通知する。",
+    "when": "関数を直接登録するデリゲート形式で、複数の受信先へ同じ値を通知したい時。",
+    "members": [
+      {
+        "sig": "Add / AddStatic / AddRaw",
+        "ret": "購読ハンドル",
+        "desc": "関数ポインター、静的関数、またはメンバー関数を追加する。"
+      },
+      {
+        "sig": "AddOnce / AddWithPriority / AddOwnedRaw",
+        "ret": "購読ハンドルまたは所有購読",
+        "desc": "一回、優先度付き、自動解除の条件で処理を追加する。"
+      },
+      {
+        "sig": "bool Remove(FTypedEventHandle handle)",
+        "ret": "解除できたか",
+        "desc": "指定した世代の処理を解除する。"
+      },
+      {
+        "sig": "void Broadcast(Arguments... arguments)",
+        "desc": "登録済みの処理へ同期通知する。"
+      },
+      {
+        "sig": "void Clear() / u32 Count() const / bool IsBound() const",
+        "desc": "全解除、件数、一件以上登録済みかを取得する。"
+      }
+    ]
+  }
+}

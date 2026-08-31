@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CFxaa",
+    "kind": "クラス",
+    "header": "render/Fxaa.h",
+    "summary": "FXAAによる画面全体のアンチエイリアス処理を実行する。",
+    "when": "post processで輪郭のぎざつきを軽減する時。",
+    "members": [
+      {
+        "sig": "using FFxaa = CFxaa",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CFxaa を使う。"
+      }
+    ]
+  }
+}

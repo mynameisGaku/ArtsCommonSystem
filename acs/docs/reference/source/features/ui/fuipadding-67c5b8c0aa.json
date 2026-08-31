@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "FUiPadding",
+    "kind": "構造体",
+    "header": "ui/Widget.h",
+    "summary": "四辺の余白(左 l / 上 t / 右 r / 下 b)を表す小さな構造体。",
+    "when": "AStackPanel の内側余白など、要素の周囲の空きを指定する時。",
+    "sample": "FUiPadding pad{ 12, 8, 12, 8 };  // 左右12, 上下8\npanel.padding = pad;"
+  }
+}

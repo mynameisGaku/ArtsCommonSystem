@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CParticleSystem / FEmitterDesc",
+    "kind": "クラス / 構造体",
+    "header": "render/Particles.h",
+    "summary": "CPU プール式の2D パーティクルシステム。 火花・煙・爆発・魔法などのエフェクトを FEmitterDesc で定義し、毎フレーム Update して CSpriteBatch に積む。 Fire/Sparks/Fountain/Smoke のプリセット付き。",
+    "when": "ゲームの視覚エフェクト全般。 打撃の火花、たき火の炎、噴水など。",
+    "sample": "CParticleSystem ps;\nps.Init(2048);\nps.SetTexture(circle_tex);\nps.SetEmitter(FEmitterDesc::Fire(FVec2{400, 300}));\n// 毎フレーム\nps.Update(dt);\nsb.Begin(*cl, sw, sh);\nps.Render(sb);\nsb.End();",
+    "members": [
+      {
+        "sig": "TResult<void> Init(u32 max_particles = 4096)",
+        "desc": "プールを確保。"
+      },
+      {
+        "sig": "void SetTexture(IRhiTexture* tex)",
+        "desc": "粒子のテクスチャ。 null なら白矩形。"
+      },
+      {
+        "sig": "void SetEmitter(const FEmitterDesc& d) / FEmitterDesc& Emitter()",
+        "desc": "エミッタ設定 / 参照取得。"
+      },
+      {
+        "sig": "void Update(f32 dt)",
+        "desc": "1 フレーム分シミュレーション(生成・移動・寿命処理)。"
+      },
+      {
+        "sig": "void EmitBurst(u32 count)",
+        "desc": "即座に count 個生成(爆発などの単発)。"
+      },
+      {
+        "sig": "void Render(CSpriteBatch& sb)",
+        "desc": "粒子を CSpriteBatch に積む(事前に Begin 済みであること)。"
+      },
+      {
+        "sig": "u32 ActiveCount() / Capacity()",
+        "desc": "現在の生存数 / 上限。"
+      },
+      {
+        "sig": "static FEmitterDesc Fire/Sparks/Fountain/Smoke(FVec2 pos)",
+        "desc": "プリセットのエミッタを返す。"
+      },
+      {
+        "sig": "using FParticleSystem = CParticleSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CParticleSystem を使う。"
+      }
+    ]
+  }
+}

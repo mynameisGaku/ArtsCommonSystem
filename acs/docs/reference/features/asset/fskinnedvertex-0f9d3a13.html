@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="スキンメッシュの1 頂点(64 バイト固定)。 位置・法線・UV に加え、影響するボーン番号 4 つとウェイト 4 つを持つ。">
+  <title>FSkinnedVertex — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/asset.html">asset モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/asset.html">asset モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/asset.html">asset</a><span>/</span><span aria-current="page">FSkinnedVertex</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / asset</div><h1 class="identifier">FSkinnedVertex</h1>
+<p class="lead">スキンメッシュの1 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22266">頂点</button><span class="term-tooltip" id="term-tip-22266" role="tooltip">メッシュを構成する点。 位置・法線・UV などの属性を持つ。</span></span>(64 バイト固定)。 位置・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22267">法線</button><span class="term-tooltip" id="term-tip-22267" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>・UV に加え、影響する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22268">ボーン</button><span class="term-tooltip" id="term-tip-22268" role="tooltip">スキンメッシュを動かす骨。 階層を組み、頂点がこれに追従して変形する。</span></span>番号 4 つとウェイト 4 つを持つ。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/asset/fskinnedvertex-8a7d8d41.html"><code>acs::FSkinnedVertex</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>スキンメッシュの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22262">頂点</button><span class="term-tooltip" id="term-tip-22262" role="tooltip">メッシュを構成する点。 位置・法線・UV などの属性を持つ。</span></span>を組み立てる時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>asset</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>asset/SkinnedMesh.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-63c4cb7a1aa650647353"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>FVec3 <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/position-c2bee4db.html">position</a> / FVec3 <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/normal-8b353dd0.html">normal</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>座標と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22263">法線</button><span class="term-tooltip" id="term-tip-22263" role="tooltip">面や線に垂直な向きのベクトル。 当たった面の向きやライティングの計算に使う。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/position-c2bee4db.html"><code>acs::FSkinnedVertex::position</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/normal-8b353dd0.html"><code>acs::FSkinnedVertex::normal</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-ee6a2517ceda71c22257"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>f32 <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/u-00b3e7a6.html">u</a>, <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/v-0e56d5ee.html">v</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>テクスチャ UV。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/u-00b3e7a6.html"><code>acs::FSkinnedVertex::u</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/v-0e56d5ee.html"><code>acs::FSkinnedVertex::v</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-5dc450752bdd4f71f57e"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u8 <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/bones-f9954c60.html">bones</a>[4]</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>影響する最大 4 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22264">ボーン</button><span class="term-tooltip" id="term-tip-22264" role="tooltip">スキンメッシュを動かす骨。 階層を組み、頂点がこれに追従して変形する。</span></span>の番号(未使用は 0)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/bones-f9954c60.html"><code>acs::FSkinnedVertex::bones</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-fc0ffc08efd355aa2d52"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>f32 <a href="../../symbols/asset/fskinnedvertex-8a7d8d41/weights-cc6db46f.html">weights</a>[4]</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>各<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22265">ボーン</button><span class="term-tooltip" id="term-tip-22265" role="tooltip">スキンメッシュを動かす骨。 階層を組み、頂点がこれに追従して変形する。</span></span>の重み(合計 1.0、未使用は 0)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/asset/fskinnedvertex-8a7d8d41/weights-cc6db46f.html"><code>acs::FSkinnedVertex::weights</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FSkinnedVertexの使用例"><code>FSkinnedVertex v;
+v.position = FVec3{0,0,0};
+v.bones[0] = 3; v.weights[0] = 1.0f;  // ボーン3 に100%追従</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

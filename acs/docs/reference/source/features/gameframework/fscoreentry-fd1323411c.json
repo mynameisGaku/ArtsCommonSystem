@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FScoreEntry",
+    "kind": "構造体",
+    "header": "gameframework/ScoreSystem.h",
+    "summary": "1 回の AddScore に対応する記録。 カテゴリ・素点・倍率適用後の加算値・倍率(×100 整数)を持つ。",
+    "when": "スコア内訳の表示やリザルト集計に。 AllEntries でまとめて取り出す。",
+    "members": [
+      {
+        "sig": "const char* category / u64 base_value / u64 weighted_value",
+        "desc": "加算カテゴリ・素点・実際に足された値。"
+      },
+      {
+        "sig": "u32 multiplier_x100",
+        "desc": "その時の倍率を ×100 した整数 (例: 250 = 2.5x)。 リプレイ比較で誤差が出ないよう整数化。"
+      }
+    ]
+  }
+}

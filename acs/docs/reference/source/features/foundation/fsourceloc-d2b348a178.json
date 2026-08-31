@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "FSourceLoc",
+    "kind": "クラス",
+    "header": "foundation/SourceLoc.h",
+    "summary": "コンパイラ組み込みで取得する。",
+    "when": "「どこで呼ばれたか / どこで失敗したか」を記録したい時。 引数の既定値に FSourceLoc::Current() を置くと、呼び出し側の位置を自動取得できる。",
+    "sample": "void LogHere(FSourceLoc loc = FSourceLoc::Current()) {\n    ACS_LOG_INFO(\"%s:%u (%s)\",\n        loc.File(), loc.Line(), loc.Function());\n}\nLogHere();  // ← この行の位置が記録される",
+    "members": [
+      {
+        "sig": "static consteval FSourceLoc Current(...)",
+        "ret": "呼び出し位置",
+        "desc": "呼び出された場所の情報を取得する。 引数の既定値に置くのが定石。"
+      },
+      {
+        "sig": "const char* File() const",
+        "desc": "ソースファイルのパス。"
+      },
+      {
+        "sig": "const char* Function() const",
+        "desc": "関数名。"
+      },
+      {
+        "sig": "u32 Line() const / u32 Column() const",
+        "desc": "行番号 / 列番号。"
+      }
+    ]
+  }
+}

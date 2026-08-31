@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "レジストリ",
+  "definition": "読み込んだアセットをキー(FAssetId)で保持・共有し、再利用する管理表。 ACS では CAssetRegistry。"
+}

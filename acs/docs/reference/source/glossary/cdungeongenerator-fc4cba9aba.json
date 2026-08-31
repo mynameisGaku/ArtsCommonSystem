@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CDungeonGenerator",
+  "definition": "2D グリッドに部屋と廊下を配置する BSP(空間二分割)ダンジョン生成器。 シードで結果を再現できる。"
+}

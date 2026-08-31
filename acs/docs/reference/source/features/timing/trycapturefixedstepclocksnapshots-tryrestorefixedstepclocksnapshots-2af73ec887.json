@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "timing",
+    "title": "timing — 決定論的な時間変換",
+    "description": "利用側が値として所有する固定更新時計。 可変な経過秒を有界な更新回数と描画補間率へ変換し、ゲームループや共有サービスの寿命から切り離します。"
+  },
+  "feature": {
+    "name": "TryCaptureFixedStepClockSnapshots / TryRestoreFixedStepClockSnapshots",
+    "kind": "自由関数",
+    "header": "timing/FixedStepClockBatch.h",
+    "summary": "複数時計の保存または復元を最大4096件まで一括で確定する関数。",
+    "when": "複数のsimulation時計を同じtransactionとして保存または復元する時。",
+    "members": [
+      {
+        "sig": "bool TryCaptureFixedStepClockSnapshots(clocks, count, snapshots, capacity, snapshot_count)",
+        "ret": "全件保存できたか",
+        "desc": "全領域と全時計を先に検証し、失敗時は保存先と件数を維持する。"
+      },
+      {
+        "sig": "bool TryRestoreFixedStepClockSnapshots(clocks, snapshots, count)",
+        "ret": "全件復元できたか",
+        "desc": "全領域と全保存値を先に検証し、失敗時はどの時計も変更しない。"
+      }
+    ]
+  }
+}

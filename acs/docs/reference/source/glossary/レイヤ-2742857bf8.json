@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "レイヤ",
+  "definition": "当たり判定や描画の対象を分類するための札。 player/enemy/wall のように仲間分けする。"
+}

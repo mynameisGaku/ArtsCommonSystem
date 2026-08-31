@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="スプライトのピクセル効果プリセット (マテリアルアセットが参照する基本シェーダ)。 SetEffect で切り替える。 マテリアルアセット (.acsmat) は「どのプリセットを使うか + パラメータ」 を保持し、ノードはそのマテリアルを参照するだけ。 シェーダを書けない人でも見た目を変えられる。 UV 歪み系 (Wave/Pixelate) はサンプル前、色系 (Grayscale/Tint/...) はサンプル後に適用される。">
+  <title>acs::ESpriteEffect — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render.html">render モジュール</a><a href="espriteeffect-a9cda76f.html" aria-current="page">ESpriteEffect</a><a class="tree-child" href="espriteeffect-a9cda76f/brightness-4ace8c64.html">Brightness</a><a class="tree-child" href="espriteeffect-a9cda76f/chromatic-3af8d405.html">Chromatic</a><a class="tree-child" href="espriteeffect-a9cda76f/grayscale-9d976633.html">Grayscale</a><a class="tree-child" href="espriteeffect-a9cda76f/hueshift-8be01d5d.html">HueShift</a><a class="tree-child" href="espriteeffect-a9cda76f/invert-bd0aba32.html">Invert</a><a class="tree-child" href="espriteeffect-a9cda76f/none-b85759b3.html">None</a><a class="tree-child" href="espriteeffect-a9cda76f/pixelate-a6386da7.html">Pixelate</a><a class="tree-child" href="espriteeffect-a9cda76f/posterize-b3635ee9.html">Posterize</a><a class="tree-child" href="espriteeffect-a9cda76f/scanline-44c91e49.html">Scanline</a><a class="tree-child" href="espriteeffect-a9cda76f/sepia-49c244e2.html">Sepia</a><a class="tree-child" href="espriteeffect-a9cda76f/tint-f871afd1.html">Tint</a><a class="tree-child" href="espriteeffect-a9cda76f/vignette-54a7271b.html">Vignette</a><a class="tree-child" href="espriteeffect-a9cda76f/wave-d1a04b28.html">Wave</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render.html">render</a><span>/</span><span aria-current="page">ESpriteEffect</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / render</div>
+<h1 class="identifier">acs::ESpriteEffect</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19575">スプライト</button><span class="term-tooltip" id="term-tip-19575" role="tooltip">2D の 1 枚絵(キャラ・アイコン等)。 矩形にテクスチャを貼って描く。</span></span>のピクセル効果プリセット (マテリアル<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19576">アセット</button><span class="term-tooltip" id="term-tip-19576" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span>が参照する基本<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19577">シェーダ</button><span class="term-tooltip" id="term-tip-19577" role="tooltip">GPU 上で頂点やピクセルを計算する小さなプログラム。 ACS では HLSL で書く。</span></span>)。 SetEffect で切り替える。 マテリアル<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19578">アセット</button><span class="term-tooltip" id="term-tip-19578" role="tooltip">ゲームで使う画像・音・モデル・データなどの素材ファイル。</span></span> (.acsmat) は「どのプリセットを使うか + パラメータ」 を保持し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19579">ノード</button><span class="term-tooltip" id="term-tip-19579" role="tooltip">ゲーム世界に置く部品の単位。 位置やコンポーネントを持ち、親子のツリーで並ぶ。</span></span>はそのマテリアルを参照するだけ。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19580">シェーダ</button><span class="term-tooltip" id="term-tip-19580" role="tooltip">GPU 上で頂点やピクセルを計算する小さなプログラム。 ACS では HLSL で書く。</span></span>を書けない人でも見た目を変えられる。 UV 歪み系 (Wave/Pixelate) はサンプル前、色系 (Grayscale/Tint/...) はサンプル後に適用される。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::ESpriteEffectの宣言"><code>enum class <a href="espriteeffect-a9cda76f.html" aria-current="page">ESpriteEffect</a> : <a href="../foundation/u8-b0858e19.html">u8</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/render/SpriteBatch.h:63</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="espriteeffect-a9cda76f/brightness-4ace8c64.html"><span><span class="identifier">Brightness = 7</span><span class="summary">ESpriteEffect が提供する Brightness 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/chromatic-3af8d405.html"><span><span class="identifier">Chromatic = 12</span><span class="summary">ESpriteEffect が提供する Chromatic 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/grayscale-9d976633.html"><span><span class="identifier">Grayscale = 1</span><span class="summary">ESpriteEffect が提供する Grayscale 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/hueshift-8be01d5d.html"><span><span class="identifier">HueShift = 6</span><span class="summary">ESpriteEffect が提供する HueShift 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/invert-bd0aba32.html"><span><span class="identifier">Invert = 8</span><span class="summary">ESpriteEffect が提供する Invert 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/none-b85759b3.html"><span><span class="identifier">None = 0</span><span class="summary">ESpriteEffect が提供する None 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/pixelate-a6386da7.html"><span><span class="identifier">Pixelate = 5</span><span class="summary">ESpriteEffect が提供する Pixelate 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/posterize-b3635ee9.html"><span><span class="identifier">Posterize = 10</span><span class="summary">ESpriteEffect が提供する Posterize 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/scanline-44c91e49.html"><span><span class="identifier">Scanline = 11</span><span class="summary">ESpriteEffect が提供する Scanline 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/sepia-49c244e2.html"><span><span class="identifier">Sepia = 9</span><span class="summary">ESpriteEffect が提供する Sepia 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/tint-f871afd1.html"><span><span class="identifier">Tint = 2</span><span class="summary">ESpriteEffect が提供する Tint 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/vignette-54a7271b.html"><span><span class="identifier">Vignette = 3</span><span class="summary">ESpriteEffect が提供する Vignette 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="espriteeffect-a9cda76f/wave-d1a04b28.html"><span><span class="identifier">Wave = 4</span><span class="summary">ESpriteEffect が提供する Wave 列挙値です。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

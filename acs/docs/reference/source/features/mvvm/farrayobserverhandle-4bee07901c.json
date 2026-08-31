@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "FArrayObserverHandle",
+    "kind": "構造体",
+    "header": "mvvm/ObservableArray.h",
+    "summary": "TObservableArray の Subscribe が返す購読チケット。 仕様は FObservableHandle と同じく id+generation 方式。",
+    "when": "配列の監視を後で解除するために保持しておく。",
+    "sample": "FArrayObserverHandle h = inv.Subscribe(cb, this);\nif (h.IsValid()) inv.Unsubscribe(h);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "id != 0 なら有効。"
+      },
+      {
+        "sig": "bool operator==(const FArrayObserverHandle&) const",
+        "desc": "id と generation の両方一致で同一。"
+      }
+    ]
+  }
+}

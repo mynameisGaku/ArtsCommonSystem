@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FParticle",
+    "kind": "構造体",
+    "header": "gameframework/ParticleEffectSystem.h",
+    "summary": "個別の粒子データ。 位置 / 速度 / 経過秒 (age) / 寿命 (lifetime) / 色 / サイズ / 重力を自分で持ち回るself-contained設計なので、emitter が消えても粒子は正しく動き続ける。",
+    "when": "描画側がこの構造体を直接読み、age/lifetime から補間係数を求めて色・サイズを決める。",
+    "sample": "u32 n = 0;\nconst FParticle* p = fx.AllParticles(n);\nfor (u32 i = 0; i < n; ++i) {\n    if (!p[i].IsAlive()) continue;\n    f32 t = p[i].NormalizedAge();   // 0..1\n    // 描画 (位置 p[i].position、色は補間)\n}",
+    "members": [
+      {
+        "sig": "f32 NormalizedAge() const",
+        "ret": "0..1 の経過比",
+        "desc": "age / lifetime を 0..1 に clamp して返す。 色・サイズ補間に使う。"
+      },
+      {
+        "sig": "bool IsAlive() const",
+        "desc": "age < lifetime なら true (まだ生きている)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CScriptHost",
+    "kind": "クラス",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "スクリプト呼び出しの単一窓口。 IScriptVm を 1 個保持し、ファイル読み込み・グローバル関数呼び出し・ネイティブ関数登録をまとめる。 Mod や UI ロジックの動的拡張に使う。",
+    "when": "Lua などのスクリプトでゲームを拡張したい時。 VM 本体は別モジュールが提供し、ここはその窓口。",
+    "sample": "CScriptHost host;\nhost.Init(&acs::game::GetDefaultScriptVm());\nhost.RegisterNative(\"Log\", &MyLog, this);\nhost.LoadAndRun(L\"mods/hello.lua\");\nFScriptValue ret{};\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &ret);",
+    "members": [
+      {
+        "sig": "void Init(IScriptVm* vm)",
+        "desc": "使う VM を差し込む (所有はしない)。 nullptr で切り離し。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "VM 参照を切り、内部の登録リストもクリアする。"
+      },
+      {
+        "sig": "IScriptVm* Vm() const",
+        "desc": "保持中の VM を返す (未設定なら nullptr)。"
+      },
+      {
+        "sig": "TResult<void> LoadAndRun(const wchar_t* file_path)",
+        "desc": "ファイルを読み込んで実行する (上限 64 MiB)。"
+      },
+      {
+        "sig": "TResult<void> CallGlobalFunction(const char* name, const FScriptValue* args, u32 arg_count, FScriptValue* ret_out)",
+        "desc": "スクリプト側のグローバル関数を呼ぶ。"
+      },
+      {
+        "sig": "TResult<void> RegisterNative(const char* name, NativeFunction fn, void* user)",
+        "desc": "C++ 関数をスクリプトから呼べるよう登録する (内部 registry にも記録)。"
+      },
+      {
+        "sig": "void RegisterStandardBindings()",
+        "desc": "VM未設定時は警告して終了します。VM設定済みでも現在は native function を登録しません。"
+      },
+      {
+        "sig": "void SetOnErrorCallback(ScriptErrorCallback cb, void* user)",
+        "desc": "スクリプト実行エラーを上位に通知するコールバックを設定する。"
+      },
+      {
+        "sig": "using FScriptHost = CScriptHost",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CScriptHost を使う。"
+      }
+    ]
+  }
+}

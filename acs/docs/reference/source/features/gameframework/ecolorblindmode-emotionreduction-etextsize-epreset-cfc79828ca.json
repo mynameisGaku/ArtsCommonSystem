@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "EColorblindMode / EMotionReduction / ETextSize / EPreset",
+    "kind": "列挙(enum)",
+    "header": "gameframework/AccessibilityProfile.h",
+    "summary": "アクセシビリティ用の選択肢を表す enum 群。 EColorblindMode=色覚補正 (None/Protanopia/Deuteranopia/Tritanopia/Achromatopsia)、EMotionReduction=動きの抑制 (Full/Reduced/Off)、ETextSize=文字サイズ (Small〜ExtraLarge)、EPreset=一括プリセット種別。",
+    "when": "個別 setter や ApplyPreset() に渡す値として使う。",
+    "sample": "profile.SetColorblindMode(EColorblindMode::Deuteranopia); // 緑色弱補正\nprofile.SetMotionReduction(EMotionReduction::Reduced);\nprofile.ApplyPreset(EPreset::OneHanded);"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "TSaveSlot<T>",
+    "kind": "クラステンプレート",
+    "header": "gameframework/SaveSlot.h",
+    "summary": "1 個の POD 構造体を 1 ファイルに保存/復元するセーブスロット。 タイトル画面の continue 判定やオプション設定、進捗データの土台。",
+    "when": "プレイヤープロフィールや設定など、固定レイアウトのデータを手軽に保存したい時。",
+    "sample": "struct FProfile { acs::u32 hi_score; acs::f32 volume; };\nFProfile profile{};\nTSaveSlot<FProfile> slot;\nslot.Init(L\"user/profile.acssave\");\nif (slot.Exists()) { auto r = slot.Load(); if (r) profile = r.Value(); }\nslot.Save(profile);",
+    "members": [
+      {
+        "sig": "void Init(const wchar_t* file_path)",
+        "desc": "このスロットのファイルパスを設定する (文字列は呼び出し側が寿命を保証)。"
+      },
+      {
+        "sig": "TResult<void> Save(const T& data, u32 version = 1)",
+        "desc": "data を保存する。 version を上げると旧データ読み込み時に migrate を促せる。"
+      },
+      {
+        "sig": "TResult<T> Load(u32 expected_version = 1)",
+        "ret": "復元した T",
+        "desc": "ファイルから読み出す。 version 不一致なら kSubMigrationNeeded。"
+      },
+      {
+        "sig": "bool Exists() const",
+        "ret": "存在するか",
+        "desc": "ファイルがあるかだけ判定する (未初期化なら false)。"
+      },
+      {
+        "sig": "TResult<void> Delete()",
+        "desc": "ファイルを削除する (無くても成功扱いの冪等動作)。"
+      }
+    ]
+  }
+}

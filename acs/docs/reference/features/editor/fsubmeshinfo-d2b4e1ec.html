@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="1 つの submesh セクションの情報(名前 + index 範囲 + 使用する material slot)。 name は caller 所有のリテラル / 永続文字列を想定(panel 寿命 ≦ name 寿命)。">
+  <title>FSubmeshInfo — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/editor.html">editor モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/editor.html">editor</a><span>/</span><span aria-current="page">FSubmeshInfo</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / editor</div><h1 class="identifier">FSubmeshInfo</h1>
+<p class="lead">1 つの submesh セクションの情報(名前 + index 範囲 + 使用する material slot)。 name は caller 所有のリテラル / 永続文字列を想定(panel 寿命 ≦ name 寿命)。</p></div><div class="badges"><span class="badge">構造体(POD)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fsubmeshinfo-f88e1637.html"><code>acs::game::modelview::FSubmeshInfo</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Inspector に submesh テーブルを表示するため、submesh ごとに 1 件作って配列で渡す。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>editor</dd></div><div class="fact"><dt>分類</dt><dd>構造体(POD)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/tools/modelview/ModelInspectorPanel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-6d39b3614c14fddd289c"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/name-40af1b07.html">name</a> = nullptr</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>submesh 名(例: &quot;Body&quot;, &quot;Hair&quot;, &quot;Eyes&quot;)。 caller 所有の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23865">ポインタ</button><span class="term-tooltip" id="term-tip-23865" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/name-40af1b07.html"><code>acs::game::modelview::FSubmeshInfo::name</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-9952a170d9f1cd676bda"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u32 <a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/index-start-6950de33.html">index_start</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全 index buffer 内の開始 index。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/index-start-6950de33.html"><code>acs::game::modelview::FSubmeshInfo::index_start</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-d2e3a554cdbb79415c94"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u32 <a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/index-count-0dde724d.html">index_count</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>この submesh の index 数(3 の倍数想定)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/index-count-0dde724d.html"><code>acs::game::modelview::FSubmeshInfo::index_count</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-4340bec099ff1cdecbfd"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>u32 <a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/material-slot-index-9f4d4332.html">material_slot_index</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>この submesh が使う material slot 番号。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fsubmeshinfo-f88e1637/material-slot-index-9f4d4332.html"><code>acs::game::modelview::FSubmeshInfo::material_slot_index</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FSubmeshInfoの使用例"><code>FSubmeshInfo sm;
+sm.name                = &quot;Body&quot;;
+sm.index_start         = 0;
+sm.index_count         = 3600;   // 3 の倍数想定
+sm.material_slot_index = 0;</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

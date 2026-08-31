@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="内部 CEditorCamera への参照を返す。 呼出側 (renderer / panel 内 UI) が HandleMouseInput / Tick / ViewMatrix 等を呼ぶ。 寿命は本 panel と同一。 戻り値: 内部 CEditorCamera への参照。">
+  <title>acs::game::modelview::AModelViewerPanel::Camera — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../amodelviewerpanel-321d7182.html">AModelViewerPanel の概要</a><a class="tree-child" href="amodelviewerpanel-0a362d49.html">AModelViewerPanel</a><a class="tree-child" href="amodelviewerpanel-b39451e9.html">AModelViewerPanel</a><a class="tree-child" href="amodelviewerpanel-e54733e5.html">AModelViewerPanel</a><a class="tree-child" href="backgroundcolor-cd0a0809.html">BackgroundColor</a><a class="tree-child" href="camera-f59bc520.html" aria-current="page">Camera</a><a class="tree-child" href="clearmodel-f1602b5e.html">ClearModel</a><a class="tree-child" href="currentassetpath-d7a28b9a.html">CurrentAssetPath</a><a class="tree-child" href="drawui-52cb4290.html">DrawUI</a><a class="tree-child" href="hasmodel-82b1afaf.html">HasModel</a><a class="tree-child" href="init-d189bf9f.html">Init</a><a class="tree-child" href="isiblenabled-fe8aaee1.html">IsIblEnabled</a><a class="tree-child" href="kmaxassetpathchars-c4302acc.html">kMaxAssetPathChars</a><a class="tree-child" href="ktonemappingmodecount-296288d9.html">kToneMappingModeCount</a><a class="tree-child" href="lightcolor-2bb91ce1.html">LightColor</a><a class="tree-child" href="lightdirection-5affbbe6.html">LightDirection</a><a class="tree-child" href="loadmodelasset-ef64f550.html">LoadModelAsset</a><a class="tree-child" href="m-assetpath-0cdb513f.html">m_AssetPath</a><a class="tree-child" href="m-bgcolor-59ab1a2b.html">m_BgColor</a><a class="tree-child" href="m-camera-4523dd92.html">m_Camera</a><a class="tree-child" href="m-iblenabled-33da60e1.html">m_IblEnabled</a><a class="tree-child" href="m-lightcolor-663f1e00.html">m_LightColor</a><a class="tree-child" href="m-lightdir-7225891a.html">m_LightDir</a><a class="tree-child" href="m-showboneskeleton-a703381d.html">m_ShowBoneSkeleton</a><a class="tree-child" href="m-showgrid-3ee07103.html">m_ShowGrid</a><a class="tree-child" href="m-tonemapmode-2982c6d9.html">m_TonemapMode</a><a class="tree-child" href="onassetselected-6a9f2444.html">OnAssetSelected</a><a class="tree-child" href="oninit-db7eaa1e.html">OnInit</a><a class="tree-child" href="operator-85f34869.html">operator=</a><a class="tree-child" href="operator-abe5ffe7.html">operator=</a><a class="tree-child" href="setbackgroundcolor-e6bec99d.html">SetBackgroundColor</a><a class="tree-child" href="setiblenabled-d967fd38.html">SetIblEnabled</a><a class="tree-child" href="setlightcolor-4a628e7c.html">SetLightColor</a><a class="tree-child" href="setlightdirection-147be2e0.html">SetLightDirection</a><a class="tree-child" href="setshowboneskeleton-e63f1d0a.html">SetShowBoneSkeleton</a><a class="tree-child" href="setshowgrid-57f15ccc.html">SetShowGrid</a><a class="tree-child" href="settonemappingmode-e8ab30b8.html">SetToneMappingMode</a><a class="tree-child" href="showboneskeleton-e1672d22.html">ShowBoneSkeleton</a><a class="tree-child" href="showgrid-bf5abdf0.html">ShowGrid</a><a class="tree-child" href="shutdown-1e2a4cef.html">Shutdown</a><a class="tree-child" href="title-ef8b8e1e.html">Title</a><a class="tree-child" href="tonemappingmode-816a14e4.html">ToneMappingMode</a><a class="tree-child" href="amodelviewerpanel-3957b0bd.html">~AModelViewerPanel</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../amodelviewerpanel-321d7182.html">AModelViewerPanel</a><span>/</span><span aria-current="page">Camera</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::modelview::AModelViewerPanel::Camera</h1>
+<p class="lead">内部 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-13737">CEditorCamera</button><span class="term-tooltip" id="term-tip-13737" role="tooltip">editor_core のエディタ用カメラ。 3D orbit / pan / dolly 操作と ViewMatrix / ProjectionMatrix の取得を提供し、各パネルが値メンバとして所有する。</span></span> への参照を返す。 呼出側 (renderer / panel 内 UI) が HandleMouse<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-13738">Input</button><span class="term-tooltip" id="term-tip-13738" role="tooltip">キーボード・マウス・ゲームパッドの状態を問い合わせで読む静的クラス。 毎フレーム先頭で Update() を呼んでから状態を読む。</span></span> / Tick / ViewMatrix 等を呼ぶ。 寿命は本 panel と同一。 戻り値: 内部 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-13739">CEditorCamera</button><span class="term-tooltip" id="term-tip-13739" role="tooltip">editor_core のエディタ用カメラ。 3D orbit / pan / dolly 操作と ViewMatrix / ProjectionMatrix の取得を提供し、各パネルが値メンバとして所有する。</span></span> への参照。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::modelview::AModelViewerPanel::Cameraの宣言"><code>acs::game::editor_core::CEditorCamera&amp; <a href="camera-f59bc520.html" aria-current="page">Camera</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../amodelviewerpanel-321d7182.html"><code>acs::game::modelview::AModelViewerPanel</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/tools/modelview/ModelViewerPanel.h:192</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputSample",
+    "kind": "構造体",
+    "header": "gameframework/InputRecorder.h",
+    "summary": "1 tick 分の生入力サンプル (POD)。 状態変化したキー (最大 8) + マウス座標 + マウスボタン bitmask を持つ。",
+    "when": "OS の raw input / SDL イベントを詰めて Capture に渡す時、または再生で受け取る時。",
+    "sample": "FInputSample s;\ns.tick = m_Tick;\ns.mouse_pos = { mx, my };\ns.mouse_button_states = mask;",
+    "members": [
+      {
+        "sig": "u32 tick",
+        "desc": "フレーム番号 (0 起点)。"
+      },
+      {
+        "sig": "u8 key_codes_changed[8] / u8 key_states[8]",
+        "desc": "状態変化したキーコードと、その press(1)/release(0)。 未使用枠は 0。"
+      },
+      {
+        "sig": "FVec2 mouse_pos",
+        "desc": "マウス位置 (window-local px)。"
+      },
+      {
+        "sig": "u8 mouse_button_states",
+        "desc": "マウスボタン bitmask (L=bit0, R=bit1, M=bit2 ...)。"
+      }
+    ]
+  }
+}

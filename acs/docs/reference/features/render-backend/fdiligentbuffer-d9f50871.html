@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Diligent の GPU バッファ(IRhiBuffer 派生)。 Diligent の IBuffer を頂点・インデックス・定数バッファとして確保し、FDx12Buffer と同じ API で更新できます。">
+  <title>FDiligentBuffer — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-backend.html">render-backend モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-backend.html">render-backend モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-backend.html">render-backend モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-backend.html">render-backend</a><span>/</span><span aria-current="page">FDiligentBuffer</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-backend</div><h1 class="identifier">FDiligentBuffer</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28344">Diligent</button><span class="term-tooltip" id="term-tip-28344" role="tooltip">Diligent Engine。 1 つの API で D3D12 / Vulkan 等を扱えるクロスバックエンド層。 ACS の Diligent* 系が利用する。</span></span> の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28345">GPU</button><span class="term-tooltip" id="term-tip-28345" role="tooltip">画像処理に特化した演算装置。 描画はここで行われる。</span></span> バッファ(IRhiBuffer 派生)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28346">Diligent</button><span class="term-tooltip" id="term-tip-28346" role="tooltip">Diligent Engine。 1 つの API で D3D12 / Vulkan 等を扱えるクロスバックエンド層。 ACS の Diligent* 系が利用する。</span></span> の IBuffer を<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28347">頂点</button><span class="term-tooltip" id="term-tip-28347" role="tooltip">メッシュを構成する点。 位置・法線・UV などの属性を持つ。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28348">インデックス</button><span class="term-tooltip" id="term-tip-28348" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28349">定数バッファ</button><span class="term-tooltip" id="term-tip-28349" role="tooltip">シェーダに渡す小さなパラメータ群(行列・色・ライト等)を入れる GPU バッファ(cbuffer / CB)。</span></span>として確保し、FDx12Buffer と同じ <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28350">API</button><span class="term-tooltip" id="term-tip-28350" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> で更新できます。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/render/fdiligentbuffer-359f71d8.html"><code>acs::FDiligentBuffer</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>CreateRhiBuffer() が <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28342">Diligent</button><span class="term-tooltip" id="term-tip-28342" role="tooltip">Diligent Engine。 1 つの API で D3D12 / Vulkan 等を扱えるクロスバックエンド層。 ACS の Diligent* 系が利用する。</span></span> で生成する実体。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-backend</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/Diligent/DiligentBuffer.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-15f12d9ad5c82d41ce10"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>usize <a href="../../symbols/render/fdiligentbuffer-359f71d8/size-46128902.html">Size</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>バイト数。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fdiligentbuffer-359f71d8/size-46128902.html"><code>acs::FDiligentBuffer::Size</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-620e565cb14749d34ecc"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>EBufferUsage <a href="../../symbols/render/fdiligentbuffer-359f71d8/usage-7b0b6c16.html">Usage</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>用途。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fdiligentbuffer-359f71d8/usage-7b0b6c16.html"><code>acs::FDiligentBuffer::Usage</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-2b460b31d1248f1b7528"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/render/fdiligentbuffer-359f71d8/update-5ede5bc5.html">Update</a>(const void* data, usize size, usize offset=0)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28343">CPU</button><span class="term-tooltip" id="term-tip-28343" role="tooltip">中央演算装置。 対応するSIMD命令により計算速度が変わる。</span></span> から書き込む(cpu_writable=true のみ)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fdiligentbuffer-359f71d8/update-5ede5bc5.html"><code>acs::FDiligentBuffer::Update</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-33b159a2668edfc00a81"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>Diligent::<a href="../../symbols/render/ibuffer-75f52aa7.html">IBuffer</a>* <a href="../../symbols/render/fdiligentbuffer-359f71d8/native-f657cc7d.html">Native</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>内部公開。 生の IBuffer。</dd></div><div class="fact"><dt>戻り値</dt><dd>生バッファ</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/ibuffer-75f52aa7.html"><code>Diligent::IBuffer</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fdiligentbuffer-359f71d8/native-f657cc7d.html"><code>acs::FDiligentBuffer::Native</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FDiligentBufferの使用例"><code>FBufferDesc d;
+d.size = sizeof(CB); d.usage = EBufferUsage::Uniform;
+d.cpu_writable = true;
+auto cb = CreateRhiBuffer(*dev, d).Value();
+cb-&gt;Update(&amp;data, sizeof(data));</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

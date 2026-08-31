@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "EScriptLanguage / EScriptValueKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "backend 言語タグ (Lua54/Wren/Python3/Custom) と、値の種別タグ (Nil/Bool/Number/FString/Handle)。",
+    "when": "VM の種類を判定したり、FScriptValue の中身を場合分けしたい時。"
+  }
+}

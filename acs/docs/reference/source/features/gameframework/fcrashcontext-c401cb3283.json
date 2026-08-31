@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCrashContext",
+    "kind": "構造体",
+    "header": "gameframework/CrashReporter.h",
+    "summary": "クラッシュ 1 件分の context。 exception_type・message・stack_trace (改行区切り) ・scene_name・frame_count・timestamp・build_id を持つ。 文字列は非所有。",
+    "when": "ReportCrash() に渡す時。",
+    "sample": "FCrashContext ctx;\nctx.exception_type = \\\"SEH_ACCESS_VIOLATION\\\";\nctx.message = \\\"null deref\\\";\nctx.frame_count = frameCount;"
+  }
+}

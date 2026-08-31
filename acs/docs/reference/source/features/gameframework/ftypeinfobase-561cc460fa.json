@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FTypeInfoBase",
+    "kind": "構造体",
+    "header": "gameframework/TypeInfo.h",
+    "summary": "型のリフレクション情報の本体。 Reflect<T>() が返す型で、型名・サイズ・整列・フィールド配列・一意な型 ID を持ちます。",
+    "when": "リフレクション結果を走査してフィールドを列挙する時。",
+    "sample": "const auto& ti = acs::game::Reflect<PlayerState>();\nfor (acs::u32 i = 0; i < ti.field_count; ++i)\n    Log(ti.fields[i].name);",
+    "members": [
+      {
+        "sig": "const c8* type_name",
+        "desc": "型名文字列(未反射なら nullptr)。"
+      },
+      {
+        "sig": "usize size / usize alignment",
+        "desc": "sizeはsizeof(T)、alignmentはalignof(T)を保持します。"
+      },
+      {
+        "sig": "const FFieldInfo* fields / u32 field_count",
+        "desc": "フィールド配列とその要素数。"
+      },
+      {
+        "sig": "const void* type_tag",
+        "desc": "一意な型 ID(= TypeTag<T>())。"
+      }
+    ]
+  }
+}

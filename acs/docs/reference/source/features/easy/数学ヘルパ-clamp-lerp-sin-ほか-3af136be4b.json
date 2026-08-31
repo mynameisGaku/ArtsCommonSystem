@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "数学ヘルパ（Clamp / Lerp / Sin ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "範囲制限・線形補間・距離・最小最大・絶対値・平方根・三角関数・向きの角度。 三角関数の角度は度（°）で渡す（C++ 標準の sin/cos はラジアンなので注意）。",
+    "when": "値を範囲に収める（HP バー等）、なめらかな移動（Lerp）、円運動（Sin/Cos）、狙い撃ち（AngleTo）。",
+    "sample": "hp = Clamp(hp, 0, 100);                 // 0〜100 に収める\nx  = Lerp(x, targetX, 0.1f);            // なめらかに近づく\nf32 dx = Cos(angle), dy = Sin(angle);   // 角度は度\nf32 aim = AngleTo(px, py, MouseX(), MouseY());",
+    "members": [
+      {
+        "sig": "f32 Clamp(f32 value, f32 lo, f32 hi)",
+        "ret": "範囲内の値",
+        "desc": "value を lo〜hi に収める。"
+      },
+      {
+        "sig": "f32 Lerp(f32 a, f32 b, f32 t)",
+        "ret": "補間値",
+        "desc": "a と b を t（0〜1）で線形補間する。"
+      },
+      {
+        "sig": "f32 Distance(f32 x1,f32 y1,f32 x2,f32 y2)",
+        "ret": "距離",
+        "desc": "2 点間の直線距離。"
+      },
+      {
+        "sig": "f32 Min(f32 a, f32 b) / f32 Max(f32 a, f32 b)",
+        "desc": "小さい方／大きい方。"
+      },
+      {
+        "sig": "f32 Abs(f32 value)",
+        "ret": "絶対値",
+        "desc": "符号を取り除いた値。"
+      },
+      {
+        "sig": "f32 Sin(f32 degrees) / f32 Cos(f32 degrees)",
+        "ret": "正弦/余弦",
+        "desc": "角度は度で渡す。 円運動や揺れに。"
+      },
+      {
+        "sig": "f32 Sqrt(f32 value)",
+        "ret": "平方根",
+        "desc": "値の平方根。"
+      },
+      {
+        "sig": "f32 AngleTo(f32 x1,f32 y1,f32 x2,f32 y2)",
+        "ret": "角度(度)",
+        "desc": "(x1,y1) から (x2,y2) へ向かう向きの角度。 DrawSpriteRotated にそのまま渡せる。",
+        "when": "敵をプレイヤーへ向ける・弾を狙う方向に飛ばす時。"
+      }
+    ]
+  }
+}

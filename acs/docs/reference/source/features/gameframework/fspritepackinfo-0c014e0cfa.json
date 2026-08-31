@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSpritePackInfo",
+    "kind": "構造体",
+    "header": "gameframework/SpritePack.h",
+    "summary": "アトラス全体のメタ情報。 テクスチャパスと全体サイズ (px) を持つ。 テクスチャ本体は別モジュールが所有する。",
+    "when": "FSpritePack::Init に渡してアトラスの寸法を伝える。",
+    "sample": "FSpritePackInfo info;\ninfo.atlas_texture_path = \"assets/hero.png\";\ninfo.atlas_width = 1024;\ninfo.atlas_height = 1024;"
+  }
+}

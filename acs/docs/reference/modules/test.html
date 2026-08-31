@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのtestモジュールに含まれる機能とAPIです。">
+  <title>test モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="test.html">test モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="test.html">test モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="test.html">test モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">test</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">test</h1>
+<p class="lead">test モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 10</span><span class="badge">API 12</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/test/acs-test-suite-name-8cf8c8e5.html"><span class="card-title">ACS_TEST(Suite, Name)</span><span class="card-description">テストケースを 1 つ宣言するマクロ。 直後に { ... } でテスト本体を書く。 プログラム起動時に自動でテスト一覧へ登録され、RunAll() で実行される。 Suite はグループ名、Name はその中の個別テスト名。</span><span class="card-meta">マクロ</span></a><a class="card" href="../features/test/expect-eq-expect-ne-7324079e.html"><span class="card-title">EXPECT_EQ / EXPECT_NE</span><span class="card-description">2 つの値が等しい(または等しくない)ことを検証するアサートマクロ。 内部で a == b を 1 度だけ評価して比べる。 条件を満たさなくてもテストは続行する。</span><span class="card-meta">マクロ</span></a><a class="card" href="../features/test/expect-near-89c71cc4.html"><span class="card-title">EXPECT_NEAR</span><span class="card-description">2 つの値の差が許容誤差 eps 以内であることを検証する、浮動小数用のアサートマクロ。 |a - b| &gt; eps なら失敗を記録する。</span><span class="card-meta">マクロ</span></a><a class="card" href="../features/test/expect-true-expect-false-ad360883.html"><span class="card-title">EXPECT_TRUE / EXPECT_FALSE</span><span class="card-description">式が真(または偽)であることを検証するアサートマクロ。 条件を満たさなければ失敗を記録するが、テストはそのまま続行する(以降のチェックも走る)。</span><span class="card-meta">マクロ</span></a><a class="card" href="../features/test/ftestcase-e935cf17.html"><span class="card-title">FTestCase</span><span class="card-description">1 つのテストケースの記述子。 スイート名・テスト名・ソース位置・テスト本体への関数ポインタを持ち、next で次のケースへ繋がる連結リストのノードでもある。 ACS_TEST が内部で自動生成するので、通常は手で触らない。</span><span class="card-meta">構造体</span></a><a class="card" href="../features/test/recordfailure-22275dfb.html"><span class="card-title">RecordFailure()</span><span class="card-description">テスト本体内から失敗を 1 件記録する関数。 失敗してもテストはそこで止まらず続行する。 EXPECT_* マクロが条件不成立のときに内部で呼ぶ。 printf 風の書式で詳細メッセージを付けられる。</span><span class="card-meta">関数</span></a><a class="card" href="../features/test/recordinfo-cb016ad2.html"><span class="card-title">RecordInfo()</span><span class="card-description">テスト本体内から補助的な情報メッセージを出力する関数。 失敗扱いにはならず、ログとして残るだけ。 printf 風の書式が使える。</span><span class="card-meta">関数</span></a><a class="card" href="../features/test/register-8fe74a47.html"><span class="card-title">Register()</span><span class="card-description">テストケースを実行リストへ登録する。 ACS_TEST が起動時(main 開始前)に自動で呼ぶため、利用者が直接呼ぶことはまずない。</span><span class="card-meta">関数</span></a><a class="card" href="../features/test/runall-af074f81.html"><span class="card-title">RunAll()</span><span class="card-description">登録済みの全テストケースを順に実行する。 失敗が 1 件でもあれば 1 を、すべて成功なら 0 を返す。</span><span class="card-meta">関数</span></a><a class="card" href="../features/test/testfn-4b13acc6.html"><span class="card-title">TestFn</span><span class="card-description">テスト本体の関数ポインタ型。 void (*)() の別名で、引数なし・戻り値なしの関数を指す。</span><span class="card-meta">型エイリアス</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>マクロ</h3><div class="member-list"><a class="member-card" href="../symbols/test/acs-test-34874eb2.html"><span><span class="identifier">ACS_TEST</span><span class="summary">ACS_TEST マクロ 静的なグローバルオブジェクトのコンストラクタで Register を呼ぶことで、 main 開始前にテスト一覧が構築される。</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/test/expect-eq-cbad2494.html"><span><span class="identifier">EXPECT_EQ</span><span class="summary">a == b でなければ失敗を記録</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/test/expect-false-f5fe3173.html"><span><span class="identifier">EXPECT_FALSE</span><span class="summary">expr が false でなければ失敗を記録</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/test/expect-ne-e99dd851.html"><span><span class="identifier">EXPECT_NE</span><span class="summary">a != b でなければ失敗を記録</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/test/expect-near-2199b2fe.html"><span><span class="identifier">EXPECT_NEAR</span><span class="summary">|a - b| が eps 以下でなければ失敗を記録（浮動小数比較）</span></span><span class="kind-label">マクロ →</span></a><a class="member-card" href="../symbols/test/expect-true-8a61667f.html"><span><span class="identifier">EXPECT_TRUE</span><span class="summary">expr が true でなければ失敗を記録</span></span><span class="kind-label">マクロ →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/test/testfn-a5daf408.html"><span><span class="identifier">acs::test::TestFn</span><span class="summary">ACS の test モジュールで TestFn を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>構造体</h3><div class="member-list"><a class="member-card" href="../symbols/test/ftestcase-adeff8c9.html"><span><span class="identifier">acs::test::FTestCase</span><span class="summary">1 テストケースの記述子（リンクトリスト用）</span></span><span class="kind-label">構造体 →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/test/recordfailure-245c6a2b.html"><span><span class="identifier">acs::test::RecordFailure</span><span class="summary">テスト本体内から呼ぶ失敗報告 / 補助情報出力</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/test/recordinfo-a3c30d59.html"><span><span class="identifier">acs::test::RecordInfo</span><span class="summary">ACS の test モジュールで RecordInfo を表す関数です。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/test/register-8310acd4.html"><span><span class="identifier">acs::test::Register</span><span class="summary">テスト登録（ACS_TEST マクロが起動時に呼ぶ）</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/test/runall-a5ce23ca.html"><span><span class="identifier">acs::test::RunAll</span><span class="summary">全テスト実行。 失敗があれば 1 を返す（main の戻り値に使う）。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

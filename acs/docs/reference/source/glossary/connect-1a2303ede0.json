@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Connect",
+  "definition": "IBackendClient で送信先(サーバや出力ファイル)を開いて通信を始めること。 終了時は Disconnect。"
+}

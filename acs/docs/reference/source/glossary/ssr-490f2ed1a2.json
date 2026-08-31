@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SSR",
+  "definition": "Screen-Space Reflection。 画面に映っている情報だけから反射(映り込み)をリアルタイムに作る技法。"
+}

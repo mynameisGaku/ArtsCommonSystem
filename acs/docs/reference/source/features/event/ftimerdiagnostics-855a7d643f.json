@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "event",
+    "title": "event — イベント / シグナル",
+    "description": "「○○が起きた」を発信する側と受け取る側を疎結合につなぐ仕組み。 型付きデリゲートと局所イベント、同じスレッド内で即配信するpub/sub、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。"
+  },
+  "feature": {
+    "name": "FTimerDiagnostics",
+    "kind": "構造体",
+    "header": "event/TimerDiagnostics.h",
+    "summary": "timer の cancel probe、active slot 走査、bitset 読み取り量を保持する診断 snapshot。",
+    "when": "大量 timer の cancel と Tick が件数に対して適切に拡張するか確認する時。"
+  }
+}

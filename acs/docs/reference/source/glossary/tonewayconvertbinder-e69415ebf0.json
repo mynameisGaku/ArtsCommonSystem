@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TOneWayConvertBinder",
+  "definition": "型を変換しながら片方向同期させるバインダ。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "BVH",
+  "definition": "図形を空間的にまとめて階層の木にした構造(Bounding Volume Hierarchy)。 レイキャストや重なり判定を高速化する。"
+}

@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CSkinnedShader",
+    "kind": "クラス",
+    "header": "render/SkinnedShader.h",
+    "summary": "GPU スキニング対応のライティングシェーダ。 CStandardShader と同じライト設定 API に加え、最大 64 本のボーンパレット行列を送り、頂点をボーンに従って変形して描く。",
+    "when": "スケルタルアニメーションするキャラを描くとき。 WritePalette で得たボーン行列を毎フレーム渡す。",
+    "sample": "CSkinnedShader shd;\nshd.Init(*dev, color_fmt, depth_fmt);\n// 毎フレーム。実際に記録する skinned draw 数を正確に渡す\nif (!shd.BeginFrame( 1u)) return;\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, count, ambient);\nif (!shd.SetObject(model, base_color, specular, shininess)) return;\nFMat4 palette[64];\nu32 nb = anim_player.WritePalette(palette, 64);\nif (!shd.SetBonePalette(palette, nb)) return;",
+    "members": [
+      {
+        "sig": "static constexpr u32 kMaxBones = 64",
+        "desc": "ボーンパレットの上限。"
+      },
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)",
+        "desc": "初期化。 Bones 用の定数バッファ(b2)を追加で持つ。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_object_draws = 0)",
+        "desc": "毎フレームの描画記録前に呼び、実際に記録する skinned draw 数を正確に渡す。 Object/Bones の CB ペアを先に確保できなければ false。"
+      },
+      {
+        "sig": "[[deprecated]] kMaxObjectDrawsPerFrame = 256",
+        "desc": "旧固定リングとのソース互換用の目安値。 Object/Bones ペアのプールは必要数まで増えるため、ハード上限ではない。"
+      },
+      {
+        "sig": "void SetFrame(...) / SetLights(...) / SetPointLights(...)",
+        "desc": "CStandardShader と同じ形式のライト設定。"
+      },
+      {
+        "sig": "bool SetObject(...)",
+        "desc": "Object/Bones の draw 専用 CB ペアを選択して材質を設定。 失敗時は false なので、その draw を記録しない。"
+      },
+      {
+        "sig": "bool SetBonePalette(const FMat4* palette, u32 count)",
+        "desc": "ボーン行列パレット(最大 64)を直前の SetObject と同じ draw 専用 CB へ設定。 失敗時は false。 残りは単位行列で埋める。"
+      },
+      {
+        "sig": "IRhiBuffer* BonesCB() / PerFrameCB() / PerObjectCB() / IRhiPipeline* Pipeline()",
+        "desc": "手描き用アクセサ。 BonesCB() は b2 にバインドする。"
+      },
+      {
+        "sig": "using FSkinnedShader = CSkinnedShader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSkinnedShader を使う。"
+      }
+    ]
+  }
+}

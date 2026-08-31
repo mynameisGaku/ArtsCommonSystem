@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CLogger の初期設定。 出力先（ファイル/コンソール/デバッグ出力）と最小レベル、内部リングの長さを指定する。">
+  <title>FLogConfig — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/foundation.html">foundation モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/foundation.html">foundation</a><span>/</span><span aria-current="page">FLogConfig</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / foundation</div><h1 class="identifier">FLogConfig</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24107">CLogger</button><span class="term-tooltip" id="term-tip-24107" role="tooltip">非同期でスレッド安全なログ出力クラス。 ACS_LOG_* マクロ経由で使う。</span></span> の初期設定。 出力先（ファイル/コンソール/デバッグ出力）と最小レベル、内部リングの長さを指定する。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/foundation/flogconfig-0d8135f5.html"><code>acs::FLogConfig</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-24106">CLogger</button><span class="term-tooltip" id="term-tip-24106" role="tooltip">非同期でスレッド安全なログ出力クラス。 ACS_LOG_* マクロ経由で使う。</span></span>::Init に渡す。 ゲーム起動時に一度だけ作る。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>foundation</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>foundation/Log.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-fa8e6d1fdf24e6b3bb20"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const wchar_t* <a href="../../symbols/foundation/flogconfig-0d8135f5/file-path-f17b5300.html">file_path</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>出力ファイルのパス。 nullptr ならファイル出力なし。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/flogconfig-0d8135f5/file-path-f17b5300.html"><code>acs::FLogConfig::file_path</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-b1ee6c4af0de4637e4b8"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/foundation/elogseverity-ff7142ef.html">ELogSeverity</a> <a href="../../symbols/foundation/flogconfig-0d8135f5/min-severity-62c86289.html">min_severity</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>これ未満のレベルは出力しない（既定 Info）。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/elogseverity-ff7142ef.html"><code>acs::ELogSeverity</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/flogconfig-0d8135f5/min-severity-62c86289.html"><code>acs::FLogConfig::min_severity</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-494347fd127b3136cff9"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>u32 <a href="../../symbols/foundation/flogconfig-0d8135f5/ring-capacity-8491644f.html">ring_capacity</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>内部リングの長さ（2 のべき乗、最小 16）。 負荷時の取りこぼしに影響。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/flogconfig-0d8135f5/ring-capacity-8491644f.html"><code>acs::FLogConfig::ring_capacity</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-4b5f1b5d04a617b8e0c7"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>bool <a href="../../symbols/foundation/flogconfig-0d8135f5/console-80626cd7.html">console</a> / bool <a href="../../symbols/foundation/flogconfig-0d8135f5/debug-output-8dcc7c28.html">debug_output</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>標準出力に出すか / OutputDebugString に出すか。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/flogconfig-0d8135f5/console-80626cd7.html"><code>acs::FLogConfig::console</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/foundation/flogconfig-0d8135f5/debug-output-8dcc7c28.html"><code>acs::FLogConfig::debug_output</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FLogConfigの使用例"><code>FLogConfig cfg;
+cfg.file_path = L&quot;game.log&quot;;       // nullptr ならファイル無効
+cfg.min_severity = ELogSeverity::Info;
+cfg.console = true;
+FLogger::Init(cfg);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

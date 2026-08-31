@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "トーンマップ",
+  "definition": "HDR の広い輝度を表示可能な範囲へ圧縮する変換(ACES / AgX 等)。"
+}

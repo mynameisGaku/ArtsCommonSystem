@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FVoiceParticipant",
+    "kind": "構造体",
+    "header": "gameframework/VoiceChat.h",
+    "summary": "ボイスチャット参加者 1 人の情報。 GetParticipant が返し、ID / 表示名(非所有)・発話中か・ローカルミュート・音声レベルを持ちます。",
+    "when": "参加者リストや発話インジケータ・音量メーターを UI に描く時。",
+    "sample": "if (auto r = voice->GetParticipant(EVoiceChannel::Party, 0); r.IsOk()) {\n    const FVoiceParticipant& p = r.Value();\n\n}",
+    "members": [
+      {
+        "sig": "const char* user_id / const char* display_name",
+        "desc": "SDK 固有 ID / 表示名(UTF-8、非所有、次 Tick まで有効)。"
+      },
+      {
+        "sig": "bool is_speaking / bool is_muted_local",
+        "desc": "発話中か / ローカルでミュート中か。"
+      },
+      {
+        "sig": "f32 audio_level",
+        "desc": "現在の音声レベル(0.0〜1.0、メーター表示用)。"
+      }
+    ]
+  }
+}

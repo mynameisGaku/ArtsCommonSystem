@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAssetBrowser",
+  "definition": "editor_core のアセットブラウザパネル。 ファイル選択を OnAssetSelected で各パネルに通知し、拡張子で mesh / texture などに分類する。"
+}

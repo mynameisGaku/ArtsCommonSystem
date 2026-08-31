@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="スワップチェインを作るための設定(対象ウィンドウ・フォーマット・バッファ枚数・VSync)と生成関数。">
+  <title>FSwapchainConfig / CreateRhiSwapchain — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render-core.html">render-core モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render-core.html">render-core モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render-core.html">render-core</a><span>/</span><span aria-current="page">FSwapchainConfig / CreateRhiSwapchain</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / render-core</div><h1 class="identifier">FSwapchainConfig / CreateRhiSwapchain</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28978">スワップチェイン</button><span class="term-tooltip" id="term-tip-28978" role="tooltip">画面に表示する複数のバックバッファを回しながら、描画と表示を分けて行う仕組み。</span></span>を作るための設定(対象<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28979">ウィンドウ</button><span class="term-tooltip" id="term-tip-28979" role="tooltip">OS が画面に出す四角い領域。 タイトルバーや × ボタンを持ち、ゲームの描画先になる。 ACS では FWindow。</span></span>・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28980">フォーマット</button><span class="term-tooltip" id="term-tip-28980" role="tooltip">1 ピクセル/要素のビット配置と型(RGBA8、HDR float、深度など)。 ACS では EFormat。</span></span>・バッファ枚数・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28981">VSync</button><span class="term-tooltip" id="term-tip-28981" role="tooltip">画面のリフレッシュに描画提示を同期させ、ティアリングを防ぐ設定。</span></span>)と生成関数。</p></div><div class="badges"><span class="badge">構造体 / ファクトリ関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/render/fswapchainconfig-2499d936.html"><code>acs::FSwapchainConfig</code></a><span class="summary"><code>struct FSwapchainConfig;</code></span></li><li><a href="../../symbols/render/createrhiswapchain-fe91ae55.html"><code>acs::CreateRhiSwapchain</code></a><span class="summary"><code>TResult&lt;TUniquePtr&lt;IRhiSwapchain&gt;&gt; CreateRhiSwapchain(IRhiDevice&amp; device, const FSwapchainConfig&amp; cfg) noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28975">RHI</button><span class="term-tooltip" id="term-tip-28975" role="tooltip">Render Hardware Interface。 DX12 / Vulkan / Diligent などの GPU API の違いを隠す、バックエンド非依存の薄い抽象層。 ACS では IRhiDevice 等がこれ。</span></span> を自前で組むとき。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>render-core</dd></div><div class="fact"><dt>分類</dt><dd>構造体 / ファクトリ関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>render/IRhiSwapchain.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-f24e49b3a8b1cc6c1200"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>struct <a href="../../symbols/render/fswapchainconfig-2499d936.html">FSwapchainConfig</a>{ <a href="../../symbols/render/fswapchainconfig-2499d936/window-2294b8d7.html">window</a>, <a href="../../symbols/render/fswapchainconfig-2499d936/format-57846b74.html">format</a>, <a href="../../symbols/render/fswapchainconfig-2499d936/buffer-count-ba2fbec5.html">buffer_count</a>=2, <a href="../../symbols/render/fswapchainconfig-2499d936/vsync-3a8557fe.html">vsync</a>=true }</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>2=ダブル、3=トリプルバッファ。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936.html"><code>acs::FSwapchainConfig</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936/window-2294b8d7.html"><code>acs::FSwapchainConfig::window</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936/format-57846b74.html"><code>acs::FSwapchainConfig::format</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936/buffer-count-ba2fbec5.html"><code>acs::FSwapchainConfig::buffer_count</code></a> <span class="kind-label">メンバー変数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936/vsync-3a8557fe.html"><code>acs::FSwapchainConfig::vsync</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-85ec5d49feda809b3180"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>TResult&lt;TUniquePtr&lt;<a href="../../symbols/render/irhiswapchain-07af33b2.html">IRhiSwapchain</a>&gt;&gt; <a href="../../symbols/render/createrhiswapchain-fe91ae55.html">CreateRhiSwapchain</a>(<a href="../../symbols/render/irhidevice-cd8c9ca2.html">IRhiDevice</a>&amp; device, const <a href="../../symbols/render/fswapchainconfig-2499d936.html">FSwapchainConfig</a>&amp; cfg)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28976">スワップチェイン</button><span class="term-tooltip" id="term-tip-28976" role="tooltip">画面に表示する複数のバックバッファを回しながら、描画と表示を分けて行う仕組み。</span></span>を作る。</dd></div><div class="fact"><dt>戻り値</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28977">スワップチェイン</button><span class="term-tooltip" id="term-tip-28977" role="tooltip">画面に表示する複数のバックバッファを回しながら、描画と表示を分けて行う仕組み。</span></span></dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/irhiswapchain-07af33b2.html"><code>acs::IRhiSwapchain</code></a> <span class="kind-label">クラス</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/createrhiswapchain-fe91ae55.html"><code>acs::CreateRhiSwapchain</code></a> <span class="kind-label">関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/irhidevice-cd8c9ca2.html"><code>acs::IRhiDevice</code></a> <span class="kind-label">クラス</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/render/fswapchainconfig-2499d936.html"><code>acs::FSwapchainConfig</code></a> <span class="kind-label">構造体</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FSwapchainConfig / CreateRhiSwapchainの使用例"><code>FSwapchainConfig cfg;
+cfg.window = &amp;window;
+cfg.buffer_count = 2;          // ダブルバッファ
+cfg.vsync = true;
+auto sc = CreateRhiSwapchain(*dev, cfg).Value();</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

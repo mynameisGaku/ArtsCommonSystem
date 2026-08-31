@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "CJobGraph",
+    "kind": "クラス",
+    "header": "threading/JobGraph.h",
+    "summary": "依存関係のあるタスク(ジョブ)を並べて並列実行するスケジューラ。 『B は A の後』のような順序を指定すると、依存が解けたジョブから自動的に CThreadPool 上で走り出す。 Submit 冒頭で全 job の完了数を 1 回だけ予約し、依存解決ごとの加算を避ける。",
+    "when": "読み込み→構築→GPU アップロードのように、一部は並列・一部は順序ありの処理パイプラインを組みたい時。",
+    "sample": "CJobGraph g;\nauto loadA = g.Add(&LoadA, &ctx);\nauto loadB = g.Add(&LoadB, &ctx);\nauto build = g.Add(&Build, &ctx);\nbuild.DependOn(loadA);   // loadA,loadB 完了後に build\nbuild.DependOn(loadB);\ng.Submit();              // 依存0のジョブから開始\ng.Wait();                // 全完了まで待つ",
+    "members": [
+      {
+        "sig": "FJobHandle Add(JobFn fn, void* user)",
+        "ret": "ジョブのハンドル",
+        "desc": "ジョブを 1 件追加する。 Submit より前にだけ呼べる。",
+        "when": "グラフを組み立てる段階。"
+      },
+      {
+        "sig": "void AddDependency(FJobHandle upstream, FJobHandle downstream)",
+        "desc": "upstream が終わるまで downstream を走らせない依存を張る(FJobHandle::DependOn と同じ)。"
+      },
+      {
+        "sig": "TResult<void> Submit()",
+        "ret": "成否",
+        "desc": "全 job の完了数を一括予約してから、依存 0 の job を CThreadPool に投入する。 未投入・依存待ち job も先に残数へ含むため、待機側へ一時的な 0 を公開しない。 投入後はグラフ変更不可。"
+      },
+      {
+        "sig": "void Wait()",
+        "desc": "全ジョブが終わるまで待つ(待機中もスティーリングに参加)。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "依存関係はそのままに残カウントを初期値へ戻し、同じグラフを再実行できるようにする。"
+      },
+      {
+        "sig": "u32 JobCount() const",
+        "ret": "ジョブ数",
+        "desc": "グラフに登録されたジョブの数。"
+      },
+      {
+        "sig": "FJobGraphCompletionDiagnostics CompletionDiagnostics() const",
+        "ret": "現在予約",
+        "desc": "現在 Submit 済みなら {1, JobCount()}、未 Submit または Reset 後なら {0, 0}。 既存 FJobGraphDiagnostics の 40B ABI を変えない独立値型。"
+      },
+      {
+        "sig": "using FJobGraph = CJobGraph",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CJobGraph を使う。"
+      }
+    ]
+  }
+}

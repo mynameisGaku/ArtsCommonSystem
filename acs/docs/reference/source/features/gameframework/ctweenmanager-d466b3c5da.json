@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CTweenManager",
+    "kind": "クラス",
+    "header": "gameframework/Tween.h",
+    "summary": "変数をなめらかに変化させるトゥイーン管理。 値(f32 / FVec2 / FVec3)のポインタを渡すと、毎 Tick で from→to をイージング補間して書き込んでくれます。 コールバック不要なのが特徴。",
+    "when": "色・位置・透明度などを一定時間でフワッと変えたい時(フェード、ポップアップ、カメラ寄せなど)。",
+    "sample": "CTweenManager tweens;\nFVec3 color{0,0,0};\ntweens.Tween(&color, FVec3{0,0,0}, FVec3{1,1,1}, 2.0f, Easing::InOutSine);\n// 毎フレーム:\ntweens.Tick(dt);\n// color が 2 秒かけて白へ補間される",
+    "members": [
+      {
+        "sig": "FTweenHandle Tween(f32* target, f32 from, f32 to, f32 duration, Easing::EasingFn ease = Easing::Linear)",
+        "ret": "トゥイーン ハンドル",
+        "desc": "f32 変数を from→to へ duration 秒で補間する。 duration<=0 は即時設定、target が null は no-op。",
+        "when": "1 つのスカラー値を時間補間したい時。"
+      },
+      {
+        "sig": "FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration, Easing::EasingFn ease = Easing::Linear)",
+        "desc": "2D ベクトル(位置など)を補間する。"
+      },
+      {
+        "sig": "FTweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration, Easing::EasingFn ease = Easing::Linear)",
+        "desc": "3D ベクトル(色など)を補間する。"
+      },
+      {
+        "sig": "void Cancel(FTweenHandle h)",
+        "desc": "進行中のトゥイーンを中止する(target は最後に書いた値で止まる)。 古いハンドルは無視。"
+      },
+      {
+        "sig": "void CompleteAll()",
+        "desc": "全トゥイーンを即終了させ、target に完了値 to を書く。",
+        "when": "シーン終了時に確実に最終状態へ揃えたい時。"
+      },
+      {
+        "sig": "void CancelAll()",
+        "desc": "全トゥイーンを破棄する(最終書き込みなし)。"
+      },
+      {
+        "sig": "bool IsActive(FTweenHandle h) const / u32 ActiveCount() const",
+        "desc": "指定トゥイーンが進行中か / 進行中の総数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼ぶ。 全トゥイーンを dt ぶん進めて target に書き込む。"
+      },
+      {
+        "sig": "using FTweenManager = CTweenManager",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CTweenManager を使う。"
+      }
+    ]
+  }
+}

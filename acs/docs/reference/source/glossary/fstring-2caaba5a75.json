@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FString",
+  "definition": "短い文字列はヒープ無しで持つ最適化付き。"
+}

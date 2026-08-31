@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "CompilerBarrier / HardwareFence / SpinHint",
+    "kind": "関数",
+    "header": "threading/MemoryOrder.h",
+    "summary": "順序やスピン待ちを細かく制御する低レベル関数群。 CompilerBarrier=コンパイラの命令並び替えだけ禁止(CPU 命令は出さない)。 HardwareFence=CPU レベルの完全フェンス。 SpinHint=忙しく待つループで CPU を一瞬譲るヒント命令。",
+    "when": "ロックフリーな自作データ構造の最終調整など、めったに使わない上級用途。 普段は TAtomic + EMemoryOrder で足りる。",
+    "sample": "while (!flag.Load(EMemoryOrder::Acquire)) {\n    SpinHint();   // ハイパースレッディングの相方に CPU を譲る\n}",
+    "members": [
+      {
+        "sig": "void CompilerBarrier()",
+        "desc": "コンパイラの並び替えのみを禁止する。"
+      },
+      {
+        "sig": "void HardwareFence()",
+        "desc": "CPU + コンパイラ両方のフェンス(x64 では mfence)。"
+      },
+      {
+        "sig": "void SpinHint()",
+        "desc": "busy-wait ループ内に 1 回入れて消費電力と発熱を抑える(x86 PAUSE)。"
+      }
+    ]
+  }
+}

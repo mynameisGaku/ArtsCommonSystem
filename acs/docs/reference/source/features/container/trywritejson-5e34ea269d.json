@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "TryWriteJson",
+    "kind": "関数",
+    "header": "container/Json.h",
+    "summary": "FJsonValue を UTF-8 JSON へ書き出し、成功時だけ出力文字列を置き換える。",
+    "when": "ACS の JSON 値を保存用文字列へ変換し、深さと出力バイト数を制限する時。",
+    "sample": "FString output;\nif (!acs::TryWriteJson(value, output)) { /* output は変更されない */ }",
+    "members": [
+      {
+        "sig": "bool TryWriteJson(const FJsonValue& Value, FString& Output, u32 MaxDepth = 256u, usize MaxBytes = kMaxJsonInputBytes)",
+        "ret": "完全に書き出せれば true",
+        "desc": "Output の allocator で一時文字列を構築し、制御文字を escape する。 非有限数、深さ超過、サイズ超過、確保失敗では false を返して Output を維持する。"
+      }
+    ]
+  }
+}

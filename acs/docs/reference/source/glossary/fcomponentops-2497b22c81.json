@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FComponentOps",
+  "definition": "型を消去したコンポーネントのサイズ・破棄・ムーブなどの操作束。"
+}

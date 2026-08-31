@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="raw SSR 描画のパイプライン。">
+  <title>acs::CSsr::m_Pipeline — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/render.html">render モジュール</a><a href="../cssr-05a6423d.html">CSsr の概要</a><a class="tree-child" href="createoutputrt-0dfe17b0.html">CreateOutputRT</a><a class="tree-child" href="createpipeline-b4657fb5.html">CreatePipeline</a><a class="tree-child" href="cssr-5c8a0db1.html">CSsr</a><a class="tree-child" href="cssr-6068a0e7.html">CSsr</a><a class="tree-child" href="hasvalidoutput-b4442798.html">HasValidOutput</a><a class="tree-child" href="init-c601979d.html">Init</a><a class="tree-child" href="invalidatehistory-8ebac32c.html">InvalidateHistory</a><a class="tree-child" href="m-cb-7d2f4907.html">m_Cb</a><a class="tree-child" href="m-device-05ea67fb.html">m_Device</a><a class="tree-child" href="m-hdrformat-e7172545.html">m_HdrFormat</a><a class="tree-child" href="m-height-5d172f8a.html">m_Height</a><a class="tree-child" href="m-history-c23b138c.html">m_History</a><a class="tree-child" href="m-output-da0255b6.html">m_Output</a><a class="tree-child" href="m-outputvalid-aef148c5.html">m_OutputValid</a><a class="tree-child" href="m-pipeline-2275efab.html" aria-current="page">m_Pipeline</a><a class="tree-child" href="m-ps-4172c3e4.html">m_Ps</a><a class="tree-child" href="m-temporalframe-71de30bd.html">m_TemporalFrame</a><a class="tree-child" href="m-temporalpipeline-2c0ca494.html">m_TemporalPipeline</a><a class="tree-child" href="m-temporalps-7cc9d11e.html">m_TemporalPs</a><a class="tree-child" href="m-vs-37e93049.html">m_Vs</a><a class="tree-child" href="m-width-1eade6de.html">m_Width</a><a class="tree-child" href="operator-98d46859.html">operator=</a><a class="tree-child" href="outputformat-3553da6c.html">OutputFormat</a><a class="tree-child" href="outputtexture-0b7835e5.html">OutputTexture</a><a class="tree-child" href="rawtexture-6bd93689.html">RawTexture</a><a class="tree-child" href="render-0f13872d.html">Render</a><a class="tree-child" href="resize-69a1cdca.html">Resize</a><a class="tree-child" href="shutdown-d2ff36a0.html">Shutdown</a><a class="tree-child" href="cssr-42af305a.html">~CSsr</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/render.html">render</a><span>/</span><a href="../cssr-05a6423d.html">CSsr</a><span>/</span><span aria-current="page">m_Pipeline</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / render</div>
+<h1 class="identifier">acs::CSsr::m_Pipeline</h1>
+<p class="lead">raw <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19232">SSR</button><span class="term-tooltip" id="term-tip-19232" role="tooltip">Screen-Space Reflection。 画面に映っている情報だけから反射(映り込み)をリアルタイムに作る技法。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19233">描画</button><span class="term-tooltip" id="term-tip-19233" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-19234">パイプライン</button><span class="term-tooltip" id="term-tip-19234" role="tooltip">1 回の描画方式(VS+PS・頂点レイアウト・ブレンド・深度等)を丸ごと固めたオブジェクト。 PSO とも。</span></span>。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CSsr::m_Pipelineの宣言"><code>TUniquePtr&lt;<a href="../irhipipeline-f4e6d5d4.html">IRhiPipeline</a>&gt; <a href="m-pipeline-2275efab.html" aria-current="page">m_Pipeline</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cssr-05a6423d.html"><code>acs::CSsr</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/render/Ssr.h:202</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

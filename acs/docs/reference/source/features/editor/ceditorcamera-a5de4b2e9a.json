@@ -1,0 +1,119 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CEditorCamera",
+    "kind": "クラス(サービス)",
+    "header": "gameframework/tools/editor_core/EditorCamera.h",
+    "summary": "2D / 3D を 1 クラスで扱う editor カメラコントローラ。 3D は target を yaw + pitch + distance で周回する orbit、2D は position + zoom_2d の pan/zoom。 HandleMouseInput でマウス IO を集約し、Tick が framerate-independent な 1 - exp(-rate*dt) 補間で smoothing する。 view / projection 行列を生成。 非コピー / 非ムーブ、全 noexcept。",
+    "when": "ModelViewer / LevelEditor 等の viewport カメラを動かす時。",
+    "sample": "CEditorCamera cam;\ncam.Init(EEditorCameraMode::Mode3D);\n// 毎フレーム:\ncam.HandleMouseInput(mouse_delta, lmb, rmb, mmb, wheel);\ncam.Tick(dt);\nFMat4 view = cam.ViewMatrix();\nFMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);",
+    "members": [
+      {
+        "sig": "void Init(EEditorCameraMode mode) noexcept",
+        "ret": "—",
+        "desc": "指定モードで完全初期化(Reset 相当 + mode 設定)。 多重呼び出し可。"
+      },
+      {
+        "sig": "void SetMode(EEditorCameraMode mode) noexcept / EEditorCameraMode Mode() const",
+        "ret": "—",
+        "desc": "mode 切替 / 取得。 state は保持(3D ↔ 2D で position / zoom は独立)。"
+      },
+      {
+        "sig": "void HandleMouseInput(FVec2 mouse_delta, bool lmb, bool rmb, bool mmb, f32 wheel_delta) noexcept",
+        "ret": "—",
+        "desc": "マウス IO を流し込むエントリ。 3D: L/R drag=orbit / M drag=pan / wheel=dolly。 2D: L/M drag=pan / wheel=zoom。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void Pan(FVec2 screen_delta) noexcept",
+        "ret": "—",
+        "desc": "2D は world position を平行移動、3D は orbit target を camera right / up 方向に平行移動。"
+      },
+      {
+        "sig": "void Orbit(f32 yaw_delta, f32 pitch_delta) noexcept",
+        "ret": "—",
+        "desc": "3D 専用: yaw / pitch を加算(2D では no-op)。 pitch は ±89° にクランプ。"
+      },
+      {
+        "sig": "void Dolly(f32 delta) noexcept",
+        "ret": "—",
+        "desc": "3D は distance を倍率変化(>0 で寄る)、2D は zoom_2d を倍率変化(>0 で拡大)。"
+      },
+      {
+        "sig": "void Reset() noexcept",
+        "ret": "—",
+        "desc": "初期状態へ。 3D: target=origin / distance=10 / yaw=0 / pitch=-30°。 2D: position=origin / zoom_2d=1.0。"
+      },
+      {
+        "sig": "void FrameToBoundingSphere(FVec3 center, f32 radius) noexcept",
+        "ret": "—",
+        "desc": "bounding sphere が画面に収まるよう target / distance を配置(margin 1.2x)。 2D は ortho 全幅 fit。"
+      },
+      {
+        "sig": "void FrameToBoundingBox2D(FVec2 min_xy, FVec2 max_xy) noexcept",
+        "ret": "—",
+        "desc": "2D 専用: XY 平面の AABB 全体が見える zoom / pos を計算。"
+      },
+      {
+        "sig": "FMat4 ViewMatrix() const noexcept",
+        "ret": "FMat4",
+        "desc": "LookAt ベースの view 行列(LH)。 3D は (eye, target, up)、2D は XY 平面 LookAt。"
+      },
+      {
+        "sig": "FMat4 ProjectionMatrix(f32 aspect, f32 near_plane, f32 far_plane) const noexcept",
+        "ret": "FMat4",
+        "desc": "mode に応じ perspective(3D) / orthographic(2D) を生成。 2D ortho 幅は base_ortho_size / zoom_2d。"
+      },
+      {
+        "sig": "const FEditorCameraState& State() const noexcept",
+        "ret": "state&",
+        "desc": "公開 state(実値)を const 参照で返す。"
+      },
+      {
+        "sig": "void SetFovDeg(f32 deg) noexcept / f32 GetFovDeg() const",
+        "ret": "—",
+        "desc": "3D FoV(degree)の設定 / 取得。"
+      },
+      {
+        "sig": "void SetTarget(FVec3 target) noexcept / FVec3 GetTarget() const",
+        "ret": "—",
+        "desc": "orbit target を直接設定(smooth_target にも反映 = 即追従) / 取得。"
+      },
+      {
+        "sig": "void SetPosition(FVec3 position) noexcept / FVec3 GetPosition() const",
+        "ret": "—",
+        "desc": "eye position を直接設定(3D は distance / yaw / pitch も逆算) / 取得。"
+      },
+      {
+        "sig": "void Tick(f32 dt) noexcept",
+        "ret": "—",
+        "desc": "smooth target follow + smooth zoom 補間を進める。 1 - exp(-rate*dt) モデル。",
+        "when": "毎フレーム呼ぶ。"
+      },
+      {
+        "sig": "void SetSmoothing(f32 rate) noexcept / f32 GetSmoothing() const",
+        "ret": "—",
+        "desc": "smoothing rate の設定 / 取得(0 = 即時、5.0 = 既定)。"
+      },
+      {
+        "sig": "void SetBaseOrthoSize(f32 world_width) noexcept / f32 GetBaseOrthoSize() const",
+        "ret": "—",
+        "desc": "2D の zoom_2d=1 時の表示幅(world units、既定 20.0)の設定 / 取得。"
+      },
+      {
+        "sig": "FVec3 ComputeEye() const noexcept",
+        "ret": "FVec3",
+        "desc": "3D orbit の現 eye 位置を spherical 計算で算出(ViewMatrix 内部と等価)。 ray pick 用。"
+      },
+      {
+        "sig": "using FEditorCamera = CEditorCamera",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CEditorCamera を使う。"
+      }
+    ]
+  }
+}

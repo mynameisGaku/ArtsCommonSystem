@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TWeakPtr",
+  "definition": "TSharedPtr への弱参照。 寿命を延ばさず生死だけ見る。"
+}

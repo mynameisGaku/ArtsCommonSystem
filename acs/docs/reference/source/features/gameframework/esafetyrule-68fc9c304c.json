@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "ESafetyRule",
+    "kind": "列挙(enum)",
+    "header": "gameframework/LlmSafetyPipeline.h",
+    "summary": "どの安全機能を有効化するかの bit flag。 InputValidation / JailbreakDetection / PiiRedaction / ContentRating / TokenBudget / RefusalEnforcement と、全 on の Default。",
+    "when": "Init や EnableRule で「PII 除去だけ外す」等、シーン別に機能を取捨選択する時。 OR / AND 演算子も定義済み。",
+    "sample": "pipe.Init(ESafetyRule::InputValidation\n        | ESafetyRule::JailbreakDetection);"
+  }
+}

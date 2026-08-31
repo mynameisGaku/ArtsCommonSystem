@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "OpenXR",
+  "definition": "Khronos 策定の XR(VR/AR)機器を扱う業界標準 API。 機種差をこの一枚で吸収する。"
+}

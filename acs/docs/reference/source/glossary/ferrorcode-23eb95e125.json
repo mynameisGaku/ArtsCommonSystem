@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FErrorCode",
+  "definition": "ACS の標準エラー型。 カテゴリ・サブコード・OS エラー値・メッセージ・発生位置をまとめて持つ POD。"
+}

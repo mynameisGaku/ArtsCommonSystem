@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Widget",
+  "definition": "UI 部品の総称。 ACS の実型 AWidget は子を TUniquePtr で所有してツリーを作り、配置・描画・クリック判定・入力の仮想メソッドを持つ。"
+}

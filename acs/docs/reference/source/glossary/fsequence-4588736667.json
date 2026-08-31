@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSequence",
+  "definition": "「待つ→関数を呼ぶ→値を滑らかに変える」を 1 行で連鎖記述する演出ビルダー。 作って CSequenceRunner に渡して再生する。"
+}

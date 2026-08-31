@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "CPerception",
+    "kind": "クラス",
+    "header": "gameframework/Perception.h",
+    "summary": "NPC が複数の target を「視覚」「聴覚」で検知できるか判定するモジュール。 視覚は距離 + 視野角、聴覚は距離のみ (壁ごしも聞こえる)。 ビヘイビアツリーの葉や blackboard の値ソースとして使う想定。",
+    "when": "敵 AI に「プレイヤーが見えたら追う」「物音がしたら警戒する」といった知覚を持たせたい時。",
+    "sample": "CPerception perc;\nFSenseConfig cfg;\ncfg.sight_range   = 10.0f;\ncfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度\ncfg.hearing_range = 5.0f;\nperc.SetConfig(cfg);\nperc.AddTarget(1, FVec2{3.0f, 0.0f});\nperc.SetEyePos(FVec2{0,0}, FVec2{1,0});   // +X 向き\nperc.Tick(0.016f);\nif (perc.IsTargetVisible(1)) { /* 視認 */ }",
+    "members": [
+      {
+        "sig": "void SetConfig(const FSenseConfig& cfg)",
+        "desc": "感覚パラメータを差し替える。 cos(fov/2) もここで 1 回だけ計算してキャッシュ。"
+      },
+      {
+        "sig": "void SetEyePos(FVec2 pos, FVec2 forward)",
+        "desc": "目の位置と前方向 (正規化済み前提) を更新。 forward が長さ 0 なら (1,0) にフォールバック。"
+      },
+      {
+        "sig": "void AddTarget(u32 id, FVec2 pos)",
+        "desc": "知覚対象を追加。 同 id が既にあれば位置更新だけ (重複防止)。"
+      },
+      {
+        "sig": "void RemoveTarget(u32 id)",
+        "desc": "指定 id の target を削除。 順序は保持されない (高速削除)。"
+      },
+      {
+        "sig": "void UpdateTarget(u32 id, FVec2 pos)",
+        "desc": "target の位置を更新。 存在しなければ no-op (Add はしない)。"
+      },
+      {
+        "sig": "bool IsTargetVisible(u32 id) const",
+        "desc": "前回 Tick 時点で視認できていたか。 IsTargetAudible() は聴取版。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "全 target の is_visible / is_audible を現在の eye / forward / config で再計算する。"
+      },
+      {
+        "sig": "const FPerceptionTarget* AllTargets(u32& out_count) const",
+        "ret": "target 配列",
+        "desc": "全 target を読み取り用に列挙。 out_count に件数。 次の Add/Remove/Update で無効化される。"
+      },
+      {
+        "sig": "using FPerception = CPerception",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPerception を使う。"
+      }
+    ]
+  }
+}

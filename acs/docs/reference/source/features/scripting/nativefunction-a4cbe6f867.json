@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "NativeFunction",
+    "kind": "関数ポインタ型",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "Lua 側から呼べる C++ 関数の型。 void(*)(IScriptVm& vm, FScriptCallFrame& frame, void* user) noexcept。 user には登録時に渡したコンテキスト(this 等)がそのまま流れてくる。 例外を投げてはいけない(Lua は C 由来で巻き戻し非対応)。",
+    "when": "Lua から呼ばせたい C++ 関数を RegisterNativeFunction に登録する時の関数シグネチャとして使う。",
+    "sample": "void OnLog(acs::game::IScriptVm&, acs::game::FScriptCallFrame& f, void* user) noexcept {\n    // f.args[0].v.str をログ出力 等\n}\nvm.RegisterNativeFunction(\"Log\", &OnLog, nullptr);"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FVec4",
+    "kind": "構造体",
+    "header": "math/Vec.h",
+    "summary": "4 次元ベクトル（x, y, z, w）。 16 バイト整列。 同次座標や RGBA 色、行列との掛け算に使う。",
+    "when": "色（RGBA）や、行列で点・方向を変換する時の中間表現（w で点か方向かを区別）。",
+    "sample": "FVec4 color{1, 0.5f, 0.2f, 1};   // RGBA\nFVec4 p{1, 2, 3, 1};             // 点 (w=1)\nFVec4 r = Transform(p, mat);     // 行列変換\nf32 d = Dot(color, color);",
+    "members": [
+      {
+        "sig": "FVec4(f32 x, f32 y, f32 z, f32 w)",
+        "desc": "4 成分を指定。 FVec4(vec3, w) で FVec3 + w からも作れる。"
+      },
+      {
+        "sig": "static FVec4 Zero() / One()",
+        "ret": "定数ベクトル",
+        "desc": "ゼロ / 全 1 を返す。"
+      },
+      {
+        "sig": "operator+ - *",
+        "desc": "ベクトル加減・スカラ倍(二項 operator*(FVec4, f32))。 単項 -・複合代入・除算は無い(FVec3 と異なり += 等も未定義)。"
+      },
+      {
+        "sig": "operator== !=",
+        "desc": "x,y,z,w の 4 成分が完全一致するか比較する。"
+      }
+    ]
+  }
+}

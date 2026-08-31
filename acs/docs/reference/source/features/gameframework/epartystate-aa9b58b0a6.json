@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "EPartyState",
+    "kind": "列挙(enum)",
+    "header": "gameframework/PartySystem.h",
+    "summary": "パーティ状態。 Solo (非所属) / InParty (所属中) / Joining (参加要求中) / Leaving (離脱要求中)。 Joining / Leaving は非同期 SDK 完了待ちの中間状態。",
+    "when": "UI で「参加中…」の表示を出したり、状態によって操作を許可/禁止したい時。",
+    "sample": "if (ps.State() == EPartyState::Joining) ShowSpinner();"
+  }
+}

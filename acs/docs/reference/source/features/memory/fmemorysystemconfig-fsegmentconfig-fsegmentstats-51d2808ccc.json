@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FMemorySystemConfig / FSegmentConfig / FSegmentStats",
+    "kind": "構造体",
+    "header": "memory/MemorySystem.h",
+    "summary": "CMemorySystem の設定・統計を運ぶ POD 群。 FSegmentConfig はセグメント種別・要求量ハード予算・frame arena 使用を指定する。 FMemorySystemConfig は全セグメント設定と既定アロケータへの導入を指定する。 FSegmentStats は要求量・ピーク・予算・未解放件数を返す。",
+    "when": "CMemorySystem::Init に渡す設定の組み立てや、GetStats の結果受け取りに使う。",
+    "sample": "FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nconfiguration.segments[(usize)ESegment::Resource].hard_budget_bytes = 1ull << 30;\nFMemorySystem::Init(configuration);\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = CMemorySystem::GetStats(statistics, 5);\nfor (u32 index = 0; index < count; ++index) {  }",
+    "members": [
+      {
+        "sig": "FSegmentConfig: ESegment segment; usize hard_budget_bytes; bool use_frame_allocator",
+        "desc": "通常は mimalloc、use_frame_allocator=true なら一括 Reset する arena を使う。 ハード予算超過は確保失敗になる。"
+      },
+      {
+        "sig": "FMemorySystemConfig: FSegmentConfig segments[ESegment::_Count]; bool install_as_default_allocator = false",
+        "desc": "install_as_default_allocator=true なら Init 時に Default セグメントを既定アロケータへ据え、Shutdown で元へ復元する。"
+      },
+      {
+        "sig": "FSegmentStats: ESegment segment; const char* segment_name / allocator_name; u64 requested_bytes / peak_requested_bytes / hard_budget_bytes / outstanding_allocation_count",
+        "desc": "セグメント別の要求量・ピーク・予算・未解放件数。 GetStats で取得。"
+      }
+    ]
+  }
+}

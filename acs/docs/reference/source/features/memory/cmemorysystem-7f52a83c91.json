@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CMemorySystem",
+    "kind": "クラス(静的)",
+    "header": "memory/MemorySystem.h",
+    "summary": "用途別の領域(セグメント)・ハード予算・統計・リーク追跡を束ねる、エンジン全体のメモリ管理ファサード。 通常セグメントは独立した mimalloc first-class heap、Temp は一括リセット可能な arena を使う。 install_as_default_allocator=true なら既定確保も Default セグメントへ通す。",
+    "when": "メモリ使用量の可視化・上限管理・領域分割をまとめて行いたい時。",
+    "sample": "FMemorySystemConfig configuration = CMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nif (CMemorySystem::Init(configuration).IsErr()) { /* 失敗 */ }\n\n{ FScopedMemorySegment segment(ESegment::Temp);\n  IAllocator* allocator = CMemorySystem::CurrentAllocator();\n  /* 1フレーム寿命の確保 */\n}\nFMemorySystem::ResetTemp();\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = CMemorySystem::GetStats(statistics, 5);\nFMemorySystem::Shutdown();",
+    "members": [
+      {
+        "sig": "static TResult<void> Init(const FMemorySystemConfig&)",
+        "ret": "成否",
+        "desc": "全セグメントを設定で初期化(多重 Init はエラー)。"
+      },
+      {
+        "sig": "static FMemorySystemConfig DefaultConfig()",
+        "ret": "既定設定",
+        "desc": "小規模/デフォルト用の設定を返す。"
+      },
+      {
+        "sig": "static IAllocator* Get(ESegment)",
+        "ret": "アロケータ",
+        "desc": "セグメント別アロケータ(Init 前は null)。"
+      },
+      {
+        "sig": "static void ResetTemp()",
+        "desc": "Temp セグメントを巻き戻す(フレーム先頭で 1 回)。 開始済み Temp 操作を待ち、arena・ハード予算予約・割り当て追跡を同じ排他区間でリセットする。 Reset 中の新規操作は失敗する。"
+      },
+      {
+        "sig": "static u32 GetStats(FSegmentStats* output, u32 output_capacity)",
+        "ret": "件数",
+        "desc": "全セグメントの要求量・ピーク・ハード予算・未解放件数を取得。"
+      },
+      {
+        "sig": "static MemorySegmentInspection InspectSegmentMemory(ESegment segment)",
+        "ret": "独立検査",
+        "desc": "mimalloc の生存ブロック列挙から統計を再構築し、ACS カウンタとの一致を検証する。 保守点で呼ぶ。"
+      },
+      {
+        "sig": "static MemoryLeakSummary CaptureLeakSummary()",
+        "ret": "リーク集計",
+        "desc": "一括寿命の frame arena セグメントを除き、未解放件数・要求バイト・該当セグメント数を集計する。"
+      },
+      {
+        "sig": "static ESegment Current()",
+        "ret": "現セグメント",
+        "desc": "FScopedMemorySegment が設定中の『現在のセグメント』を返す。"
+      },
+      {
+        "sig": "static IAllocator* CurrentAllocator()",
+        "ret": "アロケータ",
+        "desc": "現在セグメントのアロケータ。 明示確保やセグメント対応コンテナへ渡す。"
+      },
+      {
+        "sig": "static void Shutdown()",
+        "desc": "全セグメントを解放(既定アロケータも元へ戻す)。"
+      },
+      {
+        "sig": "using FMemorySystem = CMemorySystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMemorySystem を使う。"
+      }
+    ]
+  }
+}

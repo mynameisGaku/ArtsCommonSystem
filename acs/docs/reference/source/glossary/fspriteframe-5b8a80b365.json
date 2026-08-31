@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FSpriteFrame",
+  "definition": "sprite atlas 内の 1 枚分の矩形領域 (x/y/w/h + pivot + 名前) を表す単位。 FSpritePack が名前付きで複数保持する。"
+}

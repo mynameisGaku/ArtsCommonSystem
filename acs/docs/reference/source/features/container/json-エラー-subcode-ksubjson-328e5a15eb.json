@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "Json エラー subcode (kSubJson*)",
+    "kind": "定数群",
+    "header": "container/Json.h",
+    "summary": "ParseJson が失敗時に Result へ載せるエラー subcode。 EErrCategory::Generic 配下の u16 定数で、構文・深さ・末尾内容・途中終端・数値・エスケープ・サイズ超過を区別できる。 全て inline constexpr u16。",
+    "when": "ParseJson の Error() を受け取り、どの種類の構文エラーかで分岐・ログ出ししたい時。",
+    "sample": "auto r = acs::ParseJson(text, len);\nif (!r.IsOk()) {\n    const FErrorCode& e = r.Error();\n    if (e.subcode == kSubJsonDepth) { /* nesting が深すぎ */ }\n    else if (e.subcode == kSubJsonBadEscape) { /* \\u 等が不正 */ }\n}",
+    "members": [
+      {
+        "sig": "inline constexpr u16 kSubJsonSyntax = 1400",
+        "desc": "構文エラー(予期しないトークン)。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonDepth = 1401",
+        "desc": "nesting が深すぎる(kMaxDepth 超過で DoS 防止)。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonTrailing = 1402",
+        "desc": "ルート値の後に余分なゴミがある。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonEof = 1403",
+        "desc": "値の途中で入力が終端した。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonBadNumber = 1404",
+        "desc": "数値として解釈できない。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonBadEscape = 1405",
+        "desc": "不正なエスケープ / \\u シーケンス。"
+      },
+      {
+        "sig": "inline constexpr u16 kSubJsonSize = 1406",
+        "desc": "入力全体または解析中の文字列が設定上限を超えた。"
+      }
+    ]
+  }
+}

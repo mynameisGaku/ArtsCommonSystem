@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "IAssetLockingBackend",
+    "kind": "インターフェース",
+    "header": "gameframework/StudioWorkflow.h",
+    "summary": "アセットの排他ロックを抽象化するシーム。 「アセットパス 1 本につき 1 ロック」を前提に、ロック取得 / 解除 / 問い合わせを提供する。",
+    "when": "バイナリアセットを複数人で同時編集して壊さないよう、編集前にロックを取りたい時。",
+    "sample": "IAssetLockingBackend* locks = &GetLocalFileAssetLocking();\nauto r = locks->LockAsset(\"//depot/hero.fbx\", \"alice\");\nauto info = locks->QueryLock(\"//depot/hero.fbx\");",
+    "members": [
+      {
+        "sig": "TResult<void> LockAsset(const char* asset_path, const char* user)",
+        "ret": "成否",
+        "desc": "アセットを user 名でロック。 既にロック中なら kSub_AlreadyLocked。"
+      },
+      {
+        "sig": "TResult<void> UnlockAsset(const char* asset_path)",
+        "ret": "成否",
+        "desc": "ロック解除。 未ロックなら kSub_NotFound。"
+      },
+      {
+        "sig": "TResult<FAssetLockInfo> QueryLock(const char* asset_path)",
+        "ret": "ロック情報",
+        "desc": "現在のロック状態を取得。 未ロックなら kSub_NotFound。"
+      },
+      {
+        "sig": "bool IsConnected() const",
+        "desc": "backend に接続できているか。 stub は常に false。"
+      }
+    ]
+  }
+}

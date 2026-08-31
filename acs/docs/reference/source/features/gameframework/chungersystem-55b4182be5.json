@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CHungerSystem",
+    "kind": "クラス",
+    "header": "gameframework/HungerSystem.h",
+    "summary": "サバイバル系ゲーム向けに、複数の survivor (プレイヤー/NPC) の空腹・喉の渇き・疲労・正気度・体温などの「生存統計値」を秒単位で減らし、危険域に入ったら警告、0 で HP ダメージ通知まで行うマネージャ。",
+    "when": "HP 自体は持たず、危険/ダメージはコールバックで外部 (CHealthSystem) に橋渡しする。",
+    "sample": "CHungerSystem hs;\nhs.Init();\nhs.ConfigureStat(ESurvivalStat::Hunger,\n    FStatConfig{ 100.0f, 0.5f, 20.0f, 2.0f });\nFSurvivorId p = hs.AddSurvivor();\nhs.SetOnDamageCallback(&OnDamage, &game);\nhs.RestoreStat(p, ESurvivalStat::Hunger, 30.0f); // 肉を食べた\nhs.Tick(dt);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "7 stat 分の設定を既定値で初期化。 再呼び出しで全 survivor を破棄しリセット。"
+      },
+      {
+        "sig": "void ConfigureStat(ESurvivalStat stat, const FStatConfig& config)",
+        "desc": "stat ごとの減少速度 / 危険閾値 / 0 時ダメージを上書き。 ゲーム起動時に一括設定する想定。"
+      },
+      {
+        "sig": "FSurvivorId AddSurvivor()",
+        "ret": "識別子",
+        "desc": "新規 survivor を登録 (全 stat が最大値スタート)。"
+      },
+      {
+        "sig": "void RemoveSurvivor(FSurvivorId id)",
+        "desc": "survivor を破棄。 invalid/stale な id は no-op。"
+      },
+      {
+        "sig": "void RestoreStat / DrainStat / SetStat(...)",
+        "desc": "stat を回復 / 消費 / 絶対値設定。 すべて [0, max] にクランプされる。"
+      },
+      {
+        "sig": "f32 GetStat(FSurvivorId id, ESurvivalStat stat) const",
+        "ret": "現在値",
+        "desc": "stat の現在値。 invalid は 0。"
+      },
+      {
+        "sig": "bool IsCritical(FSurvivorId id, ESurvivalStat stat) const",
+        "desc": "その stat が危険閾値を下回っているか。"
+      },
+      {
+        "sig": "bool IsAlive(FSurvivorId id) const",
+        "desc": "全 stat が 0 でなく (HealthBridge があれば) HP>0 か。"
+      },
+      {
+        "sig": "f32 OverallSurvivalHealth(FSurvivorId id) const",
+        "ret": "[0,1]",
+        "desc": "全 stat の (current/max) の平均。 UI の生存度メータ用。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "全 survivor × 全 stat を dt 秒減らし、閾値跨ぎで CriticalCallback、0 滞在で DamageCallback を発火。",
+        "when": "毎フレーム 1 回呼ぶ。"
+      },
+      {
+        "sig": "void SetOnCriticalCallback / SetOnDamageCallback(cb, user)",
+        "desc": "危険遷移 / ダメージ通知のコールバック登録。 nullptr で外す。"
+      },
+      {
+        "sig": "u32 SurvivorCount() const / void ClearAll()",
+        "desc": "現在の survivor 数 / 全 survivor 破棄 (callback は保持)。"
+      },
+      {
+        "sig": "using FHungerSystem = CHungerSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CHungerSystem を使う。"
+      }
+    ]
+  }
+}

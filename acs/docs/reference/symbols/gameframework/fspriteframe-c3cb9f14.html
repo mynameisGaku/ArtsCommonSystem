@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="atlas 内の 1 矩形 = 1 frame。 name は caller 所有 (文字列リテラル前提)。 pivot は frame のローカル空間 [0,1] (0,0=左上 / 1,1=右下) で表し、描画時のアンカー (回転中心 / 配置基準) に使う。">
+  <title>acs::game::FSpriteFrame — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="fspriteframe-c3cb9f14.html" aria-current="page">FSpriteFrame</a><a class="tree-child" href="fspriteframe-c3cb9f14/h-103544fa.html">h</a><a class="tree-child" href="fspriteframe-c3cb9f14/name-bfd8c0ee.html">name</a><a class="tree-child" href="fspriteframe-c3cb9f14/pivot-x-8e3192f0.html">pivot_x</a><a class="tree-child" href="fspriteframe-c3cb9f14/pivot-y-85f2c371.html">pivot_y</a><a class="tree-child" href="fspriteframe-c3cb9f14/w-7425d1e6.html">w</a><a class="tree-child" href="fspriteframe-c3cb9f14/x-ec7cc7b2.html">x</a><a class="tree-child" href="fspriteframe-c3cb9f14/y-484863cb.html">y</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FSpriteFrame</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">構造体 / gameframework</div>
+<h1 class="identifier">acs::game::FSpriteFrame</h1>
+<p class="lead">atlas 内の 1 矩形 = 1 frame。 name は caller 所有 (文字列リテラル前提)。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12041">pivot</button><span class="term-tooltip" id="term-tip-12041" role="tooltip">スプライトの基準点 (回転・配置の原点)。 0〜1 の正規化座標で (0.5,0.5)=中央、(0,0)=左上 を表す。</span></span> は frame のローカル空間 [0,1] (0,0=左上 / 1,1=右下) で表し、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-12042">描画</button><span class="term-tooltip" id="term-tip-12042" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>時のアンカー (回転中心 / 配置基準) に使う。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">構造体</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::FSpriteFrameの宣言"><code>struct <a href="fspriteframe-c3cb9f14.html" aria-current="page">FSpriteFrame</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>構造体</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/SpritePack.h:59</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fspriteframe-c3cb9f14/h-103544fa.html"><span><span class="identifier">u32 h = 0;</span><span class="summary">矩形の高さ (pixel)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/name-bfd8c0ee.html"><span><span class="identifier">const char* name = nullptr;</span><span class="summary">検索キー (caller 所有、文字列リテラル想定)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/pivot-x-8e3192f0.html"><span><span class="identifier">f32 pivot_x = 0.5f;</span><span class="summary">pivot の X (frame ローカル [0,1]、既定は中心)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/pivot-y-85f2c371.html"><span><span class="identifier">f32 pivot_y = 0.5f;</span><span class="summary">pivot の Y (frame ローカル [0,1]、既定は中心)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/w-7425d1e6.html"><span><span class="identifier">u32 w = 0;</span><span class="summary">矩形の幅 (pixel)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/x-ec7cc7b2.html"><span><span class="identifier">u32 x = 0;</span><span class="summary">atlas 内 X 座標 (pixel)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fspriteframe-c3cb9f14/y-484863cb.html"><span><span class="identifier">u32 y = 0;</span><span class="summary">atlas 内 Y 座標 (pixel)。</span></span><span class="kind-label">メンバー変数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

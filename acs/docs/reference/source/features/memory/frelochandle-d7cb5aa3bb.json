@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "FRelocHandle",
+    "kind": "構造体",
+    "header": "memory/RelocatableAllocator.h",
+    "summary": "CRelocatableAllocator の確保を指すハンドル。 index+generation 構成で generation==0 が無効。 世代で use-after-free を検出。",
+    "when": "再配置アロケータの確保を保持する時。 中身のポインタは持たず Resolve(h) で都度引く。",
+    "sample": "FRelocHandle h = ra.Alloc(128);\nif (h.IsValid()) { void* p = ra.Resolve(h); }",
+    "members": [
+      {
+        "sig": "u32 index / u64 generation",
+        "desc": "エントリ番号と世代(0=無効)。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "ret": "有効か",
+        "desc": "generationが0以外ならtrueを返します。"
+      },
+      {
+        "sig": "bool operator==(FRelocHandle, FRelocHandle) / operator!=(...)",
+        "desc": "index と generation 両方の一致でハンドル同士を比較する自由関数。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ALabel",
+  "definition": "TObservable<FString> の text を表示する UI label。"
+}

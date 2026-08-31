@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "EBtStatus",
+    "kind": "列挙(enum)",
+    "header": "gameframework/BehaviorTree.h",
+    "summary": "ビヘイビアツリーのノード Tick の戻り値。 Running=実行中 (次フレーム継続)、Success=達成、Failure=失敗。 合成ノードはこの値で次へ進むか決める。",
+    "when": "自作 leaf 関数の戻り値や、Tick 結果の判定に使う。",
+    "sample": "static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {\n    return reached ? EBtStatus::Success : EBtStatus::Running;\n}"
+  }
+}

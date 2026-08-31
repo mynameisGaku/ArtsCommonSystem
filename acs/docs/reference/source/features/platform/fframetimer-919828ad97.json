@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FFrameTimer",
+    "kind": "クラス",
+    "header": "platform/Time.h",
+    "summary": "フレームごとの経過時間（デルタタイム）を計るタイマ。 毎フレーム Tick() を呼ぶと前回からの経過秒を返す。 平均 FPS も取れる。",
+    "when": "ゲームループの中で、移動量などを 速度 × dt で計算したい時。 フレームレートに依存しない動きの基本。",
+    "sample": "FFrameTimer ft;\nwhile (running) {\n    f32 dt = ft.Tick();   // 前フレームからの経過秒\n    pos += velocity * dt; // フレームレート非依存\n    if (ft.FrameCount() % 60 == 0) ShowFps(ft.SmoothedFPS());\n}",
+    "members": [
+      {
+        "sig": "f32 Tick()",
+        "ret": "経過秒(dt)",
+        "desc": "前回 Tick() からの経過秒を返し、内部時刻を更新する。 停止後の暴走を防ぐため最大 0.25 秒に制限される。",
+        "when": "毎フレーム先頭で 1 回。"
+      },
+      {
+        "sig": "f32 SmoothedDelta() const",
+        "ret": "平均dt",
+        "desc": "直近数フレームを平滑化した dt。 表示用に滑らかな値が欲しい時。"
+      },
+      {
+        "sig": "f32 SmoothedFPS() const",
+        "ret": "平均FPS",
+        "desc": "平滑化された FPS。 タイトルバーや HUD の FPS 表示に。"
+      },
+      {
+        "sig": "u64 FrameCount() const",
+        "ret": "累積フレーム数",
+        "desc": "起動からの総フレーム数。"
+      },
+      {
+        "sig": "f64 TotalSeconds() const",
+        "ret": "累積秒",
+        "desc": "起動からの累積秒。"
+      }
+    ]
+  }
+}

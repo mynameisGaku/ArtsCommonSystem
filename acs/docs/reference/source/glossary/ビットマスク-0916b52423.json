@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ビットマスク",
+  "definition": "32 個の ON/OFF フラグを 1 つの整数に詰めたもの。 レイヤ (player/enemy/wall) を bit で表し、AND で「対象に含むか」を高速判定する。"
+}

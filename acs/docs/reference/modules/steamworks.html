@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのsteamworksモジュールに含まれる機能とAPIです。">
+  <title>steamworks モジュール — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="steamworks.html">steamworks モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a><a href="steamworks.html">steamworks モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="steamworks.html">steamworks モジュール</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><span aria-current="page">steamworks</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS モジュール</div><h1 class="identifier">steamworks</h1>
+<p class="lead">steamworks モジュールの機能説明とAPIをまとめています。</p></div>
+<div class="badges"><span class="badge">機能 4</span><span class="badge">API 9</span></div></header>
+<section class="section" id="features"><h2>機能</h2><div class="card-grid"><a class="card" href="../features/steamworks/csteamworksbridgeimpl-63dd81d4.html"><span class="card-title">CSteamworksBridgeImpl</span><span class="card-description">Steamworks SDK を実際に呼ぶ本物の実装(acs::game::ISteamworksBridge を Override)。 SteamAPI_Init() を起点に、実績解除・リーダーボード・統計(Stats)・DLC 所有・リッチプレゼンス・フレンド・クラウドセーブ・Workshop・ボイス・Steam Input を提供します。</span><span class="card-meta">クラス</span></a><a class="card" href="../features/steamworks/getdefaultsteamworksbridge-8d55eee0.html"><span class="card-title">GetDefaultSteamworksBridge()</span><span class="card-description">プロセス共有の実 Bridge シングルトンを返す。 初回アクセス時に Init() を 1 回だけ走らせる(Steam 未起動でも参照は返す — 成否は IsInitialized() で判定)。</span><span class="card-meta">関数</span></a><a class="card" href="../features/steamworks/installsteamworksasdefault-b4700943.html"><span class="card-title">InstallSteamworksAsDefault()</span><span class="card-description">実 Bridge を acs::game 側の既定 providerとして登録する。 これを呼ぶと、以降ゲームコードは バックエンド非依存に acs::game::GetDefaultSteamworksBridge() で実 Bridge を取得できる(未登録なら自動で Stub が返る)。</span><span class="card-meta">関数</span></a><a class="card" href="../features/steamworks/ksubsteamworks-エラー-subcode-93a71467.html"><span class="card-title">kSubSteamworks* (エラー subcode)</span><span class="card-description">TResult が Err の時に err.subcode で原因を見分けるための定数群(カテゴリは ErrCategory::Generic)。 実装固有の失敗理由を表します。</span><span class="card-meta">定数(u16)</span></a></div></section>
+<section class="section" id="api"><h2>API</h2><h3>クラス</h3><div class="member-list"><a class="member-card" href="../symbols/steamworks/csteamworksbridgeimpl-aeac7cbc.html"><span><span class="identifier">acs::steamworks::CSteamworksBridgeImpl</span><span class="summary">Steamworks SDK を呼ぶ ISteamworksBridge の実 backend 実装。 SteamAPI_Init() 等の本物の SDK 関数を呼んで Steam クライアント連携を確立する。 SDK ヘッダ (steam_api.h) を public ヘッダから漏らさないため Pimpl で実装を隠し、 leaderboard 系は async (Find -&gt; Upload/Download) の 2 段で進めて Tick() の コールバックポンプで完了を回収する。 CMake の ACS_BUILD_STEAMWORKS=ON でビルドされる。</span></span><span class="kind-label">クラス →</span></a></div><h3>型alias</h3><div class="member-list"><a class="member-card" href="../symbols/steamworks/fsteamworksbridgeimpl-37531fc8.html"><span><span class="identifier">acs::steamworks::FSteamworksBridgeImpl</span><span class="summary">ACS の steamworks モジュールで FSteamworksBridgeImpl を表す型aliasです。</span></span><span class="kind-label">型alias →</span></a></div><h3>定数</h3><div class="member-list"><a class="member-card" href="../symbols/steamworks/ksubsteamworksdownloadfailed-d8b6e283.html"><span><span class="identifier">acs::steamworks::kSubSteamworksDownloadFailed</span><span class="summary">ACS の steamworks モジュールで kSubSteamworksDownloadFailed を表す定数です。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="../symbols/steamworks/ksubsteamworksfindboardfailed-19a1420c.html"><span><span class="identifier">acs::steamworks::kSubSteamworksFindBoardFailed</span><span class="summary">ACS の steamworks モジュールで kSubSteamworksFindBoardFailed を表す定数です。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="../symbols/steamworks/ksubsteamworksinitfailed-62758a5f.html"><span><span class="identifier">acs::steamworks::kSubSteamworksInitFailed</span><span class="summary">ACS の steamworks モジュールで kSubSteamworksInitFailed を表す定数です。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="../symbols/steamworks/ksubsteamworkstimeout-9a9139c2.html"><span><span class="identifier">acs::steamworks::kSubSteamworksTimeout</span><span class="summary">ACS の steamworks モジュールで kSubSteamworksTimeout を表す定数です。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="../symbols/steamworks/ksubsteamworksuploadfailed-1f61cf3c.html"><span><span class="identifier">acs::steamworks::kSubSteamworksUploadFailed</span><span class="summary">ACS の steamworks モジュールで kSubSteamworksUploadFailed を表す定数です。</span></span><span class="kind-label">定数 →</span></a></div><h3>関数</h3><div class="member-list"><a class="member-card" href="../symbols/steamworks/getdefaultsteamworksbridge-6a9b1b36.html"><span><span class="identifier">acs::steamworks::GetDefaultSteamworksBridge</span><span class="summary">プロセス共有 singleton の実 Bridge を返す。 初回アクセス時に Init() を 1 回走らせる。 Steam クライアント未起動等で失敗しても 参照は返すため、呼び出し側は IsInitialized 等で利用可否を判断する。 戻り値: プロセス共有の ISteamworksBridge 参照。</span></span><span class="kind-label">関数 →</span></a><a class="member-card" href="../symbols/steamworks/installsteamworksasdefault-dd06f5c5.html"><span><span class="identifier">acs::steamworks::InstallSteamworksAsDefault</span><span class="summary">既定 Bridge provider を gameframework に登録する。 gameframework は ACS::Steamworks に依存できない (循環依存) ため、backend 側から acs::game::SetSteamworksBridgeProvider() を呼んで結線する。 起動時に一度だけ呼ぶと、 以降は backend 非依存に acs::game::GetDefaultSteamworksBridge() で実 Bridge を取得できる。</span></span><span class="kind-label">関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#features">機能</a><a href="#api">API</a></nav></aside>
+  </div>
+</body>
+</html>

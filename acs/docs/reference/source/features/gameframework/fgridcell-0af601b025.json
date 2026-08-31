@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FGridCell",
+    "kind": "構造体",
+    "header": "gameframework/MatchGrid.h",
+    "summary": "セル 1 個の状態。 色 (1..color_count、0=空) ・special 種別 (ESpecialKind の u8 値) ・空フラグ。",
+    "when": "Get でセルを読む時。",
+    "members": [
+      {
+        "sig": "u8 color",
+        "desc": "1..color_count = 色、0 = 空。"
+      },
+      {
+        "sig": "u8 special",
+        "desc": "ESpecialKind の生値 (Normal/Bomb/...)。"
+      },
+      {
+        "sig": "bool empty",
+        "desc": "空か (color==0 と等価だが明示)。"
+      }
+    ]
+  }
+}

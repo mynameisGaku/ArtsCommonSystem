@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FBeatNote / EBeatLane / EJudgement / EBeatChartLoadResult",
+    "kind": "構造体・列挙(enum)",
+    "header": "gameframework/BeatGrid.h",
+    "summary": "FBeatNote=譜面の 1 note (絶対秒 time_sec / lane / is_hold / hold_duration_sec)。 EBeatLane=入力レーン (Left/Down/Up/Right + Custom1/2)。 EJudgement=判定結果。 EBeatChartLoadResult=null、上限超過、非有限値、不正 lane/BPM/hold、OOM を区別する checked load 結果。",
+    "when": "CBeatGrid に譜面を渡したり、判定結果を受け取ったりする時。",
+    "sample": "FBeatNote n{ 2.0f, EBeatLane::Up, true, 0.5f };\nif (grid.TryLoadChart(&n, 1, 120.0f) == EBeatChartLoadResult::Success) grid.Start();"
+  }
+}

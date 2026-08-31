@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FConditionVar",
+    "kind": "クラス",
+    "header": "threading/ConditionVar.h",
+    "summary": "必ず FMutex と組で使う。 コピー不可。",
+    "when": "生産者・消費者のように『キューが空なら待ち、要素が来たら起きる』待ち合わせを CPU を無駄に使わず実現したい時。",
+    "sample": "FMutex m; FConditionVar cv;\n// 消費者側\n{\n    FScopedLock lk(m);\n    while (queue.IsEmpty()) cv.Wait(m); // 空なら眠る\n    auto item = queue.Pop();\n}\n// 生産者側: queue.Push(x); cv.NotifyOne();",
+    "members": [
+      {
+        "sig": "void Wait(FMutex& m)",
+        "desc": "起こされるまで眠る。 呼ぶ前に m を Lock しておくこと。 眠る間は内部で一時的に Unlock し、起きたら再 Lock してから返る。",
+        "when": "条件が未成立の間 while ループで囲んで待つ。"
+      },
+      {
+        "sig": "bool WaitFor(FMutex& m, u32 timeout_ms)",
+        "ret": "起こされたか",
+        "desc": "最大 timeout_ms ミリ秒待つ。 起こされたら true、時間切れなら false。"
+      },
+      {
+        "sig": "void NotifyOne()",
+        "desc": "待機中のスレッドを 1 つだけ起こす。"
+      },
+      {
+        "sig": "void NotifyAll()",
+        "desc": "待機中の全スレッドを起こす。"
+      }
+    ]
+  }
+}

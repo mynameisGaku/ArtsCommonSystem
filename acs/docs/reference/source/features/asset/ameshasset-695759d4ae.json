@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "AMeshAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/MeshAsset.h",
+    "summary": "単一メッシュ。 頂点配列 + インデックス配列 + サブメッシュ範囲を持つ。 頂点は「位置 + 法線 + UV」固定(v1)。 gltf/glb/obj/fbx に対応。",
+    "when": "3D モデルを読み込んで GPU メッシュにアップロードする時。",
+    "sample": "auto r = reg.Load(L\"models/box.glb\");\nauto* m = static_cast<AMeshAsset*>(r.Value().Get());\nusize vcount = m->Vertices().Size();\nusize icount = m->Indices().Size();",
+    "members": [
+      {
+        "sig": "const TArray<FMeshVertex>& Vertices()",
+        "ret": "頂点配列",
+        "desc": "FMeshVertex(位置/法線/UV)の配列。 非 const 版で編集も可。"
+      },
+      {
+        "sig": "const TArray<u32>& Indices()",
+        "ret": "インデックス配列",
+        "desc": "三角形を作る頂点インデックス。"
+      },
+      {
+        "sig": "const TArray<FSubMesh>& SubMeshes()",
+        "ret": "サブメッシュ配列",
+        "desc": "マテリアル単位の描画範囲(FSubMesh)。"
+      },
+      {
+        "sig": "using FMeshAsset = AMeshAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AMeshAsset を使う。"
+      }
+    ]
+  }
+}

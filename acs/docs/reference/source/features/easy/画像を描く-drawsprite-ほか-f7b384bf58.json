@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "画像を描く（DrawSprite ほか）",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "LoadSprite で読んだ画像を描く関数群。 元サイズ・伸縮・回転・色掛け（ティント）・反転・一部切り出し（スプライトシート）に対応。 位置 (x,y) は画像の左上。",
+    "when": "キャラやタイルの描画。 アニメーションは DrawSpritePart でシートのコマを切り替える。",
+    "sample": "FSprite p = LoadSprite(\"hero.png\");\nDrawSprite(p, 100, 100);                       // 元サイズ\nDrawSprite(p, 100, 100, 64, 64);               // 伸縮\nDrawSpriteRotated(p, 200, 200, 30);            // 回転\nDrawSpriteFlipped(p, 300, 200, true, false);   // 左右反転\n// シートの (0,0) から 32x32 のコマだけ切り出す\nDrawSpritePart(p, 400, 200, 32, 32, 0, 0, 32, 32);",
+    "members": [
+      {
+        "sig": "void DrawSprite(FSprite s, f32 x, f32 y)",
+        "desc": "画像を元サイズで描く。"
+      },
+      {
+        "sig": "void DrawSprite(FSprite s, f32 x, f32 y, f32 w, f32 h)",
+        "desc": "指定サイズに伸縮して描く。"
+      },
+      {
+        "sig": "void DrawSpriteRotated(FSprite s, f32 x, f32 y, f32 degrees, f32 scale=1, FColor tint={1,1,1,1})",
+        "desc": "回転（＋拡縮・色掛け）。 (x,y) は回転前の左上、回転は中心まわり。"
+      },
+      {
+        "sig": "void DrawSpriteTinted(FSprite s, f32 x, f32 y, FColor tint)",
+        "desc": "ティント（色掛け）して描く。 点滅やダメージ表現に。"
+      },
+      {
+        "sig": "void DrawSpriteFlipped(FSprite s, f32 x, f32 y, bool flip_x, bool flip_y)",
+        "desc": "左右/上下を反転して描く。 向きの切替に。"
+      },
+      {
+        "sig": "void DrawSpritePart(FSprite s, f32 x,f32 y,f32 w,f32 h, f32 sx,f32 sy,f32 sw,f32 sh)",
+        "desc": "画像内の矩形 (sx,sy,sw,sh) だけを切り出して描く。 スプライトシートのコマ送りに。"
+      },
+      {
+        "sig": "f32 SpriteWidth(FSprite s) / f32 SpriteHeight(FSprite s)",
+        "ret": "画像の幅/高さ",
+        "desc": "読み込んだ画像のピクセルサイズ。"
+      }
+    ]
+  }
+}

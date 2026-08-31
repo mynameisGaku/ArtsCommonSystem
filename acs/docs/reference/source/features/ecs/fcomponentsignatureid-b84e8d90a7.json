@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "FComponentSignatureId",
+    "kind": "型エイリアス",
+    "header": "ecs/ComponentId.h",
+    "summary": "コンポーネント型からコンパイル時に求める u64 の署名。 型パックの比較や特殊化に使うビルド内の値で、保存データの永続IDには使わない。",
+    "when": "実行時の密な番号ではなく、テンプレート処理でコンポーネント型を比較・識別する時。",
+    "sample": "constexpr FComponentSignatureId signature = GetComponentSignatureId<Position>();\nstatic_assert(signature == TComponentTypeTraits<Position>::Signature);",
+    "members": [
+      {
+        "sig": "FComponentSignatureId = u64",
+        "desc": "署名の実体は u64。"
+      },
+      {
+        "sig": "constexpr FComponentSignatureId GetComponentSignatureId<T>()",
+        "ret": "型 T の署名",
+        "desc": "コンパイラの型署名からビルド内で安定した値を返す。"
+      },
+      {
+        "sig": "using ComponentSignatureId = FComponentSignatureId",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは FComponentSignatureId を使う。"
+      }
+    ]
+  }
+}

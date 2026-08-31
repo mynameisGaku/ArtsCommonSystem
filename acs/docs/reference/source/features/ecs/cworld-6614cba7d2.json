@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "CWorld",
+    "kind": "クラス",
+    "header": "ecs/World.h",
+    "summary": "エンティティとコンポーネントを束ねる ECS の中心。 エンティティの生成/破棄、コンポーネントの追加/取得/削除、クエリ反復をすべてここから行う。 コピー不可。",
+    "when": "ECS でゲーム状態を持つなら最初に 1 つ作る入れ物。 ステージやシーン単位で 1 つ持つのが基本。",
+    "sample": "CWorld w;\nFEntityId e = w.Create();\nw.Add<Position>(e, {0, 0, 0});\nw.Add<Velocity>(e, {1, 0, 0});\nif (Position* p = w.Get<Position>(e)) p->x += 1.0f;\nw.Destroy(e);",
+    "members": [
+      {
+        "sig": "FEntityId Create()",
+        "ret": "新しい ID",
+        "desc": "エンティティを 1 つ作る。 空きスロットがあれば再利用する(世代は Destroy 時に進むので、再利用された ID は古い ID と区別できる)。",
+        "when": "新しいキャラや弾を出す瞬間。"
+      },
+      {
+        "sig": "void Destroy(FEntityId e)",
+        "desc": "エンティティを消す。 付いていた全コンポーネントも削除し、スロットを空きに戻す。",
+        "when": "キャラの死亡・退場時。"
+      },
+      {
+        "sig": "bool IsAlive(FEntityId e) const",
+        "ret": "生存中か",
+        "desc": "その ID が今も有効か(世代一致 + 生存中)を返す。 古い ID なら false。",
+        "when": "保存しておいた ID を使う前の安全確認に。"
+      },
+      {
+        "sig": "void Add<T>(FEntityId e, T value)",
+        "desc": "エンティティにコンポーネント T を付ける。 既にあれば上書き。 エンティティが死んでいれば何もしない。",
+        "sample": "w.Add<Health>(e, {100});"
+      },
+      {
+        "sig": "T* Get<T>(FEntityId e)",
+        "ret": "値ポインタ または null",
+        "desc": "コンポーネント T を取り出す。 付いていなければ null。 const 版もある。",
+        "when": "1 体だけ狙って値を読み書きする時。",
+        "sample": "if (auto* h = w.Get<Health>(e)) h->hp -= 10;"
+      },
+      {
+        "sig": "bool Has<T>(FEntityId e) const",
+        "ret": "所持しているか",
+        "desc": "コンポーネント T を持っているかを返す(Get<T>(e) != nullptr)。"
+      },
+      {
+        "sig": "void Remove<T>(FEntityId e)",
+        "desc": "コンポーネント T を外す。 無くても安全(何もしない)。"
+      },
+      {
+        "sig": "auto Query<Comps...>()",
+        "ret": "TQueryView",
+        "desc": "指定した全コンポーネントを持つエンティティをまとめて反復するクエリを返す。 実装は Query.h。",
+        "when": "『位置と速度を持つ全員』のように条件で一括処理する時。",
+        "sample": "w.Query<Position, Velocity>().Each([](FEntityId, Position& p, Velocity& v){ p.x += v.x; });"
+      },
+      {
+        "sig": "u32 EntityCount() const",
+        "ret": "生存数",
+        "desc": "今 CWorld にいる生きたエンティティの数。"
+      },
+      {
+        "sig": "FEntityId MakeIdFromIndex(u32 index) const",
+        "ret": "FEntityId",
+        "desc": "スロット番号だけから世代を補って FEntityId を復元する。 主に クエリ内部用。"
+      },
+      {
+        "sig": "using FWorld = CWorld",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWorld を使う。"
+      }
+    ]
+  }
+}

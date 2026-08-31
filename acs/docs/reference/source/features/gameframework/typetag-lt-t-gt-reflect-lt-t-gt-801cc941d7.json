@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "TypeTag<T>() / Reflect<T>()",
+    "kind": "関数テンプレート",
+    "header": "gameframework/TypeInfo.h",
+    "summary": "TypeTag<T>() は RTTI を使わず型 T の一意な ID(static 変数のアドレス)を返します。 Reflect<T>() は TTypeInfo<T>::Get() の短縮形です。",
+    "when": "型を ID で識別したい / 型情報を簡潔に取りたい時。",
+    "sample": "const void* tag = acs::game::TypeTag<PlayerState>();\nconst auto& ti  = acs::game::Reflect<PlayerState>();",
+    "members": [
+      {
+        "sig": "const void* TypeTag<T>()",
+        "ret": "一意な型 ID",
+        "desc": "型ごとに別アドレスを返す。 RTTI 不使用の型識別に。"
+      },
+      {
+        "sig": "const FTypeInfoBase& Reflect<T>()",
+        "ret": "型情報",
+        "desc": "TTypeInfo<T>::Get() を返す短縮形。"
+      }
+    ]
+  }
+}

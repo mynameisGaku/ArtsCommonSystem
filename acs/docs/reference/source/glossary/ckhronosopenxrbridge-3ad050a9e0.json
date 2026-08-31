@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CKhronosOpenXrBridge",
+  "definition": "OpenXR 公式ローダ(Khronos loader)を使った実backend。 HMD や手のポーズを提供する。"
+}

@@ -1,0 +1,88 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AAnimCurveEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/animcurve/AnimCurveEditorPanel.h",
+    "summary": "FAnimationCurve (Hermite/Linear/Step + FAnimationCurve::EWrapMode) を ImGui で対話編集する curve editor パネル。 canvas に波形を 1024 sample で描画し、各 key を marker で表示・drag 編集、Hermite key は in/out tangent handle も drag 可。 右クリックで Add/Delete。 curve は 非所有 (caller 所有)。 変更は CurveChangeCallback で通知。 非コピー・非ムーブ・全 noexcept。",
+    "when": "easing / FOV カーブ / fade alpha など任意の FAnimationCurve を視覚的に編集したい時。 SetCurve(&curve) でバインドする。",
+    "sample": "namespace ac = acs::game::animcurve;\nac::AAnimCurveEditorPanel panel;\npanel.Init();\nacs::game::FAnimationCurve curve;  // 別途 key 追加済とする\npanel.SetCurve(&curve);\npanel.SetOnChangeCallback([](void* user, acs::game::FAnimationCurve* c) noexcept {\n    (void)user; (void)c;   // autosave 等\n}, nullptr);\nif (panel.IsDirty()) panel.ClearDirty();\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "using CurveChangeCallback = void (*)(void* user, acs::game::FAnimationCurve* curve) noexcept",
+        "desc": "curve 変更時に呼ばれる関数ポインタ型。 key 追加 / 削除 / interp / wrap 変更は即時 1 回、drag は drag end で 1 回発火。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "curve 参照を nullptr、selection 未選択、dirty=false、callback を nullptr に。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "curve 参照 / selection / callback を解除。 curve 自体は破棄しない。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetCurve(acs::game::FAnimationCurve* curve) noexcept",
+        "ret": "—",
+        "desc": "編集対象 curve を raw 参照でセット (nullptr で解除、非所有)。 selection / dirty をリセット。",
+        "when": "編集対象バインド時。"
+      },
+      {
+        "sig": "acs::game::FAnimationCurve* CurrentCurve() const noexcept",
+        "ret": "curve または nullptr",
+        "desc": "現在編集対象の curve (未バインドは nullptr)。"
+      },
+      {
+        "sig": "bool IsDirty() const noexcept",
+        "ret": "bool",
+        "desc": "最後の ClearDirty 以降に編集があったか。 Save ボタン enable 判定等に使う。"
+      },
+      {
+        "sig": "void ClearDirty() noexcept",
+        "ret": "—",
+        "desc": "dirty を false に戻す。 curve 保存直後に呼ぶ。"
+      },
+      {
+        "sig": "void SetOnChangeCallback(CurveChangeCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "変更通知 callback を登録 (nullptr で解除)。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Animation Curve Editor\"",
+        "desc": "AEditorPanel override: window タイトル (実体リテラルは \"Animation Curve Editor\")。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: Toolbar + Canvas を描画。 curve 未バインドなら \"(No curve bound)\"。"
+      },
+      {
+        "sig": "static constexpr u32 kCurveSampleCount = 1024u",
+        "desc": "canvas 上で curve をサンプルする点数 (線描画の解像度)。"
+      },
+      {
+        "sig": "static constexpr i32 kNoKeySelected = -1",
+        "desc": "「未選択」を表す sentinel (i32 戻り値で使用)。"
+      },
+      {
+        "sig": "static constexpr f32 kTangentHandleLengthPx = 30.0f",
+        "desc": "接線 handle 描画用の固定 px 長 (実 tangent 値とは無関係)。"
+      },
+      {
+        "sig": "static constexpr f32 kKeyMarkerRadiusPx = 5.0f",
+        "desc": "key marker の半径 (px)。 クリック判定にも使う。"
+      },
+      {
+        "sig": "using FAnimCurveEditorPanel = AAnimCurveEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AAnimCurveEditorPanel を使う。"
+      }
+    ]
+  }
+}

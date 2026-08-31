@@ -1,0 +1,87 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AEditorPanel",
+    "kind": "クラス(抽象基底)",
+    "header": "gameframework/tools/editor_core/EditorPanel.h",
+    "summary": "全エディタパネルの共通基底。 ModelViewer / LevelEditor / Inspector などあらゆる panel が継承し、ライフサイクル + 選択通知 + レイアウト永続化を統一する。 Title() と DrawUI() だけが純粋仮想で必須、それ以外の hook (OnInit / OnFrameBegin / OnSelectionChanged / OnAssetSelected など) は no-op 既定なので必要な panel だけ override する。 ImGui::Begin/End は派生側責務(基底は wrap しない)。 非コピー / 非ムーブ、全 noexcept。",
+    "when": "新しいエディタ panel を作る時に継承する。 CEditorWorkspace に登録すると毎フレーム自動で駆動される。",
+    "sample": "class FMyPanel : public acs::game::editor_core::AEditorPanel {\npublic:\n    const char* Title() const noexcept override { return \"My Panel\"; }\n    void DrawUI() noexcept override {\n        if (!IsVisible()) return;\n\n    }\n};",
+    "members": [
+      {
+        "sig": "virtual const char* Title() const noexcept = 0",
+        "ret": "ウィンドウ名",
+        "desc": "純粋仮想。 ImGui::Begin に渡す window タイトル。 リテラル / 静的領域文字列を返す(基底はコピー所有しない)。 Workspace 内で一意な名前が望ましい。",
+        "when": "必須 override。"
+      },
+      {
+        "sig": "virtual void DrawUI() noexcept = 0",
+        "ret": "—",
+        "desc": "純粋仮想。 メインの ImGui 描画。 ImGui::Begin(Title(), ...) / ImGui::End() は派生側で書く。",
+        "when": "必須 override。"
+      },
+      {
+        "sig": "virtual void OnInit(CEditorWorkspace& workspace) noexcept",
+        "ret": "—",
+        "desc": "Workspace 登録時に 1 度呼ばれる。 基底実装が workspace 参照を保存し以降 Workspace() で取得可能にする。 override する場合は基底呼び出しを先に。",
+        "when": "追加初期化が要る時。"
+      },
+      {
+        "sig": "virtual void OnShutdown() noexcept",
+        "ret": "—",
+        "desc": "登録解除 / editor 終了時に呼ばれる。 GPU リソース解放やコールバック解除をここで。 既定 no-op(多重呼び出し可)。"
+      },
+      {
+        "sig": "virtual void OnFrameBegin(f32 dt) noexcept",
+        "ret": "—",
+        "desc": "フレーム開始時(UI 描画より前)に呼ばれる。 input 取得 / state 更新 / 非同期ポーリング用。 dt はスケール後の秒。 既定 no-op。"
+      },
+      {
+        "sig": "virtual void OnSelectionChanged(inspector::CSelectionService& selection) noexcept",
+        "ret": "—",
+        "desc": "AScene 内 ANode の選択が変わった時に呼ばれる。 既定 no-op。",
+        "when": "Inspector 等 node 系 panel。"
+      },
+      {
+        "sig": "virtual void OnAssetSelected(const char* asset_path) noexcept",
+        "ret": "—",
+        "desc": "CAssetBrowser からファイル選択された時の通知。 asset_path は Browser 所有文字列(コピー禁止)。 nullptr は「選択解除」。 既定 no-op。",
+        "when": "ModelViewer 等 asset 系 panel。"
+      },
+      {
+        "sig": "virtual bool WantsFocus() const noexcept",
+        "ret": "Focus 要求",
+        "desc": "起動時 / dock reset 時に true を返すと一度だけ window focus が当たる。 既定 false。"
+      },
+      {
+        "sig": "virtual void OnSaveLayout(FEditorLayoutSerializer& out) noexcept / OnLoadLayout(... in)",
+        "ret": "—",
+        "desc": "panel 独自のレイアウト情報(splitter 比率 / カラム幅 / 表示モード)の永続化予約点。 現在は既定 no-op。"
+      },
+      {
+        "sig": "bool IsVisible() const noexcept / void SetVisible(bool)",
+        "ret": "表示状態",
+        "desc": "panel 表示状態(close ボタン or プログラム的 hide)の取得 / 設定。"
+      },
+      {
+        "sig": "bool IsDockTarget() const noexcept / void SetDockTarget(bool)",
+        "ret": "dock 可否",
+        "desc": "dock target にできるかのヒント。 ステータスバー / ツールバーは false、ビュー / インスペクタは true が典型。"
+      },
+      {
+        "sig": "CEditorWorkspace* Workspace() const noexcept",
+        "ret": "Workspace*",
+        "desc": "OnInit で保存された Workspace ポインタ(non-owning)。 OnInit 前 / OnShutdown 後は nullptr。"
+      },
+      {
+        "sig": "using FEditorPanel = AEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AEditorPanel を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FEnemyAwareness",
+    "kind": "構造体",
+    "header": "gameframework/CombatStateMachine.h",
+    "summary": "1 体の敵の認識情報。 enemy_id・awareness_level [0,1] (1=完全検出) ・is_engaged を持つ。 CCombatStateMachine が内部で配列管理する。",
+    "when": "通常は内部用。 複数敵の検出状態を並列に追跡するためのデータ。"
+  }
+}

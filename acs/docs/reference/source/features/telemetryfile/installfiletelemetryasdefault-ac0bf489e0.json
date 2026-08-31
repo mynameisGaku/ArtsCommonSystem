@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "telemetryfile",
+    "title": "telemetryfile — テレメトリ記録",
+    "description": "ゲーム内で起きた出来事(テレメトリイベント)をサーバではなくローカルのファイルに書き出す、お手軽なログ記録の実装です。 gameframework の IBackendClient 窓口にそのまま差し込めるので、サーバが無くてもイベント計測のコードを動かせます。"
+  },
+  "feature": {
+    "name": "InstallFileTelemetryAsDefault()",
+    "kind": "関数",
+    "header": "telemetryfile/FileTelemetryBackendClient.h",
+    "summary": "gameframework の backend provider にこのファイル実装を登録する関数。 一度呼ぶと、以降 acs::game::GetDefaultBackendClient() がファイルバック実装を返すようになる。",
+    "when": "アプリ起動時に一度だけ呼ぶ。 これで上位コードは backend の種類を意識せず GetDefaultBackendClient() だけで実 backend を取得できる。",
+    "sample": "// 起動時に一度だけ\nacs::telemetryfile::InstallFileTelemetryAsDefault();\n// 以降はどこでも:\nauto& b = acs::game::GetDefaultBackendClient();\nb.SendTelemetry(\"game_start\", \"{}\");",
+    "members": [
+      {
+        "sig": "void InstallFileTelemetryAsDefault()",
+        "desc": "既定 backend provider をファイル実装に切り替える(後勝ち)。"
+      }
+    ]
+  }
+}

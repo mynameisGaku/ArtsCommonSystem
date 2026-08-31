@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAnimationCurve",
+  "definition": "キーを打って『時間 → 値』を補間する編集可能なカーブ。 checked 更新・評価、Clamp/Loop/PingPong、33 種の easing preset に対応する。"
+}

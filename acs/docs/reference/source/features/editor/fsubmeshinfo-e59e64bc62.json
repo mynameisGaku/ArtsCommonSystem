@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FSubmeshInfo",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/modelview/ModelInspectorPanel.h",
+    "summary": "1 つの submesh セクションの情報(名前 + index 範囲 + 使用する material slot)。 name は caller 所有のリテラル / 永続文字列を想定(panel 寿命 ≦ name 寿命)。",
+    "when": "Inspector に submesh テーブルを表示するため、submesh ごとに 1 件作って配列で渡す。",
+    "sample": "FSubmeshInfo sm;\nsm.name                = \"Body\";\nsm.index_start         = 0;\nsm.index_count         = 3600;   // 3 の倍数想定\nsm.material_slot_index = 0;",
+    "members": [
+      {
+        "sig": "const char* name = nullptr",
+        "desc": "submesh 名(例: \"Body\", \"Hair\", \"Eyes\")。 caller 所有のポインタ。"
+      },
+      {
+        "sig": "u32 index_start = 0",
+        "desc": "全 index buffer 内の開始 index。"
+      },
+      {
+        "sig": "u32 index_count = 0",
+        "desc": "この submesh の index 数(3 の倍数想定)。"
+      },
+      {
+        "sig": "u32 material_slot_index = 0",
+        "desc": "この submesh が使う material slot 番号。"
+      }
+    ]
+  }
+}

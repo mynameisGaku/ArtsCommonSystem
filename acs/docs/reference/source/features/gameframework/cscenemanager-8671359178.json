@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneManager",
+    "kind": "クラス",
+    "header": "gameframework/SceneManager.h",
+    "summary": "AScene のスタック管理。 top のシーンを毎フレーム更新/描画し、画面切替 (Change/Push/Pop) をフレーム境界まで遅延して安全に適用する。",
+    "when": "シーンを切り替える時。 普通は AScene::Scenes() 経由でこれを触る。",
+    "sample": "// シーン内から:\nScenes().ChangeScene(MakeUnique<AGameScene>());  // 切替\nScenes().PushScene(MakeUnique<APauseScene>());   // 上に重ねる (モーダル)\nScenes().PopScene();                            // 戻る",
+    "members": [
+      {
+        "sig": "void ChangeScene(TUniquePtr<AScene> next)",
+        "desc": "今の top を pop して next を push (= 画面切替)。 次フレーム頭で適用。"
+      },
+      {
+        "sig": "void PushScene(TUniquePtr<AScene> next)",
+        "desc": "今の top を残したまま next を重ねる (= ダイアログ/ポーズ)。"
+      },
+      {
+        "sig": "void PopScene()",
+        "desc": "top を 1 枚 pop する。 スタックが 1 枚以下なら何もしない。"
+      },
+      {
+        "sig": "AScene* Top() const / u32 Depth() const / bool IsEmpty() const",
+        "desc": "現在の最上段シーン・スタック段数・空かどうか。"
+      },
+      {
+        "sig": "u64 ActiveSceneEpoch() const",
+        "desc": "active scene境界の世代。 固定runtime snapshotが遷移前の入力を復元しないために使う。"
+      },
+      {
+        "sig": "bool TryCaptureActiveFixedInputSnapshot(...) / bool TryRestoreActiveFixedInputSnapshot(...)",
+        "desc": "active sceneの未消費固定入力をtransactionalに保存・復元する。"
+      },
+      {
+        "sig": "using FSceneManager = CSceneManager",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSceneManager を使う。"
+      }
+    ]
+  }
+}

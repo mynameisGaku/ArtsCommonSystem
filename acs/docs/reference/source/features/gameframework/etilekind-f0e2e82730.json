@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "ETileKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/DungeonGenerator.h",
+    "summary": "ダンジョンのタイル種別。 Wall (壁) / Floor (床) / Door (扉) / Corridor (廊下) / Stairs (階段) の 5 種。",
+    "when": "At() の戻り値で分岐して描画やゲームロジックを切り替える時。"
+  }
+}

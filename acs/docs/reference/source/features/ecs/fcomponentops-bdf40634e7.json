@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "FComponentOps",
+    "kind": "構造体",
+    "header": "ecs/ComponentRegistry.h",
+    "summary": "型を消去したコンポーネント操作の束。 サイズ・整列・破棄関数・ムーブ構築関数・名前を実行時に問い合わせられる形で保持する(型消去)。",
+    "when": "コンパイル時に型を知らないコード(汎用ストレージなど)が、実行時にコンポーネントを破棄・移動したい時に参照する。 低レベル機構。",
+    "sample": "const FComponentOps& ops = CComponentRegistry::Register<Position>();\nvoid* slot = /* 確保した領域 */;\nops.destroy(slot);  // 型を知らずに ~Position() を呼ぶ",
+    "members": [
+      {
+        "sig": "usize size / usize alignment",
+        "desc": "コンポーネント 1 個分のバイト数と整列要求。"
+      },
+      {
+        "sig": "void (*destroy)(void* p)",
+        "desc": "対象のデストラクタを呼ぶ関数ポインタ(~T())。"
+      },
+      {
+        "sig": "void (*move)(void* dst, void* src)",
+        "desc": "src から dst へムーブ構築する関数ポインタ。"
+      },
+      {
+        "sig": "const char* name",
+        "desc": "型名(既定は固定文字列)。"
+      }
+    ]
+  }
+}

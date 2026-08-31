@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FSpriteFrame",
+    "kind": "構造体",
+    "header": "gameframework/SpritePack.h",
+    "summary": "アトラス内の 1 矩形 = 1 フレーム。 名前・ピクセル矩形 (x,y,w,h)・ピボット (0..1) を持つ。 name は非所有 (リテラル想定)。",
+    "when": "FSpritePack::AddFrame で手動登録する時、または FindFrame の戻り値として受け取る時。",
+    "sample": "FSpriteFrame f;\nf.name = \"Run_00\";\nf.x = 0; f.y = 0; f.w = 64; f.h = 64;\nf.pivot_x = 0.5f; f.pivot_y = 1.0f; // 足元基準\npack.AddFrame(f);"
+  }
+}

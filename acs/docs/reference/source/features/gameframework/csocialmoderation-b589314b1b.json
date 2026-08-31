@@ -1,0 +1,72 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CSocialModeration",
+    "kind": "クラス",
+    "header": "gameframework/SocialModeration.h",
+    "summary": "ローカルのブロックリストと通報キューを管理する窓口。 ブロックは即時ローカル反映、通報は失敗時にキューへ残して再送できる。 実プラットフォーム SDK 送信はシームとして後付けする設計。",
+    "when": "オンライン要素のあるゲームで「このプレイヤーをブロック / 通報」を扱う時。",
+    "sample": "CSocialModeration mod;\nmod.Init();\nmod.BlockUser(\"steam:7656119800000099\");\nFReportRecord r{};\nr.reported_user_id = \"steam:7656119800000099\";\nr.category = EReportCategory::Harassment;\n(void)mod.SubmitReport(r);",
+    "members": [
+      {
+        "sig": "void Init()",
+        "desc": "内部状態を初期化する (多重呼び出し可)。"
+      },
+      {
+        "sig": "void BlockUser(const char* user_id)",
+        "desc": "ユーザーをローカルブロックリストへ追加。 重複 / nullptr は no-op。"
+      },
+      {
+        "sig": "void UnblockUser(const char* user_id)",
+        "desc": "ブロック解除。 未登録は no-op。"
+      },
+      {
+        "sig": "bool IsBlocked(const char* user_id) const",
+        "ret": "ブロック済みか",
+        "desc": "招待などの前段ガードに使う。"
+      },
+      {
+        "sig": "u32 BlockedCount() const",
+        "ret": "件数",
+        "desc": "ブロック中の人数。"
+      },
+      {
+        "sig": "const FBlockEntry* AllBlocked(u32& out_count) const",
+        "ret": "生バッファ",
+        "desc": "ブロック一覧の先頭ポインタ。 out_count に件数を返す。"
+      },
+      {
+        "sig": "TResult<void> SubmitReport(const FReportRecord& rep)",
+        "ret": "成否",
+        "desc": "通報を送信 (現状は pending queue に積む)。 reported_user_id == nullptr は弾く。"
+      },
+      {
+        "sig": "u32 PendingReportCount() / u32 DeliveredReportCount() const",
+        "desc": "未送信件数 / 受理累計件数。"
+      },
+      {
+        "sig": "void SetBackendConnected(bool) / bool IsBackendConnected() const",
+        "desc": "送信先 backend の接続状態を切り替える / 確認するシーム。"
+      },
+      {
+        "sig": "TResult<void> FlushReports()",
+        "ret": "成否",
+        "desc": "未送信通報をまとめて再送。 1 件でも残れば集約エラーを返す。",
+        "when": "オンライン復帰時など。"
+      },
+      {
+        "sig": "void ClearLocalState()",
+        "desc": "ブロックリストと通報キューを両方クリアする。"
+      },
+      {
+        "sig": "using FSocialModeration = CSocialModeration",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSocialModeration を使う。"
+      }
+    ]
+  }
+}

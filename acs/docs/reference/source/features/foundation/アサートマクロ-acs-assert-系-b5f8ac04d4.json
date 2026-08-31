@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "アサートマクロ (ACS_ASSERT 系)",
+    "kind": "マクロ",
+    "header": "foundation/Assert.h",
+    "summary": "条件が偽なら FPanic を呼んでその場で止めるチェック群。 バグを早期に・確実に検出する。 デバッグ専用（リリースで消える）と常時有効の 2 系統がある。",
+    "when": "事前条件・不変条件・到達しないはずの分岐を主張する時。 安いチェックは ACS_ASSERT、リリースでも守りたい不変条件は ACS_CHECK。",
+    "sample": "ACS_ASSERT(idx < size);                         // デバッグのみ\nACS_ASSERTF(p != nullptr, \"id=%u\", id);          // メッセージ付き\nACS_CHECK(buffer != nullptr);                    // リリースでも検査\nif (kind == 0) { /*...*/ } else { ACS_NOTREACHED(); }",
+    "members": [
+      {
+        "sig": "ACS_ASSERT(expr)",
+        "desc": "デバッグ専用。 偽なら停止。 リリース（-DACS_ENABLE_ASSERTS=OFF）では除去。",
+        "when": "安価な事前条件・範囲チェック。"
+      },
+      {
+        "sig": "ACS_ASSERTF(expr, fmt, ...)",
+        "desc": "ACS_ASSERT に printf 風メッセージを付けた版。"
+      },
+      {
+        "sig": "ACS_VERIFY(expr)",
+        "desc": "デバッグ専用だが expr は常に評価される。 副作用のある式のチェックに使う。"
+      },
+      {
+        "sig": "ACS_CHECK(expr) / ACS_CHECKF(...)",
+        "desc": "常に有効。 リリースでも偽なら停止。 範囲外・null・セキュリティ前提など倒れた方が安全な不変条件に。"
+      },
+      {
+        "sig": "ACS_NOTREACHED()",
+        "desc": "到達したら必ず停止する防御マーカー（リリースでも有効）。"
+      },
+      {
+        "sig": "ACS_NOT_IMPLEMENTED()",
+        "desc": "未実装の分岐に置く。 リリースでもパニックする。"
+      },
+      {
+        "sig": "ACS_UNREACHABLE()",
+        "desc": "「絶対に来ない」と最適化器に教える。 デバッグでは停止、リリースでは最適化ヒント（来ると未定義動作）。"
+      }
+    ]
+  }
+}

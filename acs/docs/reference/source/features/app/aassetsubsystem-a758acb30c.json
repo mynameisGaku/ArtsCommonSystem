@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "app",
+    "title": "app — アプリケーション",
+    "description": "アプリ全体の実行、asset、timer subsystemをまとめる公開入口。"
+  },
+  "feature": {
+    "name": "AAssetSubsystem",
+    "kind": "クラス",
+    "header": "app/AssetSubsystem.h",
+    "summary": "applicationが所有し、asset registryへの共通アクセスを提供するsubsystem。",
+    "when": "application寿命でasset機能を取得する時。",
+    "members": [
+      {
+        "sig": "using FAssetSubsystem = AAssetSubsystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AAssetSubsystem を使う。"
+      }
+    ]
+  }
+}

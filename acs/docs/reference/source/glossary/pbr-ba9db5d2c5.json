@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "PBR",
+  "definition": "Physically Based Rendering。 金属度・粗さなど物理量で材質を表すリアルな描画手法。"
+}

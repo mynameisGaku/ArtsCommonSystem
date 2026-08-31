@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Win32 backend",
+  "definition": "ImGui がマウス・キーボード入力を Windows から受け取るための連携部分。"
+}

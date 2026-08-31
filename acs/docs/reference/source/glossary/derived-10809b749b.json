@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Derived",
+  "definition": "依存する Observable から値を計算し、依存が変わった時だけ再計算する派生値。 菱形依存でも二重計算を避ける。"
+}

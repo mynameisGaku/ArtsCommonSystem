@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FProjectileDef",
+    "kind": "構造体",
+    "header": "gameframework/ProjectileSystem.h",
+    "summary": "弾種ごとの挙動パラメータ。 RegisterDef で『弾の設計図』として登録しておき、Spawn 時に名前で参照する。",
+    "when": "新しい弾の種類 (速い弾・重力で落ちる手榴弾・貫通弾・追尾弾など) を定義する時。",
+    "sample": "FProjectileDef d{};\nd.id = \"arrow\";\nd.speed = 600.0f;\nd.lifetime_sec = 2.0f;\nd.gravity_y = 300.0f;      // 弧を描いて落ちる\nd.pierces = true; d.max_pierces = 2;  // 3 体目で消える",
+    "members": [
+      {
+        "sig": "const char* id",
+        "desc": "弾種の名前 (Spawn のキー)。 文字列リテラル推奨。"
+      },
+      {
+        "sig": "EProjectileKind kind",
+        "desc": "VFX/SE 振り分け用のヒント。 挙動には影響しない。"
+      },
+      {
+        "sig": "f32 speed / f32 lifetime_sec / f32 radius",
+        "desc": "初速の目安・最大寿命(秒)・当たり判定半径。"
+      },
+      {
+        "sig": "f32 gravity_y",
+        "desc": "重力 (正で下向き)。 0 で直進、手榴弾や矢は >0。"
+      },
+      {
+        "sig": "bool pierces / u32 max_pierces",
+        "desc": "貫通するか、何体まで貫通するか。 max_pierces=2 なら 3 体目で消滅。"
+      },
+      {
+        "sig": "bool homing / f32 homing_strength",
+        "desc": "追尾するか、その強さ [0,1]。"
+      }
+    ]
+  }
+}

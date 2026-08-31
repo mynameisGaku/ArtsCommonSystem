@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FWaterSurface3DParams",
+    "kind": "構造体",
+    "header": "render/WaterSurface3DParams.h",
+    "summary": "形状に依存しない3D水面の波、流れ、光学、泡の値。",
+    "when": "CWaterSurface3DまたはAWaterSurface3DComponentへ水質を指定する時。",
+    "members": [
+      {
+        "sig": "static FWaterSurface3DParams ForProfile(EWaterSurface3DProfile profile)",
+        "ret": "用途別の初期値",
+        "desc": "未知値ではLakeを返す。 返した後に個別fieldを上書きできる。"
+      }
+    ]
+  }
+}

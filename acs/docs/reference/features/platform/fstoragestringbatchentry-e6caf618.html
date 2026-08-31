@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FStorageへ一括設定する終端key/value組。 value == nullptrは空文字列、非nullは終端までのbyte列として扱う。 key/valueの順に二pointerを保持するaggregateで、field offset、standard-layout、trivially-copyableをcompile-timeに固定する。">
+  <title>FStorageStringBatchEntry — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/platform.html">platform モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/platform.html">platform</a><span>/</span><span aria-current="page">FStorageStringBatchEntry</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / platform</div><h1 class="identifier">FStorageStringBatchEntry</h1>
+<p class="lead">F<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28125">Storage</button><span class="term-tooltip" id="term-tip-28125" role="tooltip">設定やセーブデータ用の key-value ストア(INI 形式)。 音量・解像度・進行度などを人間が読める形で永続化する。</span></span>へ一括設定する終端key/value組。 value == nullptrは空文字列、非nullは終端までのbyte列として扱う。 key/valueの順に二pointerを保持するaggregateで、field offset、standard-layout、trivially-copyableをcompile-timeに固定する。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/platform/fstoragestringbatchentry-928cf8be.html"><code>acs::FStorageStringBatchEntry</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>複数の文字列設定を、一部だけ反映される<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-28124">状態</button><span class="term-tooltip" id="term-tip-28124" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を作らずまとめて更新したい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>platform</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>platform/StorageStringBatchEntry.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-15354bba0eab87831c23"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const char* <a href="../../symbols/platform/fstoragestringbatchentry-928cf8be/key-157ec238.html">key</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>設定対象のkey。 有効なUTF-8で、空、改行、=、制御文字、INI指示行と衝突する先頭文字は使えない。 LoadFromBytesの境界trimでidentityが変わらないよう、先頭と末尾のASCII space (U+0020)も拒否するが、内部spaceは許可する。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/platform/fstoragestringbatchentry-928cf8be/key-157ec238.html"><code>acs::FStorageStringBatchEntry::key</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-133cd81e5fcda6375362"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>const char* <a href="../../symbols/platform/fstoragestringbatchentry-928cf8be/value-dbcdc850.html">value</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>設定する値。 nullは既存のTrySetStringと同じ空文字列。 非nullは終端までのbyte列を追加検査や変換なしで保持し、このwaveで既存valueの制約を強めない。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/platform/fstoragestringbatchentry-928cf8be/value-dbcdc850.html"><code>acs::FStorageStringBatchEntry::value</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

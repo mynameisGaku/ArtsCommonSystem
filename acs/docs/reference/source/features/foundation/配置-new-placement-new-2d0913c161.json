@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "配置 new (placement new)",
+    "kind": "演算子",
+    "header": "foundation/Move.h",
+    "summary": "すでに確保済みのメモリ上にオブジェクトを構築するための ::new (ptr) T(...) 構文を有効にする宣言。 STL（<new>）を取り込まずに自前で用意している。",
+    "when": "アロケータや TResult など、確保と構築を分けて扱う低レベルコードで使う。 通常のゲームコードで直接書くことは稀。",
+    "sample": "void* mem = alloc.Alloc(sizeof(T), alignof(T), FSourceLoc::Current());\nT* obj = ::new (mem) T(args...);   // mem の上に構築\nobj->~T();                          // 破棄は手動"
+  }
+}

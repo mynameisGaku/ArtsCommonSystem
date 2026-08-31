@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CWindowsCrashReporter",
+  "definition": "Windows 専用のクラッシュ報告 backend。 DbgHelp でミニダンプと人間が読めるテキスト報告書を書き出す。"
+}

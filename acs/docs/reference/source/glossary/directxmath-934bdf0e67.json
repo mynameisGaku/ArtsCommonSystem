@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DirectXMath",
+  "definition": "Microsoft の SIMD 数学ライブラリ。 ACS の Vec/Mat/Quat はこれに委譲して高速化している。"
+}

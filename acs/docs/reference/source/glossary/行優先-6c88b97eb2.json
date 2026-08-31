@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "行優先",
+  "definition": "行列をメモリに行ごとに並べる方式（row-major）。 ACS は行優先で、HLSL(列優先)へ送る前に Transpose する。"
+}

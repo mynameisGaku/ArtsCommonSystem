@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CLinearAllocator / CPoolAllocator",
+    "kind": "クラス",
+    "header": "memory/LinearAllocator.h / PoolAllocator.h",
+    "summary": "Linear=前から詰める単純高速アロケータ(Arena に近い)。 Pool=同じサイズの塊を大量に出し入れする用途に最適化したアロケータ。",
+    "when": "Linear: 連続確保して一括破棄。 Pool: 弾・パーティクル等、同サイズを高速に取り回す時。",
+    "sample": "CPoolAllocator pool(sizeof(FBullet), 1024); // 1024 個分\nvoid* b = pool.Alloc(...);\npool.Free(b);",
+    "members": [
+      {
+        "sig": "CLinearAllocator(usize capacity, IAllocator* backing_allocator = nullptr)",
+        "desc": "Linear: capacity バイトのバッファを backing_allocator(null で DefaultAllocator)から確保。"
+      },
+      {
+        "sig": "void CLinearAllocator::Reset()",
+        "desc": "カーソルを 0 へ巻き戻す(全確保を無効化)。 並行 Alloc 中に呼ぶと UB。"
+      },
+      {
+        "sig": "u64 CLinearAllocator::Capacity() const",
+        "ret": "容量",
+        "desc": "確保したバッファの総バイト数。"
+      },
+      {
+        "sig": "CPoolAllocator(usize block_size, usize block_count, usize alignment = kDefaultAlignment, IAllocator* backing_allocator = nullptr)",
+        "desc": "Pool: block_size×block_count の連続バッファを確保。 block_size は最低 8B にラウンドアップ。"
+      },
+      {
+        "sig": "u64 CPoolAllocator::BlockSize() / BlockCount() const",
+        "ret": "統計",
+        "desc": "1 ブロックのサイズ / 総ブロック数。"
+      },
+      {
+        "sig": "bool CPoolAllocator::Contains(const void* pointer) const",
+        "ret": "所属か",
+        "desc": "pointer がこのプールから払い出されたものか(Heap フォールバックとの区別用)。"
+      },
+      {
+        "sig": "using FLinearAllocator = CLinearAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLinearAllocator を使う。"
+      },
+      {
+        "sig": "using FPoolAllocator = CPoolAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CPoolAllocator を使う。"
+      }
+    ]
+  }
+}

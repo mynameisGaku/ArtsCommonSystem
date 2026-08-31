@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "実行ファイルが見つからない / どこに出る",
+  "item": {
+    "q": "実行ファイルが見つからない / どこに出る？",
+    "tags": [
+      "ビルド",
+      "実行",
+      "exe"
+    ],
+    "a": "acs/Binaries/<構成>(例 acs/Binaries/Debug)に出ます。 MSBuild ターゲット名は snake_case(例 acs_unit_tests)です。"
+  }
+}

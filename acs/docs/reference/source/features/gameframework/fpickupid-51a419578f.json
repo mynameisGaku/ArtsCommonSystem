@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FPickupId",
+    "kind": "構造体",
+    "header": "gameframework/PickupSystem.h",
+    "summary": "拾取アイテムを指す 24bit index + 8bit gen の packed ハンドル。 0 = invalid。 slot を再利用しても古い handle は generation 不一致で無効になる。",
+    "when": "Spawn() の戻り値として持ち、Despawn や GetPickup() の対象指定に使う。",
+    "sample": "FPickupId id = ps.Spawn(info);\nif (const FPickupInfo* p = ps.GetPickup(id)) { /* 生存中 */ }"
+  }
+}

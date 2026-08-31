@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAppStateSlot",
+    "kind": "クラス",
+    "header": "gameframework/AppState.h",
+    "summary": "シーンを跨いで生き残る型消去の永続状態スロット。 任意の型 T を 1 つだけ格納し、どのシーンからも取り出せる。 RTTI 不使用で、型不一致の取得は nullptr を返す。",
+    "when": "ハイスコアやプレイヤープロフィールなど、シーン遷移で消えてほしくないデータを 1 箇所に置きたい時 (CGame が 1 個保持する)。",
+    "sample": "struct FPlayerProfile { int hi_score = 0; };\nslot.Emplace<FPlayerProfile>();            // 構築\nauto* p = slot.Get<FPlayerProfile>();      // 取り出し (型違いは nullptr)\nif (p) p->hi_score = 9999;",
+    "members": [
+      {
+        "sig": "T& Emplace<T>(Args&&... args)",
+        "ret": "構築した参照",
+        "desc": "既存を破棄して T をその場で構築し、参照を返す。",
+        "when": "起動時に永続状態を 1 度だけ作る。"
+      },
+      {
+        "sig": "T* Get<T>()",
+        "ret": "T* または nullptr",
+        "desc": "型 T として取り出す。 未設定または型不一致なら nullptr。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "保持中の値を破棄して空にする。"
+      },
+      {
+        "sig": "bool IsSet() const",
+        "desc": "値が入っているかを返す。"
+      }
+    ]
+  }
+}

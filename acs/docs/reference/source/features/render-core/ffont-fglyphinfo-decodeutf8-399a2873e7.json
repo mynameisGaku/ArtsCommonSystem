@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FFont / FGlyphInfo / DecodeUtf8",
+    "kind": "クラス / 構造体 / 関数",
+    "header": "render/Font.h",
+    "summary": "TTF/OTF フォントを GPU テクスチャアトラスに焼いて、CSpriteBatch で文字を描けるようにする。 ASCII から平仮名・片仮名・全角、オプションで CJK 漢字まで対応。",
+    "when": "ゲーム内に日本語/英語テキストを表示するとき。 OS のフォントファイルを読み込んで使う。",
+    "sample": "FFont font;\nfont.LoadFromFile(*rdr.Device(),\n    L\"C:/Windows/Fonts/meiryo.ttc\", 32.0f,\n    /*atlas_size=*/1024, /*include_cjk=*/true);\nsb.Begin(*cl, sw, sh);\nsb.DrawString(font, \"ハロー、ワールド！\", 100, 100, FVec4{1,1,1,1});\nsb.End();",
+    "members": [
+      {
+        "sig": "TResult<void> LoadFromFile(IRhiDevice&, const wchar_t* path, f32 pixel_size, u32 atlas_size = 1024, bool include_cjk = false)",
+        "desc": "ファイルからアトラスを構築。 include_cjk=true で漢字も焼く(アトラスは 2048 に自動拡張)。"
+      },
+      {
+        "sig": "TResult<void> LoadFromBytes(IRhiDevice&, const u8* ttf_data, usize ttf_size, f32 pixel_size, ...)",
+        "desc": "メモリ上の TTF バイト列から構築。"
+      },
+      {
+        "sig": "IRhiTexture* AtlasTexture() / u32 AtlasSize() / f32 PixelSize()",
+        "desc": "焼いたアトラステクスチャとそのサイズ。"
+      },
+      {
+        "sig": "f32 Ascent() / Descent() / LineGap() / LineHeight()",
+        "desc": "行レイアウト用のメトリクス(ピクセル)。"
+      },
+      {
+        "sig": "bool GetGlyph(u32 codepoint, FGlyphInfo& out) const",
+        "desc": "コードポイントのグリフ情報(UV+オフセット)を取得。 未収録なら false。"
+      },
+      {
+        "sig": "f32 MeasureWidth(const char* utf8_text)",
+        "ret": "幅(px)",
+        "desc": "文字列の描画幅を測る(改行は無視)。 中央寄せ等に。"
+      },
+      {
+        "sig": "u32 DecodeUtf8(const char** p)",
+        "ret": "コードポイント",
+        "desc": "UTF-8 を 1 文字読み、ポインタを進める(自由関数)。"
+      }
+    ]
+  }
+}

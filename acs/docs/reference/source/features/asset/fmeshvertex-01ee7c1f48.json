@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "FMeshVertex",
+    "kind": "構造体",
+    "header": "asset/MeshAsset.h",
+    "summary": "標準頂点フォーマット。 位置 FVec3 + 法線 FVec3 + UV(u, v)。 FVec3 が alignas(16) のため sizeof は 48 バイト(末尾 8B パディング込み)。 ※ ヘッダ MeshAsset.h:19 のコメント「32 bytes」は FVec3 が 12B だった頃の古い記述。",
+    "when": "メッシュの頂点を直接組み立て・読み取りする時。",
+    "sample": "FMeshVertex v;\nv.position = FVec3{0, 1, 0};\nv.normal   = FVec3{0, 1, 0};\nv.u = 0.5f; v.v = 0.0f;",
+    "members": [
+      {
+        "sig": "FVec3 position",
+        "desc": "頂点座標。"
+      },
+      {
+        "sig": "FVec3 normal",
+        "desc": "法線ベクトル。"
+      },
+      {
+        "sig": "f32 u, v",
+        "desc": "テクスチャ UV 座標。"
+      }
+    ]
+  }
+}

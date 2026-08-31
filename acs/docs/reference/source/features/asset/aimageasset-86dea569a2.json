@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "AImageAsset",
+    "kind": "クラス(AAsset 派生)",
+    "header": "asset/ImageAsset.h",
+    "summary": "画像 1 枚分の CPU 側ピクセルデータ。 幅・高さ・ピクセルフォーマット・生バイト列を持つ。 stb_image 経由で png/jpg/bmp/tga/gif/hdr 等に対応。",
+    "when": "テクスチャ用画像を読み込んで GPU へアップロードする前の中間データとして。",
+    "sample": "auto r = reg.Load(L\"hero.png\");\nauto* img = static_cast<AImageAsset*>(r.Value().Get());\nu32 w = img->Width(), h = img->Height();\nconst byte* px = img->Pixels();   // GPU へアップロード等",
+    "members": [
+      {
+        "sig": "u32 Width() / u32 Height()",
+        "ret": "画素数",
+        "desc": "画像の幅・高さ(ピクセル)。"
+      },
+      {
+        "sig": "EPixelFormat Format()",
+        "ret": "フォーマット",
+        "desc": "EPixelFormat(チャンネル数と型)を返す。"
+      },
+      {
+        "sig": "const byte* Pixels()",
+        "ret": "先頭ポインタ",
+        "desc": "ピクセル列の先頭ポインタ。"
+      },
+      {
+        "sig": "usize PixelByteCount()",
+        "ret": "バイト数",
+        "desc": "ピクセルデータの総バイト数。"
+      },
+      {
+        "sig": "using FImageAsset = AImageAsset",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AImageAsset を使う。"
+      }
+    ]
+  }
+}

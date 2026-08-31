@@ -1,0 +1,170 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AModelViewerPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/modelview/ModelViewerPanel.h",
+    "summary": "ModelViewer のメインビューポートパネル。 AEditorPanel を継承し、3D モデルの表示領域と「表示パラメータ」(CEditorCamera / ライティング / 背景色 / グリッド / ボーン表示) を ImGui で操作する。 CAssetBrowser からの選択通知を受けて mesh 拡張子なら自動でモデルを切り替える。 非コピー / 非ムーブ・全 noexcept。",
+    "when": "モデルビューアの中央ビューポートとして使う。 CEditorWorkspace::RegisterPanel で登録し、毎フレームの DrawUI でビューポートと control bar を出す。 カメラ行列や光パラメータを外部レンダラに渡したい時にアクセサ経由で取得する。",
+    "sample": "AModelViewerPanel viewer;\nviewer.Init();\nworkspace.RegisterPanel(&viewer);    // AEditorPanel として登録\n\n// CAssetBrowser からの選択通知で自動 LoadModelAsset:\nworkspace.BroadcastAssetSelected(\"models/hero.mdl\");\n\nif (viewer.HasModel()) {\n    auto& cam = viewer.Camera();      // renderer が ViewMatrix を取り出す\n    (void)cam;\n}",
+    "members": [
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "内部 state をデフォルトに戻し、CEditorCamera を 3D mode で初期化、asset path を空に。 多重呼び出し可(= 完全リセット)。",
+        "when": "panel 生成直後 / 再利用時。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "内部 state を全解放しカメラを Reset。 OnShutdown とは別物で、Workspace から外す前に単体 reset したい時の API。 多重呼び出し可。",
+        "when": "任意"
+      },
+      {
+        "sig": "void LoadModelAsset(const wchar_t* asset_path) noexcept",
+        "ret": "—",
+        "desc": "asset_path をコピーして内部バッファに保存し HasModel() を true に。 nullptr / 空文字なら ClearModel() 相当。 実 mesh 読込は行わず外部レンダラの責務。",
+        "when": "モデルを切り替える時。"
+      },
+      {
+        "sig": "void ClearModel() noexcept",
+        "ret": "—",
+        "desc": "asset path を空に戻し HasModel() を false に。 カメラ / ライティング / 背景は保持(= モデルを替えても視点と照明が残る)。",
+        "when": "モデルを外す時。"
+      },
+      {
+        "sig": "bool HasModel() const noexcept",
+        "ret": "有無",
+        "desc": "model asset が(path として)セットされているか。 実 GPU リソースの有無とは独立。",
+        "when": "任意"
+      },
+      {
+        "sig": "const wchar_t* CurrentAssetPath() const noexcept",
+        "ret": "パス",
+        "desc": "現在の asset path(UTF-16)。 未設定 / Clear 後は nullptr ではなく L\"\" を返す。",
+        "when": "外部レンダラが読み込み対象を知る時。"
+      },
+      {
+        "sig": "editor_core::CEditorCamera& Camera() noexcept",
+        "ret": "カメラ参照",
+        "desc": "内部 CEditorCamera への参照。 renderer / UI が HandleMouseInput / Tick / ViewMatrix 等を呼ぶ。 寿命は panel と同一。",
+        "when": "視点操作・行列取得時。"
+      },
+      {
+        "sig": "void SetLightDirection(acs::FVec3 dir) noexcept",
+        "ret": "—",
+        "desc": "sun light の方向を設定。 既定 (0.3, -0.7, 0.6)。 正規化は panel では行わず renderer 側が必要なら行う。",
+        "when": "光の向きを変える時。"
+      },
+      {
+        "sig": "acs::FVec3 LightDirection() const noexcept",
+        "ret": "方向",
+        "desc": "現在の sun light 方向。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetLightColor(acs::FVec3 color) noexcept",
+        "ret": "—",
+        "desc": "sun light の色(RGB linear)。 既定 white。 HDR 強度は >1.0 を入れる。",
+        "when": "光色を変える時。"
+      },
+      {
+        "sig": "acs::FVec3 LightColor() const noexcept",
+        "ret": "色",
+        "desc": "現在の sun light 色。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetIblEnabled(bool b) noexcept",
+        "ret": "—",
+        "desc": "IBL(環境光)を有効にするか。 既定 true。",
+        "when": "IBL を切り替える時。"
+      },
+      {
+        "sig": "bool IsIblEnabled() const noexcept",
+        "ret": "真偽",
+        "desc": "IBL が有効か。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetToneMappingMode(u32 mode) noexcept",
+        "ret": "—",
+        "desc": "tonemap mode: 0=ACES(既定) / 1=Reinhard / 2=Linear。 範囲外値は無視(既存値を維持)。 renderer 側 enum と疎結合にするため u32。",
+        "when": "トーンマップ方式を切り替える時。"
+      },
+      {
+        "sig": "u32 ToneMappingMode() const noexcept",
+        "ret": "モード",
+        "desc": "現在の tonemap mode(0..2)。",
+        "when": "任意"
+      },
+      {
+        "sig": "void SetBackgroundColor(acs::FVec4 color) noexcept",
+        "ret": "—",
+        "desc": "viewport 背景色(RGBA linear)。 既定 (0.15,0.15,0.18,1.0)。 renderer の clear color に使う。",
+        "when": "背景色を変える時。"
+      },
+      {
+        "sig": "acs::FVec4 BackgroundColor() const noexcept",
+        "ret": "色",
+        "desc": "現在の背景色。",
+        "when": "任意"
+      },
+      {
+        "sig": "bool ShowGrid() const noexcept / void SetShowGrid(bool b) noexcept",
+        "ret": "—",
+        "desc": "XZ 平面グリッドを描くか。 既定 true。",
+        "when": "グリッド表示を切り替える時。"
+      },
+      {
+        "sig": "bool ShowBoneSkeleton() const noexcept / void SetShowBoneSkeleton(bool b) noexcept",
+        "ret": "—",
+        "desc": "ボーンスケルトンを line overlay で描くか。 既定 false。",
+        "when": "ボーン表示を切り替える時。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Model Viewport\"",
+        "desc": "ImGui ウインドウタイトル兼 ID。 固定リテラル。",
+        "when": "基底からの呼び出し。"
+      },
+      {
+        "sig": "void OnInit(editor_core::CEditorWorkspace& workspace) noexcept override",
+        "ret": "—",
+        "desc": "Workspace 登録時に呼ばれる。 基底実装で Workspace ポインタを保存し、本クラスで CEditorCamera を 3D mode で Init し直す。",
+        "when": "RegisterPanel から間接的に。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "ImGui::Begin \"Model Viewport\" + ビューポートプレースホルダ + control bar を描画。 IsVisible() が false なら早期 return。 実 3D 描画は外部レンダラの責務。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void OnAssetSelected(const char* asset_path) noexcept override",
+        "ret": "—",
+        "desc": "CAssetBrowser からのファイル選択通知。 拡張子が mesh 相当(.mdl/.fbx/.gltf/.glb/.obj)なら自動 LoadModelAsset。 それ以外は無視。",
+        "when": "ブラウザでファイルを選んだ時。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxAssetPathChars = 512u",
+        "ret": "定数",
+        "desc": "asset path バッファ長(wchar_t 単位、終端含む)。 CAssetBrowser::kMaxPathChars と同値。"
+      },
+      {
+        "sig": "static constexpr u32 kToneMappingModeCount = 3u",
+        "ret": "定数",
+        "desc": "ToneMappingMode の有効値数(= 0,1,2)。 これを超える値は無視される。"
+      },
+      {
+        "sig": "using FModelViewerPanel = AModelViewerPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AModelViewerPanel を使う。"
+      }
+    ]
+  }
+}

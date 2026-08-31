@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="複数利用者向けのログ通知先を登録する。 ロガー未初期化、callback が nullptr、固定4096枠の枯渇、または世代番号の 上限到達後は無効ハンドルを返す。 user は非所有で、登録側が外部 UnsubscribeSink の 成功または Shutdown の復帰まで生存させる。 callback: writer スレッドから登録順に呼ぶ通知関数。 user: callback へそのまま渡す非所有ポインタ。 戻り値: 登録済み購読を識別するハンドル。 失敗時は無効。">
+  <title>acs::CLogger::SubscribeSink — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/foundation.html">foundation モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/foundation.html">foundation モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/foundation.html">foundation モジュール</a><a href="../clogger-034dcb82.html">CLogger の概要</a><a class="tree-child" href="compiledenabled-8de50224.html">CompiledEnabled</a><a class="tree-child" href="droppedcount-5a1898f4.html">DroppedCount</a><a class="tree-child" href="enabled-2949e02a.html">Enabled</a><a class="tree-child" href="flush-ba5bac45.html">Flush</a><a class="tree-child" href="init-d407c4ba.html">Init</a><a class="tree-child" href="isinitialized-27d3ff98.html">IsInitialized</a><a class="tree-child" href="issinksubscribed-d0fcce8f.html">IsSinkSubscribed</a><a class="tree-child" href="setminseverity-ddf2bdaf.html">SetMinSeverity</a><a class="tree-child" href="setsink-30723db3.html">SetSink</a><a class="tree-child" href="shutdown-b2f0ef55.html">Shutdown</a><a class="tree-child" href="sinkcount-a3a7e117.html">SinkCount</a><a class="tree-child" href="subscribesink-ccee527b.html" aria-current="page">SubscribeSink</a><a class="tree-child" href="subscribesinkowned-9ab1974a.html">SubscribeSinkOwned</a><a class="tree-child" href="trycopysinkhandles-98627bf7.html">TryCopySinkHandles</a><a class="tree-child" href="unsubscribesink-f302c51b.html">UnsubscribeSink</a><a class="tree-child" href="wakesignalcount-c208633c.html">WakeSignalCount</a><a class="tree-child" href="write-7cfef02f.html">Write</a><a class="tree-child" href="writedispatch-80ab4b9c.html">WriteDispatch</a><a class="tree-child" href="writemessage-2a1c8660.html">WriteMessage</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/foundation.html">foundation</a><span>/</span><a href="../clogger-034dcb82.html">CLogger</a><span>/</span><span aria-current="page">SubscribeSink</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / foundation</div>
+<h1 class="identifier">acs::CLogger::SubscribeSink</h1>
+<p class="lead">複数利用者向けのログ通知先を登録する。 ロガー未初期化、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2806">callback</button><span class="term-tooltip" id="term-tip-2806" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> が nullptr、固定4096枠の枯渇、または<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2807">世代番号</button><span class="term-tooltip" id="term-tip-2807" role="tooltip">ハンドルに埋め込む小さなカウンタ。 スロット再利用後に古い参照を検出するために使う。</span></span>の 上限到達後は無効<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2808">ハンドル</button><span class="term-tooltip" id="term-tip-2808" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>を返す。 user は<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2809">非所有</button><span class="term-tooltip" id="term-tip-2809" role="tooltip">そのポインタ/参照は対象を所有しておらず、寿命管理 (解放) は別の誰かが行うこと。 non-owning。</span></span>で、登録側が外部 UnsubscribeSink の 成功または Shutdown の復帰まで生存させる。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2810">callback</button><span class="term-tooltip" id="term-tip-2810" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span>: writer <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2811">スレッド</button><span class="term-tooltip" id="term-tip-2811" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>から登録順に呼ぶ通知関数。 user: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2812">callback</button><span class="term-tooltip" id="term-tip-2812" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> へそのまま渡す<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2813">非所有</button><span class="term-tooltip" id="term-tip-2813" role="tooltip">そのポインタ/参照は対象を所有しておらず、寿命管理 (解放) は別の誰かが行うこと。 non-owning。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2814">ポインタ</button><span class="term-tooltip" id="term-tip-2814" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>。 戻り値: 登録済み<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2815">購読</button><span class="term-tooltip" id="term-tip-2815" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>を識別する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2816">ハンドル</button><span class="term-tooltip" id="term-tip-2816" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>。 失敗時は無効。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CLogger::SubscribeSinkの宣言"><code>static <a href="../flogsinkhandle-ba0e3dc4.html">FLogSinkHandle</a> <a href="subscribesink-ccee527b.html" aria-current="page">SubscribeSink</a>(<a href="../logsinkcallback-d3fb6db6.html">LogSinkCallback</a> <a href="../../event/teventslot-ef0dfc4e/callback-4aced2a9.html">callback</a>, void* user = nullptr) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/foundation.html">foundation</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../clogger-034dcb82.html"><code>acs::CLogger</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/foundation/Log.h:261</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

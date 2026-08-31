@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAchievementDef / FAchievementProgress",
+    "kind": "構造体",
+    "header": "gameframework/AchievementManager.h",
+    "summary": "FAchievementDef=変化しない実績の定義 (id / 表示名 / 説明 / max_progress / secret)。 FAchievementProgress=実行時に変わる状態 (現在進捗 / 解除済みフラグ / 解除時刻)。 両者は同じ index で 1:1 対応する。",
+    "when": "Def は RegisterAchievement() に渡し、Progress は GetState() / AllStates() で読む。",
+    "sample": "FAchievementDef d{ \"ACH_SECRET\", \"True Ending\", \"...\", 1, true };\nam.RegisterAchievement(d);\nconst FAchievementProgress* p = am.GetState(\"ACH_SECRET\");\nif (p && p->unlocked) { /* 解除済み */ }"
+  }
+}

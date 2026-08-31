@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "Platform.h (OS ヘッダ集約)",
+    "kind": "ヘッダ",
+    "header": "foundation/Platform.h",
+    "summary": "<windows.h> など重い OS ヘッダを 1 箇所に閉じ込める窓口。 不要なサブシステムを除外し、min/max や CreateFile など ACS の名前と衝突する Win32 マクロを #undef して安全にする。",
+    "when": "OS API を直接呼ぶ実装ファイル（.cpp）で <windows.h> の代わりにこれを include する。 これにより他のヘッダを軽量に保てる。",
+    "sample": "// .cpp の中で:\n#include \"foundation/Platform.h\"   // windows.h を安全に取り込む\nHANDLE h = ::CreateFileW(...);    // OS API がそのまま使える"
+  }
+}

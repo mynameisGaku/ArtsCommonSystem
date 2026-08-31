@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCollisionShapeId3D",
+    "kind": "構造体",
+    "header": "gameframework/CollisionShapeId3D.h",
+    "summary": "CCollisionWorld3D の shape を指す 24bit index + 8bit generation の packed handle。 0 は invalid で、slot 再利用後の古い handle は一致しない。",
+    "when": "3D shape の更新・削除・自己除外・query 結果を扱う時。"
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ブラックボード変数の宣言テーブル (名前 + 型 + バイトオフセット)。 ゲーム側が blackboard 構造体のフィールドを名前付きで登録し、エディタが変数候補を 提示・インタプリタが BtCompareVar でオフセット読みするための schema。 offsetof で登録する想定。">
+  <title>acs::game::btedit::FBtBlackboardSchema — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="fbtblackboardschema-7e702217.html" aria-current="page">FBtBlackboardSchema</a><a class="tree-child" href="fbtblackboardschema-7e702217/add-5942101e.html">Add</a><a class="tree-child" href="fbtblackboardschema-7e702217/clear-5cbed356.html">Clear</a><a class="tree-child" href="fbtblackboardschema-7e702217/count-4ae7e66d.html">Count</a><a class="tree-child" href="fbtblackboardschema-7e702217/fbtblackboardschema-8e229c49.html">FBtBlackboardSchema</a><a class="tree-child" href="fbtblackboardschema-7e702217/indexofbykey-b879b3fc.html">IndexOfByKey</a><a class="tree-child" href="fbtblackboardschema-7e702217/kinvalid-924d4713.html">kInvalid</a><a class="tree-child" href="fbtblackboardschema-7e702217/kmax-703a5e3a.html">kMax</a><a class="tree-child" href="fbtblackboardschema-7e702217/knamelen-6f0287c9.html">kNameLen</a><a class="tree-child" href="fbtblackboardschema-7e702217/m-count-e2a86208.html">m_Count</a><a class="tree-child" href="fbtblackboardschema-7e702217/m-names-ab0ce5f3.html">m_Names</a><a class="tree-child" href="fbtblackboardschema-7e702217/m-offsets-8243fc20.html">m_Offsets</a><a class="tree-child" href="fbtblackboardschema-7e702217/m-types-99d605dc.html">m_Types</a><a class="tree-child" href="fbtblackboardschema-7e702217/nameat-58dc1f5d.html">NameAt</a><a class="tree-child" href="fbtblackboardschema-7e702217/offsetat-7d735eb3.html">OffsetAt</a><a class="tree-child" href="fbtblackboardschema-7e702217/typeat-e65782bb.html">TypeAt</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FBtBlackboardSchema</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::btedit::FBtBlackboardSchema</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-4602">ブラックボード</button><span class="term-tooltip" id="term-tip-4602" role="tooltip">ビヘイビアツリーのノード間で共有するデータ置き場。 ACS では型を持たない void* で渡す。</span></span>変数の宣言テーブル (名前 + 型 + バイトオフセット)。 ゲーム側が blackboard 構造体のフィールドを名前付きで登録し、エディタが変数候補を 提示・インタプリタが BtCompareVar でオフセット読みするための schema。 offsetof で登録する想定。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::btedit::FBtBlackboardSchemaの宣言"><code>class <a href="fbtblackboardschema-7e702217.html" aria-current="page">FBtBlackboardSchema</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/tools/btedit/BtCatalog.h:116</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fbtblackboardschema-7e702217/add-5942101e.html"><span><span class="identifier">bool Add(const char* name, EBtVarType type, u32 offset) noexcept;</span><span class="summary">変数を登録する (同名は上書き)。 name: 変数名 (グラフの比較条件で参照する)。 type: 変数の型。 offset: blackboard 先頭からのバイトオフセット (offsetof 推奨)。 戻り値: 登録できたら true (name が null、または上限到達で false)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/clear-5cbed356.html"><span><span class="identifier">void Clear() noexcept;</span><span class="summary">全登録を消す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/count-4ae7e66d.html"><span><span class="identifier">u32 Count() const noexcept;</span><span class="summary">登録数を返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/fbtblackboardschema-8e229c49.html"><span><span class="identifier">FBtBlackboardSchema() noexcept = default;</span><span class="summary">空のスキーマを構築する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/indexofbykey-b879b3fc.html"><span><span class="identifier">u32 IndexOfByKey(const char* name) const noexcept;</span><span class="summary">名前から変数のインデックスを引く。 name: 探す変数名。 戻り値: 見つかったインデックス (無ければ kInvalid)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/kinvalid-924d4713.html"><span><span class="identifier">static constexpr u32 kInvalid = 0xFFFFFFFFu;</span><span class="summary">IndexOfByKey の &quot;見つからない&quot; シグナル。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/kmax-703a5e3a.html"><span><span class="identifier">static constexpr u32 kMax = 64u;</span><span class="summary">登録できる変数の上限。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/knamelen-6f0287c9.html"><span><span class="identifier">static constexpr u32 kNameLen = 48u;</span><span class="summary">1 変数名の最大長 (NUL 含む)。</span></span><span class="kind-label">定数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/m-count-e2a86208.html"><span><span class="identifier">u32 m_Count = 0u;</span><span class="summary">登録数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/m-names-ab0ce5f3.html"><span><span class="identifier">char m_Names[kMax][kNameLen] = {};</span><span class="summary">変数名 (固定バッファへコピー)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/m-offsets-8243fc20.html"><span><span class="identifier">u32 m_Offsets[kMax] = {};</span><span class="summary">バイトオフセット (m_Names と同 index)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/m-types-99d605dc.html"><span><span class="identifier">EBtVarType m_Types[kMax] = {};</span><span class="summary">変数型 (m_Names と同 index)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/nameat-58dc1f5d.html"><span><span class="identifier">const char* NameAt(u32 i) const noexcept;</span><span class="summary">i 番目の変数名を返す (範囲外は &quot;&quot;)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/offsetat-7d735eb3.html"><span><span class="identifier">u32 OffsetAt(u32 i) const noexcept;</span><span class="summary">i 番目の変数オフセットを返す (範囲外は 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fbtblackboardschema-7e702217/typeat-e65782bb.html"><span><span class="identifier">EBtVarType TypeAt(u32 i) const noexcept;</span><span class="summary">i 番目の変数型を返す (範囲外は F32)。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

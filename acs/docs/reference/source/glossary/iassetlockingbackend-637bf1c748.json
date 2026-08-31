@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IAssetLockingBackend",
+  "definition": "アセット排他ロックの抽象シーム (Perforce 等)。"
+}

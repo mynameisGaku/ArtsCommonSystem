@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "container",
+    "title": "container — 配列・文字列・連想配列",
+    "description": "ACS の配列、文字列、連想配列、非所有ビュー、JSON 値を提供する Runtime モジュール。 所有型は IAllocator を通じて領域を管理し、確保失敗と寿命の契約を公開 API ごとに定める。"
+  },
+  "feature": {
+    "name": "TPair<K, V>",
+    "kind": "構造体テンプレート",
+    "header": "container/HashMap.h",
+    "summary": "キーと値を first / second に保持する値型。 THashMap の EntryType として密な値配列に格納される。",
+    "when": "THashMap を range-for で回した時の各要素。 あるいは 2 値をまとめて返したい時。",
+    "sample": "for (TPair<u32, FString>& kv : map) {\n    u32 key = kv.first;\n    FString& val = kv.second;\n}",
+    "members": [
+      {
+        "sig": "K first",
+        "desc": "キー(1 つ目の値)。"
+      },
+      {
+        "sig": "V second",
+        "desc": "値(2 つ目の値)。"
+      }
+    ]
+  }
+}

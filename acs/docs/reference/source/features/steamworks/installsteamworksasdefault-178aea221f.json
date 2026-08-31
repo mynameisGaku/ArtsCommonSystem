@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "steamworks",
+    "title": "steamworks — Steam 連携",
+    "description": "Steam の実績・リーダーボード・クラウドセーブ・フレンドなどを使うバックエンドです。 ゲーム側は acs::game の シーム(抽象 I/F)越しに呼ぶだけで、このモジュールが本物の Steamworks SDK につなぎます。"
+  },
+  "feature": {
+    "name": "InstallSteamworksAsDefault()",
+    "kind": "関数",
+    "header": "steamworks/SteamworksBridgeImpl.h",
+    "summary": "実 Bridge を acs::game 側の既定 providerとして登録する。 これを呼ぶと、以降ゲームコードは バックエンド非依存に acs::game::GetDefaultSteamworksBridge() で実 Bridge を取得できる(未登録なら自動で Stub が返る)。",
+    "when": "アプリ起動時に一度だけ呼ぶ。 gameframework はこのモジュールに直接依存できない(循環依存回避)ため、登録はこの関数経由で行う。",
+    "sample": "// 起動時に一度だけ\n#if WITH_ACS_STEAMWORKS\n    acs::steamworks::InstallSteamworksAsDefault();\n#endif\n// 以降どこでも backend 非依存に取得\nauto& s = acs::game::GetDefaultSteamworksBridge();"
+  }
+}

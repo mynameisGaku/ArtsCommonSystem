@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AImageAsset",
+  "definition": "画像 1 枚分の CPU 側ピクセルデータを持つアセット。"
+}

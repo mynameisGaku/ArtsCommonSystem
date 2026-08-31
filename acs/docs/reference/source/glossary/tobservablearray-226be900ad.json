@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TObservableArray",
+  "definition": "要素の追加・削除・変更を通知する配列。 リスト UI の差分更新向け。"
+}

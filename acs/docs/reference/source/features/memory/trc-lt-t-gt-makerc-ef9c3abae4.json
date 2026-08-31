@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TRc<T> / MakeRc",
+    "kind": "非推奨エイリアス",
+    "header": "memory/Rc.h",
+    "summary": "旧名。 TRc は TSharedPtr の、MakeRc は MakeShared の別名として残っている互換シム。",
+    "when": "既存コード互換のためだけ。 新規コードでは TSharedPtr / MakeShared を使う。",
+    "sample": "// 旧: TRc<T> p = MakeRc<T>();\n// 新: TSharedPtr<T> p = MakeShared<T>();"
+  }
+}

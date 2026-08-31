@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CLocalMatchmaker",
+  "definition": "サーバ無しで同一プロセス内のプレイヤーを組ませる IMatchmaker 実装。"
+}

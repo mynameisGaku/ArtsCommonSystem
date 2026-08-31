@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "EBatchTransformPolicy",
+    "kind": "列挙",
+    "header": "math/BatchTransformPolicy.h",
+    "summary": "batch 変換を点、方向、法線のどの規則で行うかをコンパイル時に選ぶ方針。",
+    "when": "runtime 分岐なしで同じ行列を大量のベクトルへ適用する時。"
+  }
+}

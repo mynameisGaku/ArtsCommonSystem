@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="block を物理的に前のフリーブロックと統合する。 Block: 統合される側のブロック。 戻り値: 統合後の (前の) ブロック。">
+  <title>acs::CTlsfAllocator::MergePrev — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/memory.html">memory モジュール</a><a href="../ctlsfallocator-c2d778da.html">CTlsfAllocator の概要</a><a class="tree-child" href="addpool-f52046f9.html">AddPool</a><a class="tree-child" href="alloc-d0992ba6.html">Alloc</a><a class="tree-child" href="allocationcount-09599418.html">AllocationCount</a><a class="tree-child" href="bytesallocated-0f29fe2b.html">BytesAllocated</a><a class="tree-child" href="containsptr-33a0dd0b.html">ContainsPtr</a><a class="tree-child" href="ctlsfallocator-057c0698.html">CTlsfAllocator</a><a class="tree-child" href="ctlsfallocator-754b5812.html">CTlsfAllocator</a><a class="tree-child" href="fpoolspan-6ba2ee27.html">FPoolSpan</a><a class="tree-child" href="free-1549514c.html">Free</a><a class="tree-child" href="fstats-02614dbd.html">FStats</a><a class="tree-child" href="getstats-0b6292ab.html">GetStats</a><a class="tree-child" href="growtofit-50cc488e.html">GrowToFit</a><a class="tree-child" href="init-87c2ba28.html">Init</a><a class="tree-child" href="initwithreservation-5184108f.html">InitWithReservation</a><a class="tree-child" href="insertfreeblock-b5f87a29.html">InsertFreeBlock</a><a class="tree-child" href="isallocationstarttracked-f5eceaa5.html">IsAllocationStartTracked</a><a class="tree-child" href="isclientownedblock-0f133ee6.html">IsClientOwnedBlock</a><a class="tree-child" href="ispointerwithinpoolpayloadrange-f7f8efae.html">IsPointerWithinPoolPayloadRange</a><a class="tree-child" href="kmaxtrackedpools-7e5d4e23.html">kMaxTrackedPools</a><a class="tree-child" href="m-allocationcount-117e48c7.html">m_AllocationCount</a><a class="tree-child" href="m-blocks-1e8e6c94.html">m_Blocks</a><a class="tree-child" href="m-bownsreservation-b3b55c5d.html">m_bOwnsReservation</a><a class="tree-child" href="m-bytespeak-3146aec2.html">m_BytesPeak</a><a class="tree-child" href="m-bytesused-6d36a390.html">m_BytesUsed</a><a class="tree-child" href="m-committedbytes-f6c4de7d.html">m_CommittedBytes</a><a class="tree-child" href="m-flbitmap-ca413c50.html">m_FlBitmap</a><a class="tree-child" href="m-initialized-2cb69b33.html">m_Initialized</a><a class="tree-child" href="m-nullblock-9b924b8f.html">m_NullBlock</a><a class="tree-child" href="m-poolspancount-e609d8e0.html">m_PoolSpanCount</a><a class="tree-child" href="m-poolspans-5ae3b41e.html">m_PoolSpans</a><a class="tree-child" href="m-reservation-07a43548.html">m_Reservation</a><a class="tree-child" href="m-slbitmap-1e190368.html">m_SlBitmap</a><a class="tree-child" href="mergenext-312c6d7c.html">MergeNext</a><a class="tree-child" href="mergeprev-fcf98777.html" aria-current="page">MergePrev</a><a class="tree-child" href="name-9d2c6e99.html">Name</a><a class="tree-child" href="operator-096367d5.html">operator=</a><a class="tree-child" href="ownspointer-a80bd21d.html">OwnsPointer</a><a class="tree-child" href="payloadblocksize-c7caec5c.html">PayloadBlockSize</a><a class="tree-child" href="payloadcapacity-171a4dc0.html">PayloadCapacity</a><a class="tree-child" href="peakbytes-46ef0285.html">PeakBytes</a><a class="tree-child" href="realloc-250e49c6.html">Realloc</a><a class="tree-child" href="removefreeblock-e84c187b.html">RemoveFreeBlock</a><a class="tree-child" href="reset-da5762f6.html">Reset</a><a class="tree-child" href="searchsuitableblock-ffc73755.html">SearchSuitableBlock</a><a class="tree-child" href="trackallocationstart-6adf4b8d.html">TrackAllocationStart</a><a class="tree-child" href="trimfreeblock-f3f8c4f5.html">TrimFreeBlock</a><a class="tree-child" href="trimusedblock-dfd0abfb.html">TrimUsedBlock</a><a class="tree-child" href="tryfree-010008ad.html">TryFree</a><a class="tree-child" href="trymarkthreadcacheblock-367fd3b1.html">TryMarkThreadCacheBlock</a><a class="tree-child" href="tryrestorethreadcacheblock-a0a5347c.html">TryRestoreThreadCacheBlock</a><a class="tree-child" href="untrackallocationstart-8ad5bba6.html">UntrackAllocationStart</a><a class="tree-child" href="validateheap-1ff0d81a.html">ValidateHeap</a><a class="tree-child" href="ctlsfallocator-97527d04.html">~CTlsfAllocator</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/memory.html">memory</a><span>/</span><a href="../ctlsfallocator-c2d778da.html">CTlsfAllocator</a><span>/</span><span aria-current="page">MergePrev</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / memory</div>
+<h1 class="identifier">acs::CTlsfAllocator::MergePrev</h1>
+<p class="lead">block を物理的に前のフリーブ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-15384">ロック</button><span class="term-tooltip" id="term-tip-15384" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>と統合する。 Block: 統合される側のブ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-15385">ロック</button><span class="term-tooltip" id="term-tip-15385" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>。 戻り値: 統合後の (前の) ブ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-15386">ロック</button><span class="term-tooltip" id="term-tip-15386" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CTlsfAllocator::MergePrevの宣言"><code>tlsf::<a href="../fblockheader-3306f48b.html">FBlockHeader</a>* <a href="mergeprev-fcf98777.html" aria-current="page">MergePrev</a>(tlsf::<a href="../fblockheader-3306f48b.html">FBlockHeader</a>* <a href="../../gameframework/emoderationverdict-21426788/block-b7532ad1.html">Block</a>) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/memory.html">memory</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ctlsfallocator-c2d778da.html"><code>acs::CTlsfAllocator</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/memory/Tlsf.h:443</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

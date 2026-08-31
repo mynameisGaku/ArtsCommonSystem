@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "AStencilClip2DComponent",
+    "kind": "クラス (コンポーネント)",
+    "header": "gameframework/Effects2D.h",
+    "summary": "任意形状のステンシルマスクで子ツリーをクリップするコンポーネント。 attach したノードの子を、指定形状の内側 (既定) か外側だけに切り抜いて描く。 シェーダ不要で CSpriteBatch のステンシルモードを使う。",
+    "when": "窓越しに別のエフェクトを覗かせる、穴あきマスクを作る、円形ミニマップを切り抜く等。 シーンで SetStencilMaskEnabled(true) が前提。",
+    "sample": "auto win = NewObject<ANode>();\nauto& clip = win->AddComponent<AStencilClip2DComponent>();\nclip.SetCircle({0, 0}, 2.5f);     // 円形の窓 (owner 相対)\nwin->AddChild(MakeWaterNode());   // 子 = 窓の中だけに見える\nroot.AddChild(Move(win));",
+    "members": [
+      {
+        "sig": "void SetRect(...) / SetCircle(...) / SetEllipse(...) / SetPolygon(...)",
+        "desc": "マスク形状を矩形 / 円 / 楕円 / 単純多角形で指定 (owner 相対)。"
+      },
+      {
+        "sig": "void SetInvert(bool clip_outside)",
+        "desc": "内側ではなく外側だけを残す (穴あき)。",
+        "when": "ドーナツ状や、特定領域だけを隠したい時。"
+      },
+      {
+        "sig": "void SetRef(u8 ref)",
+        "desc": "ネスト用のステンシル参照値 (1..255)。 入れ子マスクは別値にする。"
+      },
+      {
+        "sig": "void SetDebugVisualize(bool on, FVec4 color)",
+        "desc": "マスク形状自体を可視化する (デバッグ用)。"
+      }
+    ]
+  }
+}

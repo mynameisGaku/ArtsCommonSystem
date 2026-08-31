@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DefaultAllocator",
+  "definition": "既定のアロケータ。 指定なしの確保で使われる。"
+}

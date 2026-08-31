@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "backend",
+  "definition": "インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。"
+}

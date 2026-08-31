@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DirectX 12",
+  "definition": "Windows の低レベル描画API。 GPU を細かく制御できる代わりに手間も多い。 ACS が裏で使う。"
+}

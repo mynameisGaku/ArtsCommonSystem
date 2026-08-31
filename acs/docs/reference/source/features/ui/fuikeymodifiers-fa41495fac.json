@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "FUiKeyModifiers",
+    "kind": "構造体",
+    "header": "ui/Widget.h",
+    "summary": "UI キーイベントを配信する瞬間の修飾キー押下状態。 左右キーをまとめた Shift / Ctrl / Alt / Super の4フラグを持つ。",
+    "when": "独自 widget が Shift や Ctrl を組み合わせたキー操作を実装する時。 通常は CUiInput が構築して3引数版 OnKey へ渡す。",
+    "sample": "void OnKey(i32 key, bool pressed,\n           const FUiKeyModifiers& mods) noexcept override {\n    if (pressed && mods.bShift) { /* 選択を拡張 */ }\n}",
+    "members": [
+      {
+        "sig": "bool bShift / bControl / bAlt / bSuper",
+        "desc": "左右いずれかの対応する修飾キーが押下中なら true。 既定はすべて false。"
+      }
+    ]
+  }
+}

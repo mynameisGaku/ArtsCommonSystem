@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CSystemAllocator",
+    "kind": "クラス",
+    "header": "memory/SystemAllocator.h",
+    "summary": "Win32 HeapAlloc/HeapFree を使う汎用アロケータ。 プロセスヒープは OS がロックするのでスレッドセーフ。 起動時の DefaultAllocator はこれ。",
+    "when": "特別なアロケータを差さない通常時の確保(DefaultAllocator() 経由で間接的に使われる)。 数千回/フレームのホットパスでは専用プール/アリーナを別途用意する。",
+    "sample": "CSystemAllocator sys;\nvoid* p = sys.Alloc(256, 16, FSourceLoc::Current());\nsys.Free(p);",
+    "members": [
+      {
+        "sig": "void* Alloc / void Free / void* Realloc",
+        "desc": "IAllocator 実装。 16B 超の整列はヘッダ方式で対応。"
+      },
+      {
+        "sig": "u64 BytesAllocated() const / u64 PeakBytes() const",
+        "ret": "統計",
+        "desc": "アトミックに集計した現在量/ピーク。"
+      },
+      {
+        "sig": "using FSystemAllocator = CSystemAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSystemAllocator を使う。"
+      }
+    ]
+  }
+}

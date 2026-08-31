@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CAnimationCurveArchive",
+  "definition": "FAnimationCurve の固定幅 little-endian 永続化 codec。 version・exact size・CRC・全 key を検証し、復元は transactional に行う。"
+}

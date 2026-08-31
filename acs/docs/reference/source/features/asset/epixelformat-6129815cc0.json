@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "EPixelFormat",
+    "kind": "列挙(enum)",
+    "header": "asset/ImageAsset.h",
+    "summary": "画像のピクセルフォーマット。 チャンネル数とビット深度で識別: R8 / R8G8 / R8G8B8 / R8G8B8A8 / R32G32B32_F / R32G32B32A32_F(後 2 つは HDR の float)。",
+    "when": "画像データを GPU テクスチャフォーマットへ対応付ける時。",
+    "sample": "if (img->Format() == EPixelFormat::R8G8B8A8) {\n    // 8-bit RGBA として扱う\n}"
+  }
+}

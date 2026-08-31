@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SSO",
+  "definition": "Small String Optimization。 短い文字列をヒープ確保せずオブジェクト内に直接埋め込み、確保コストを省く最適化。"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FPrefabId",
+    "kind": "構造体",
+    "header": "gameframework/PrefabSystem.h",
+    "summary": "Prefab を指す 24bit index + 8bit gen の packed ハンドル。 m_Packed == 0 が invalid。 FNodeId と完全に同じパターン。",
+    "when": "Register() の戻り値として持ち、Spawn() / Unregister() の対象指定に使う。",
+    "sample": "FPrefabId id = prefabs.Register(\"Coin\", &SpawnCoin);\nif (id.IsValid()) auto c = prefabs.Spawn(id);"
+  }
+}

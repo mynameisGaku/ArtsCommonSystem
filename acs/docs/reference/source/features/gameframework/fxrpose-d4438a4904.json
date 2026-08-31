@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FXrPose",
+    "kind": "構造体",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "HMD / コントローラの位置と向き。 position は world 座標 (m)、orientation_euler は (pitch, yaw, roll) をラジアンで持つ。 tracked が false なら原点なので使わない。",
+    "when": "ヘッドの向きでカメラを回す、コントローラの位置に手を描く、といった用途。 精密な向き計算が要るなら自分で euler から quaternion / 行列へ変換する。",
+    "sample": "FXrPose p = xr.HeadPose();\nif (p.tracked) {\n    camera.SetPosition(p.position);\n    camera.SetYaw(p.orientation_euler.y);\n}"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "title": "新しく追加した module target がビルド対象に出てこない",
+  "item": {
+    "q": "新しく追加した module target がビルド対象に出てこない",
+    "tags": [
+      "ビルド",
+      "module",
+      "cmake"
+    ],
+    "a": "module の Module.cmake に sourceを登録し、engine/CMakeLists.txt から moduleを読み込んでいるか確認します。 登録後に CMake を再構成してください。"
+  }
+}

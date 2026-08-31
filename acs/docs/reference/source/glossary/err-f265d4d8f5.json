@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Err",
+  "definition": "TResult が失敗を表す側。 err.subcode で原因を見分ける。 成功側は Ok。"
+}

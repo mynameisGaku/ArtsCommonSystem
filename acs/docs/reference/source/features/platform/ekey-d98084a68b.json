@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "EKey",
+    "kind": "列挙(enum)",
+    "header": "platform/InputCodes.h",
+    "summary": "キーボードのキーを表す列挙。 A〜Z、数字、ファンクション、修飾キー、矢印、記号、テンキーまで初学者にも分かりやすい名前で揃っている。",
+    "when": "CInput::IsKeyDown などにキーを指定する時。",
+    "sample": "if (CInput::IsKeyDown(EKey::W))      MoveUp();\nif (CInput::IsKeyPressed(EKey::Escape)) OpenMenu();\nif (CInput::IsKeyDown(EKey::LeftShift)) Run();",
+    "members": [
+      {
+        "sig": "A 〜 Z",
+        "desc": "文字キー。"
+      },
+      {
+        "sig": "Num0 〜 Num9",
+        "desc": "上段の数字キー。"
+      },
+      {
+        "sig": "F1 〜 F12",
+        "desc": "ファンクションキー。"
+      },
+      {
+        "sig": "LeftShift / RightShift / LeftCtrl / RightCtrl / LeftAlt / RightAlt / LeftSuper / RightSuper",
+        "desc": "修飾キー（Super は Windows / Cmd キー）。"
+      },
+      {
+        "sig": "Up / Down / Left / Right",
+        "desc": "矢印キー。"
+      },
+      {
+        "sig": "Space / Enter / Tab / Backspace / Escape",
+        "desc": "代表的な制御キー。"
+      },
+      {
+        "sig": "Insert / Delete / Home / End / PageUp / PageDown / CapsLock / NumLock / ScrollLock",
+        "desc": "その他の制御キー。"
+      },
+      {
+        "sig": "Minus / Equal / LeftBracket / RightBracket / Backslash / Semicolon / Apostrophe / Comma / Period / Slash / Grave",
+        "desc": "記号キー。"
+      },
+      {
+        "sig": "KP0 〜 KP9 / KPAdd / KPSubtract / KPMultiply / KPDivide / KPEnter / KPDecimal",
+        "desc": "テンキー。"
+      },
+      {
+        "sig": "Unknown",
+        "desc": "対応する列挙のないキー。"
+      }
+    ]
+  }
+}

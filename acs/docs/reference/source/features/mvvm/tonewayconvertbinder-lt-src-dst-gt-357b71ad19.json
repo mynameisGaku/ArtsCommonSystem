@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TOneWayConvertBinder<Src, Dst>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Binder.h",
+    "summary": "型を変換しながら片方向同期する。 src が変わるたび変換関数 fn を通して dst へ書き込む。 Src と Dst が別の型でもよい。",
+    "when": "数値の TObservable を文字列ラベルの TObservable に流すなど、型を変えて橋渡しする時。",
+    "sample": "TObservable<i32> hp { 100 };\nTObservable<FString> hp_text;\nstatic FString IntToText(const i32& v, void*) noexcept {\n    char buf[32]; std::snprintf(buf, sizeof(buf), \"HP: %d\", v);\n    return FString{buf};\n}\nTOneWayConvertBinder<i32, FString> b(hp, hp_text, &IntToText, nullptr);",
+    "members": [
+      {
+        "sig": "using ConvertFn = Dst (*)(const Src& v, void* user)",
+        "desc": "変換関数の型。 値と user ポインタを受け取り Dst を返す。"
+      },
+      {
+        "sig": "TOneWayConvertBinder(TObservable<Src>& src, TObservable<Dst>& dst, ConvertFn fn, void* user)",
+        "desc": "変換関数つきで結合する。 生成時に fn(src) を dst へ初期反映する。"
+      }
+    ]
+  }
+}

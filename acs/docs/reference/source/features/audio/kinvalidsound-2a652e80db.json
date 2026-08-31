@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "audio",
+    "title": "audio — オーディオ",
+    "description": "音(BGM や効果音)を鳴らすためのモジュール。 AAudioAsset(wav/mp3/flac/ogg)を渡すと再生でき、音量やループ、一時停止をまとめて扱えます。 内部では Windows の XAudio2 を使います。"
+  },
+  "feature": {
+    "name": "kInvalidSound",
+    "kind": "定数",
+    "header": "audio/SoundHandle.h",
+    "summary": "『どの音も指していない』ことを表す無効な FSoundHandle の定数(FSoundHandle{0xFFFFFFFF, 0})。",
+    "when": "ハンドルの初期値や『まだ鳴らしていない』状態を表したい時。",
+    "sample": "FSoundHandle m_Bgm = kInvalidSound;\n// ...\nif (m_Bgm == kInvalidSound) m_Bgm = engine.Play(*music, 1.0f, true);"
+  }
+}

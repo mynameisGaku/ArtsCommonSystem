@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SDK 未統合ビルド / テスト用の何もしないボイスチャット実装。 すべての API が「未実装」エラーを返し、IsAvailable() は常に false です。">
+  <title>CVoiceChatBackendStub — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CVoiceChatBackendStub</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CVoiceChatBackendStub</h1>
+<p class="lead">SDK 未統合ビルド / テスト用の何もしない<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25783">ボイスチャット</button><span class="term-tooltip" id="term-tip-25783" role="tooltip">マイク音声を圧縮して送受信する仕組み(Steam VOIP)。</span></span>実装。 すべての <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25784">API</button><span class="term-tooltip" id="term-tip-25784" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> が「未実装」エラーを返し、IsAvailable() は常に false です。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d.html"><code>acs::game::CVoiceChatBackendStub</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>実 SDK をまだ繋いでいないが、コードはコンパイル / 動作させたい時の既定実装。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/VoiceChat.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-716644a7260048c0cda0"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d/isavailable-af42f1e5.html">IsAvailable</a>() const override</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>常に false。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d/isavailable-af42f1e5.html"><code>acs::game::CVoiceChatBackendStub::IsAvailable</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-d743c7ae09ca1a20d850"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/evoiceprovider-aee272d6.html">EVoiceProvider</a> <a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d/activeprovider-1bf03ceb.html">ActiveProvider</a>() const override</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>Init で受けた <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25781">provider</button><span class="term-tooltip" id="term-tip-25781" role="tooltip">『既定の実装を返す関数』を後から登録する仕組み。 登録するとアプリ全体の既定実装が差し替わる。</span></span> を返す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/evoiceprovider-aee272d6.html"><code>acs::game::EVoiceProvider</code></a> <span class="kind-label">列挙型</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d/activeprovider-1bf03ceb.html"><code>acs::game::CVoiceChatBackendStub::ActiveProvider</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-7561d81a9f497d9b3338"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/gameframework/fvoicechatbackendstub-b86fda63.html">FVoiceChatBackendStub</a> = CVoiceChatBackendStub</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CVoiceChatBackend<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25782">Stub</button><span class="term-tooltip" id="term-tip-25782" role="tooltip">本物の代わりに置く最小実装。 依存ゼロでコンパイル・テストできる no-op 版。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fvoicechatbackendstub-b86fda63.html"><code>acs::game::FVoiceChatBackendStub</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CVoiceChatBackendStub</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d.html"><code>acs::game::CVoiceChatBackendStub</code></a><span class="summary"><code>class CVoiceChatBackendStub final : public IVoiceChatBackend;</code></span></li><li><a href="../../symbols/gameframework/cvoicechatbackendstub-06429a8d/cvoicechatbackendstub-d14c9ba9.html"><code>acs::game::CVoiceChatBackendStub::CVoiceChatBackendStub</code></a><span class="summary"><code>CVoiceChatBackendStub() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CVoiceChatBackendStubの使用例"><code>IVoiceChatBackend&amp; voice = GetVoiceStub();
+if (!voice.IsAvailable()) { /* UI でボイス無効表示 */ }</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CLegacyKitEaseIdCodec",
+    "kind": "クラス",
+    "header": "gameframework/LegacyKitEaseIdCodec.h",
+    "summary": "旧 Kit 形式で固定された33個のイージング数値 ID と、ACS の Easing::EEasingType を相互変換する状態なしの移行境界。 曲線の評価実装や正規 enum の数値は変更しない。",
+    "when": "旧形式の保存データを読み込む時、または互換出力へ旧数値 ID を書き戻す時。 新規データはcanonical名を保存する。",
+    "sample": "using namespace acs::game;\nEasing::EEasingType type = Easing::EEasingType::Linear;\nif (!CLegacyKitEaseIdCodec::TryDecode(saved_id, type)) {\n    /* type は変更されない */\n}",
+    "members": [
+      {
+        "sig": "static constexpr i32 kLegacyIdCount = 33",
+        "desc": "旧形式で固定された有効 ID 数。"
+      },
+      {
+        "sig": "static bool TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept",
+        "desc": "旧 ID 0〜32を正規型へ変換する。 範囲外ではfalseを返し、出力を変更しない。"
+      },
+      {
+        "sig": "static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept",
+        "desc": "固定表にある正規型を旧 IDへ戻す。"
+      },
+      {
+        "sig": "using FLegacyKitEaseIdCodec = CLegacyKitEaseIdCodec",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLegacyKitEaseIdCodec を使う。"
+      }
+    ]
+  }
+}

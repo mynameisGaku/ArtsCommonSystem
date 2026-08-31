@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "steamworks",
+    "title": "steamworks — Steam 連携",
+    "description": "Steam の実績・リーダーボード・クラウドセーブ・フレンドなどを使うバックエンドです。 ゲーム側は acs::game の シーム(抽象 I/F)越しに呼ぶだけで、このモジュールが本物の Steamworks SDK につなぎます。"
+  },
+  "feature": {
+    "name": "GetDefaultSteamworksBridge()",
+    "kind": "関数",
+    "header": "steamworks/SteamworksBridgeImpl.h",
+    "summary": "プロセス共有の実 Bridge シングルトンを返す。 初回アクセス時に Init() を 1 回だけ走らせる(Steam 未起動でも参照は返す — 成否は IsInitialized() で判定)。",
+    "when": "「とりあえず実 Bridge が欲しい」時。 自前で CSteamworksBridgeImpl を持ちたくない場合の手軽な入口。",
+    "sample": "auto& steam = acs::steamworks::GetDefaultSteamworksBridge();\nif (steam.IsInitialized()) {\n    (void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n}"
+  }
+}

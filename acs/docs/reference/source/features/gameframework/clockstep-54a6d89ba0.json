@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CLockstep",
+    "kind": "クラス",
+    "header": "gameframework/Lockstep.h",
+    "summary": "lockstep ネットコードの入力レイヤ。 1 tick = 1 フレーム分の入力 (FInputFrame) を記録/配信し、全クライアントが同じ順序で消費することで決定論シミュレーションを実現する土台。 入力リプレイ・同期ずれ検証も担う。",
+    "when": "格闘 / RTS / GGPO 系のように「結果」ではなく「入力」を配信して全員が同じ計算を回すネット対戦や、replay / TAS を作る時。",
+    "sample": "CLockstep ls;\nls.Init(ENetMode::Local, /*tick_rate_hz=*/60);\nFInputFrame f{ tick, 0, buttons, stick };\nls.RecordInput(f);\n// 後で:\nls.StartReplay();\nFInputFrame out;\nif (ls.ConsumeInput(tick, 0, out)) { /* シミュに反映 */ }",
+    "members": [
+      {
+        "sig": "void Init(ENetMode mode, u32 tick_rate_hz = 60)",
+        "desc": "モード設定 + tick/cursor リセット。 既存 frames は破棄しない。"
+      },
+      {
+        "sig": "void RecordInput(const FInputFrame& frame)",
+        "desc": "入力 1 件を記録。 Replay モード中は no-op。 内部 tick を frame.tick+1 へ進める。"
+      },
+      {
+        "sig": "void StartReplay()",
+        "desc": "Replay モードに切替、cursor を先頭へ。 既存 frames を保持。"
+      },
+      {
+        "sig": "bool ConsumeInput(u32 tick, u32 player_id, FInputFrame& out)",
+        "ret": "見つかったか",
+        "desc": "指定 tick/player の入力を取り出す。 Replay 以外では false。 線形検索 + cursor 前進。"
+      },
+      {
+        "sig": "u32 CurrentTick() / u32 InputCount() / ENetMode Mode() / u32 TickRateHz() const",
+        "desc": "現在 tick / 記録件数 / モード / tick レート。"
+      },
+      {
+        "sig": "u64 ComputeChecksum() const",
+        "ret": "ハッシュ",
+        "desc": "全 frame の FNV-1a-like u64 ハッシュ。 決定論検証 / replay 同期ずれ検知に使う。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全 frames 破棄 + cursor/tick リセット。 Mode は保持。"
+      },
+      {
+        "sig": "TResult<void> SaveToBuffer(u8* buf, u32 size, u32& out_written)",
+        "desc": "frames を .acsl レイアウトで書き出す (magic 'ACSL' + CRC32、round-trip 検証済み)。"
+      },
+      {
+        "sig": "TResult<void> LoadFromBuffer(const u8* buf, u32 size)",
+        "desc": ".acsl バッファを検証して frames を置換復元する。"
+      },
+      {
+        "sig": "using FLockstep = CLockstep",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLockstep を使う。"
+      }
+    ]
+  }
+}

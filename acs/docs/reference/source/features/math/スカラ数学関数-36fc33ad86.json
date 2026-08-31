@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "スカラ数学関数",
+    "kind": "自由関数群",
+    "header": "math/Math.h",
+    "summary": "<cmath> をラップした単精度の数学関数群（Sqrt / Sin / Cos など）と、線形補間・クランプ・近似比較のヘルパ。",
+    "when": "三角関数や平方根、値の範囲制限、滑らかな補間など、1 つの数値（スカラ）に対する計算全般。",
+    "sample": "f32 s = Sin(angle);\nf32 v = Lerp(0.0f, 100.0f, t);   // 0〜100 を t で補間\nf32 c = Saturate(x);             // 0〜1 にクランプ\nif (IsNearlyEqual(a, b)) { /* ほぼ同じ */ }\nf32 r = ToRadians(45.0f);",
+    "members": [
+      {
+        "sig": "f32 Abs/Sqrt/Sin/Cos/Tan/ASin/ACos(f32)",
+        "desc": "絶対値・平方根・三角関数群。"
+      },
+      {
+        "sig": "f32 ATan2(f32 y, f32 x)",
+        "ret": "角度",
+        "desc": "y/x の逆正接。 ベクトルの向き（角度）を求めるのに使う。"
+      },
+      {
+        "sig": "f32 Pow/Exp/Log/Floor/Ceil/Round/Mod(...)",
+        "desc": "累乗・指数・対数・切り捨て/上げ・四捨五入・剰余。"
+      },
+      {
+        "sig": "f32 ToRadians(deg) / ToDegrees(rad)",
+        "desc": "度とラジアンの相互変換。"
+      },
+      {
+        "sig": "f32 Lerp(f32 a, f32 b, f32 t)",
+        "ret": "補間値",
+        "desc": "a と b を t で線形補間（t=0 で a、t=1 で b）。"
+      },
+      {
+        "sig": "f32 Saturate(f32 v)",
+        "ret": "[0,1] の値",
+        "desc": "v を 0〜1 にクランプする。"
+      },
+      {
+        "sig": "bool IsNearlyEqual(f32 a, f32 b, f32 eps = kEpsilon)",
+        "ret": "ほぼ等しいか",
+        "desc": "誤差 eps 以内なら true。 浮動小数を == せず比較する時に。"
+      }
+    ]
+  }
+}

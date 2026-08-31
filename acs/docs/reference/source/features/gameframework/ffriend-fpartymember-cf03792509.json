@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FFriend / FPartyMember",
+    "kind": "構造体",
+    "header": "gameframework/PartySystem.h",
+    "summary": "FFriend = フレンド 1 件 (platform_id / display_name / online / playing_same_game)。 FPartyMember = パーティメンバ 1 件 (player_id / display_name / is_leader / is_ready)。 文字列はすべて非所有 const char* (寿命は呼び出し側保証)。",
+    "when": "フレンドリストやロビーのメンバ一覧を UI に出す時のデータ単位。",
+    "sample": "FFriend f{ \"epic:abc\", \"bob\", true, false };\nps.AddFriend(f);\nFPartyMember m{ \"steam:7656...\", \"me\", true, true };\nps.AddMember(m);"
+  }
+}

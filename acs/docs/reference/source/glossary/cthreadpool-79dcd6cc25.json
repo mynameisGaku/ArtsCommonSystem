@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CThreadPool",
+  "definition": "タスクを並列実行するスレッドプール(ワークスチール方式)。"
+}

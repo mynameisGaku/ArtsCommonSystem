@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FMat4 行列演算",
+    "kind": "自由関数群",
+    "header": "math/Mat.h",
+    "summary": "行列の掛け算・転置・逆行列と、行列でベクトルを変換する関数群。",
+    "when": "複数の変換を合成（掛け算）、シェーダ用に転置、カメラ逆変換（逆行列）、点や方向の座標変換をする時。",
+    "sample": "FMat4 mvp = world * view * proj; // 変換を合成\nFVec3 p = TransformPoint({1,0,0}, world);  // 点を変換\nFVec3 d = TransformVector(dir, world);      // 方向を変換 (移動成分無視)\nFMat4 inv = Inverse(view);                  // 逆変換",
+    "members": [
+      {
+        "sig": "FMat4 operator*(const FMat4& a, const FMat4& b)",
+        "ret": "合成行列",
+        "desc": "a を適用してから b を適用する合成。 順序が重要。"
+      },
+      {
+        "sig": "FMat4 Transpose(const FMat4& m)",
+        "ret": "転置行列",
+        "desc": "行と列を入れ替える。 HLSL の列優先側へアップロードする前に使う。"
+      },
+      {
+        "sig": "FMat4 Inverse(const FMat4& m)",
+        "ret": "逆行列",
+        "desc": "変換を打ち消す逆行列。 スクリーン→ワールド変換などに。"
+      },
+      {
+        "sig": "FVec4 Transform(FVec4 v, const FMat4& m)",
+        "ret": "変換後ベクトル",
+        "desc": "任意の 4D ベクトルを行列で変換（点・方向・同次座標すべて対応）。"
+      },
+      {
+        "sig": "FVec3 TransformPoint(FVec3 p, const FMat4& m)",
+        "ret": "変換後の点",
+        "desc": "点として変換（w=1 扱い、平行移動も効く）。 頂点座標に。"
+      },
+      {
+        "sig": "FVec3 TransformVector(FVec3 v, const FMat4& m)",
+        "ret": "変換後の方向",
+        "desc": "方向として変換（w=0 扱い、平行移動は無視）。 法線や速度に。"
+      }
+    ]
+  }
+}

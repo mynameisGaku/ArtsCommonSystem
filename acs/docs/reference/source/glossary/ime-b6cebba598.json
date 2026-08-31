@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IME",
+  "definition": "日本語などを入力するための変換ソフト。 確定後の文字が TextInput() で取れる。"
+}

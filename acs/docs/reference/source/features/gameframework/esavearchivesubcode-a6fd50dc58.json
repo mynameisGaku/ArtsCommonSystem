@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "ESaveArchiveSubCode",
+    "kind": "列挙(enum)",
+    "header": "gameframework/SaveArchive.h",
+    "summary": "セーブ I/O の失敗理由コード。 FErrorCode.subcode に入り、上位が原因で分岐できる。",
+    "when": "セーブ/ロード失敗を細かく判定したい時 (破損・version 違い・バッファ不足など)。",
+    "members": [
+      {
+        "sig": "kSubBadMagic / kSubChecksumFail",
+        "desc": "先頭が .acssave でない / CRC32 不一致 (破損や改竄)。"
+      },
+      {
+        "sig": "kSubBufferTooSmall / kSubFileNotFound / kSubIoError",
+        "desc": "バッファ不足・ファイル無し・下層 I/O 失敗。"
+      },
+      {
+        "sig": "kSubMigrationNeeded",
+        "desc": "読めたが version が違う。 マイグレーションのきっかけに使う non-fatal 扱い。"
+      }
+    ]
+  }
+}

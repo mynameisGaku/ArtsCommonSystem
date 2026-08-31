@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "FUiRect",
+    "kind": "構造体",
+    "header": "ui/Widget.h",
+    "summary": "UI 座標の矩形。 左上原点・ピクセル単位で x, y, w, h を持つ。 点が中に入っているか判定できる。",
+    "when": "ウィジェットの領域(rect / requested)を表す基本型。 当たり判定にも使う。",
+    "sample": "FUiRect r{ 10, 10, 100, 40 };\nif (r.Contains(mouse_x, mouse_y)) { /* 領域内 */ }",
+    "members": [
+      {
+        "sig": "f32 x, y, w, h",
+        "desc": "左上座標と幅・高さ(ピクセル)。"
+      },
+      {
+        "sig": "bool Contains(f32 px, f32 py) const",
+        "ret": "内側か",
+        "desc": "点 (px,py) が矩形の内側なら true。"
+      }
+    ]
+  }
+}

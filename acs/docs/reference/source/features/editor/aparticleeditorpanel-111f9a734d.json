@@ -1,0 +1,128 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AParticleEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/fxedit/ParticleEditorPanel.h",
+    "summary": "FParticleEmitterDef を ImGui で実機編集するための emitter プロパティエディタ パネル。 editor_core::AEditorPanel を継承し、内部に TArray<FParticleEmitterDef> を持つ。 emitter handle や pool への反映 (CreateEmitter 等) は呼び出し側の責務で、本 panel は def の編集のみを担う。 Save / Load は callback hook に委譲。 非コピー・非ムーブ・全 noexcept。",
+    "when": "Editor / DevTool ビルドで emitter パラメータをライブ編集したい時。 CEditorWorkspace::RegisterPanel(&panel) で登録する。",
+    "sample": "namespace fx = acs::game::fxedit;\nfx::AParticleEditorPanel panel;\npanel.Init();\npanel.AddEmitter();\nif (auto* def = panel.GetEmitterDefMutable(0)) {\n    def->lifetime_sec = 1.5f;\n}\nif (panel.IsDirty()) {\n    // ... 保存 ...\n    panel.ClearDirty();\n}\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "using SaveCallback = void (*)(void* user, const FParticleEmitterDef* defs, u32 count) noexcept",
+        "desc": "Save ボタン押下時に呼ばれる関数ポインタ型。 user は登録時に渡したポインタがそのまま戻る。"
+      },
+      {
+        "sig": "using LoadCallback = void (*)(void* user, FParticleEmitterDef* defs, u32& inout_count) noexcept",
+        "desc": "Load ボタン押下時に呼ばれる関数ポインタ型。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "emitter list を空に戻し selection を解除。 多重 Init 可 (完全リセット)。",
+        "when": "起動時。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "emitter list を解放。 冪等で多重 Shutdown 可。",
+        "when": "終了時。"
+      },
+      {
+        "sig": "void SetTargetSystem(CParticleEffectSystem* system) noexcept",
+        "ret": "—",
+        "desc": "active particle 数表示用の read-only target system を set する。",
+        "when": "DrawUI 前。"
+      },
+      {
+        "sig": "CParticleEffectSystem* TargetSystem() const noexcept",
+        "ret": "system または nullptr",
+        "desc": "現在 set されている target system を返す。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Particle Editor\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: Begin(\"Particle Editor\") から始まる単一 window レイアウトを描画。"
+      },
+      {
+        "sig": "void AddEmitter() noexcept",
+        "ret": "—",
+        "desc": "default param の emitter を末尾に追加し selection を移す。 kMaxEmitters 到達なら no-op。",
+        "when": "追加時。"
+      },
+      {
+        "sig": "void RemoveSelectedEmitter() noexcept",
+        "ret": "—",
+        "desc": "選択中 emitter を削除、selection を前 index に詰める。 未選択 / 範囲外は no-op。"
+      },
+      {
+        "sig": "void DuplicateSelectedEmitter() noexcept",
+        "ret": "—",
+        "desc": "選択中 emitter を複製して直後に挿入、selection を複製先へ。 未選択 / 上限到達は no-op。"
+      },
+      {
+        "sig": "i32 SelectedIndex() const noexcept",
+        "ret": "index または -1",
+        "desc": "現在の選択 index。 未選択は -1。"
+      },
+      {
+        "sig": "void SelectEmitter(i32 index) noexcept",
+        "ret": "—",
+        "desc": "選択 index を設定。 範囲外 (>= EmitterCount()) や負値は -1 に正規化。"
+      },
+      {
+        "sig": "u32 EmitterCount() const noexcept",
+        "ret": "個数",
+        "desc": "現在の emitter 数。"
+      },
+      {
+        "sig": "const FParticleEmitterDef* GetEmitterDef(i32 index) const noexcept",
+        "ret": "def または nullptr",
+        "desc": "index 番目の emitter def (read-only)。 範囲外は nullptr。"
+      },
+      {
+        "sig": "FParticleEmitterDef* GetEmitterDefMutable(i32 index) noexcept",
+        "ret": "def または nullptr",
+        "desc": "index 番目の emitter def (mutable)。 範囲外は nullptr。 書き換え後は dirty 想定。"
+      },
+      {
+        "sig": "void SetSaveCallback(SaveCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "Save callback を登録。 nullptr で解除。"
+      },
+      {
+        "sig": "void SetLoadCallback(LoadCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "Load callback を登録。 nullptr で解除。"
+      },
+      {
+        "sig": "bool IsDirty() const noexcept",
+        "ret": "bool",
+        "desc": "UI 編集 / Add / Remove / Dup されたか。 外部の Save タイミング判定用。"
+      },
+      {
+        "sig": "void ClearDirty() noexcept",
+        "ret": "—",
+        "desc": "dirty フラグをクリア。 Save 完了後に呼ぶ。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxEmitters = 64u",
+        "desc": "emitter list の上限。 超えると AddEmitter / Duplicate は no-op。"
+      },
+      {
+        "sig": "using FParticleEditorPanel = AParticleEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AParticleEditorPanel を使う。"
+      }
+    ]
+  }
+}

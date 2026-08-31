@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FAudioListener",
+    "kind": "構造体",
+    "header": "gameframework/SpatialAudio.h",
+    "summary": "聞き手 (プレイヤーの耳) の位置と向き。 position / forward / up を持ち、パンの左右基準を決める。",
+    "when": "カメラやキャラの耳位置に同期させて CSpatialAudio::SetListener に渡す。",
+    "sample": "FAudioListener l;\nl.position = cam.pos;\nl.forward  = cam.forward;\nl.up       = cam.up;\nsp.SetListener(l);"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CInventorySystem",
+    "kind": "クラス",
+    "header": "gameframework/InventorySystem.h",
+    "summary": "「N 個の固定スロット × スタック可能アイテム」モデルのインベントリ管理。 RPG / サバイバル / クラフト系で定番の持ち物画面のロジックを直接提供する。",
+    "when": "拾った/報酬で得たアイテムをプレイヤーが持ち歩く状態を管理したい時。 即時購入は CEconomyDirector、装着 cosmetic は CCharacterCustomizer と役割分担。",
+    "sample": "CInventorySystem inv;\ninv.Init(/*slot_count=*/30);\ninv.RegisterItem({ \"potion.heal\", \"Heal Potion\",\n    EItemCategory::Consumable, 99, \"ui/potion.png\", true });\ninv.AddItem(\"potion.heal\", 5);  // 積み増し優先\ninv.MoveSlot(3, 7);             // ドラッグ&ドロップ\ninv.DropSlot(7);",
+    "members": [
+      {
+        "sig": "void Init(u32 slot_count = 30)",
+        "desc": "スロット数を設定 (固定長)。 数が変わると内容クリアして resize、同数なら no-op。"
+      },
+      {
+        "sig": "void RegisterItem(const FItemDef& def)",
+        "desc": "アイテム定義を登録 (起動時に 1 度ずつ)。 同 id の二重登録は WARN で無視。"
+      },
+      {
+        "sig": "const FItemDef* FindItem(const char* id) const",
+        "desc": "id から定義を引く。 未登録は nullptr。"
+      },
+      {
+        "sig": "u32 AddItem(const char* id, u32 count)",
+        "ret": "追加できた個数",
+        "desc": "既存スタックに積み増し → 余りを空スロットへ。 満杯なら入った分だけ返す。"
+      },
+      {
+        "sig": "u32 RemoveItem(const char* id, u32 count)",
+        "ret": "削除できた個数",
+        "desc": "全スロット横断で前方優先に減らす。 在庫不足なら減った分だけ返す。"
+      },
+      {
+        "sig": "bool HasItem(const char* id, u32 min_count = 1) const",
+        "desc": "min_count 個以上持っているか。"
+      },
+      {
+        "sig": "u32 ItemTotal(const char* id) const",
+        "desc": "全スロット合計の所持数。"
+      },
+      {
+        "sig": "bool MoveSlot(u32 from, u32 to)",
+        "desc": "スロット間移動。 空なら移動、同 item なら merge、別 item なら swap。 異常時 false。",
+        "when": "UI のドラッグ&ドロップ。"
+      },
+      {
+        "sig": "bool DropSlot(u32 index)",
+        "desc": "スロットを空にする (地面に落とす想定)。 can_drop==false や空/範囲外は false。"
+      },
+      {
+        "sig": "const FInventorySlot* GetSlot(u32 index) const",
+        "desc": "スロット内容を取得。 範囲外は nullptr。"
+      },
+      {
+        "sig": "u32 SlotCount() / u32 EmptySlotCount() const",
+        "desc": "総スロット数 / 空きスロット数 (\"X/Y 使用\" 表示用)。"
+      },
+      {
+        "sig": "void SetOnChangeCallback(ChangeCallback cb, void* user)",
+        "desc": "スロット内容が変わるたびに呼ぶコールバック (UI 反映 / SFX)。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "定義 + スロット内容を全クリア (再 Init 必須)。"
+      },
+      {
+        "sig": "using FInventorySystem = CInventorySystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CInventorySystem を使う。"
+      }
+    ]
+  }
+}

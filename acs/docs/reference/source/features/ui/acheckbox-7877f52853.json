@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "ACheckbox",
+    "kind": "クラス",
+    "header": "ui/Widgets.h",
+    "summary": "オン/オフを切り替えるチェックボックス。 クリックするたび checked が反転する。 横にラベルを出せる。",
+    "when": "『フルスクリーン』『サウンド有効』などの真偽の設定項目に。",
+    "sample": "ACheckbox* cb = root.Add<ACheckbox>(\"フルスクリーン\");\ncb->checked.Set(true);\ncb->checked.Subscribe([](const bool& on, void*){ SetFullscreen(on); }, nullptr);",
+    "members": [
+      {
+        "sig": "TObservable<bool> checked",
+        "desc": "オン/オフの状態。 クリックで反転、Subscribe / Bind で監視できる。"
+      },
+      {
+        "sig": "TObservable<FString> text",
+        "desc": "チェックボックス横に出すラベル文字列。"
+      },
+      {
+        "sig": "using FCheckbox = ACheckbox",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ACheckbox を使う。"
+      }
+    ]
+  }
+}

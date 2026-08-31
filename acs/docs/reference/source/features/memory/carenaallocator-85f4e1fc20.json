@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "CArenaAllocator",
+    "kind": "クラス",
+    "header": "memory/ArenaAllocator.h",
+    "summary": "確保はポインタを進めるだけ(超高速)、解放はまとめて Resetのみ、という使い捨てアロケータ。 容量は固定せず、満杯になるとページを足して自動で伸びる(ページバック式バンプ)。 同形状の領域は batch 予約でき、Reset は世代を進めて先頭 page だけを即時初期化する。",
+    "when": "1 フレームだけ使って次フレームに全部捨てる一時データ(描画コマンド等)。 個別解放はしない。",
+    "sample": "CArenaAllocator arena(64 * 1024);   // 引数は1ページのサイズ(既定 64KB)。容量上限ではない\nvoid* a = arena.Alloc(64, 16, FSourceLoc::Current());\n// ...フレーム処理...\narena.Reset();                      // 全確保を一括無効化(超高速)。ページは再利用",
+    "members": [
+      {
+        "sig": "CArenaAllocator(usize page_size = 64*1024, IAllocator* backing_allocator = nullptr)",
+        "desc": "第1引数はページサイズ(全体容量ではない)。 満杯時は backing_allocator から新ページを足して伸びる。"
+      },
+      {
+        "sig": "void* Alloc(usize size, usize alignment, FSourceLoc location)",
+        "ret": "確保した領域",
+        "desc": "末尾にポインタを進めて確保。 alignment は 2 のべき乗かつ最大 64 KiB。 不正値やサイズ計算のオーバーフローは null で拒否する。"
+      },
+      {
+        "sig": "bool AllocBatch(void** output, usize count, usize size, usize alignment, FSourceLoc location = Current())",
+        "ret": "全領域を確保できたか",
+        "desc": "同じ size/alignment の count 領域を cursor 更新 1 回で予約する。 失敗時は output 全要素を null にし、統計を変えない。"
+      },
+      {
+        "sig": "void Free(void* pointer)",
+        "desc": "no-op(個別解放はしない)。"
+      },
+      {
+        "sig": "void Reset(bool release_pages = false)",
+        "desc": "全確保を一括無効化。 開始済み Alloc の完了を待ち、Reset 中の新規 Alloc は null で拒否する。 既定経路は世代を進め、先頭以外の保持 page を再利用直前に遅延初期化する。 release_pages=true で backing に全ページを返す。"
+      },
+      {
+        "sig": "FArenaAllocatorDiagnostics Diagnostics() const",
+        "ret": "診断 snapshot",
+        "desc": "保持 page、batch 回数/領域数、直前 Reset の page visit、遅延初期化数を返す。 通常 Alloc に診断用 atomic 更新は追加しない。"
+      },
+      {
+        "sig": "using FArenaAllocator = CArenaAllocator",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CArenaAllocator を使う。"
+      }
+    ]
+  }
+}

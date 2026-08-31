@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Lua から NativeFunction(登録した C++ 関数)が呼ばれた瞬間に渡される、引数と戻り値のまとめ。 引数配列・件数・戻り値書き込み先だけを持つ薄い POD。">
+  <title>FScriptCallFrame — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/scripting.html">scripting モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/scripting.html">scripting</a><span>/</span><span aria-current="page">FScriptCallFrame</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / scripting</div><h1 class="identifier">FScriptCallFrame</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29163">Lua</button><span class="term-tooltip" id="term-tip-29163" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span> から <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29164">NativeFunction</button><span class="term-tooltip" id="term-tip-29164" role="tooltip">Lua 側から呼べる C++ 関数の型。 例外を投げてはいけない。</span></span>(登録した C++ 関数)が呼ばれた瞬間に渡される、引数と戻り値のまとめ。 引数配列・件数・戻り値書き込み先だけを持つ薄い <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29165">POD</button><span class="term-tooltip" id="term-tip-29165" role="tooltip">Plain Old Data。 コンストラクタ等の特別な振る舞いを持たない単純な構造体。 コピーが速く扱いやすい。</span></span>。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fscriptcallframe-93b93949.html"><code>acs::game::FScriptCallFrame</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>Register<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29162">NativeFunction</button><span class="term-tooltip" id="term-tip-29162" role="tooltip">Lua 側から呼べる C++ 関数の型。 例外を投げてはいけない。</span></span> で登録した C++ 関数の中で、引数を読み戻り値を書く時に使う。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>scripting</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ScriptHost.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-ff7790acb0d2c25d698e"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>const <a href="../../symbols/gameframework/fscriptvalue-17137112.html">FScriptValue</a>* <a href="../../symbols/gameframework/fscriptcallframe-93b93949/args-bbb80d70.html">args</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>引数配列(読み取り専用、長さは arg_count)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112.html"><code>acs::game::FScriptValue</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptcallframe-93b93949/args-bbb80d70.html"><code>acs::game::FScriptCallFrame::args</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-2fe3b0332e8f762ed173"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u32 <a href="../../symbols/gameframework/fscriptcallframe-93b93949/arg-count-dd4c9b97.html">arg_count</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>args の長さ。 0 でも有効(引数なし関数)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptcallframe-93b93949/arg-count-dd4c9b97.html"><code>acs::game::FScriptCallFrame::arg_count</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-862356bf370472e4b07c"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/gameframework/fscriptvalue-17137112.html">FScriptValue</a>* <a href="../../symbols/gameframework/fscriptcallframe-93b93949/ret-4cd8e41f.html">ret</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>戻り値の書き込み先。 nullptr なら戻り値は捨てられる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptvalue-17137112.html"><code>acs::game::FScriptValue</code></a> <span class="kind-label">構造体</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fscriptcallframe-93b93949/ret-4cd8e41f.html"><code>acs::game::FScriptCallFrame::ret</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FScriptCallFrameの使用例"><code>void OnAdd(acs::game::IScriptVm&amp;, acs::game::FScriptCallFrame&amp; f, void*) noexcept {
+    f64 a = f.args[0].v.num;
+    f64 b = f.args[1].v.num;
+    if (f.ret) { f.ret-&gt;kind = acs::game::EScriptValueKind::Number; f.ret-&gt;v.num = a + b; }
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

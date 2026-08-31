@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="光源計算なしの簡易ブロブ影 (足元の楕円)。 柔らかい楕円テクスチャを 1 枚持ち、CSpriteBatch で暗く落とすだけの激軽な「足元の影」。 動的ライトを使わない/負荷を抑えたいときの fallback / 補助に使う。">
+  <title>acs::CBlobShadow — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/render.html">render モジュール</a><a href="cblobshadow-3b186f30.html" aria-current="page">CBlobShadow</a><a class="tree-child" href="cblobshadow-3b186f30/cblobshadow-1f1ebdc8.html">CBlobShadow</a><a class="tree-child" href="cblobshadow-3b186f30/cblobshadow-5e1f672c.html">CBlobShadow</a><a class="tree-child" href="cblobshadow-3b186f30/draw-e29f68a1.html">Draw</a><a class="tree-child" href="cblobshadow-3b186f30/init-00d4b0cc.html">Init</a><a class="tree-child" href="cblobshadow-3b186f30/m-tex-d6bb34bc.html">m_Tex</a><a class="tree-child" href="cblobshadow-3b186f30/operator-df66c036.html">operator=</a><a class="tree-child" href="cblobshadow-3b186f30/shutdown-f920a800.html">Shutdown</a><a class="tree-child" href="cblobshadow-3b186f30/texture-e682e198.html">Texture</a><a class="tree-child" href="cblobshadow-3b186f30/cblobshadow-e4e18913.html">~CBlobShadow</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/render.html">render</a><span>/</span><span aria-current="page">CBlobShadow</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / render</div>
+<h1 class="identifier">acs::CBlobShadow</h1>
+<p class="lead">光源計算なしの簡易ブロブ影 (足元の楕円)。 柔らかい楕円テクスチャを 1 枚持ち、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-17058">CSpriteBatch</button><span class="term-tooltip" id="term-tip-17058" role="tooltip">多数のスプライトをまとめて効率よく描画する仕組み。</span></span> で暗く落とすだけの激軽な「足元の影」。 動的ライトを使わない/負荷を抑えたいときの fallback / 補助に使う。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CBlobShadowの宣言"><code>class <a href="cblobshadow-3b186f30.html" aria-current="page">CBlobShadow</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/render/Light2D.h:289</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="cblobshadow-3b186f30/cblobshadow-1f1ebdc8.html"><span><span class="identifier">CBlobShadow(const CBlobShadow&amp;) = delete;</span><span class="summary">コピー禁止 (GPU リソースを単独所有するため)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/cblobshadow-5e1f672c.html"><span><span class="identifier">CBlobShadow() noexcept = default;</span><span class="summary">空状態で構築する (GPU リソースは Init で確保)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/draw-e29f68a1.html"><span><span class="identifier">void Draw(CSpriteBatch&amp; sb, f32 cx, f32 cy, f32 w, f32 h, f32 alpha = 0.5f, FVec3 color = FVec3{0, 0, 0}) noexcept;</span><span class="summary">(cx,cy) 中心に w×h の柔らかい影を sb 経由で描く (要 sb.Begin 済み)。 sb: 描画に使う CSpriteBatch。 cx: 影の中心 X (px)。 cy: 影の中心 Y (px)。 w: 影の幅 (px)。 h: 影の高さ (px)。 alpha: 影の濃さ。 color: 影の色 (既定は黒)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/init-00d4b0cc.html"><span><span class="identifier">TResult&lt;void&gt; Init(IRhiDevice&amp; device, u32 resolution = 64) noexcept;</span><span class="summary">柔らかい放射状グラデーションのテクスチャを 1 枚生成する。 resolution は内部で 16..64 に clamp される。 device: テクスチャ生成に使う RHI デバイス。 resolution: 影テクスチャの一辺の解像度 (px)。 戻り値: 成功なら空の TResult、生成失敗ならエラー。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/m-tex-d6bb34bc.html"><span><span class="identifier">TUniquePtr&lt;IRhiTexture&gt; m_Tex;</span><span class="summary">放射状グラデーションの影テクスチャ。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/operator-df66c036.html"><span><span class="identifier">CBlobShadow&amp; operator=(const CBlobShadow&amp;) = delete;</span><span class="summary">コピー代入も禁止。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/shutdown-f920a800.html"><span><span class="identifier">void Shutdown() noexcept;</span><span class="summary">確保した GPU リソースを解放する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/texture-e682e198.html"><span><span class="identifier">IRhiTexture* Texture() const noexcept;</span><span class="summary">影テクスチャを返す。 戻り値: 放射状グラデーションの影テクスチャ。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="cblobshadow-3b186f30/cblobshadow-e4e18913.html"><span><span class="identifier">~CBlobShadow() noexcept = default;</span><span class="summary">破棄する (GPU リソースは TUniquePtr が解放)。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

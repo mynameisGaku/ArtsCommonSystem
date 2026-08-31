@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="静的テキストを表示するだけのウィジェット。 文字列は TObservable なので、データを Bind すれば自動で表示が更新される。">
+  <title>ALabel — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/ui.html">ui モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/ui.html">ui</a><span>/</span><span aria-current="page">ALabel</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / ui</div><h1 class="identifier">ALabel</h1>
+<p class="lead">静的テキストを表示するだけの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29567">ウィジェット</button><span class="term-tooltip" id="term-tip-29567" role="tooltip">ボタンやラベルなど画面上の UI 部品 1 つ 1 つのこと。 AWidget を継承して作る。</span></span>。 文字列は T<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29568">Observable</button><span class="term-tooltip" id="term-tip-29568" role="tooltip">監視できる 1 個の値。 Set で変えると購読者へ通知が飛ぶ。 MVVM の中核。</span></span> なので、データを <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29569">Bind</button><span class="term-tooltip" id="term-tip-29569" role="tooltip">Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。</span></span> すれば自動で表示が更新される。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/ui/alabel-8936d92a.html"><code>acs::ALabel</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>見出し・説明・スコア表示など、押せない文字を出したい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>ui</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>ui/Widgets.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-5eb58ebd8f39d2adf406"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TObservable&lt;FString&gt; <a href="../../symbols/ui/alabel-8936d92a/text-044c1e30.html">text</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>表示する文字列。 Set で変更、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29563">Bind</button><span class="term-tooltip" id="term-tip-29563" role="tooltip">Observable 同士を結びつけ、片方が変わると相手も自動で更新する MVVM のデータバインド。 双方向版は TwoWayBind。</span></span> で<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29564">ViewModel</button><span class="term-tooltip" id="term-tip-29564" role="tooltip">MVVM の橋渡し層。 実型 CViewModel と TObservable で状態を公開し、View(画面)がそれを購読して自動反映する。</span></span>と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29565">同期</button><span class="term-tooltip" id="term-tip-29565" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>できる。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/alabel-8936d92a/text-044c1e30.html"><code>acs::ALabel::text</code></a> <span class="kind-label">メンバー変数</span></dd></div></dl></article><article class="card" id="member-ba29b7b8f109b1d638d9"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>using <a href="../../symbols/ui/flabel-a976fe35.html">FLabel</a> = ALabel</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29566">ALabel</button><span class="term-tooltip" id="term-tip-29566" role="tooltip">TObservable&lt;FString&gt; の text を表示する UI label。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/ui/flabel-a976fe35.html"><code>acs::FLabel</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>ALabel</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/ui/alabel-8936d92a.html"><code>acs::ALabel</code></a><span class="summary"><code>class ALabel : public AWidget;</code></span></li><li><a href="../../symbols/ui/alabel-8936d92a/alabel-540cc86a.html"><code>acs::ALabel::ALabel</code></a><span class="summary"><code>explicit ALabel(const char* initial = &quot;&quot;) noexcept;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="ALabelの使用例"><code>ALabel* l = root.Add&lt;ALabel&gt;(&quot;HP&quot;);
+l-&gt;text.Set(FString{&quot;HP: 100&quot;});  // 文字を変える
+// vm.score と Bind すれば自動更新も可</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

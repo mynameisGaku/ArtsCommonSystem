@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="実体化済み3DサブツリーとPrefab/Blueprint原本を結ぶコンポーネント。 runtime状態はシーンに保存済みのノード群であり、本型は原本を再展開しない。 EditorのApply/Revertや参照追跡に必要なPFAB3Dパスとinstance IDを所有する。">
+  <title>acs::game::APrefabLink3DComponent — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="aprefablink3dcomponent-c8242bba.html" aria-current="page">APrefabLink3DComponent</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/instanceid-79b6262a.html">InstanceId</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/m-instanceid-e750113b.html">m_InstanceId</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/m-rootpropertyoverridemask-d748f84f.html">m_RootPropertyOverrideMask</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/m-sourcepath-e86ece6b.html">m_SourcePath</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/rootpropertyoverridemask-4c55e3ea.html">RootPropertyOverrideMask</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/setinstanceid-51bbbdae.html">SetInstanceId</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/setsourcepath-255d9210.html">SetSourcePath</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/sourcepath-9f13b1c9.html">SourcePath</a><a class="tree-child" href="aprefablink3dcomponent-c8242bba/trysetrootpropertyoverridemask-81119e3b.html">TrySetRootPropertyOverrideMask</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">APrefabLink3DComponent</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / gameframework</div>
+<h1 class="identifier">acs::game::APrefabLink3DComponent</h1>
+<p class="lead">実体化済み3DサブツリーとPrefab/Blueprint原本を結ぶ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3814">コンポーネント</button><span class="term-tooltip" id="term-tip-3814" role="tooltip">ANode に付ける部品。 1 つの機能 (物理・描画・当たり判定など) を担い、組み合わせて挙動を作る。</span></span>。 runtime<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3815">状態</button><span class="term-tooltip" id="term-tip-3815" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>は<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3816">シーン</button><span class="term-tooltip" id="term-tip-3816" role="tooltip">タイトル・ゲーム本編・リザルトのような、画面の一場面とその進行をまとめた単位。</span></span>に保存済みの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-3817">ノード</button><span class="term-tooltip" id="term-tip-3817" role="tooltip">ゲーム世界に置く部品の単位。 位置やコンポーネントを持ち、親子のツリーで並ぶ。</span></span>群であり、本型は原本を再展開しない。 EditorのApply/Revertや参照追跡に必要なPFAB3Dパスとinstance IDを所有する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::APrefabLink3DComponentの宣言"><code>class <a href="aprefablink3dcomponent-c8242bba.html" aria-current="page">APrefabLink3DComponent</a> final : public AComponent;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/PrefabLink3DComponent.h:17</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="aprefablink3dcomponent-c8242bba/instanceid-79b6262a.html"><span><span class="identifier">FStringView InstanceId() const noexcept;</span><span class="summary">PINS3Dに記録されたscene内で安定したinstance IDを返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/m-instanceid-e750113b.html"><span><span class="identifier">FString m_InstanceId;</span><span class="summary">Apply/Revert後も同じinstanceを識別するscene内の安定ID。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/m-rootpropertyoverridemask-d748f84f.html"><span><span class="identifier">u32 m_RootPropertyOverrideMask = 0u;</span><span class="summary">原本更新後もinstance値を維持するroot propertyのbit集合。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/m-sourcepath-e86ece6b.html"><span><span class="identifier">FString m_SourcePath;</span><span class="summary">実体化済みサブツリーの原本を指す非実行リンク。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/rootpropertyoverridemask-4c55e3ea.html"><span><span class="identifier">u32 RootPropertyOverrideMask() const noexcept;</span><span class="summary">POVR3Dに記録されたroot property override maskを返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/setinstanceid-51bbbdae.html"><span><span class="identifier">void SetInstanceId(FStringView instance_id) noexcept;</span><span class="summary">PINS3Dに記録する32桁小文字hexのinstance IDを設定する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/setsourcepath-255d9210.html"><span><span class="identifier">void SetSourcePath(FStringView path) noexcept;</span><span class="summary">PFAB3Dに記録するPrefabまたはBlueprintの原本パスを設定する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/sourcepath-9f13b1c9.html"><span><span class="identifier">FStringView SourcePath() const noexcept;</span><span class="summary">PFAB3Dに記録されたPrefabまたはBlueprintの原本パスを返す。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="aprefablink3dcomponent-c8242bba/trysetrootpropertyoverridemask-81119e3b.html"><span><span class="identifier">bool TrySetRootPropertyOverrideMask(u32 mask) noexcept;</span><span class="summary">定義済みbitだけのroot property override maskを設定する。 未知bitでは失敗する。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

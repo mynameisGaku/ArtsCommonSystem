@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "Job / Then / RunJobs",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "依存つきの並列実行。 Job でノードを作り、Then で「A の後に B」と順序を張り、RunJobs で全ノードを依存順に実行して全完了まで待つ。 内部は依存グラフ。",
+    "when": "処理に前後関係がある時（『地形生成 → ナビ構築 → 敵配置』など）。 順序を Then で表現すれば、独立な部分は自動で並列化される。",
+    "sample": "FJobNode gen  = Job([]{ generateTerrain(); });\nFJobNode nav  = Job([]{ buildNavmesh(); });\nFJobNode spawn= Job([]{ spawnEnemies(); });\nThen(gen, nav);    // 地形 → ナビ\nThen(nav, spawn);  // ナビ → 敵\nRunJobs();         // 依存順に実行し、全完了まで待つ",
+    "members": [
+      {
+        "sig": "FJobNode Job<Fn>(Fn fn)",
+        "ret": "ノードハンドル",
+        "desc": "実行する処理を 1 ノードとして登録する（まだ走らない）。"
+      },
+      {
+        "sig": "void Then(FJobNode before, FJobNode after)",
+        "desc": "before が終わってから after が走る、という依存を張る。"
+      },
+      {
+        "sig": "void RunJobs()",
+        "desc": "作った全ノードを依存順に実行し、全完了まで待つ。"
+      }
+    ]
+  }
+}

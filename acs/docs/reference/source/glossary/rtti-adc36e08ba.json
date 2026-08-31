@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "RTTI",
+  "definition": "Run-Time Type Information。 C++ 標準の実行時型情報。 ACS では使わず、軽量な型 ID / リフレクションで代替する。"
+}

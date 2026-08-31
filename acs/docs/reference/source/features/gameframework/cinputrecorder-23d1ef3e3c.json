@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CInputRecorder",
+    "kind": "クラス",
+    "header": "gameframework/InputRecorder.h",
+    "summary": "OS 寄りの生 (raw) 入力 (キー変化 + マウス座標 + ボタン) を 1 tick = 1 サンプルとして録画し、後でそのまま再生できるレコーダ。 .acsr 形式でファイル保存も可能。",
+    "when": "TAS / 自動テスト / バグ再現で「同じ入力列をピクセル単位で再現」したい時。 ゲーム解釈済み入力を扱う CLockstep とは別レイヤ (こちらは OS 信号寄り)。",
+    "sample": "CInputRecorder rec;\nrec.StartRecording(/*tick_rate_hz=*/60);\nFInputSample s; s.tick = tick; /* ...詰める... */\nrec.Capture(s);\n// 後で:\nrec.StartReplay();\nFInputSample out;\nif (rec.ConsumeSample(tick, out)) { /* out を入力の代わりに使う */ }",
+    "members": [
+      {
+        "sig": "void StartRecording(u32 tick_rate_hz = 60) / StopRecording()",
+        "desc": "録画開始 / 停止。 tick_rate は再生時の整合検証用 (ファイルに保存)。"
+      },
+      {
+        "sig": "void StartReplay() / StopReplay()",
+        "desc": "再生開始 (cursor を先頭へ) / 停止。 録画済み sample は保持。"
+      },
+      {
+        "sig": "void Capture(const FInputSample& s)",
+        "desc": "1 サンプル記録。 Recording 以外では no-op。"
+      },
+      {
+        "sig": "bool ConsumeSample(u32 tick, FInputSample& out)",
+        "ret": "見つかったか",
+        "desc": "指定 tick のサンプルを取り出す。 Replaying 以外では false。 線形検索 + cursor 前進で amortised O(1)。"
+      },
+      {
+        "sig": "ERecorderMode CurrentMode() const",
+        "desc": "現在のモード (Idle/Recording/Replaying)。"
+      },
+      {
+        "sig": "u32 SampleCount() / CurrentTick() / TickRateHz() const",
+        "desc": "記録件数 / 現在 tick / tick レート。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全サンプル破棄 + cursor リセット。 モードは保持。"
+      },
+      {
+        "sig": "TResult<void> SaveToBuffer(u8* buf, u32 size, u32& out_written)",
+        "desc": "現在のサンプルを .acsr レイアウトでバッファに書き出す (CRC32 付き、round-trip 検証済み)。"
+      },
+      {
+        "sig": "TResult<void> LoadFromBuffer(const u8* buf, u32 size)",
+        "desc": ".acsr バッファを検証してサンプルを置換復元する。"
+      },
+      {
+        "sig": "using FInputRecorder = CInputRecorder",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CInputRecorder を使う。"
+      }
+    ]
+  }
+}

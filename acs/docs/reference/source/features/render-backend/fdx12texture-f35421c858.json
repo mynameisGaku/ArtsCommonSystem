@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "FDx12Texture",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12Texture.h",
+    "summary": "DX12 のテクスチャ(IRhiTexture 派生)。 通常の 2D 画像のほか、レンダーターゲット・深度バッファ・cubemap・テクスチャ配列を扱い、SRV/RTV/DSV のディスクリプタを必要に応じて持ちます。",
+    "when": "CreateRhiTexture() が DX12 で生成する実体。 画像を読む・オフスクリーン RT に描く・シャドウ深度を持つ、いずれの用途も FTextureDesc のフラグで切り替える。",
+    "sample": "FTextureDesc d;\nd.width = 256; d.height = 256;\nd.format = EFormat::R8G8B8A8_UNorm;\nd.initial_data = pixels; d.initial_data_size = 256*256*4;\nauto tex = CreateRhiTexture(*dev, d).Value();\ncmd->SetTexture(0, *tex);   // パイプラインで texture_slots>=1 が必要",
+    "members": [
+      {
+        "sig": "u32 Width() / Height() / MipLevels() / ArraySize() const",
+        "desc": "解像度・mip 数・配列枚数。"
+      },
+      {
+        "sig": "EFormat PixelFormat() const",
+        "desc": "ピクセルフォーマット。"
+      },
+      {
+        "sig": "bool IsCubemap() / IsDepth() / HasStencil() const",
+        "desc": "cubemap か、深度バッファか、ステンシル成分(D24_UNorm_S8_UInt)を持つか。"
+      },
+      {
+        "sig": "bool HasSrv() / HasRtv() const",
+        "desc": "シェーダから読める SRV / レンダーターゲット RTV を持つか。"
+      },
+      {
+        "sig": "ID3D12Resource* Resource() const",
+        "ret": "生リソース",
+        "desc": "内部の D3D12 リソース実体(FDx12Buffer::Resource() と対)。"
+      },
+      {
+        "sig": "D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle() const",
+        "ret": "SRV ハンドル",
+        "desc": "内部用。 ルートディスクリプタテーブルにバインドする SRV。"
+      },
+      {
+        "sig": "D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle() / DsvCpuHandle() const",
+        "desc": "内部用。 RTV(先頭スライス) / DSV ハンドル。"
+      },
+      {
+        "sig": "D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandleForSlice(u32 slice, u32 mip) const",
+        "ret": "RTV(範囲外=null)",
+        "desc": "内部用。 per_slice_rtv で作った面/スライス/mip 別 RTV。 index = slice*mip_levels + mip。"
+      },
+      {
+        "sig": "D3D12_RESOURCE_STATES CurrentState() / void SetCurrentState(...)",
+        "desc": "内部用。 現在のリソース状態。 CommandList がバリア発行後に反映する。"
+      }
+    ]
+  }
+}

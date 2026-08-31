@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "OpenXrBridgeStub",
+  "definition": "HMD が無くても落ちないよう「常に未初期化・原点ポーズ」を返す IOpenXrBridge の スタブ実装。 実 backend 未リンクでも 2D 経路へフォールバックできる。"
+}

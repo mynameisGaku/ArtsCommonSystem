@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACinematicsTimelineEditorPanel の編集 UI 上で扱う 5 種の 演出概念。 runtime 側の CCinematicsDirector::ETimelineTrackKind とは意図的に概念を分離し、オーサリング向けの要素を表現する。 Play 時に ToTrackKind() 相当で director の TrackKind にマップされる。">
+  <title>ETimelineKeyKind — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/editor.html">editor モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/editor.html">editor モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/editor.html">editor</a><span>/</span><span aria-current="page">ETimelineKeyKind</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / editor</div><h1 class="identifier">ETimelineKeyKind</h1>
+<p class="lead">ACinematicsTimelineEditorPanel の編集 UI 上で扱う 5 種の 演出概念。 runtime 側の CCinematicsDirector::ETimelineTrackKind とは意図的に概念を分離し、オーサリング向けの要素を表現する。 Play 時に ToTrackKind() 相当で director の TrackKind にマップされる。</p></div><div class="badges"><span class="badge">列挙(enum class : u8)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde.html"><code>acs::game::cinetimeline::ETimelineKeyKind</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>AddKeyframe で新規キーの種別を指定する時、および timeline の 5 トラックの行割り当て。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>editor</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum class : u8)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/tools/cinetimeline/CinematicsTimelineEditorPanel.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-27059d0d25f423df6935"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/cameracut-aa7b5727.html">CameraCut</a> = 0</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23781">カメラ</button><span class="term-tooltip" id="term-tip-23781" role="tooltip">視点。 world↔screen の座標変換(ビュー/投影)を作る。 2D は CCamera2D。</span></span>位置を瞬時に切り替え (target <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23782">FVec3</button><span class="term-tooltip" id="term-tip-23782" role="tooltip">3 次元ベクトル(x, y, z)。 3D の位置・方向・色などに使う最重要型で、SIMD演算に最適化されている。</span></span>)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/cameracut-aa7b5727.html"><code>acs::game::cinetimeline::ETimelineKeyKind::CameraCut</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-ad96980f9b06fb8f5fee"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/fadecolor-f97317bf.html">FadeColor</a> = 1</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>画面全体を start_color → end_color にフェード。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/fadecolor-f97317bf.html"><code>acs::game::cinetimeline::ETimelineKeyKind::FadeColor</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-b06b8e4f68486c9c9e52"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/timescale-4e1a2df3.html">TimeScale</a> = 2</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ゲーム時間スケールを倍率指定 (1.0 = 等倍、0.5 = スロー)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/timescale-4e1a2df3.html"><code>acs::game::cinetimeline::ETimelineKeyKind::TimeScale</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-cd1443e7cdcfbc516570"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/spawneffect-765bf831.html">SpawnEffect</a> = 3</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>エフェクト発火 (effect_id + position)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/spawneffect-765bf831.html"><code>acs::game::cinetimeline::ETimelineKeyKind::SpawnEffect</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-693d8dd485df1dcd4489"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/triggercallback-e7b9bfbd.html">TriggerCallback</a> = 4</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>汎用 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-23783">callback</button><span class="term-tooltip" id="term-tip-23783" role="tooltip">ある出来事が起きた時に呼んでもらう関数。</span></span> 発火 (event_id をユーザ定義で解釈)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/etimelinekeykind-e6ad6dde/triggercallback-e7b9bfbd.html"><code>acs::game::cinetimeline::ETimelineKeyKind::TriggerCallback</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a></nav></aside>
+  </div>
+</body>
+</html>

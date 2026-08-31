@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "EHotReloadResult",
+    "kind": "列挙(enum)",
+    "header": "gameframework/HotReload.h",
+    "summary": "登録済み/未登録、引数・UTF-8・path 長、各種 hard limit、OOM、OS error、再入、native notification overflow を区別する checked watcher 結果。 NativeOverflow では監視は再 arm されるが caller 側の全量 rescan が必要。",
+    "members": [
+      {
+        "sig": "const char* HotReloadResultName(EHotReloadResult result)",
+        "ret": "安定した診断名",
+        "desc": "全列挙値をログ向け名称へ変換する。 範囲外の値は Unknown。"
+      }
+    ]
+  }
+}

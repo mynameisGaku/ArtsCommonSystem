@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "CContentModeratorStub",
+    "kind": "クラス",
+    "header": "gameframework/ContentModerator.h",
+    "summary": "IContentModerator の依存ゼロのデフォルト実装。 内部の小さな NG 単語リストに対し、生文字列と正規化文字列 (小文字化 + leet 置換 + 記号除去) の 2 経路で照合する。 GetModeratorStub() で共有 singleton を取れる。",
+    "when": "実 SDK を入れる前のローカルテキストフィルタとして、またはテスト用に。",
+    "sample": "IContentModerator& mod = acs::game::GetModeratorStub();\n// f.u.c.k や sh1t のような変種も同じ辞書で捕捉",
+    "members": [
+      {
+        "sig": "TResult<FModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height)",
+        "desc": "デコード済み RGBA8 ピクセルを直接 NSFW 判定する。 肌色比率 heuristic で露出度を推定。",
+        "when": "CPU 側に既にテクスチャがあり再デコードを避けたい時。"
+      },
+      {
+        "sig": "using FContentModeratorStub = CContentModeratorStub",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CContentModeratorStub を使う。"
+      }
+    ]
+  }
+}

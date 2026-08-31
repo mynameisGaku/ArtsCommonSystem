@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Network",
+  "definition": "ネットワーク機能全体の初期化／終了をまとめる入口クラス(WinSock の WSAStartup ラッパ)。 ソケットを使う前に一度 Init() を呼ぶ。"
+}

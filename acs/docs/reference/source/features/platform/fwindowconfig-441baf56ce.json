@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FWindowConfig",
+    "kind": "構造体",
+    "header": "platform/Window.h",
+    "summary": "ウィンドウを作る時の設定をまとめた小さな箱。 タイトル・サイズ・全画面かどうかなどを指定する。",
+    "when": "FWindow::Create に渡す。 必要な項目だけ書き換えれば、残りは無難な既定値が入る。",
+    "sample": "FWindowConfig cfg;\ncfg.title      = L\"勇者の冒険\";\ncfg.width      = 1920;\ncfg.height     = 1080;\ncfg.resizable  = false;   // 固定サイズ窓\ncfg.fullscreen = false;",
+    "members": [
+      {
+        "sig": "const wchar_t* title",
+        "desc": "タイトルバーに出す文字（既定 L\"ACS Window\"）。"
+      },
+      {
+        "sig": "u32 width / u32 height",
+        "desc": "ウィンドウの中身のサイズ（既定 1280 × 720）。"
+      },
+      {
+        "sig": "bool resizable",
+        "desc": "ユーザーが端をドラッグしてサイズ変更できるか（既定 true）。"
+      },
+      {
+        "sig": "bool fullscreen",
+        "desc": "起動時から全画面にするか（既定 false）。"
+      },
+      {
+        "sig": "bool vsync_hint",
+        "desc": "垂直同期を使いたい、というヒント（既定 true）。"
+      }
+    ]
+  }
+}

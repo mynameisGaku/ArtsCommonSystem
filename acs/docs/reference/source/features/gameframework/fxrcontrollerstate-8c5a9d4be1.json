@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FXrControllerState",
+    "kind": "構造体",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "左右コントローラ 1 フレーム分の入力 snapshot。 6DoF ポーズ + トリガ trigger [0,1] + グリップ grip [0,1] + ボタン button_a/b + スティック thumbstick [-1,1]×2 という、各プラットフォーム差を吸収した最小公倍数。",
+    "when": "VR コントローラの入力を読む時。 Quest / Index / Vive / PS VR2 のボタン差をこの 1 構造体で統一的に扱える。",
+    "sample": "FXrControllerState c = xr.RightController();\nif (c.button_a) Jump();\nFVec2 move = c.thumbstick;   // [-1,1] スティック"
+  }
+}

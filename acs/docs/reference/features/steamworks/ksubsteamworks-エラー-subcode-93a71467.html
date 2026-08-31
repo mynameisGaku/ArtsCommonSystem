@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TResult が Err の時に err.subcode で原因を見分けるための定数群(カテゴリは ErrCategory::Generic)。 実装固有の失敗理由を表します。">
+  <title>kSubSteamworks* (エラー subcode) — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/steamworks.html">steamworks モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/steamworks.html">steamworks モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/steamworks.html">steamworks モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/steamworks.html">steamworks</a><span>/</span><span aria-current="page">kSubSteamworks* (エラー subcode)</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / steamworks</div><h1 class="identifier">kSubSteamworks* (エラー subcode)</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29318">TResult</button><span class="term-tooltip" id="term-tip-29318" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span> が <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29319">Err</button><span class="term-tooltip" id="term-tip-29319" role="tooltip">TResult が失敗を表す側。 err.subcode で原因を見分ける。 成功側は Ok。</span></span> の時に err.<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29320">subcode</button><span class="term-tooltip" id="term-tip-29320" role="tooltip">エラーコードの細目番号。 ACS の Result が持つ FErrorCode.subcode で、どの段階・原因の失敗かを区別する。 AssetPack は 1300 番台を使う。</span></span> で原因を見分けるための定数群(カテゴリは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29321">Err</button><span class="term-tooltip" id="term-tip-29321" role="tooltip">TResult が失敗を表す側。 err.subcode で原因を見分ける。 成功側は Ok。</span></span>Category::Generic)。 実装固有の失敗理由を表します。</p></div><div class="badges"><span class="badge">定数(u16)</span></div></header>
+
+<section class="section" id="usage"><h2>使う場面</h2><p>Init() 等が失敗した時、原因別に分岐したい場合に err.<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29312">subcode</button><span class="term-tooltip" id="term-tip-29312" role="tooltip">エラーコードの細目番号。 ACS の Result が持つ FErrorCode.subcode で、どの段階・原因の失敗かを区別する。 AssetPack は 1300 番台を使う。</span></span> == ... で照合する。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>steamworks</dd></div><div class="fact"><dt>分類</dt><dd>定数(u16)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>steamworks/SteamworksBridgeImpl.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-f58751a174aeab88aa18"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/steamworks/ksubsteamworksinitfailed-62758a5f.html">kSubSteamworksInitFailed</a> = 1003</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29313">Steam</button><span class="term-tooltip" id="term-tip-29313" role="tooltip">Valve のゲーム配信プラットフォーム。 実績・フレンド・クラウドセーブ等の機能を Steamworks SDK 経由で使える。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29314">API</button><span class="term-tooltip" id="term-tip-29314" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span>_Init() が失敗した(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29315">Steam</button><span class="term-tooltip" id="term-tip-29315" role="tooltip">Valve のゲーム配信プラットフォーム。 実績・フレンド・クラウドセーブ等の機能を Steamworks SDK 経由で使える。</span></span> 未起動 / AppID 不一致 等)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/steamworks/ksubsteamworksinitfailed-62758a5f.html"><code>acs::steamworks::kSubSteamworksInitFailed</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-2a873584114f4046cf48"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/steamworks/ksubsteamworksfindboardfailed-19a1420c.html">kSubSteamworksFindBoardFailed</a> = 1004</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>FindLeaderboard に失敗した。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/steamworks/ksubsteamworksfindboardfailed-19a1420c.html"><code>acs::steamworks::kSubSteamworksFindBoardFailed</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-ded4e3cbe393ad6afa39"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/steamworks/ksubsteamworksuploadfailed-1f61cf3c.html">kSubSteamworksUploadFailed</a> = 1005</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>UploadLeaderboardScore に失敗した。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/steamworks/ksubsteamworksuploadfailed-1f61cf3c.html"><code>acs::steamworks::kSubSteamworksUploadFailed</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-f7e405c01c21d8a590d6"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/steamworks/ksubsteamworksdownloadfailed-d8b6e283.html">kSubSteamworksDownloadFailed</a> = 1006</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>DownloadLeaderboardEntries に失敗した。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/steamworks/ksubsteamworksdownloadfailed-d8b6e283.html"><code>acs::steamworks::kSubSteamworksDownloadFailed</code></a> <span class="kind-label">定数</span></dd></div></dl></article><article class="card" id="member-5255b055966a5243bdb8"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code><a href="../../symbols/steamworks/ksubsteamworkstimeout-9a9139c2.html">kSubSteamworksTimeout</a> = 1007</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29316">非同期</button><span class="term-tooltip" id="term-tip-29316" role="tooltip">処理の完了を待たずに先へ進み、結果は後で受け取るやり方。 重い読み込みなどで画面を止めない。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29317">API</button><span class="term-tooltip" id="term-tip-29317" role="tooltip">ライブラリの機能を外から使うための窓口(関数や型の取り決め)。 例: ネットワークは WinSock をくるんだ薄い API として提供される。</span></span> が完了せずタイムアウトした。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/steamworks/ksubsteamworkstimeout-9a9139c2.html"><code>acs::steamworks::kSubSteamworksTimeout</code></a> <span class="kind-label">定数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="kSubSteamworks* (エラー subcode)の使用例"><code>auto r = steam.Init();
+if (r.IsErr() &amp;&amp; r.Error().subcode
+        == acs::steamworks::kSubSteamworksInitFailed) {
+    // Steam クライアント未起動など
+}</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

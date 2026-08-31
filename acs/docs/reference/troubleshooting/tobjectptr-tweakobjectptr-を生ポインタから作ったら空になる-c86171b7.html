@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ACSのTObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になるに関する確認項目です。">
+  <title>TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる — ACS リファレンス</title>
+  <link rel="stylesheet" href="../assets/css/reference.css">
+  <script src="../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../guide.html">はじめる</a><a href="../index.html">API</a><a href="../search.html">検索</a><a href="../glossary.html">用語集</a><a href="../troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../index.html">リファレンス概要</a><a href="../guide.html">はじめる</a><a href="../search.html">機能とAPIを検索</a><a href="../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../index.html">リファレンス</a><span>/</span><a href="../troubleshooting.html">問題を調べる</a><span>/</span><span aria-current="page">TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS トラブルシューティング</div><h1>TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる</h1></div></header>
+<section class="section"><h2>症状</h2><p>TObjectPtr / TWeakObjectPtr を生<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29798">ポインタ</button><span class="term-tooltip" id="term-tip-29798" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>から作ったら空になる</p></section><section class="section"><h2>tags</h2><ul><li><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29799">スマートポインタ</button><span class="term-tooltip" id="term-tip-29799" role="tooltip">確保したメモリを自動で解放してくれるポインタ風オブジェクト。 手で delete しなくてよい。 RAII の代表例。</span></span></li><li><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29800">AObject</button><span class="term-tooltip" id="term-tip-29800" role="tooltip">参照カウント管理されるオブジェクトの基底。 生ポインタからも強/弱参照を作れる。</span></span></li></ul></section><section class="section"><h2>対処</h2><p>その対象が NewObject&lt;T&gt;() 経由で作られていないと、内部の制御ブ<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29801">ロック</button><span class="term-tooltip" id="term-tip-29801" role="tooltip">データを守るための『鍵』。 取った人だけが対象を触れ、他は解放されるまで待つ。</span></span>が無く空になります。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29802">AObject</button><span class="term-tooltip" id="term-tip-29802" role="tooltip">参照カウント管理されるオブジェクトの基底。 生ポインタからも強/弱参照を作れる。</span></span> 派生は NewObject で生成してください(<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29803">スタック</button><span class="term-tooltip" id="term-tip-29803" role="tooltip">関数の呼び出しに沿って自動で確保/解放される高速なメモリ。 寿命はスコープに縛られる。</span></span>や素の new ではダメ)。</p></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+  </div>
+</body>
+</html>

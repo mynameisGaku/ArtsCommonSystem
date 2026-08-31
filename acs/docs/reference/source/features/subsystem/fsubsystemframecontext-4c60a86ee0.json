@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "subsystem",
+    "title": "subsystem — 所有単位の機能",
+    "description": "ownerと寿命を持つ共有機能を登録、取得、更新する基盤。"
+  },
+  "feature": {
+    "name": "FSubsystemFrameContext",
+    "kind": "構造体",
+    "header": "subsystem/SubsystemFrameContext.h",
+    "summary": "一回のsubsystem更新へ渡す時間と更新段階。",
+    "when": "ownerがsubsystem collectionをframe更新する時。",
+    "members": [
+      {
+        "sig": "f32 scaled_delta_seconds",
+        "desc": "時間倍率を反映した経過秒。"
+      },
+      {
+        "sig": "f32 unscaled_delta_seconds",
+        "desc": "時間倍率を反映しない経過秒。"
+      },
+      {
+        "sig": "u64 frame_number",
+        "desc": "呼び出し元が管理するframe番号。"
+      },
+      {
+        "sig": "ESubsystemTickPhase phase",
+        "desc": "今回呼び出す更新段階。"
+      }
+    ]
+  }
+}

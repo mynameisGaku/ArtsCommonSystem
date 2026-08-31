@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EEditorState",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/inspector/EditorToolbar.h",
+    "summary": "AEditorToolbar が保持する editor の再生状態。 Playing / Paused / Stepping の 3 値で、CGame の TimeScale 反映 (Play=通常値 / Pause=0) と 1 step 進行を表す。",
+    "when": "ツールバーの再生制御状態を読み取りたい時 (AEditorToolbar::State() の戻り値)。",
+    "members": [
+      {
+        "sig": "Playing = 0",
+        "desc": "通常実行中 (TimeScale = m_NormalTimeScale)。"
+      },
+      {
+        "sig": "Paused = 1",
+        "desc": "一時停止中 (TimeScale = 0)。"
+      },
+      {
+        "sig": "Stepping = 2",
+        "desc": "1 fixed step だけ進める一時状態。 本フレームで Playing 相当の dt を 1 回処理した後 Paused に復帰する。"
+      }
+    ]
+  }
+}

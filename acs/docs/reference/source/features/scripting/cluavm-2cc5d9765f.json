@@ -1,0 +1,83 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "scripting",
+    "title": "scripting — スクリプト(Lua)連携",
+    "description": "ゲームの一部のロジックを C++ を再ビルドせずに Lua スクリプトで書けるようにするモジュール。 Lua 5.4 の本物の VM を CLuaVm として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。"
+  },
+  "feature": {
+    "name": "CLuaVm",
+    "kind": "クラス",
+    "header": "scripting/LuaVm.h",
+    "summary": "Lua 5.4 の本物のVM。 スクリプト文字列を読み込んで実行し、Lua の関数呼び出し / C++ 関数の登録 / グローバル変数の読み書き / GC ができる。 gameframework の IScriptVm インターフェースを実装しており、Pimpl で lua_State* を隠すので Lua のヘッダを include せずに使える。",
+    "when": "ゲームに『プレイヤーやモッダーが書き換えられるロジック』を入れたい時。 UI イベント・カットシーン・Mod フック・データ駆動のクエスト等、毎フレームの決定論が要らない部分に向く(物理や当たり判定など決定論が必要な所では使わない)。",
+    "sample": "acs::scripting::CLuaVm vm;\nif (vm.Init().IsOk()) {\n    vm.LoadScript(\"function add(a,b) return a+b end\", 0, \"inline\");\n    acs::game::FScriptValue args[2];\n    args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;\n    args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;\n    acs::game::FScriptValue ret;\n    vm.CallFunction(\"add\", args, 2, &ret);\n    vm.Shutdown();\n}",
+    "members": [
+      {
+        "sig": "CLuaVm() noexcept",
+        "desc": "VM を生成する(まだ初期化はされていない)。 コピー / ムーブはできない(単一所有運用)。"
+      },
+      {
+        "sig": "explicit CLuaVm(IAllocator& allocator) noexcept",
+        "desc": "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。 VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。 確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。"
+      },
+      {
+        "sig": "TResult<void> Init() noexcept",
+        "ret": "成否",
+        "desc": "Lua の状態(lua_State)を作り、標準ライブラリを開く。 これを呼ぶまで LoadScript / CallFunction は失敗してよい。",
+        "when": "VM を使い始める最初に 1 回だけ呼ぶ。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "desc": "Lua の状態を破棄する(lua_close 相当)。 登録した NativeFunction もここで無効になる。"
+      },
+      {
+        "sig": "EScriptLanguage Language() const noexcept",
+        "ret": "言語タグ",
+        "desc": "常に EScriptLanguage::Lua54 を返す。"
+      },
+      {
+        "sig": "TResult<void> LoadScript(const char* source, u32 source_len, const char* chunk_name) noexcept",
+        "ret": "成否",
+        "desc": "スクリプト文字列を 1 つの『chunk』として読み込み、即時実行する(luaL_dostring 相当)。 source_len に 0 を渡すと source の長さを自動判定。 chunk_name はエラー表示用の名前(ファイル名等)。",
+        "when": "Lua ソースを読み込んで実行したい時。 文字列は所有されないので呼び出し側が寿命を保証する。",
+        "sample": "vm.LoadScript(\"print('hello')\", 0, \"boot.lua\");"
+      },
+      {
+        "sig": "TResult<void> CallFunction(const char* function_name, const FScriptValue* args, u32 arg_count, FScriptValue* ret_out) noexcept",
+        "ret": "成否",
+        "desc": "Lua のグローバル関数を呼ぶ。 args / arg_count で引数を渡し、ret_out に戻り値を受け取る(nullptr で戻り値を捨てる)。 未登録関数や実行時エラーは失敗で返る。",
+        "when": "C++ から Lua 側のロジック(イベントハンドラ等)を呼びたい時。"
+      },
+      {
+        "sig": "TResult<void> RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept",
+        "ret": "成否",
+        "desc": "C++ の関数を Lua のグローバル空間に登録し、Lua 側から名前で呼べるようにする。 user は呼び出し時に NativeFunction の第 3 引数へそのまま渡る。 同じVMへの登録再入は拒否し、失敗時はstack・登録簿・同名globalの復元を試みる。 復元中にLuaのメモリ不足が再発した場合だけglobal値を保証しない。 Lua側へ退避された失敗closureは登録IDで後続登録から分離される。 登録簿確保失敗はIDを消費せず、最大IDの公開開始後は再初期化しても後続登録を恒久拒否する。",
+        "when": "Lua スクリプトから C++ のゲーム機能(音を鳴らす・スポーンする等)を呼ばせたい時。",
+        "sample": "vm.RegisterNativeFunction(\"PlaySound\", &OnPlaySound, this);"
+      },
+      {
+        "sig": "void SetGlobalNumber(const char* name, f64 value) noexcept",
+        "desc": "Lua のグローバル数値変数を設定する。 スクリプト側から name で参照できる。"
+      },
+      {
+        "sig": "f64 GetGlobalNumber(const char* name, f64 default_value) const noexcept",
+        "ret": "数値",
+        "desc": "Lua のグローバル数値変数を読む。 未定義 / 型が違う時は default_value を返す。"
+      },
+      {
+        "sig": "void CollectGarbage() noexcept",
+        "desc": "GC を 1 サイクル強制実行する(lua_gc(LUA_GCCOLLECT) 相当)。 フレーム境界で明示的に呼ぶ運用が推奨。"
+      },
+      {
+        "sig": "u64 MemoryUsageBytes() const noexcept",
+        "ret": "バイト数",
+        "desc": "VM が現在使っているメモリ量(近似)。 デバッグ HUD 等に。"
+      },
+      {
+        "sig": "using FLuaVm = CLuaVm",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CLuaVm を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="共有状態から指定した購読を解除する。 State: 解除元の共有状態。 Handle: 解除する購読のハンドル。">
+  <title>acs::TEvent::UnsubscribeState — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/event.html">event モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/event.html">event モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/event.html">event モジュール</a><a href="../tevent-69ac0c6b.html">TEvent の概要</a><a class="tree-child" href="addsubscription-93e1fdb4.html">AddSubscription</a><a class="tree-child" href="clear-09642c54.html">Clear</a><a class="tree-child" href="collectreusableslots-2b0d1939.html">CollectReusableSlots</a><a class="tree-child" href="fcallback-402b9ad4.html">FCallback</a><a class="tree-child" href="fslot-a259c3c9.html">FSlot</a><a class="tree-child" href="fstate-f7eb120b.html">FState</a><a class="tree-child" href="fsubscription-e4030c04.html">FSubscription</a><a class="tree-child" href="ispublishing-eee0f68d.html">IsPublishing</a><a class="tree-child" href="issubscribed-e7b78289.html">IsSubscribed</a><a class="tree-child" href="issubscribedstate-ac64824b.html">IsSubscribedState</a><a class="tree-child" href="m-state-b65e4d36.html">m_State</a><a class="tree-child" href="operator-b18dd1a7.html">operator=</a><a class="tree-child" href="operator-d06749d0.html">operator=</a><a class="tree-child" href="publish-e9d3a90a.html">Publish</a><a class="tree-child" href="retireslot-4d32646c.html">RetireSlot</a><a class="tree-child" href="subscribe-d3098cd6.html">Subscribe</a><a class="tree-child" href="subscribeonce-86f1f929.html">SubscribeOnce</a><a class="tree-child" href="subscribeoncewithpriority-4d914c2a.html">SubscribeOnceWithPriority</a><a class="tree-child" href="subscribeowned-c2df91e9.html">SubscribeOwned</a><a class="tree-child" href="subscribewithpriority-378ba4d9.html">SubscribeWithPriority</a><a class="tree-child" href="subscriptioncount-38d3d05c.html">SubscriptionCount</a><a class="tree-child" href="tevent-1789dacd.html">TEvent</a><a class="tree-child" href="tevent-18517331.html">TEvent</a><a class="tree-child" href="tevent-a1ff6c11.html">TEvent</a><a class="tree-child" href="trycopysubscriptionhandles-c95362de.html">TryCopySubscriptionHandles</a><a class="tree-child" href="trygetpriority-237156a9.html">TryGetPriority</a><a class="tree-child" href="unsubscribe-171c4227.html">Unsubscribe</a><a class="tree-child" href="unsubscribestate-ce683d25.html" aria-current="page">UnsubscribeState</a><a class="tree-child" href="tevent-a3cfd099.html">~TEvent</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/event.html">event</a><span>/</span><a href="../tevent-69ac0c6b.html">TEvent</a><span>/</span><span aria-current="page">UnsubscribeState</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / event</div>
+<h1 class="identifier">acs::TEvent::UnsubscribeState</h1>
+<p class="lead">共有<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2665">状態</button><span class="term-tooltip" id="term-tip-2665" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>から指定した<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2666">購読</button><span class="term-tooltip" id="term-tip-2666" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>を解除する。 State: 解除元の共有<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2667">状態</button><span class="term-tooltip" id="term-tip-2667" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>。 Handle: 解除する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2668">購読</button><span class="term-tooltip" id="term-tip-2668" role="tooltip">値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。</span></span>の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-2669">ハンドル</button><span class="term-tooltip" id="term-tip-2669" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::TEvent::UnsubscribeStateの宣言"><code>static bool <a href="unsubscribestate-ce683d25.html" aria-current="page">UnsubscribeState</a>(<a href="fstate-f7eb120b.html">FState</a>&amp; State, <a href="../ftypedeventhandle-6fa0a28c.html">FTypedEventHandle</a> <a href="../teventsubscription-725777bc/handle-c87ea689.html">Handle</a>) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/event.html">event</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../tevent-69ac0c6b.html"><code>acs::TEvent</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/event/TypedEvent.h:198</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

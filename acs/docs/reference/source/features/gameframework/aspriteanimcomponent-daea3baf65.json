@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "ASpriteAnimComponent",
+    "kind": "クラス",
+    "header": "gameframework/SpriteAnimComponent.h",
+    "summary": "CSpriteAnimator(時間→フレーム) と ASprite2DComponent(UV 矩形) を橋渡しするコンポーネント。 同じノードのスプライトの UV を毎フレーム書き換えてスプライトシートアニメを再生する。",
+    "when": "歩行・攻撃などのコマ送りアニメをスプライトに付けたい時。 グリッドシートか名前付きフレーム列から作れる。",
+    "sample": "auto& anim = node->AddComponent<ASpriteAnimComponent>();\nanim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f);\nanim.Play();",
+    "members": [
+      {
+        "sig": "void InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps, EPlayMode mode = EPlayMode::Loop)",
+        "desc": "テクスチャを格子に等分し、先頭から frame_count 枚を順に再生する。",
+        "when": "1 枚を等間隔セルに割ったよくあるシートの時。"
+      },
+      {
+        "sig": "void BeginFrames(f32 fps, EPlayMode mode) / void AddFrameUv(FVec4 uv) / void EndFrames()",
+        "desc": "任意の UV コマ列を積んでアニメ列を作る。 FSpritePack の ComputeUv と組み合わせる。"
+      },
+      {
+        "sig": "void Play() / Pause() / Stop()",
+        "desc": "再生 / 一時停止 / 停止 (先頭へ)。"
+      },
+      {
+        "sig": "void SetFps(f32 fps)",
+        "desc": "再生速度を変える。"
+      },
+      {
+        "sig": "bool IsPlaying() / IsFinished() const",
+        "desc": "再生中か / Once モードで終わったか。"
+      },
+      {
+        "sig": "u32 CurrentFrame() const",
+        "ret": "現フレーム",
+        "desc": "今表示中のフレーム番号。"
+      },
+      {
+        "sig": "CSpriteAnimator& Animator()",
+        "ret": "下位アニメータ",
+        "desc": "フレームイベント登録など細かい制御をしたい時に直接触る。"
+      }
+    ]
+  }
+}

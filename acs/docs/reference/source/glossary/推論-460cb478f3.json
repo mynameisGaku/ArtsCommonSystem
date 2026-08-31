@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "推論",
+  "definition": "学習済みモデルに入力を与えて出力(予測・分類など)を計算すること。 学習(training)ではなく実行(inference)の側。"
+}

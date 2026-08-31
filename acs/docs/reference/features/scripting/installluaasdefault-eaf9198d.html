@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="gameframework の『既定 ScriptVm provider』に GetDefaultLuaVm を登録する。 これを呼ぶと、以降 acs::game::GetDefaultScriptVm() が 本物の Lua 5.4 VM を返すようになる。">
+  <title>InstallLuaAsDefault() — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/scripting.html">scripting モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/scripting.html">scripting モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/scripting.html">scripting</a><span>/</span><span aria-current="page">InstallLuaAsDefault()</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / scripting</div><h1 class="identifier">InstallLuaAsDefault()</h1>
+<p class="lead">gameframework の『既定 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29183">ScriptVm</button><span class="term-tooltip" id="term-tip-29183" role="tooltip">スクリプト(Lua など)を読み込んで実行する仮想マシン。 IScriptVm 越しに backend を差し替えられる。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29184">provider</button><span class="term-tooltip" id="term-tip-29184" role="tooltip">『既定の実装を返す関数』を後から登録する仕組み。 登録するとアプリ全体の既定実装が差し替わる。</span></span>』に GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29185">Lua</button><span class="term-tooltip" id="term-tip-29185" role="tooltip">ゲーム組み込みで広く使われる軽量スクリプト言語。 C++ を再ビルドせずにロジックを差し替えられる。</span></span>Vm を登録する。 これを呼ぶと、以降 acs::game::GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29186">ScriptVm</button><span class="term-tooltip" id="term-tip-29186" role="tooltip">スクリプト(Lua など)を読み込んで実行する仮想マシン。 IScriptVm 越しに backend を差し替えられる。</span></span>() が 本物の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29187">Lua 5.4</button><span class="term-tooltip" id="term-tip-29187" role="tooltip">Lua の安定版の 1 つ。 ACS が CLuaVm として同梱する本物のランタイム。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29188">VM</button><span class="term-tooltip" id="term-tip-29188" role="tooltip">Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。</span></span> を返すようになる。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/scripting/installluaasdefault-53f3a7b2.html"><code>acs::scripting::InstallLuaAsDefault</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>アプリ起動時に 一度だけ呼ぶ。 これにより上位コードは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29180">backend</button><span class="term-tooltip" id="term-tip-29180" role="tooltip">インターフェースの裏で実際に仕事をする具象実装。 ここでは OpenXR ローダ等の XR 実装本体。</span></span> を意識せず GetDefault<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29181">ScriptVm</button><span class="term-tooltip" id="term-tip-29181" role="tooltip">スクリプト(Lua など)を読み込んで実行する仮想マシン。 IScriptVm 越しに backend を差し替えられる。</span></span>() だけで実 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29182">VM</button><span class="term-tooltip" id="term-tip-29182" role="tooltip">Virtual Machine。 スクリプトを読み込んで実行する仮想機械。 CLuaVm は Lua の VM。</span></span> を取得でき、#if 分岐がこの 1 箇所だけで済む。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>scripting</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>scripting/LuaVm.h</dd></div></dl></section>
+
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="InstallLuaAsDefault()の使用例"><code>// アプリ起動時 (一度だけ)
+#if WITH_ACS_SCRIPTING
+    acs::scripting::InstallLuaAsDefault();
+#endif
+// 以降どこでも:
+acs::game::IScriptVm&amp; vm = acs::game::GetDefaultScriptVm(); // 実 Lua VM</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FMat4",
+    "kind": "構造体",
+    "header": "math/Mat.h",
+    "summary": "4x4 行列。 平行移動・回転・拡大縮小、ビュー変換、投影変換を 1 つにまとめて表せる。 行優先レイアウトで DirectXMath に委譲。",
+    "when": "オブジェクトのワールド行列、カメラのビュー行列、投影行列を作って GPU に送る時。 3D 描画の心臓部。",
+    "sample": "FMat4 t = FMat4::Translation({0,1,0});\nFMat4 r = FMat4::RotationY(kHalfPi);\nFMat4 world = r * t;           // まず回転、次に移動\nFMat4 proj = FMat4::PerspectiveFovLH(kHalfPi, 16.0f/9.0f, 0.1f, 1000.0f);\nFMat4 forGpu = Transpose(world); // HLSL 列優先へ送る前に転置",
+    "members": [
+      {
+        "sig": "static FMat4 Identity()",
+        "ret": "単位行列",
+        "desc": "何も変換しない単位行列。 デフォルトコンストラクタも単位行列。"
+      },
+      {
+        "sig": "static FMat4 Translation(FVec3 t)",
+        "ret": "平行移動行列",
+        "desc": "t だけ位置をずらす行列。"
+      },
+      {
+        "sig": "static FMat4 Scale(FVec3 s)",
+        "ret": "拡大縮小行列",
+        "desc": "各軸を s 倍する行列。"
+      },
+      {
+        "sig": "static FMat4 RotationX/Y/Z(f32 rad)",
+        "ret": "回転行列",
+        "desc": "指定軸まわりに rad ラジアン回す行列。"
+      },
+      {
+        "sig": "static FMat4 PerspectiveFovLH/RH(fov_y, aspect, near, far)",
+        "ret": "投影行列",
+        "desc": "透視投影（遠近感あり）。 LH=左手系、RH=右手系。 aspect は画面の横/縦比。"
+      },
+      {
+        "sig": "static FMat4 OrthoLH(width, height, near, far)",
+        "ret": "投影行列",
+        "desc": "正射影（遠近感なし）。 2D や UI、見下ろし視点に。"
+      },
+      {
+        "sig": "static FMat4 LookAtLH/RH(FVec3 eye, FVec3 at, FVec3 up)",
+        "ret": "ビュー行列",
+        "desc": "eye（視点）から at（注視点）を見るカメラ行列。 up は上方向。"
+      }
+    ]
+  }
+}

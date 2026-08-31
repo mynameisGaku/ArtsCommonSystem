@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AES-256-GCM",
+  "definition": "256bit 鍵の共通鍵暗号化方式。 暗号化と同時に改竄検知(認証タグ)も行う AEAD。"
+}

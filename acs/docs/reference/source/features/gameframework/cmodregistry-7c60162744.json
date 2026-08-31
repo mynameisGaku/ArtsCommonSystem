@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CModRegistry",
+    "kind": "クラス",
+    "header": "gameframework/ModRegistry.h",
+    "summary": "ユーザー Mod (追加コンテンツパック) の登録・有効化・並び順を管理する薄いレジストリ。 各 Mod は .acpak を伴い、load_order 順に重ねていく (後勝ちで同名アセットを上書き) 想定。",
+    "when": "Mod 対応ゲームで、Editor UI から Mod 一覧を出し、有効/無効や読み込み順を管理したい時。 実際の mount は別レイヤ (本体は path を保持するだけ)。",
+    "sample": "CModRegistry mr;\nFModInfo a{}; a.id=\"core\"; a.load_order=0; a.enabled=true;\na.pack_path=\"mods/core.acpak\";\nmr.Register(a);\nmr.Enable(\"weapons-ex\");\nmr.SortByLoadOrder();\nfor (u32 i=0; i<mr.Count(); ++i)\n    if (mr.All()[i].enabled) MountPack(mr.All()[i].pack_path);",
+    "members": [
+      {
+        "sig": "void Register(const FModInfo& info)",
+        "desc": "Mod を末尾に追加 (浅いコピー、文字列の寿命は呼び出し側保証)。 id==nullptr は無視。"
+      },
+      {
+        "sig": "bool Enable(const char* id) / bool Disable(const char* id)",
+        "desc": "enabled フラグを書き換え。 見つかれば true。"
+      },
+      {
+        "sig": "void SetLoadOrder(const char* id, i32 order)",
+        "desc": "load_order を変更 (sort は別途)。 見つからなければ no-op。"
+      },
+      {
+        "sig": "u32 Count() const",
+        "desc": "登録 Mod 数。"
+      },
+      {
+        "sig": "const FModInfo* Find(const char* id) const",
+        "desc": "id から Mod を引く。 未検出は nullptr。"
+      },
+      {
+        "sig": "const FModInfo* All() const",
+        "desc": "生バッファ先頭 (長さは Count())。",
+        "when": "全 Mod を順に列挙する時。"
+      },
+      {
+        "sig": "void SortByLoadOrder()",
+        "desc": "load_order 昇順に安定ソート (同値は登録順を保つ)。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全 Mod を削除。"
+      },
+      {
+        "sig": "using FModRegistry = CModRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CModRegistry を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FReportRecord",
+    "kind": "構造体",
+    "header": "gameframework/SocialModeration.h",
+    "summary": "通報 1 件分の情報。 通報対象 / 通報者 / 種別 / 自由記述 / 時刻を持つ。 文字列はすべて非所有 (寿命は呼び出し側保証)。",
+    "when": "CSocialModeration::SubmitReport に渡す前に組み立てる。",
+    "sample": "FReportRecord r{};\nr.reported_user_id = targetId;\nr.reporter_user_id = myId;\nr.category = EReportCategory::Spam;\nr.note = \"広告連投\";\nr.timestamp = NowUnixSec();",
+    "members": [
+      {
+        "sig": "const char* reported_user_id / reporter_user_id / note",
+        "desc": "通報対象 / 通報者 / 自由記述 (非所有)。"
+      },
+      {
+        "sig": "EReportCategory category",
+        "desc": "通報種別。"
+      },
+      {
+        "sig": "u64 timestamp",
+        "desc": "通報時刻 (呼び出し側基準の単調増加値)。"
+      }
+    ]
+  }
+}

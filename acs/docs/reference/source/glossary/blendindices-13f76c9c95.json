@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "BLENDINDICES",
+  "definition": "スキンメッシュ頂点が影響を受けるボーンの番号を持つ HLSL セマンティック。 GPU スキニングで ボーンパレットを引くのに使う。"
+}

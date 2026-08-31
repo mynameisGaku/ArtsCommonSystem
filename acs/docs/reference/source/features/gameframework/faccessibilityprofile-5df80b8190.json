@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAccessibilityProfile",
+    "kind": "クラス",
+    "header": "gameframework/AccessibilityProfile.h",
+    "summary": "色覚補正・モーション低減・字幕・片手操作などのアクセシビリティ設定を保持する箱。 値を持つだけで、実際の適用 (LUT 差し替え / 字幕表示など) はレンダラや UI 側が Get() で読んで行う。",
+    "when": "近代タイトル並みの配慮機能を 1 箇所で管理したい時。 CGame に 1 個だけ持たせる想定 (非コピー・非ムーブ)。",
+    "sample": "FAccessibilityProfile prof;\nprof.ApplyPreset(EPreset::Dyslexia);     // 識字困難向け一括設定\nprof.SetScreenShakeScale(0.5f);          // 画面振動を半分に\nif (prof.AreSubtitlesEnabled()) ShowSubtitles();",
+    "members": [
+      {
+        "sig": "void Set(const FAccessibilitySettings& s)",
+        "desc": "UI から受け取ったスナップショットで全フィールドを上書きする。"
+      },
+      {
+        "sig": "const FAccessibilitySettings& Get() const",
+        "ret": "現在の設定",
+        "desc": "今の設定値一式を const 参照で取り出す。 レンダラ/UI が毎フレーム pull する。"
+      },
+      {
+        "sig": "void ApplyPreset(EPreset p)",
+        "desc": "プリセット (Dyslexia / ADHD / Autism / Aphasia / AAC / OneHanded など) を適用する。 現値を破棄して上書き。",
+        "when": "「とりあえずこの特性向けの推奨設定」を一発で入れたい時。"
+      },
+      {
+        "sig": "void Reset()",
+        "desc": "全フィールドを既定値 (補正なし) に戻す。"
+      },
+      {
+        "sig": "void SetColorblindMode(EColorblindMode m) / void SetMotionReduction(EMotionReduction m) / void SetTextSize(ETextSize s)",
+        "desc": "色覚補正モード・モーション低減・文字サイズを個別に設定する。"
+      },
+      {
+        "sig": "void SetScreenShakeScale(f32 s) / void SetFlashIntensityScale(f32 s)",
+        "desc": "画面振動・フラッシュの強さの係数 (1.0=フル, 0.0=完全カット) を設定する。"
+      },
+      {
+        "sig": "bool AreSubtitlesEnabled() const / bool IsOneHandedMode() const ...",
+        "desc": "各機能が有効かを個別に問い合わせる getter 群。"
+      }
+    ]
+  }
+}

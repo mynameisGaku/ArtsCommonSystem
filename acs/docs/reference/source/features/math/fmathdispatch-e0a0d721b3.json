@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FMathDispatch",
+    "kind": "構造体・関数",
+    "header": "math/MathDispatch.h",
+    "summary": "N 個のベクトルを一括変換するようなバッチ演算を、起動時に検出した CPU 機能に応じた最適実装へ振り分ける関数ポインタテーブル。",
+    "when": "大量の点や方向ベクトルを 1 つの行列でまとめて変換する時。 1 個ずつ TransformPoint を呼ぶより速い。",
+    "sample": "FVec3 in[1000], out[1000];\nFMat4 world = FMat4::Translation({0,1,0});\nTransformPoints(in, out, 1000, world);   // 一括変換\nTransformVectors(normals, out, 1000, world);",
+    "members": [
+      {
+        "sig": "void TransformPoints(const FVec3* in, FVec3* out, usize count, const FMat4& m)",
+        "desc": "count 個の点をまとめて行列変換する（移動成分も効く）。"
+      },
+      {
+        "sig": "void TransformVectors(const FVec3* in, FVec3* out, usize count, const FMat4& m)",
+        "desc": "count 個の方向ベクトルをまとめて変換する（移動成分は無視）。"
+      },
+      {
+        "sig": "const FMathDispatch& GetMathDispatch()",
+        "ret": "ディスパッチテーブル",
+        "desc": "選ばれた関数ポインタ群を取得（初回で初期化）。 通常は上の利便関数で十分。"
+      }
+    ]
+  }
+}

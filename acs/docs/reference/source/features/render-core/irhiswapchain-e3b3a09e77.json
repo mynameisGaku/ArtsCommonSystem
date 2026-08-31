@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "IRhiSwapchain",
+    "kind": "インターフェース",
+    "header": "render/IRhiSwapchain.h",
+    "summary": "画面に表示されるバックバッファを管理し、描き終えた絵を画面へ送り出すスワップチェイン。 ダブル/トリプルバッファで描画と表示を分ける。",
+    "when": "毎フレーム「描く前にバックバッファを取得」「描いた後に提示」する。 普通は CRenderer が裏で扱う。",
+    "sample": "u32 idx = sc->AcquireNextImage();    // 次に書けるバッファを取得\n// ... idx へ描画 ...\nif (!sc->Present()) { /* device loss: 描画ループを停止 */ }",
+    "members": [
+      {
+        "sig": "u32 AcquireNextImage()",
+        "ret": "バックバッファ番号",
+        "desc": "次に書き込めるバックバッファをロックして取得する。"
+      },
+      {
+        "sig": "bool Present()",
+        "ret": "提示成功なら true",
+        "desc": "描き終えた絵を画面へ反映する。 backend/device failure は false。"
+      },
+      {
+        "sig": "bool Resize(u32 width, u32 height)",
+        "ret": "成功か",
+        "desc": "サイズ変更。 false のときは本フレームの描画をスキップし次フレームで再試行する。"
+      },
+      {
+        "sig": "u32 BufferCount() / Width() / Height() const",
+        "desc": "バックバッファ枚数 / 現在の解像度。"
+      }
+    ]
+  }
+}

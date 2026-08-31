@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="弾 1 発を指す軽量ハンドル。 24bit のインデックス + 8bit の世代番号を u32 に詰めたもの。 スロット再利用後の古い参照を検出できる。">
+  <title>FProjectileId — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">FProjectileId</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">FProjectileId</h1>
+<p class="lead">弾 1 発を指す軽量<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26330">ハンドル</button><span class="term-tooltip" id="term-tip-26330" role="tooltip">実体を間接的に指す軽い識別子 (多くは整数)。 ポインタの代わりに使い、安全な再利用や stale 検出を可能にする。</span></span>。 24bit の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26331">インデックス</button><span class="term-tooltip" id="term-tip-26331" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span> + 8bit の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26332">世代番号</button><span class="term-tooltip" id="term-tip-26332" role="tooltip">ハンドルに埋め込む小さなカウンタ。 スロット再利用後に古い参照を検出するために使う。</span></span>を u32 に詰めたもの。 スロット再利用後の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26333">古い参照</button><span class="term-tooltip" id="term-tip-26333" role="tooltip">対象の破棄や再利用によって無効になった参照です。</span></span>を検出できる。</p></div><div class="badges"><span class="badge">構造体</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/fprojectileid-94bae1fa.html"><code>acs::game::FProjectileId</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>発射した特定の弾を後から触りたい時 (追従先の指定や強制消去など)。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>構造体</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/ProjectileSystem.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-79b35e9d58904ece9324"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>bool <a href="../../symbols/gameframework/fprojectileid-94bae1fa/isvalid-77c737c5.html">IsValid</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>m_Packed != 0 なら有効。 発射失敗時は invalid。</dd></div><div class="fact"><dt>戻り値</dt><dd>有効か</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectileid-94bae1fa/isvalid-77c737c5.html"><code>acs::game::FProjectileId::IsValid</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-deb8b96ec5571b458f59"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>u32 <a href="../../symbols/gameframework/fprojectileid-94bae1fa/index-e72d623a.html">Index</a>() const / u8 <a href="../../symbols/gameframework/fprojectileid-94bae1fa/gen-791fd922.html">Gen</a>() const</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>詰め込まれた<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26328">インデックス</button><span class="term-tooltip" id="term-tip-26328" role="tooltip">頂点配列のどの点で三角形を作るかを示す番号の列。 同じ頂点を使い回せる。</span></span>と<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-26329">世代番号</button><span class="term-tooltip" id="term-tip-26329" role="tooltip">ハンドルに埋め込む小さなカウンタ。 スロット再利用後に古い参照を検出するために使う。</span></span>を取り出す。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectileid-94bae1fa/index-e72d623a.html"><code>acs::game::FProjectileId::Index</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/fprojectileid-94bae1fa/gen-791fd922.html"><code>acs::game::FProjectileId::Gen</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="FProjectileIdの使用例"><code>FProjectileId id = ps.Spawn(&quot;bullet&quot;, pos, vel, owner, 10.0f);
+if (id.IsValid()) ps.SetHomingTarget(id, enemyPos);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

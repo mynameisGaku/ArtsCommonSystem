@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SystemScheduler",
+  "definition": "SystemFn を登録し、毎フレーム登録順にまとめて呼ぶ実行器。 複数システムを一括で回すのに使う。"
+}

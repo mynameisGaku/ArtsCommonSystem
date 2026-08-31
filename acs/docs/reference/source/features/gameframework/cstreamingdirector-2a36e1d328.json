@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "CStreamingDirector",
+    "kind": "クラス",
+    "header": "gameframework/StreamingDirector.h",
+    "summary": "オープンワールド等でカメラ周辺のチャンクだけをロードし、範囲外をアンロードするストリーミング管理係。 各チャンク = 1 CAssetBundle を実ロードする (registry 未設定時は擬似ロードで動く)。",
+    "when": "全アセットを常駐できない広いマップで、視点に応じて読み込み / 解放を自動化したい時。",
+    "sample": "CStreamingDirector dir;\ndir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);\ndir.SetMaxConcurrentLoads(4);\n// 毎フレーム\ndir.SetViewerPos({ cam.x, cam.y });\ndir.Tick(dt);",
+    "members": [
+      {
+        "sig": "void Init(f32 chunk_size = 100.0f, i32 view_radius_chunks = 2)",
+        "desc": "1 チャンクの大きさと保持半径を設定。 半径 2 なら 5x5 = 25 チャンクを保つ。"
+      },
+      {
+        "sig": "void SetAssetRegistry(CAssetRegistry* registry) / CAssetRegistry* GetAssetRegistry() const",
+        "desc": "実アセットロード用 registry を差し込む / 取得する。 nullptr なら擬似ロード。"
+      },
+      {
+        "sig": "void SetChunkPathFormat(const char* fmt)",
+        "desc": "チャンク (cx,cy) → アセットパスの printf 風書式。 %d を 2 つこの順で含める。"
+      },
+      {
+        "sig": "void SetViewerPos(FVec2 pos)",
+        "desc": "カメラのワールド座標を更新する。"
+      },
+      {
+        "sig": "void SetMaxConcurrentLoads(u32 n)",
+        "desc": "同時ロード数の上限 (既定 4、0 は 1 に補正)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "範囲評価とロード / アンロードの状態遷移を 1 フレーム進める。",
+        "when": "毎フレーム SetViewerPos の後に呼ぶ。"
+      },
+      {
+        "sig": "EChunkState GetState(FChunkId id) const",
+        "ret": "状態",
+        "desc": "指定チャンクの現状態。 未登録は Unloaded。"
+      },
+      {
+        "sig": "u32 LoadedCount() / u32 LoadingCount() const",
+        "desc": "ロード済み / ロード中のチャンク数。 UI 表示などに。"
+      },
+      {
+        "sig": "void ForceUnload(FChunkId id) / void ClearAll()",
+        "desc": "1 チャンクを強制解放 / 全チャンク破棄 (シーン遷移時)。"
+      },
+      {
+        "sig": "using FStreamingDirector = CStreamingDirector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CStreamingDirector を使う。"
+      }
+    ]
+  }
+}

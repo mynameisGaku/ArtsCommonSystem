@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="フレーム時間を計測するタイマ (毎フレーム Tick を呼ぶ)。 前回 Tick からの経過秒を返しつつ、平滑化 dt・累積秒・累積フレーム数を更新する。">
+  <title>acs::FFrameTimer — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/platform.html">platform モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/platform.html">platform モジュール</a><a href="fframetimer-2855f63a.html" aria-current="page">FFrameTimer</a><a class="tree-child" href="fframetimer-2855f63a/fframetimer-9639fc78.html">FFrameTimer</a><a class="tree-child" href="fframetimer-2855f63a/framecount-1e5f033e.html">FrameCount</a><a class="tree-child" href="fframetimer-2855f63a/m-frames-22353760.html">m_Frames</a><a class="tree-child" href="fframetimer-2855f63a/m-lastticks-a9243b0c.html">m_LastTicks</a><a class="tree-child" href="fframetimer-2855f63a/m-smoothed-9db51873.html">m_Smoothed</a><a class="tree-child" href="fframetimer-2855f63a/m-total-65316894.html">m_Total</a><a class="tree-child" href="fframetimer-2855f63a/smootheddelta-f6093873.html">SmoothedDelta</a><a class="tree-child" href="fframetimer-2855f63a/smoothedfps-1fedddc0.html">SmoothedFPS</a><a class="tree-child" href="fframetimer-2855f63a/tick-8ed853c9.html">Tick</a><a class="tree-child" href="fframetimer-2855f63a/totalseconds-63991ddf.html">TotalSeconds</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/platform.html">platform</a><span>/</span><span aria-current="page">FFrameTimer</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">クラス / platform</div>
+<h1 class="identifier">acs::FFrameTimer</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16860">フレーム</button><span class="term-tooltip" id="term-tip-16860" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>時間を計測する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16861">タイマ</button><span class="term-tooltip" id="term-tip-16861" role="tooltip">時間を計る仕組み。 ACS では CClock（経過時間）と FFrameTimer（フレーム間 dt）。</span></span> (毎<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16862">フレーム</button><span class="term-tooltip" id="term-tip-16862" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span> Tick を呼ぶ)。 前回 Tick からの経過秒を返しつつ、平滑化 dt・累積秒・累積<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-16863">フレーム</button><span class="term-tooltip" id="term-tip-16863" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span>数を更新する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">クラス</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::FFrameTimerの宣言"><code>class <a href="fframetimer-2855f63a.html" aria-current="page">FFrameTimer</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/platform.html">platform</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>クラス</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/platform/Time.h:65</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="fframetimer-2855f63a/fframetimer-9639fc78.html"><span><span class="identifier">FFrameTimer() noexcept;</span><span class="summary">現在時刻を基準点にしてタイマを初期化する。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fframetimer-2855f63a/framecount-1e5f033e.html"><span><span class="identifier">u64 FrameCount() const noexcept;</span><span class="summary">これまでに計測した累積フレーム数を返す。 戻り値: Tick を呼んだ累積回数。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fframetimer-2855f63a/m-frames-22353760.html"><span><span class="identifier">u64 m_Frames = 0;</span><span class="summary">Tick を呼んだ累積フレーム数。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fframetimer-2855f63a/m-lastticks-a9243b0c.html"><span><span class="identifier">u64 m_LastTicks = 0;</span><span class="summary">前回 Tick 時の生 tick 値。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fframetimer-2855f63a/m-smoothed-9db51873.html"><span><span class="identifier">f32 m_Smoothed = 0.0f;</span><span class="summary">平滑化された dt (秒)。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fframetimer-2855f63a/m-total-65316894.html"><span><span class="identifier">f64 m_Total = 0.0;</span><span class="summary">クランプ後 dt の累積秒。</span></span><span class="kind-label">メンバー変数 →</span></a><a class="member-card" href="fframetimer-2855f63a/smootheddelta-f6093873.html"><span><span class="identifier">f32 SmoothedDelta() const noexcept;</span><span class="summary">平滑化された 1 フレームあたりの dt を返す。 戻り値: 指数移動平均で平滑化した dt (秒)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fframetimer-2855f63a/smoothedfps-1fedddc0.html"><span><span class="identifier">f32 SmoothedFPS() const noexcept;</span><span class="summary">平滑化 dt から求めた平均 FPS を返す。 戻り値: 平均 FPS (平滑化 dt が 0 のときは 0)。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fframetimer-2855f63a/tick-8ed853c9.html"><span><span class="identifier">f32 Tick() noexcept;</span><span class="summary">前回呼び出しからの経過秒を返し、内部状態を更新する。 dt は [0.0, 0.25] 秒にクランプする (ブレークポイント等で長時間停止した後の暴走防止)。 併せて指数移動平均で平滑化 dt を更新し、累積秒とフレーム数を進める。 戻り値: クランプ後の経過秒。</span></span><span class="kind-label">メンバー関数 →</span></a><a class="member-card" href="fframetimer-2855f63a/totalseconds-63991ddf.html"><span><span class="identifier">f64 TotalSeconds() const noexcept;</span><span class="summary">クランプ後 dt を積算した累積秒を返す。 戻り値: 累積経過秒。</span></span><span class="kind-label">メンバー関数 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

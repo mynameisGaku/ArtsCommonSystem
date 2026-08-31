@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CHealthSystem",
+    "kind": "クラス",
+    "header": "gameframework/HealthSystem.h",
+    "summary": "敵・プレイヤー・破壊可能オブジェクトの HP を一元管理する高レベル API。 FHealthId (slot+世代のハンドル) で entity を識別し、ダメージ適用・回復・蘇生・無敵時間付与を提供する。 死亡はコールバックで通知。",
+    "when": "複数の entity の HP・死亡・無敵時間 (i-frame) をまとめて扱いたい時。 属性ダメージは値をそのまま callback に伝えるだけで、倍率計算は呼び出し側の責務。",
+    "sample": "CHealthSystem hp;\nFHealthId player = hp.Spawn(100.0f);\nFHealthId enemy  = hp.Spawn(50.0f);\nif (hp.ApplyDamage(enemy, 30.0f, EDamageType::Fire)) {\n    // true = この一撃で致死\n}\nhp.SetInvulnerable(player, 0.5f);  // 被弾後の無敵 0.5 秒\nhp.Tick(dt);                        // 無敵タイマを進める",
+    "members": [
+      {
+        "sig": "FHealthId Spawn(f32 max_hp)",
+        "ret": "新しいハンドル",
+        "desc": "full HP で entity を登録。 max_hp<=0 は 1.0 にクランプ。"
+      },
+      {
+        "sig": "void Despawn(FHealthId id)",
+        "desc": "entity を破棄 (slot は世代を進めて再利用)。 古い id は以後無効。"
+      },
+      {
+        "sig": "bool ApplyDamage(FHealthId id, f32 amount, EDamageType type = EDamageType::Physical)",
+        "ret": "致死したか",
+        "desc": "ダメージ適用。 無敵中・死亡中・amount<=0 は no-op で false。 致死時は死亡確定 + DeathCallback 発火。"
+      },
+      {
+        "sig": "void Heal(FHealthId id, f32 amount)",
+        "desc": "回復 (max_hp で clamp)。 死亡中も HP は加算されるが復活はしない (Revive 専用)。"
+      },
+      {
+        "sig": "void SetInvulnerable(FHealthId id, f32 duration_sec)",
+        "desc": "一定秒間 無敵にする。 重ねがけは長い方で延長。",
+        "when": "被弾直後の i-frame を付ける時。"
+      },
+      {
+        "sig": "void Revive(FHealthId id, f32 hp_fraction = 1.0f)",
+        "desc": "死亡状態から復活 (生存中は no-op)。 hp_fraction で復活時 HP 割合を指定 (0 でも最低 1 HP)。"
+      },
+      {
+        "sig": "void SetMaxHp(FHealthId id, f32 new_max, bool refill)",
+        "desc": "最大 HP を変更。 refill=true で現在 HP も満タンに。"
+      },
+      {
+        "sig": "const FHealthState* GetState(FHealthId id)",
+        "desc": "HP 状態を参照 (無効 id は nullptr)。"
+      },
+      {
+        "sig": "f32 GetCurrentHp(...) / f32 GetHpFraction(...) / bool IsAlive(...) / bool IsInvulnerable(...)",
+        "desc": "現在 HP / HP 割合 / 生存判定 / 無敵判定。 HP バー表示などに。"
+      },
+      {
+        "sig": "u32 EntityCount() / u32 AliveCount()",
+        "desc": "全 entity 数 / 生存数。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "毎フレーム呼んで無敵タイマを進める driver。"
+      },
+      {
+        "sig": "void SetOnDeathCallback(DeathCallback cb, void* user)",
+        "desc": "死亡時の通知先を登録 (state 確定後に呼ばれる。 callback 内で Revive も可)。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全 entity を破棄 (コールバック設定は保持)。"
+      },
+      {
+        "sig": "using FHealthSystem = CHealthSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CHealthSystem を使う。"
+      }
+    ]
+  }
+}

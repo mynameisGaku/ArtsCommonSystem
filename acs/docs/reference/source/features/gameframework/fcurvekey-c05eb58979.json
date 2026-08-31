@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FCurveKey",
+    "kind": "構造体",
+    "header": "gameframework/AnimationCurve.h",
+    "summary": "FAnimationCurve の 1 キーを表す値。 time / value のほか、入口側・出口側それぞれの接線 (in_tangent / out_tangent) と補間方式 (in_interp / out_interp) を持つ。",
+    "when": "曲線の中身を直接覗いたり、Hermite 接線を細かく作り込みたい時。",
+    "sample": "const FCurveKey* k = curve.Key(0);\nif (k) f32 v = k->value;"
+  }
+}

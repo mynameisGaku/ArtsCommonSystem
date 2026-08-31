@@ -1,0 +1,87 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "AEditorToolbar",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/inspector/EditorToolbar.h",
+    "summary": "editor ウィンドウ上端のツールバー。 Play / Pause / Step の再生制御、Scene 保存、CDebugOverlay 表示切替の 5 アクションを 1 行に並べる。 再生状態を EEditorState 1 個で保持し、CGame::SetTimeScale への反映を本クラスが DrawUI 内で行う。 Save は外部委譲 (SaveSceneCallback 発火のみ)、CDebugOverlay は bool flag のみ持ち実描画は外側責務。 editor_core::AEditorPanel を継承。",
+    "when": "editor の中央バーから再生制御・保存・デバッグ表示を出したい時。 SetGame で対象 CGame を、SetOnSaveSceneCallback で保存処理を注入し、毎フレーム DrawUI() を呼ぶ。",
+    "sample": "AEditorToolbar toolbar;\ntoolbar.Init();\ntoolbar.SetGame(&game);\ntoolbar.SetOnSaveSceneCallback(&SaveSceneToDisk, &my_editor);\n// 毎フレーム:\ntoolbar.DrawUI();   // 内部で CGame::SetTimeScale(0/1) を切り替える",
+    "members": [
+      {
+        "sig": "using SaveSceneCallback = void (*)(void* user) noexcept",
+        "desc": "Save ボタンクリック時に発火する コールバック型。 serialize 先 (file path / format) は user 側で決定する。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "state を Playing に戻す (save callback はクリアしない)。 多重呼び出し可 (state リセットとして使える)。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "callback / 内部参照を解除する。 多重呼び出し可。"
+      },
+      {
+        "sig": "void SetGame(CGame* game) noexcept",
+        "ret": "—",
+        "desc": "TimeScale 反映先の CGame を事前 set する。 nullptr のときは UI 更新のみで反映を skip。"
+      },
+      {
+        "sig": "CGame* GameRef() const noexcept",
+        "ret": "game ポインタ",
+        "desc": "現在設定中の CGame を返す。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Editor Toolbar\"",
+        "desc": "ImGui window タイトル。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "Play / Pause / Step / Save / CDebugOverlay ボタン行を描画する。 m_Game が nullptr なら TimeScale 反映を skip (UI のみ動作)。",
+        "when": "毎フレーム。"
+      },
+      {
+        "sig": "void TogglePlayPause() noexcept",
+        "ret": "—",
+        "desc": "Play ↔ Pause を切り替える。 Playing→Paused で現 TimeScale を記録して 0 に、Paused→Playing で記録値を書き戻す。 CGame への実反映は DrawUI 内。"
+      },
+      {
+        "sig": "void Step() noexcept",
+        "ret": "—",
+        "desc": "1 fixed step 進める要求。 state を Stepping に遷移するのみで、実進行と Paused 復帰は DrawUI 末尾で行う。 Stepping 中の再 Step は no-op。"
+      },
+      {
+        "sig": "EEditorState State() const noexcept",
+        "ret": "現状態",
+        "desc": "現在の editor 再生状態 (EEditorState) を返す。"
+      },
+      {
+        "sig": "void SetOnSaveSceneCallback(SaveSceneCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "Save callback を登録する。 null 渡しで解除可能。"
+      },
+      {
+        "sig": "void SetShowDebugOverlay(bool b) noexcept",
+        "ret": "—",
+        "desc": "CDebugOverlay の表示要望 flag を設定する。 実描画は外側コードが flag を見て切り替える。"
+      },
+      {
+        "sig": "bool ShowDebugOverlay() const noexcept",
+        "ret": "表示要望",
+        "desc": "CDebugOverlay 表示要望 flag を返す。"
+      },
+      {
+        "sig": "using FEditorToolbar = AEditorToolbar",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AEditorToolbar を使う。"
+      }
+    ]
+  }
+}

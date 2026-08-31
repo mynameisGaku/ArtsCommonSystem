@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "ASparseSetBase",
+    "kind": "基底クラス",
+    "header": "ecs/SparseSet.h",
+    "summary": "TSparseSet の型に依らない共通部分。 エンティティ番号 → 密配列上の位置の対応や、要素数・dense 走査を提供する。 CWorld が型を知らずに集合を扱うための基底。",
+    "when": "ふつう直接使わない。 CWorld がコンポーネント型を区別せず保管・破棄するための内部基盤。",
+    "sample": "// CWorld 内部で ASparseSetBase* として保持される\nFSparseSetBase* s = /* ... */;\nif (s->Contains(e.index)) { usize n = s->Size(); }",
+    "members": [
+      {
+        "sig": "constexpr u32 kInvalid = 0xFFFFFFFF",
+        "desc": "未登録を表す番兵値。"
+      },
+      {
+        "sig": "u32 IndexOfByKey(u32 entity_index) const noexcept",
+        "ret": "dense 位置 または kInvalid",
+        "desc": "そのエンティティの密配列上の位置。 未登録なら kInvalid。"
+      },
+      {
+        "sig": "bool Contains(u32 entity_index) const",
+        "ret": "登録済みか",
+        "desc": "そのエンティティが値を持っているか。"
+      },
+      {
+        "sig": "usize Size() const",
+        "ret": "要素数",
+        "desc": "この集合に入っているエンティティの数。"
+      },
+      {
+        "sig": "const u32* DenseEntities() const",
+        "ret": "密配列",
+        "desc": "登録エンティティ番号を詰めた密配列。 クエリの線形走査に使う。"
+      },
+      {
+        "sig": "virtual void RemoveErased(u32 entity_index)",
+        "desc": "型を知らずにそのエンティティの値を削除する(CWorld::Destroy 用)。"
+      },
+      {
+        "sig": "using FSparseSetBase = ASparseSetBase",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ASparseSetBase を使う。"
+      }
+    ]
+  }
+}

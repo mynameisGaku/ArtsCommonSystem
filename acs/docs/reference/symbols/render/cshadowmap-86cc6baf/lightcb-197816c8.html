@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="光源の view-projection を格納する定数バッファ (b0) を返す。 戻り値: light_vp を格納する CB。">
+  <title>acs::CShadowMap::LightCB — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/render.html">render モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/render.html">render モジュール</a><a href="../cshadowmap-86cc6baf.html">CShadowMap の概要</a><a class="tree-child" href="beginframe-a7d34baa.html">BeginFrame</a><a class="tree-child" href="cascadecount-af4b87a5.html">CascadeCount</a><a class="tree-child" href="cascadescissor-c5a3d540.html">CascadeScissor</a><a class="tree-child" href="cascadesplit-e5b74c74.html">CascadeSplit</a><a class="tree-child" href="cascadeviewport-620dced6.html">CascadeViewport</a><a class="tree-child" href="casterbuffercapacity-2794fa98.html">CasterBufferCapacity</a><a class="tree-child" href="casterdrawcount-ba6b0541.html">CasterDrawCount</a><a class="tree-child" href="casterdrawcount-ee3275f6.html">CasterDrawCount</a><a class="tree-child" href="casterobjectcb-43620130.html">CasterObjectCB</a><a class="tree-child" href="casteroverflowed-247be996.html">CasterOverflowed</a><a class="tree-child" href="casteroverflowed-3964932e.html">CasterOverflowed</a><a class="tree-child" href="casterpipeline-5748972e.html">CasterPipeline</a><a class="tree-child" href="cshadowmap-d86c6e9c.html">CShadowMap</a><a class="tree-child" href="cshadowmap-deb98851.html">CShadowMap</a><a class="tree-child" href="depthtexture-e80ca09d.html">DepthTexture</a><a class="tree-child" href="ensurecastercapacity-552589be.html">EnsureCasterCapacity</a><a class="tree-child" href="init-204ecc60.html">Init</a><a class="tree-child" href="kinvalidcasterbuffer-ae9fa130.html">kInvalidCasterBuffer</a><a class="tree-child" href="kmaxcascades-a4a01754.html">kMaxCascades</a><a class="tree-child" href="kmaxcasterdrawspercascade-d1bc7c0c.html">kMaxCasterDrawsPerCascade</a><a class="tree-child" href="kmaxcasterdrawsperframe-b9b07046.html">kMaxCasterDrawsPerFrame</a><a class="tree-child" href="lightcb-197816c8.html" aria-current="page">LightCB</a><a class="tree-child" href="lightviewprojection-0bbcf949.html">LightViewProjection</a><a class="tree-child" href="lightviewprojection-58bd4d5c.html">LightViewProjection</a><a class="tree-child" href="m-cascadecapacity-bafdbc97.html">m_CascadeCapacity</a><a class="tree-child" href="m-cascadecount-7b0b233c.html">m_CascadeCount</a><a class="tree-child" href="m-cascadesplits-5a24f045.html">m_CascadeSplits</a><a class="tree-child" href="m-casterdrawcounts-75f35029.html">m_CasterDrawCounts</a><a class="tree-child" href="m-casteroverflowed-e2da8dce.html">m_CasterOverflowed</a><a class="tree-child" href="m-casterwarningissued-064a7dbe.html">m_CasterWarningIssued</a><a class="tree-child" href="m-currentcascade-92339bf5.html">m_CurrentCascade</a><a class="tree-child" href="m-currentcasters-9ee05ce7.html">m_CurrentCasters</a><a class="tree-child" href="m-depth-85bfe9b9.html">m_Depth</a><a class="tree-child" href="m-device-1a930d19.html">m_Device</a><a class="tree-child" href="m-framecapacityready-8d97f924.html">m_FrameCapacityReady</a><a class="tree-child" href="m-lightcbs-6b98aab8.html">m_LightCbs</a><a class="tree-child" href="m-lightvp-0ff04332.html">m_LightVp</a><a class="tree-child" href="m-objectcbs-a60f9e24.html">m_ObjectCbs</a><a class="tree-child" href="m-pipeline-e2fae50b.html">m_Pipeline</a><a class="tree-child" href="m-size-e74b57d8.html">m_Size</a><a class="tree-child" href="m-totalcasterdrawcount-4f8062de.html">m_TotalCasterDrawCount</a><a class="tree-child" href="m-vs-262fdb84.html">m_Vs</a><a class="tree-child" href="operator-99c41e72.html">operator=</a><a class="tree-child" href="setcaster-d5b464eb.html">SetCaster</a><a class="tree-child" href="setcurrentcascade-272e33da.html">SetCurrentCascade</a><a class="tree-child" href="setdirectionallight-9f22b238.html">SetDirectionalLight</a><a class="tree-child" href="setdirectionallightcascades-ea6c6dc6.html">SetDirectionalLightCascades</a><a class="tree-child" href="shutdown-7291c41b.html">Shutdown</a><a class="tree-child" href="size-c617e23d.html">Size</a><a class="tree-child" href="trysetcaster-03c7e117.html">TrySetCaster</a><a class="tree-child" href="cshadowmap-4bdf6ee1.html">~CShadowMap</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/render.html">render</a><span>/</span><a href="../cshadowmap-86cc6baf.html">CShadowMap</a><span>/</span><span aria-current="page">LightCB</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / render</div>
+<h1 class="identifier">acs::CShadowMap::LightCB</h1>
+<p class="lead">光源の view-projection を格納する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-18532">定数バッファ</button><span class="term-tooltip" id="term-tip-18532" role="tooltip">シェーダに渡す小さなパラメータ群(行列・色・ライト等)を入れる GPU バッファ(cbuffer / CB)。</span></span> (b0) を返す。 戻り値: light_vp を格納する CB。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CShadowMap::LightCBの宣言"><code><a href="../irhibuffer-52a07a92.html">IRhiBuffer</a>* <a href="lightcb-197816c8.html" aria-current="page">LightCB</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/render.html">render</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cshadowmap-86cc6baf.html"><code>acs::CShadowMap</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/render/ShadowMap.h:203</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

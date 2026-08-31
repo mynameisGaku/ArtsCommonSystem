@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Drag Source",
+  "definition": "ImGui のドラッグ & ドロップで、つかんで運ばれる側(payload を提供する元)。 受け側は BeginDragDropTarget で受け取る。"
+}

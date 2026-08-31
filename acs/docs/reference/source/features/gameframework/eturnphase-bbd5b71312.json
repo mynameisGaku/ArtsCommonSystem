@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "ETurnPhase",
+    "kind": "列挙(enum)",
+    "header": "gameframework/TurnManager.h",
+    "summary": "ターン進行のフェーズを表す列挙。 値はセーブ / リプレイに書ける安定値です。",
+    "when": "「今はプレイヤーの番か敵の番か」で BGM / UI を分岐する時。",
+    "sample": "switch (tm.CurrentPhase()) {\n    case ETurnPhase::PlayerTurn: ShowPlayerHud(); break;\n    case ETurnPhase::EnemyTurn:  PlayEnemyBgm(); break;\n    default: break;\n}",
+    "members": [
+      {
+        "sig": "Setup = 0",
+        "desc": "Init 直後 / StartRound 前(side 登録中)。"
+      },
+      {
+        "sig": "PlayerTurn = 1",
+        "desc": "プレイヤー操作 side の番。"
+      },
+      {
+        "sig": "EnemyTurn = 2",
+        "desc": "通常の敵 side の番。"
+      },
+      {
+        "sig": "EnvironmentTurn = 3",
+        "desc": "環境(天候 / 罠 / 中立 NPC)の番。"
+      },
+      {
+        "sig": "EndOfRound = 4",
+        "desc": "全 side 行動完了直後(コールバック発火用、すぐ次ラウンドへ)。"
+      }
+    ]
+  }
+}

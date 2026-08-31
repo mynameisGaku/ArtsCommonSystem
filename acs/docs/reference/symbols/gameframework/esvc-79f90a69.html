@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="シーンが要求するサービスを宣言する bit flag。 WantedServices() でこのマスクを返すと、CSceneServices が該当サービスだけを遅延 alloc する。">
+  <title>acs::game::ESvc — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="esvc-79f90a69.html" aria-current="page">ESvc</a><a class="tree-child" href="esvc-79f90a69/camera2d-d244497e.html">Camera2D</a><a class="tree-child" href="esvc-79f90a69/clock-887e2f6d.html">Clock</a><a class="tree-child" href="esvc-79f90a69/default2d-abd5cc06.html">Default2D</a><a class="tree-child" href="esvc-79f90a69/input-a7101c2c.html">Input</a><a class="tree-child" href="esvc-79f90a69/none-9f0d9d00.html">None</a><a class="tree-child" href="esvc-79f90a69/physics2d-81b0ba19.html">Physics2D</a><a class="tree-child" href="esvc-79f90a69/sequences-8e08c690.html">Sequences</a><a class="tree-child" href="esvc-79f90a69/triggers-61bf8a71.html">Triggers</a><a class="tree-child" href="esvc-79f90a69/tweens-6dde6fed.html">Tweens</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">ESvc</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">列挙型 / gameframework</div>
+<h1 class="identifier">acs::game::ESvc</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10762">シーン</button><span class="term-tooltip" id="term-tip-10762" role="tooltip">タイトル・ゲーム本編・リザルトのような、画面の一場面とその進行をまとめた単位。</span></span>が要求する<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10763">サービス</button><span class="term-tooltip" id="term-tip-10763" role="tooltip">シーンが必要に応じて使う共通機能 (時間・補間・入力・カメラ・物理など) の単位。</span></span>を宣言する bit flag。 WantedServices() でこの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10764">マスク</button><span class="term-tooltip" id="term-tip-10764" role="tooltip">どのレイヤに反応するかをビットで指定する絞り込み。 立っているビットの相手だけが対象になる。</span></span>を返すと、CSceneServices が該当<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10765">サービス</button><span class="term-tooltip" id="term-tip-10765" role="tooltip">シーンが必要に応じて使う共通機能 (時間・補間・入力・カメラ・物理など) の単位。</span></span>だけを<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10766">遅延</button><span class="term-tooltip" id="term-tip-10766" role="tooltip">必要になるまで計算を先延ばしにする方式(lazy)。 現行 TDerived は生成時と依存通知時に即時評価し、Get の再計算は dirty が残った場合の補完経路。</span></span> alloc する。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">列挙型</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::ESvcの宣言"><code>enum class <a href="esvc-79f90a69.html" aria-current="page">ESvc</a> : <a href="../foundation/u32-4ce4a209.html">u32</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>列挙型</dd></div>
+<div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/SceneServices.h:60</dd></div>
+</dl></section>
+<section class="section" id="members"><h2>項目</h2><div class="member-list"><a class="member-card" href="esvc-79f90a69/camera2d-d244497e.html"><span><span class="identifier">Camera2D = 1u &lt;&lt; 4</span><span class="summary">CCamera2D (2D カメラ)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/clock-887e2f6d.html"><span><span class="identifier">Clock = 1u &lt;&lt; 0</span><span class="summary">CSceneClock (時間スケール付き dt)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/default2d-abd5cc06.html"><span><span class="identifier">Default2D = Clock | Tweens | Sequences | Input</span><span class="summary">2D ゲームの既定セット (Clock | Tweens | Sequences | Input)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/input-a7101c2c.html"><span><span class="identifier">Input = 1u &lt;&lt; 3</span><span class="summary">FInputMap (アクションへの入力束ね)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/none-9f0d9d00.html"><span><span class="identifier">None = 0</span><span class="summary">サービスを一切要求しない。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/physics2d-81b0ba19.html"><span><span class="identifier">Physics2D = 1u &lt;&lt; 5</span><span class="summary">CCollisionWorld2D (2D 衝突)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/sequences-8e08c690.html"><span><span class="identifier">Sequences = 1u &lt;&lt; 2</span><span class="summary">CSequenceRunner (時系列スクリプト)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/triggers-61bf8a71.html"><span><span class="identifier">Triggers = 1u &lt;&lt; 6</span><span class="summary">CTriggerWorld2D (overlap enter/stay/exit イベント)。</span></span><span class="kind-label">列挙値 →</span></a><a class="member-card" href="esvc-79f90a69/tweens-6dde6fed.html"><span><span class="identifier">Tweens = 1u &lt;&lt; 1</span><span class="summary">CTweenManager (補間アニメーション)。</span></span><span class="kind-label">列挙値 →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a><a href="#members">項目</a></nav></aside>
+  </div>
+</body>
+</html>

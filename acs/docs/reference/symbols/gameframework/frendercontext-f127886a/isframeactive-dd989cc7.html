@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="フレーム描画が進行中か (コマンドリストが配線済みか) を返す。 戻り値: 描画中なら true。">
+  <title>acs::game::FRenderContext::IsFrameActive — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../frendercontext-f127886a.html">FRenderContext の概要</a><a class="tree-child" href="beginframe-40d858f1.html">_BeginFrame</a><a class="tree-child" href="endframe-c2e72e23.html">_EndFrame</a><a class="tree-child" href="setfont-f22e63aa.html">_SetFont</a><a class="tree-child" href="setreflection-19710048.html">_SetReflection</a><a class="tree-child" href="setscenecolor-e9ef45f3.html">_SetSceneColor</a><a class="tree-child" href="setscenecolorcapturepass-172db89a.html">_SetSceneColorCapturePass</a><a class="tree-child" href="setscenedepth-66f10df2.html">_SetSceneDepth</a><a class="tree-child" href="setspritebatch-0ac593df.html">_SetSpriteBatch</a><a class="tree-child" href="setstencilmaskactive-13768238.html">_SetStencilMaskActive</a><a class="tree-child" href="setview2d-85900ab1.html">_SetView2D</a><a class="tree-child" href="setwaterdepthcapturepass-29f067fa.html">_SetWaterDepthCapturePass</a><a class="tree-child" href="cmd-bb201839.html">Cmd</a><a class="tree-child" href="frendercontext-5e72028b.html">FRenderContext</a><a class="tree-child" href="frendercontext-cb9c7988.html">FRenderContext</a><a class="tree-child" href="getfont-b548bdcd.html">GetFont</a><a class="tree-child" href="getrenderer-2250fe8f.html">GetRenderer</a><a class="tree-child" href="hasfont-361830bd.html">HasFont</a><a class="tree-child" href="hasreflection-beb5ba82.html">HasReflection</a><a class="tree-child" href="hasscenecolor-93e6ffe3.html">HasSceneColor</a><a class="tree-child" href="hasscenedepth-19f1f14d.html">HasSceneDepth</a><a class="tree-child" href="hassprites-2e10de9b.html">HasSprites</a><a class="tree-child" href="height-933ad0ac.html">Height</a><a class="tree-child" href="isframeactive-dd989cc7.html" aria-current="page">IsFrameActive</a><a class="tree-child" href="isscenecolorcapturepass-f692718f.html">IsSceneColorCapturePass</a><a class="tree-child" href="iswaterdepthcapturepass-3316ccf1.html">IsWaterDepthCapturePass</a><a class="tree-child" href="m-cmd-6f3552e4.html">m_Cmd</a><a class="tree-child" href="m-font-4bc797be.html">m_Font</a><a class="tree-child" href="m-height-c8b74c16.html">m_Height</a><a class="tree-child" href="m-reflection-77dec5d4.html">m_Reflection</a><a class="tree-child" href="m-renderer-df9e7b7f.html">m_Renderer</a><a class="tree-child" href="m-scenecolor-28492732.html">m_SceneColor</a><a class="tree-child" href="m-scenecolorcapturepass-978652d3.html">m_SceneColorCapturePass</a><a class="tree-child" href="m-scenedepth-04a1281e.html">m_SceneDepth</a><a class="tree-child" href="m-sprites-13f046bb.html">m_Sprites</a><a class="tree-child" href="m-stencilmaskactive-77fb7d3a.html">m_StencilMaskActive</a><a class="tree-child" href="m-viewcenter-6b11ace4.html">m_ViewCenter</a><a class="tree-child" href="m-viewscale-b1e594ea.html">m_ViewScale</a><a class="tree-child" href="m-waterdepthcapturepass-c8312300.html">m_WaterDepthCapturePass</a><a class="tree-child" href="m-width-04c1c6f5.html">m_Width</a><a class="tree-child" href="operator-d23ca238.html">operator=</a><a class="tree-child" href="reflection-ea138265.html">Reflection</a><a class="tree-child" href="scenecolor-47a68a33.html">SceneColor</a><a class="tree-child" href="scenedepth-62111962.html">SceneDepth</a><a class="tree-child" href="sprites-2ddc4770.html">Sprites</a><a class="tree-child" href="stencilmaskactive-1ba4a8a7.html">StencilMaskActive</a><a class="tree-child" href="viewcenter-8dd7bedf.html">ViewCenter</a><a class="tree-child" href="viewscale-e24b734c.html">ViewScale</a><a class="tree-child" href="width-ed5f0338.html">Width</a><a class="tree-child" href="frendercontext-4385c818.html">~FRenderContext</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../frendercontext-f127886a.html">FRenderContext</a><span>/</span><span aria-current="page">IsFrameActive</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::FRenderContext::IsFrameActive</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11738">フレーム</button><span class="term-tooltip" id="term-tip-11738" role="tooltip">ゲームループの 1 回分の更新＋描画。 1 秒に何フレーム回るかが FPS。</span></span><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11739">描画</button><span class="term-tooltip" id="term-tip-11739" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>が進行中か (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11740">コマンドリスト</button><span class="term-tooltip" id="term-tip-11740" role="tooltip">GPU に送る描画命令を記録しておくバッファ。 最後にまとめて GPU へ投入する。</span></span>が配線済みか) を返す。 戻り値: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-11741">描画</button><span class="term-tooltip" id="term-tip-11741" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>中なら true。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::FRenderContext::IsFrameActiveの宣言"><code>bool <a href="isframeactive-dd989cc7.html" aria-current="page">IsFrameActive</a>() const noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../frendercontext-f127886a.html"><code>acs::game::FRenderContext</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/RenderContext.h:120</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

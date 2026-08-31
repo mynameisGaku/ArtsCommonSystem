@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "数学定数 (kPi ほか)",
+    "kind": "定数群",
+    "header": "math/Math.h",
+    "summary": "kPi（円周率）や度↔ラジアン変換係数、比較用イプシロンなどの定数。",
+    "when": "角度計算（ラジアン）や浮動小数の近似比較をする時。",
+    "sample": "f32 rad = 90.0f * kDeg2Rad;  // 度 → ラジアン\nf32 deg = rad * kRad2Deg;    // ラジアン → 度\nif (Abs(x) < kEpsilon) { /* ほぼ 0 */ }",
+    "members": [
+      {
+        "sig": "kPi / kTwoPi / kHalfPi / kInvPi",
+        "desc": "円周率 π、2π、π/2、1/π。"
+      },
+      {
+        "sig": "kDeg2Rad / kRad2Deg",
+        "desc": "度→ラジアン / ラジアン→度 の変換係数。 角度は内部ではラジアンで扱う。"
+      },
+      {
+        "sig": "kEpsilon",
+        "desc": "比較用の微小値 1e-6。 浮動小数の「ほぼ等しい」判定に。"
+      }
+    ]
+  }
+}

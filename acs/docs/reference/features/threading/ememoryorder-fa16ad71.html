@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="強いほど安全だが遅い。">
+  <title>EMemoryOrder — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/threading.html">threading モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/threading.html">threading モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/threading.html">threading</a><span>/</span><span aria-current="page">EMemoryOrder</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / threading</div><h1 class="identifier">EMemoryOrder</h1>
+<p class="lead">強いほど安全だが遅い。</p></div><div class="badges"><span class="badge">列挙(enum)</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/threading/ememoryorder-62a43c40.html"><code>acs::EMemoryOrder</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29426">TAtomic</button><span class="term-tooltip" id="term-tip-29426" role="tooltip">ロックなしで安全に共有できる小さな値。</span></span> の各操作に渡す。 迷ったら既定の SeqCst でよい。 性能を詰める段階で緩める。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>threading</dd></div><div class="fact"><dt>分類</dt><dd>列挙(enum)</dd></div><div class="fact"><dt>ヘッダー</dt><dd>threading/MemoryOrder.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-6e0a11699b9c940d9461"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code><a href="../../symbols/threading/ememoryorder-62a43c40/relaxed-936e6d2d.html">Relaxed</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>順序保証なし。 値そのものは<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29427">アトミック</button><span class="term-tooltip" id="term-tip-29427" role="tooltip">複数スレッドから同時に触っても途中状態が見えず、分割されずに完了する操作。 TAtomic が代表。</span></span>だが、周りの読み書きの順序は守られない。 最速。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/ememoryorder-62a43c40/relaxed-936e6d2d.html"><code>acs::EMemoryOrder::Relaxed</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-fd8e196f3972fea442b6"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code><a href="../../symbols/threading/ememoryorder-62a43c40/acquire-af259b6d.html">Acquire</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>このロード以降の読み書きが上に動かない。 Release された値を取り込む側。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/ememoryorder-62a43c40/acquire-af259b6d.html"><code>acs::EMemoryOrder::Acquire</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-590f199e029dc5081301"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code><a href="../../symbols/threading/ememoryorder-62a43c40/release-98ae1575.html">Release</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>このストア以前の読み書きが下に動かない。 書いた内容を他<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29428">スレッド</button><span class="term-tooltip" id="term-tip-29428" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>へ公開する側。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/ememoryorder-62a43c40/release-98ae1575.html"><code>acs::EMemoryOrder::Release</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-a86af52d85ac554d3384"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code><a href="../../symbols/threading/ememoryorder-62a43c40/acqrel-27b9249c.html">AcqRel</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>読み書き両方を行う <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29429">RMW</button><span class="term-tooltip" id="term-tip-29429" role="tooltip">Read-Modify-Write。 読んで・変えて・書く、を一気にアトミックに行う操作(FetchAdd 等)。</span></span> 操作向け(Acquire + Release)の意味<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29430">タグ</button><span class="term-tooltip" id="term-tip-29430" role="tooltip">AES-GCM が出力する 16 バイトの認証データ。 これが合わないとデータが改竄/破損とみなす。</span></span>。 ただし <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29431">TAtomic</button><span class="term-tooltip" id="term-tip-29431" role="tooltip">ロックなしで安全に共有できる小さな値。</span></span> の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29432">RMW</button><span class="term-tooltip" id="term-tip-29432" role="tooltip">Read-Modify-Write。 読んで・変えて・書く、を一気にアトミックに行う操作(FetchAdd 等)。</span></span>(FetchAdd/Exchange/CompareExchange 等)は順序引数を取らない(x64 では常に完全<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29433">バリア</button><span class="term-tooltip" id="term-tip-29433" role="tooltip">GPU リソースの用途状態を切り替える同期。 ACS では普段は内部で自動管理される。</span></span>)ため、この値を渡す先は Load/Store のみ。 Load は Relaxed 以外なら Acquire、Store は Relaxed 以外なら Release として扱われる(SeqCst も同じ扱いで、Load/Store に完全<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29434">バリア</button><span class="term-tooltip" id="term-tip-29434" role="tooltip">GPU リソースの用途状態を切り替える同期。 ACS では普段は内部で自動管理される。</span></span>は入らない)。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/ememoryorder-62a43c40/acqrel-27b9249c.html"><code>acs::EMemoryOrder::AcqRel</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article><article class="card" id="member-7d40a88a3bed03842a32"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code><a href="../../symbols/threading/ememoryorder-62a43c40/seqcst-25bab6df.html">SeqCst</a></code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-29435">スレッド</button><span class="term-tooltip" id="term-tip-29435" role="tooltip">1 つのプログラム内で同時に進む実行の流れ。 複数あると処理を並列にできる。</span></span>で唯一の順序が見える最強の保証。 既定値。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/threading/ememoryorder-62a43c40/seqcst-25bab6df.html"><code>acs::EMemoryOrder::SeqCst</code></a> <span class="kind-label">列挙値</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="EMemoryOrderの使用例"><code>a.Store(1, EMemoryOrder::Release);   // これ以前の書き込みを公開
+u32 v = a.Load(EMemoryOrder::Acquire); // 公開された書き込みを取り込む
+b.FetchAdd(1);                         // RMW(FetchAdd 等)は順序引数を取らない</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,73 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EAssetKind",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/AssetBrowser.h",
+    "summary": "拡張子から推測されるアセット種別。 CAssetBrowser の kind フィルタ / アイコン表示 / ClassifyByExtension の戻り値に使う。 Unknown は未分類(未知拡張子 or path が nullptr / 空)、Other は既知だがどの分類にも該当しない汎用ファイル(現状未使用 / 利用側拡張用)。",
+    "when": "アセットの種類で分岐 / フィルタしたい時。",
+    "members": [
+      {
+        "sig": "Unknown = 0",
+        "desc": "未分類(未知拡張子 or 空 path)。 フィルタ解除値としても使う。"
+      },
+      {
+        "sig": "Texture = 1",
+        "desc": "FAssetBrowser::ClassifyByExtensionは.png、.jpg、.jpeg、.tga、.bmp、.dds、.ktx、.hdrをTextureに分類します。"
+      },
+      {
+        "sig": "Mesh = 2",
+        "desc": ".mdl、.fbx、.gltf、.glb、.objをMeshに分類します。"
+      },
+      {
+        "sig": "Font = 3",
+        "desc": ".ttf、.otfをFontに分類します。"
+      },
+      {
+        "sig": "Audio = 4",
+        "desc": ".wav、.ogg、.mp3、.flacをAudioに分類します。"
+      },
+      {
+        "sig": "Material = 5",
+        "desc": ".mat、.materialをMaterialに分類します。"
+      },
+      {
+        "sig": "Particle = 6",
+        "desc": ".fx、.particleをParticleに分類します。"
+      },
+      {
+        "sig": "Animation = 7",
+        "desc": ".animをAnimationに分類します。"
+      },
+      {
+        "sig": "BehaviorTree = 8",
+        "desc": ".btをBehaviorTreeに分類します。"
+      },
+      {
+        "sig": "Tilemap = 9",
+        "desc": ".tilemap、.tmxをTilemapに分類します。"
+      },
+      {
+        "sig": "Prefab = 10",
+        "desc": ".prefabをPrefabに分類します。"
+      },
+      {
+        "sig": "Cinematic = 11",
+        "desc": ".cineをCinematicに分類します。"
+      },
+      {
+        "sig": "Scene = 12",
+        "desc": ".sceneをSceneに分類します。"
+      },
+      {
+        "sig": "Other = 13",
+        "desc": "既知だがどれにも該当しないファイル(現状未使用 / 利用側拡張用)。"
+      }
+    ]
+  }
+}

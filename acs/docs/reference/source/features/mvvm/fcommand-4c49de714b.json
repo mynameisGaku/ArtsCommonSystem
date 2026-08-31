@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "FCommand",
+    "kind": "クラス",
+    "header": "mvvm/Command.h",
+    "summary": "VM 側に置くアクション(ボタン押下などの処理)。 実行関数と任意の can_execute 条件を持つ。 条件が false の間は Execute が何もしない。",
+    "when": "「攻撃」「リスポーン」などのボタン動作を VM に持たせ、UI からは押すだけにしたい時。 ImGui の BindCommand でボタン化+自動グレーアウトできる。",
+    "sample": "FCommand attack {\n    [](void* u){ static_cast<FPlayerViewModel*>(u)->hp.Set(0.0f); },\n    this\n};\n// 条件付き: is_dead が true の時だけ実行可\nTObservable<bool> is_dead { false };\nFCommand revive {\n    [](void* u){ static_cast<FPlayerViewModel*>(u)->hp.Set(100.0f); },\n    this, &is_dead\n};",
+    "members": [
+      {
+        "sig": "FCommand(ExecFn fn, void* user)",
+        "desc": "常時実行可能なコマンドを作る。 fn は void(void*) の関数ポインタ。"
+      },
+      {
+        "sig": "FCommand(ExecFn fn, void* user, TObservable<bool>* can_execute)",
+        "desc": "can_execute が true の間だけ実行できる条件付きコマンドを作る。 TObservable<bool> の生存期間は呼び出し側の責任。"
+      },
+      {
+        "sig": "void Execute()",
+        "desc": "コマンドを実行する。 条件が不成立なら何もしない(no-op)。"
+      },
+      {
+        "sig": "bool CanExecute() const",
+        "ret": "実行可能か",
+        "desc": "今実行できる状態か。 UI のグレーアウト判定に使う。"
+      },
+      {
+        "sig": "void Invalidate()",
+        "desc": "内部関数を無効化する。 VM のデストラクタで呼ぶと、後から残った参照経由の誤実行を防げる。"
+      },
+      {
+        "sig": "TObservable<bool>* CanExecuteSource() const",
+        "ret": "条件 Observable",
+        "desc": "can_execute に使っている TObservable<bool> を返す。 BindCommand がこれを監視する。"
+      }
+    ]
+  }
+}

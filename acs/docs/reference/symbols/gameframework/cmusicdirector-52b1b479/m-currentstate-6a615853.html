@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="現在再生中の state。">
+  <title>acs::game::CMusicDirector::m_CurrentState — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cmusicdirector-52b1b479.html">CMusicDirector の概要</a><a class="tree-child" href="state-count-ba8a178a.html">_state_count</a><a class="tree-child" href="state-first-c1e84e94.html">_state_first</a><a class="tree-child" href="clamp01-a039ca2d.html">Clamp01</a><a class="tree-child" href="cmusicdirector-56aa75b6.html">CMusicDirector</a><a class="tree-child" href="cmusicdirector-ad50e524.html">CMusicDirector</a><a class="tree-child" href="cmusicdirector-c2144971.html">CMusicDirector</a><a class="tree-child" href="consumestinger-b2c4f678.html">ConsumeStinger</a><a class="tree-child" href="currentstate-18502f3e.html">CurrentState</a><a class="tree-child" href="currenttrack-338d1ff5.html">CurrentTrack</a><a class="tree-child" href="findtrackforstate-b2f60e89.html">FindTrackForState</a><a class="tree-child" href="getaudiodirector-70128b5d.html">GetAudioDirector</a><a class="tree-child" href="haspendingstinger-2a3e0920.html">HasPendingStinger</a><a class="tree-child" href="intensity-1e829231.html">Intensity</a><a class="tree-child" href="istransitioning-accb1560.html">IsTransitioning</a><a class="tree-child" href="kstatecount-c242f586.html">kStateCount</a><a class="tree-child" href="ktrackreservehint-b21f8722.html">kTrackReserveHint</a><a class="tree-child" href="m-audio-6dbc0164.html">m_Audio</a><a class="tree-child" href="m-currentstate-6a615853.html" aria-current="page">m_CurrentState</a><a class="tree-child" href="m-intensity-42b4c5cb.html">m_Intensity</a><a class="tree-child" href="m-stingerpath-ac596266.html">m_StingerPath</a><a class="tree-child" href="m-stingerpending-d01d1e24.html">m_StingerPending</a><a class="tree-child" href="m-stingervolume-2576dc38.html">m_StingerVolume</a><a class="tree-child" href="m-targetstate-46d73f67.html">m_TargetState</a><a class="tree-child" href="m-tracks-04ee37e3.html">m_Tracks</a><a class="tree-child" href="m-transitionduration-aa034fa3.html">m_TransitionDuration</a><a class="tree-child" href="m-transitionelapsed-0d787f03.html">m_TransitionElapsed</a><a class="tree-child" href="m-transitionprogress-12647c31.html">m_TransitionProgress</a><a class="tree-child" href="operator-47d68e0f.html">operator=</a><a class="tree-child" href="operator-65661deb.html">operator=</a><a class="tree-child" href="playstinger-d4126d04.html">PlayStinger</a><a class="tree-child" href="rebuildstateindex-105e748a.html">RebuildStateIndex</a><a class="tree-child" href="registertrack-c096ef35.html">RegisterTrack</a><a class="tree-child" href="routecurrenttracktoaudio-3bcfaa0b.html">RouteCurrentTrackToAudio</a><a class="tree-child" href="setaudiodirector-0fbe12f6.html">SetAudioDirector</a><a class="tree-child" href="setintensity-fab12145.html">SetIntensity</a><a class="tree-child" href="setstate-3f787a8b.html">SetState</a><a class="tree-child" href="stop-c4f11488.html">Stop</a><a class="tree-child" href="targetstate-451df05f.html">TargetState</a><a class="tree-child" href="targettrack-2ef18930.html">TargetTrack</a><a class="tree-child" href="tick-03910783.html">Tick</a><a class="tree-child" href="transitionprogress-fffb129d.html">TransitionProgress</a><a class="tree-child" href="cmusicdirector-d4714a0f.html">~CMusicDirector</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cmusicdirector-52b1b479.html">CMusicDirector</a><span>/</span><span aria-current="page">m_CurrentState</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / gameframework</div>
+<h1 class="identifier">acs::game::CMusicDirector::m_CurrentState</h1>
+<p class="lead">現在再生中の state。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CMusicDirector::m_CurrentStateの宣言"><code><a href="../emusicstate-e501ef81.html">EMusicState</a> <a href="m-currentstate-6a615853.html" aria-current="page">m_CurrentState</a> = <a href="../emusicstate-e501ef81.html">EMusicState</a>::<a href="../emusicstate-e501ef81/silent-a71b538e.html">Silent</a>;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cmusicdirector-52b1b479.html"><code>acs::game::CMusicDirector</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/MusicDirector.h:327</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

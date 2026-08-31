@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "TAtomic",
+  "definition": "ロックなしで安全に共有できる小さな値。"
+}

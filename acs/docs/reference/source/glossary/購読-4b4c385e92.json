@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "購読",
+  "definition": "値や配列の変化を受け取るためにコールバックを登録すること(Subscribe)。 要らなくなったら解除(Unsubscribe)する。"
+}

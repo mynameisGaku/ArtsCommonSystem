@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "クランプ",
+  "definition": "値を指定範囲内に収めること。 Saturate は 0〜1 に収める。"
+}

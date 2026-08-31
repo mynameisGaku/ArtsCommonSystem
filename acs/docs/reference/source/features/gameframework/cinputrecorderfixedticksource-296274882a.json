@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "CInputRecorderFixedTickSource",
+    "kind": "クラス",
+    "header": "gameframework/InputRecorderFixedTickSource.h",
+    "summary": "CInputRecorder のraw key・mouse button sample列を固定tick入力へ変換する非所有アダプター。 巻き戻し要求では先頭から状態を再構築する。",
+    "when": "既存のraw入力記録を CGame::SetFixedTickInputSource へ接続し、3D操作やgame logicを同じtickで再生する時。",
+    "members": [
+      {
+        "sig": "CInputRecorderFixedTickSource(const CInputRecorder&, FInputSampleKeyDecoder)",
+        "desc": "recorderとplatform固有raw key decoderを非所有参照で保持する。"
+      },
+      {
+        "sig": "bool TryCaptureFixedTickInput(u64 tick, FInputStateSnapshot& out)",
+        "desc": "指定tickまでの変化を適用する。 不正sampleでは状態と出力を保つ。"
+      },
+      {
+        "sig": "void Reset() / u32 TickRateHz() const",
+        "desc": "読み取り位置を初期化 / 記録時tick rateを取得する。"
+      },
+      {
+        "sig": "using FInputRecorderFixedTickSource = CInputRecorderFixedTickSource",
+        "desc": "旧名向け互換別名。"
+      }
+    ]
+  }
+}

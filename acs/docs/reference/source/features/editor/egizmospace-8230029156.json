@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EGizmoSpace",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "ギズモの操作座標系。 World は固定ワールド軸、Local は対象 ANode の rotation を考慮したローカル軸を表示・操作する。",
+    "when": "CEditorGizmo::SetSpace で world / local を切り替える時。",
+    "members": [
+      {
+        "sig": "World = 0",
+        "desc": "ワールド軸(X/Y/Z 固定)。 既定。"
+      },
+      {
+        "sig": "Local = 1",
+        "desc": "ANode のローカル軸(rotation を考慮)。"
+      }
+    ]
+  }
+}

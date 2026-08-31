@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FSurvivorId",
+    "kind": "構造体",
+    "header": "gameframework/HungerSystem.h",
+    "summary": "survivor を指す不透明なハンドル。 24bit の index + 8bit の世代(generation)を 1 つの u32 に詰めたもの。 m_Packed == 0 が無効。",
+    "when": "AddSurvivor の戻り値を保持し、以降の操作に渡す。 スロット再利用後の古いハンドルは世代不一致で安全に弾かれる。",
+    "sample": "FSurvivorId id = hs.AddSurvivor();\nif (id.IsValid()) hs.RestoreStat(id, ESurvivalStat::Hunger, 10.0f);",
+    "members": [
+      {
+        "sig": "bool IsValid() const",
+        "desc": "有効なハンドルか (m_Packed != 0)。"
+      },
+      {
+        "sig": "static FSurvivorId Pack(u32 index, u8 gen)",
+        "desc": "index と世代からハンドルを作る。"
+      },
+      {
+        "sig": "u32 Index() / u8 Gen() const",
+        "desc": "内部の index / 世代を取り出す。"
+      }
+    ]
+  }
+}

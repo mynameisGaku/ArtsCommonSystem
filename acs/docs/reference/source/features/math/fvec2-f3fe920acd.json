@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "math",
+    "title": "math — ベクトル / 行列 / クォータニオン / 数学",
+    "description": "ゲームの座標計算に必要なベクトル・行列・クォータニオン・カメラ・衝突判定をまとめたモジュール。 内部は DirectXMath に委譲し SIMD で高速。 3D/2D 両方の当たり判定プリミティブも含む。"
+  },
+  "feature": {
+    "name": "FVec2",
+    "kind": "構造体",
+    "header": "math/Vec.h",
+    "summary": "2 次元ベクトル（x, y）。 8 バイト。 2D の位置・速度・方向を表す基本型。 小さいのでSIMDは使わず素直に計算する。",
+    "when": "2D ゲームの座標、UI の位置、スプライトの移動量など、平面上の量を扱う時。",
+    "sample": "FVec2 pos{100, 50};\nFVec2 vel{0, -9.8f};\npos += vel * dt;            // 位置を更新\nf32 dist = Length(pos);     // 原点からの距離\nFVec2 dir = Normalize(vel); // 単位ベクトル化",
+    "members": [
+      {
+        "sig": "FVec2(f32 x, f32 y)",
+        "desc": "x, y を指定して作る。 FVec2(v) は両成分 v。"
+      },
+      {
+        "sig": "static FVec2 Zero() / One()",
+        "ret": "定数ベクトル",
+        "desc": "{0,0} / {1,1} を返す。"
+      },
+      {
+        "sig": "operator+ - * (単項 -) += -= *= /=",
+        "desc": "ベクトル同士の加減・スカラ倍。 除算は複合 /= のみ(二項 operator/ は無い)。 pos += vel * dt; のように書ける。"
+      },
+      {
+        "sig": "operator== !=",
+        "desc": "成分が完全一致するか比較する。"
+      }
+    ]
+  }
+}

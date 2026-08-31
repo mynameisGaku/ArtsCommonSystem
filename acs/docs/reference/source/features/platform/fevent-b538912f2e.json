@@ -1,0 +1,46 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FEvent",
+    "kind": "構造体",
+    "header": "platform/Event.h",
+    "summary": "ウィンドウや入力で起きた『出来事』1 つ分を表す。 種別（type）に応じて、中のunionのうち対応するフィールドだけが有効になる。",
+    "when": "SetEventCallback で受け取る。 type を見て分岐し、対応するフィールドを読む。",
+    "sample": "void OnEvent(void* u, const FEvent& e) {\n    if (e.type == EEventType::WindowResize) {\n        u32 w = e.resize.width, h = e.resize.height;\n    } else if (e.type == EEventType::KeyPressed) {\n        EKey k = e.key.key;\n    }\n}",
+    "members": [
+      {
+        "sig": "EEventType type",
+        "desc": "イベントの種別。 これを見てどのフィールドが有効か判断する。"
+      },
+      {
+        "sig": "{ u32 width, height; } resize",
+        "desc": "WindowResize 時の新しいサイズ。"
+      },
+      {
+        "sig": "{ EKey key; bool repeat; } key",
+        "desc": "キー系イベントの対象キーと、押しっぱなしリピートか。"
+      },
+      {
+        "sig": "{ EMouseButton button; } mouse_button",
+        "desc": "マウスボタン系イベントの対象ボタン。"
+      },
+      {
+        "sig": "{ f32 x, y; f32 dx, dy; } mouse_move",
+        "desc": "MouseMoved 時の位置と移動量。"
+      },
+      {
+        "sig": "{ f32 x, y; } mouse_scroll",
+        "desc": "MouseScrolled 時のホイール量。"
+      },
+      {
+        "sig": "{ u32 codepoint; } char_input",
+        "desc": "CharInput 時の確定文字（Unicode コードポイント）。"
+      }
+    ]
+  }
+}

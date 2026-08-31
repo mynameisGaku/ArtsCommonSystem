@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CShadowMap",
+    "kind": "クラス",
+    "header": "render/ShadowMap.h",
+    "summary": "有向光源のシャドウマップ(ortho 投影 depth)。 単一カスケード(伝統的)とCSM(カメラ frustum を距離で 2〜4 分割し近景高解像・遠景広範囲を 1 枚の atlas に並べる)の 2 モード。",
+    "when": "3D シーンに影を落としたいとき。 広い屋外で遠くまで鮮鋭な影が要るなら CSM。 CStandardShader/CPbrShader の SetShadowMap に渡す。",
+    "sample": "CShadowMap sm;\nsm.Init(*dev, /*size=*/2048);              // 単一カスケード\nsm.SetDirectionalLight(light_dir, scene_center, 15.0f);\n// 毎フレーム。各 cascade に実際に記録する caster 数を正確に渡す\nif (!sm.BeginFrame(static_cast<u32>(casters.Size()))) return;\ncl->BeginShadowPass(*sm.DepthTexture(), 1.0f);\ncl->SetPipeline(*sm.CasterPipeline());\ncl->SetConstantBuffer(0, *sm.LightCB());\nfor (auto& c : casters) {\n    if (!sm.TrySetCaster(c.model)) continue;\n    cl->SetConstantBuffer(1, *sm.CasterObjectCB());\n    /* キャスターを描画 */\n}\ncl->EndShadowPass(*sm.DepthTexture());\npbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection());",
+    "members": [
+      {
+        "sig": "static constexpr u32 kMaxCascades = 4",
+        "desc": "カスケード上限。"
+      },
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, u32 size = 2048, u32 cascade_count = 1)",
+        "desc": "cascade_count=1 で単一 2D depth、2 以上で CSM atlas。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_casters_per_cascade = 0)",
+        "desc": "毎フレームの shadow pass 記録前に呼び、各 cascade の正確な caster 数を渡す。 Init で予約した全 cascade を先行確保できなければ false。"
+      },
+      {
+        "sig": "[[deprecated]] kMaxCasterDrawsPerCascade = 256 / kMaxCasterDrawsPerFrame",
+        "desc": "旧固定リングとのソース互換用の目安値。 caster プールは必要数まで増えるため、どちらもハード上限ではない。"
+      },
+      {
+        "sig": "void SetDirectionalLight(FVec3 light_dir, FVec3 scene_center, f32 scene_radius)",
+        "desc": "単一カスケード用に光源 ortho を設定。"
+      },
+      {
+        "sig": "void SetDirectionalLightCascades(FVec3 light_dir, const FMat4& view, const FMat4& proj, f32 near_z, f32 far_z, f32 lambda = 0.5f)",
+        "desc": "CSM 用に frustum を near→far で実用分割し各 ortho を計算。 lambda は uniform↔log のブレンド。"
+      },
+      {
+        "sig": "void SetCurrentCascade(u32 cascade) / bool TrySetCaster(const FMat4& model)",
+        "desc": "描画する cascade を選ぶ / キャスターのモデル行列を draw 専用 CB に設定。 false ならその draw を記録しない。"
+      },
+      {
+        "sig": "IRhiTexture* DepthTexture() / IRhiPipeline* CasterPipeline() / IRhiBuffer* LightCB() / CasterObjectCB()",
+        "desc": "シャドウパスで使う深度・パイプライン・定数バッファ。"
+      },
+      {
+        "sig": "FMat4 LightViewProjection(u32 cascade = 0) / f32 CascadeSplit(u32) / u32 CascadeCount()",
+        "desc": "主パスで影をサンプルするための light VP と分割情報。"
+      },
+      {
+        "sig": "FViewport CascadeViewport(u32) / FScissorRect CascadeScissor(u32)",
+        "desc": "atlas 内の各 cascade 領域のビューポート/シザー。"
+      },
+      {
+        "sig": "using FShadowMap = CShadowMap",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CShadowMap を使う。"
+      }
+    ]
+  }
+}

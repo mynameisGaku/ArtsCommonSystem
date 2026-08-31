@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CSpriteBatch を初期化し、既定フォントを設定する。 device: パイプライン生成に使う RHI デバイス。 rt_format: 描画先レンダーターゲットのフォーマット。 default_font: 文字描画に使う既定フォント (所有しない、null 可)。 戻り値: 成功なら空の TResult、CSpriteBatch 初期化失敗ならエラー。">
+  <title>acs::CUiRenderer::Init — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/ui.html">ui モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/ui.html">ui モジュール</a><a href="../cuirenderer-e4df6fb1.html">CUiRenderer の概要</a><a class="tree-child" href="colors-6e770f7f.html">Colors</a><a class="tree-child" href="colors-8febcb57.html">Colors</a><a class="tree-child" href="cuirenderer-5153a9b2.html">CUiRenderer</a><a class="tree-child" href="cuirenderer-f423912b.html">CUiRenderer</a><a class="tree-child" href="defaultfont-89983ad9.html">DefaultFont</a><a class="tree-child" href="drawrect-257bd34c.html">DrawRect</a><a class="tree-child" href="drawrectoutline-b70c987a.html">DrawRectOutline</a><a class="tree-child" href="drawtext-cd5aa815.html">DrawText</a><a class="tree-child" href="init-ed1a122c.html" aria-current="page">Init</a><a class="tree-child" href="m-batch-b19dc3f0.html">m_Batch</a><a class="tree-child" href="m-bframeopen-7fedc6e4.html">m_bFrameOpen</a><a class="tree-child" href="m-colors-073843a8.html">m_Colors</a><a class="tree-child" href="m-font-2b2a076a.html">m_Font</a><a class="tree-child" href="measuretext-cb0f7992.html">MeasureText</a><a class="tree-child" href="measuretextbytes-f56fb1aa.html">MeasureTextBytes</a><a class="tree-child" href="operator-98746a52.html">operator=</a><a class="tree-child" href="render-e494789a.html">Render</a><a class="tree-child" href="shutdown-6d826238.html">Shutdown</a><a class="tree-child" href="cuirenderer-8e724cbb.html">~CUiRenderer</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/ui.html">ui</a><span>/</span><a href="../cuirenderer-e4df6fb1.html">CUiRenderer</a><span>/</span><span aria-current="page">Init</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / ui</div>
+<h1 class="identifier">acs::CUiRenderer::Init</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21946">CSpriteBatch</button><span class="term-tooltip" id="term-tip-21946" role="tooltip">多数のスプライトをまとめて効率よく描画する仕組み。</span></span> を初期化し、既定<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21947">フォント</button><span class="term-tooltip" id="term-tip-21947" role="tooltip">文字を画面に描くための字形データ。 これを使って文字列を描画する。</span></span>を設定する。 device: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21948">パイプライン</button><span class="term-tooltip" id="term-tip-21948" role="tooltip">1 回の描画方式(VS+PS・頂点レイアウト・ブレンド・深度等)を丸ごと固めたオブジェクト。 PSO とも。</span></span>生成に使う <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21949">RHI</button><span class="term-tooltip" id="term-tip-21949" role="tooltip">Render Hardware Interface。 DX12 / Vulkan / Diligent などの GPU API の違いを隠す、バックエンド非依存の薄い抽象層。 ACS では IRhiDevice 等がこれ。</span></span> <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21950">デバイス</button><span class="term-tooltip" id="term-tip-21950" role="tooltip">GPU とのやり取りを表す IRhiDevice のこと。</span></span>。 rt_format: <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21951">描画</button><span class="term-tooltip" id="term-tip-21951" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>先レンダーターゲットの<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21952">フォーマット</button><span class="term-tooltip" id="term-tip-21952" role="tooltip">1 ピクセル/要素のビット配置と型(RGBA8、HDR float、深度など)。 ACS では EFormat。</span></span>。 default_font: 文字<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21953">描画</button><span class="term-tooltip" id="term-tip-21953" role="tooltip">画面に絵(図形・画像・文字)を出すこと。 レンダリングとも言う。</span></span>に使う既定<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21954">フォント</button><span class="term-tooltip" id="term-tip-21954" role="tooltip">文字を画面に描くための字形データ。 これを使って文字列を描画する。</span></span> (所有しない、null 可)。 戻り値: 成功なら空の <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21955">TResult</button><span class="term-tooltip" id="term-tip-21955" role="tooltip">成功値かエラー値のどちらか一方を持つ型。 例外を使わずに失敗を戻り値で伝える（既定のエラー型は FErrorCode）。</span></span>、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-21956">CSpriteBatch</button><span class="term-tooltip" id="term-tip-21956" role="tooltip">多数のスプライトをまとめて効率よく描画する仕組み。</span></span> 初期化失敗ならエラー。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::CUiRenderer::Initの宣言"><code>TResult&lt;void&gt; <a href="init-ed1a122c.html" aria-current="page">Init</a>(<a href="../../render/irhidevice-cd8c9ca2.html">IRhiDevice</a>&amp; <a href="../../platform/cdirectinputgamepadsource-706d9bd8/fdevice-8965cc10/device-0a2696da.html">device</a>, <a href="../../render/eformat-10ad11bf.html">EFormat</a> <a href="../../render/fpipelinedesc-0477d9c5/rt-format-b065d243.html">rt_format</a>, FFont* default_font) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/ui.html">ui</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cuirenderer-e4df6fb1.html"><code>acs::CUiRenderer</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/ui/UiRenderer.h:87</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

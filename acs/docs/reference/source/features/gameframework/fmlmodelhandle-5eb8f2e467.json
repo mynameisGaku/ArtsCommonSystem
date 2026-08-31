@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FMlModelHandle",
+    "kind": "構造体",
+    "header": "gameframework/MlRuntime.h",
+    "summary": "不透明な ML モデルハンドル。 backend が内部で持つモデル参照を u64 として公開する。 m_Opaque == 0 が無効。",
+    "when": "LoadModel の戻り値を保持し、RunInference / UnloadModel に渡す時。",
+    "members": [
+      {
+        "sig": "u64 m_Opaque",
+        "desc": "backend 固有の値 (0=無効)。"
+      },
+      {
+        "sig": "bool IsValid() const",
+        "desc": "有効なハンドルか。"
+      }
+    ]
+  }
+}

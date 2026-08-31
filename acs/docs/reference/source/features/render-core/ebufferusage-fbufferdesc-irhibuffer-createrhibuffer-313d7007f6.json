@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "EBufferUsage / FBufferDesc / IRhiBuffer / CreateRhiBuffer",
+    "kind": "列挙 / 構造体 / インターフェース / ファクトリ",
+    "header": "render/IRhiBuffer.h",
+    "summary": "GPU 上のバッファ(頂点・インデックス・定数バッファ等)の抽象と、その作成。 用途を EBufferUsage で指定する。",
+    "when": "メッシュの頂点データやシェーダに渡すパラメータを GPU に置くとき。 高レベル経路では UploadMesh 等が裏で作る。",
+    "sample": "FBufferDesc d;\nd.size = sizeof(verts);\nd.usage = EBufferUsage::Vertex;\nd.initial_data = verts;\nauto vb = CreateRhiBuffer(*dev, d).Value();\n// 動的に書き換えるなら d.cpu_writable = true → vb->Update(...)",
+    "members": [
+      {
+        "sig": "enum EBufferUsage: Vertex / Index16 / Index32 / Uniform / Storage / Staging",
+        "desc": "頂点 / 16・32bit インデックス / 定数バッファ / UAV / アップロード用。"
+      },
+      {
+        "sig": "struct FBufferDesc{ size, usage, cpu_writable, initial_data }",
+        "desc": "サイズ・用途・CPU 書込み可否・初期データ。"
+      },
+      {
+        "sig": "usize Size() const / EBufferUsage Usage() const",
+        "desc": "サイズ・用途を返す。"
+      },
+      {
+        "sig": "void Update(const void* data, usize size, usize offset = 0)",
+        "desc": "CPU からデータを書き込む(cpu_writable=true のバッファのみ)。",
+        "when": "定数バッファを毎フレーム更新するとき。"
+      },
+      {
+        "sig": "IRhiBuffer& BindingBuffer() / usize BindingOffset() const",
+        "desc": "backendがbindする実bufferと先頭offset。 通常bufferは自身と0、共有pageの論理sliceは親と256 byte境界offsetを返す。"
+      },
+      {
+        "sig": "TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice&, const FBufferDesc&)",
+        "ret": "バッファ",
+        "desc": "バッファを作る。"
+      }
+    ]
+  }
+}

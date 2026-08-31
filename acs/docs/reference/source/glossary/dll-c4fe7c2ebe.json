@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "DLL",
+  "definition": "実行時に読み込む共有ライブラリ(Windows の動的リンクライブラリ)。 例: ONNX Runtime の本体を DLL として読み込む。"
+}

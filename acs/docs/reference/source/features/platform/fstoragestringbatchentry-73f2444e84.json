@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "platform",
+    "title": "platform — ウィンドウ / 入力 / 時刻 / OS",
+    "description": "ゲームの器になる部分。 ウィンドウを開き、キーボード・マウス・ゲームパッドの入力を読み取り、フレームの経過時間を計り、ファイルや設定を保存します。 OS（Windows）との橋渡し役です。"
+  },
+  "feature": {
+    "name": "FStorageStringBatchEntry",
+    "kind": "構造体",
+    "header": "platform/StorageStringBatchEntry.h",
+    "summary": "FStorageへ一括設定する終端key/value組。 value == nullptrは空文字列、非nullは終端までのbyte列として扱う。 key/valueの順に二pointerを保持するaggregateで、field offset、standard-layout、trivially-copyableをcompile-timeに固定する。",
+    "when": "複数の文字列設定を、一部だけ反映される状態を作らずまとめて更新したい時。",
+    "members": [
+      {
+        "sig": "const char* key",
+        "desc": "設定対象のkey。 有効なUTF-8で、空、改行、=、制御文字、INI指示行と衝突する先頭文字は使えない。 LoadFromBytesの境界trimでidentityが変わらないよう、先頭と末尾のASCII space (U+0020)も拒否するが、内部spaceは許可する。"
+      },
+      {
+        "sig": "const char* value",
+        "desc": "設定する値。 nullは既存のTrySetStringと同じ空文字列。 非nullは終端までのbyte列を追加検査や変換なしで保持し、このwaveで既存valueの制約を強めない。"
+      }
+    ]
+  }
+}

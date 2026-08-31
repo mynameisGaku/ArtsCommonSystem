@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AABB",
+  "definition": "Axis-Aligned Bounding Box。 軸に平行な直方体の境界ボックス。 当たり判定の粗い包囲に使う。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SRV",
+  "definition": "Shader Resource View。 テクスチャ等をシェーダから読むためのビュー。"
+}

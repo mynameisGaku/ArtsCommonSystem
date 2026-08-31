@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "foundation",
+    "title": "foundation — 基盤型 / Result / ログ・パニック",
+    "description": "ACS の一番下の土台。 u32/f32 などの短い型名、例外を使わずに失敗を返す TResult、アサートやログといった、どのモジュールも頼る共通部品を提供します。 STL（標準ライブラリ）に依存しないのが特徴です。"
+  },
+  "feature": {
+    "name": "TContiguousEnumLookup<Enum, Count>",
+    "kind": "クラステンプレート",
+    "header": "foundation/EnumLookup.h",
+    "summary": "0 始まりで欠番のない列挙値の妥当性判定と名前取得を、constexpr 名前表から生成する。",
+    "when": "wire 値の検証や診断名で同じ switch/比較列を重複させず、compile-time に範囲を固定したい時。",
+    "sample": "constexpr const char* names[]{\"A\", \"B\"};\nconstexpr TContiguousEnumLookup<EMode, 2> lookup(names);\nif (lookup.Contains(mode)) Log(lookup.Name(mode));",
+    "members": [
+      {
+        "sig": "constexpr bool Contains(Enum value) const",
+        "ret": "有効範囲なら true",
+        "desc": "値が 0 以上 Count 未満かを検証する。"
+      },
+      {
+        "sig": "constexpr const char* Name(Enum value, const char* fallback = \"Unknown\") const",
+        "ret": "名前または fallback",
+        "desc": "有効値を添字にして名前を返す。"
+      },
+      {
+        "sig": "static constexpr usize Size()",
+        "ret": "有効値数",
+        "desc": "compile-time の Count を返す。"
+      }
+    ]
+  }
+}

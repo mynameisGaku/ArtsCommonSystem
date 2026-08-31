@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ラベル → op_index のマッピングを登録する。 Jump 先 / Start(label) で参照される。 同名ラベル登録時は最初の登録のみ有効 (= 上書き禁止)。 op_index 範囲外は no-op。 label: ラベル名 (所有しない)。 op_index: ラベルが指す op の index。">
+  <title>acs::game::CDialogueScript::AddLabel — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../cdialoguescript-f99dfbf0.html">CDialogueScript の概要</a><a class="tree-child" href="state-5010d950.html">_state</a><a class="tree-child" href="addlabel-f0dd6fa4.html" aria-current="page">AddLabel</a><a class="tree-child" href="advance-cef8ee58.html">Advance</a><a class="tree-child" href="cdialoguescript-87d2bed1.html">CDialogueScript</a><a class="tree-child" href="cdialoguescript-89ec0872.html">CDialogueScript</a><a class="tree-child" href="cdialoguescript-d14fae9b.html">CDialogueScript</a><a class="tree-child" href="clearall-4b315daa.html">ClearAll</a><a class="tree-child" href="currentchoice-93637667.html">CurrentChoice</a><a class="tree-child" href="currentchoicecount-0a59539b.html">CurrentChoiceCount</a><a class="tree-child" href="currentop-f470f547.html">CurrentOp</a><a class="tree-child" href="currentopindex-aba174f7.html">CurrentOpIndex</a><a class="tree-child" href="enterchoicegroup-abcdd907.html">EnterChoiceGroup</a><a class="tree-child" href="enterfinished-8cb52581.html">EnterFinished</a><a class="tree-child" href="executeimmediateop-730e92d3.html">ExecuteImmediateOp</a><a class="tree-child" href="flabelentry-7836a180.html">FLabelEntry</a><a class="tree-child" href="init-df35561e.html">Init</a><a class="tree-child" href="isplaying-bf7a0eb2.html">IsPlaying</a><a class="tree-child" href="loadscript-e5f01eca.html">LoadScript</a><a class="tree-child" href="m-bgcb-5a7c1013.html">m_BgCb</a><a class="tree-child" href="m-bguser-c4fdf13b.html">m_BgUser</a><a class="tree-child" href="m-choicecb-dd35565b.html">m_ChoiceCb</a><a class="tree-child" href="m-choiceuser-9156069d.html">m_ChoiceUser</a><a class="tree-child" href="m-currentchoices-f92c3b45.html">m_CurrentChoices</a><a class="tree-child" href="m-currentopindex-236737fa.html">m_CurrentOpIndex</a><a class="tree-child" href="m-endcb-790e1f2f.html">m_EndCb</a><a class="tree-child" href="m-enduser-c29e83ca.html">m_EndUser</a><a class="tree-child" href="m-hidecb-8c870955.html">m_HideCb</a><a class="tree-child" href="m-hideuser-ec9120ac.html">m_HideUser</a><a class="tree-child" href="m-labels-9e30ad7e.html">m_Labels</a><a class="tree-child" href="m-ops-56abf74b.html">m_Ops</a><a class="tree-child" href="m-playbgmcb-c70fc7f0.html">m_PlayBgmCb</a><a class="tree-child" href="m-playbgmuser-7df7ff19.html">m_PlayBgmUser</a><a class="tree-child" href="m-playsecb-b4911a3a.html">m_PlaySeCb</a><a class="tree-child" href="m-playseuser-3144f981.html">m_PlaySeUser</a><a class="tree-child" href="m-saycb-76375e71.html">m_SayCb</a><a class="tree-child" href="m-sayuser-3628773c.html">m_SayUser</a><a class="tree-child" href="m-scriptid-09e833a7.html">m_ScriptId</a><a class="tree-child" href="m-showcb-d0c846b2.html">m_ShowCb</a><a class="tree-child" href="m-showuser-83452095.html">m_ShowUser</a><a class="tree-child" href="m-stopbgmcb-a541bd43.html">m_StopBgmCb</a><a class="tree-child" href="m-stopbgmuser-f46fbf19.html">m_StopBgmUser</a><a class="tree-child" href="m-waitremaining-403d3ac2.html">m_WaitRemaining</a><a class="tree-child" href="operator-2eb87caf.html">operator=</a><a class="tree-child" href="operator-a48f47ba.html">operator=</a><a class="tree-child" href="resolvelabel-69498212.html">ResolveLabel</a><a class="tree-child" href="rununtilblocked-5960bbec.html">RunUntilBlocked</a><a class="tree-child" href="selectchoice-6c0c0167.html">SelectChoice</a><a class="tree-child" href="setonbackgroundcallback-49687dd5.html">SetOnBackgroundCallback</a><a class="tree-child" href="setonchoicepresentcallback-90d3b62d.html">SetOnChoicePresentCallback</a><a class="tree-child" href="setonendcallback-e111ad97.html">SetOnEndCallback</a><a class="tree-child" href="setonhidecallback-c32f1b8d.html">SetOnHideCallback</a><a class="tree-child" href="setonplaybgmcallback-bd4762b6.html">SetOnPlayBgmCallback</a><a class="tree-child" href="setonplaysecallback-c1a557b2.html">SetOnPlaySeCallback</a><a class="tree-child" href="setonsaycallback-79e4f33e.html">SetOnSayCallback</a><a class="tree-child" href="setonshowcallback-dda1052e.html">SetOnShowCallback</a><a class="tree-child" href="setonstopbgmcallback-e447d557.html">SetOnStopBgmCallback</a><a class="tree-child" href="start-042835e2.html">Start</a><a class="tree-child" href="state-c40815c3.html">State</a><a class="tree-child" href="stop-aff6cf40.html">Stop</a><a class="tree-child" href="tick-ea19ca45.html">Tick</a><a class="tree-child" href="cdialoguescript-b6b02645.html">~CDialogueScript</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../cdialoguescript-f99dfbf0.html">CDialogueScript</a><span>/</span><span aria-current="page">AddLabel</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CDialogueScript::AddLabel</h1>
+<p class="lead">ラベル → op_index のマッピングを登録する。 Jump 先 / Start(label) で参照される。 同名ラベル登録時は最初の登録のみ有効 (= 上書き禁止)。 op_index 範囲外は <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5835">no-op</button><span class="term-tooltip" id="term-tip-5835" role="tooltip">何もしない処理。 呼んでも安全で副作用が無いこと。</span></span>。 label: ラベル名 (所有しない)。 op_index: ラベルが指す op の index。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CDialogueScript::AddLabelの宣言"><code>void <a href="addlabel-f0dd6fa4.html" aria-current="page">AddLabel</a>(const char* label, <a href="../../foundation/u32-4ce4a209.html">u32</a> <a href="flabelentry-7836a180/op-index-48226be7.html">op_index</a>) noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../cdialoguescript-f99dfbf0.html"><code>acs::game::CDialogueScript</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/DialogueScript.h:231</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

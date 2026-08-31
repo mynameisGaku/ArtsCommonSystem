@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "accent",
+  "definition": "UI の強調色(CheckMark / SliderGrab / TabActive など)。 ACS のブランド色相当。"
+}

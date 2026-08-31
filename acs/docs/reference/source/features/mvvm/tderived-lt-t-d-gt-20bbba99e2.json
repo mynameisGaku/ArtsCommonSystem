@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mvvm",
+    "title": "mvvm — データバインディング (MVVM)",
+    "description": "値が変わったら自動で UI に反映させる仕組み(MVVM)を提供します。 TObservable<T> に値を入れて Set すると、それを購読している UI やロジックへ通知が飛びます。"
+  },
+  "feature": {
+    "name": "TDerived<T, D>",
+    "kind": "クラステンプレート",
+    "header": "mvvm/Derived.h",
+    "summary": "複数の TObservable から計算で導く読み取り専用の派生値(1〜4 個の依存に対応)。 同じ D 型の依存を取り、生成時と各依存の変更通知中に即時再計算して、結果が変わった時だけ下流へ通知する。 出力 listener が owner ごと本体を同期破棄しても stack lifetime guard が検出し、復帰後に破棄済み m_Dirty へ触れない。 同じ storage への placement-new も旧 callback と寿命分離する。",
+    "when": "「HP ÷ 最大HP の割合」のように、他の値から自動で求まる値が欲しい時。 菱形依存(A→B,C→D)では D が中間状態と最終状態を複数回観測し得るため、複数入力を原子的に揃える必要がある処理は外側で batch 化する。",
+    "sample": "TObservable<f32> hp { 100.0f };\nTObservable<f32> max_hp { 100.0f };\nTDerived<f32, f32> ratio(\n    [](const f32& h, const f32& m){ return h / (m > 0 ? m : 1.0f); },\n    hp, max_hp);\nratio.Get();      // 1.0\nhp.Set(50.0f);   // 依存通知中に ratio を 0.5 へ即時再計算\nratio.Get();      // 0.5",
+    "members": [
+      {
+        "sig": "TDerived(Fn fn, DepRefs&... deps)",
+        "desc": "計算関数 fn と 1〜4 個の依存 TObservable<D> から作る。 fn は捕獲なしラムダ/関数ポインタ。 生成時に初回計算し、以後は依存通知ごとに即時再計算する。"
+      },
+      {
+        "sig": "const T& Get()",
+        "ret": "派生値",
+        "desc": "現在の派生値を返す。 通常は依存通知時に更新済みで、dirty が残る例外経路では返す前に再計算する。"
+      },
+      {
+        "sig": "TObservable<T>& AsObservable()",
+        "ret": "内部 Observable",
+        "desc": "派生値を持つ内部 TObservable<T> を直接露出する。"
+      },
+      {
+        "sig": "FObservableHandle Subscribe(typename TObservable<T>::Listener cb, void* user)",
+        "desc": "派生値の変化を購読する。 callback が本体の owner を同期破棄する場合は破棄を最後の操作にし、その後は値・user・owner を再参照せず return する。"
+      },
+      {
+        "sig": "bool Unsubscribe(FObservableHandle h)",
+        "desc": "派生値の購読を解除する。"
+      }
+    ]
+  }
+}

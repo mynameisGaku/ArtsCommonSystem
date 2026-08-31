@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "CStandardShader",
+    "kind": "クラス",
+    "header": "render/StandardShader.h",
+    "summary": "HLSL を書かずに使える標準ライティングシェーダ。 Lambert 拡散 + Blinn-Phong スペキュラ + 環境光 + アルベドテクスチャで、有向光源 最大 4 灯 + 点光源 4 灯 + シャドウマップに対応。",
+    "when": "とりあえず 3D メッシュをまともなライティングで描きたいとき。 PBR まで要らない手軽な経路。",
+    "sample": "CStandardShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\n// 毎フレーム。実際に記録する Standard draw 数を正確に渡す\nif (!shd.BeginFrame( 1u)) return;\nshd.SetFrame(cam.ViewProjection(), cam.Eye(),\n             FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});\nshd.DrawMesh(*rdr.CommandList(), gm, model, FVec3{1,1,1}, 0.5f, 64.0f);",
+    "members": [
+      {
+        "sig": "TResult<void> Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)",
+        "desc": "VS+PS・パイプライン・定数バッファ・既定白テクスチャを作る。"
+      },
+      {
+        "sig": "bool BeginFrame(u32 required_object_draws = 0)",
+        "desc": "毎フレームの描画記録前に呼び、実際に記録する Standard draw 数を正確に渡す。 共有upload arenaの必要sliceを確保できなければfalse。"
+      },
+      {
+        "sig": "u32 ObjectBufferCapacity() / ObjectDrawCount() / ObjectBufferPageCount()",
+        "desc": "論理object slot容量、frame使用数、全slotを保持する実GPU buffer数。"
+      },
+      {
+        "sig": "[[deprecated]] kMaxObjectDrawsPerFrame = 256",
+        "desc": "旧固定リングとのソース互換用の目安値。 プールは必要数まで増えるため、ハード上限ではない。"
+      },
+      {
+        "sig": "void SetFrame(view_projection, camera_pos, light_dir, light_color, ambient_color)",
+        "desc": "毎フレーム。 カメラ + 1 灯の有向光源 + 環境光の簡易版。"
+      },
+      {
+        "sig": "void SetLights(view_projection, camera_pos, const FDirLight* lights, u32 count, ambient_color)",
+        "desc": "有向光源 最大 4 灯のマルチライト版。"
+      },
+      {
+        "sig": "void SetPointLights(const FPointLight* lights, u32 count)",
+        "desc": "点光源を最大 4 灯追加する(SetFrame/SetLights と独立)。"
+      },
+      {
+        "sig": "void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp, f32 bias = 0.001f, f32 filter_radius = 1.0f)",
+        "desc": "シャドウマップを設定。 null で影なし。 filter_radius は PCSS の柔らかさ。"
+      },
+      {
+        "sig": "bool SetObject(const FMat4& model, base_color, specular_strength, shininess)",
+        "desc": "描くオブジェクトごとのモデル行列と材質を draw 専用 CB に設定。 失敗時は false なので、その draw を記録しない。"
+      },
+      {
+        "sig": "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, base_color, specular_strength, shininess, IRhiTexture* albedo = nullptr)",
+        "desc": "Object CB 更新 + 1 回の描画をまとめた便利 API。 albedo=null で白テクスチャ。"
+      },
+      {
+        "sig": "bool IsShadowEnabled() const / IRhiTexture* ShadowTextureOrDefault() const",
+        "desc": "シャドウマップが設定済みか / 設定された深度テクスチャ(未設定なら既定白テクスチャ)を返す。"
+      },
+      {
+        "sig": "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()",
+        "desc": "細かく手で描きたいとき用のアクセサ。"
+      },
+      {
+        "sig": "using FStandardShader = CStandardShader",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CStandardShader を使う。"
+      }
+    ]
+  }
+}

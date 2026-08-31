@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "CAssetRegistry",
+    "kind": "クラス",
+    "header": "asset/AssetRegistry.h",
+    "summary": "アセット読み込みの中心。 パスを渡すと拡張子に合うローダでファイルを読み、結果を TSharedPtr でキャッシュ共有する。 同期/非同期どちらも対応。 コピー不可。",
+    "when": "ゲーム内でテクスチャ・音・モデル等を読み込む時の入口。 一度読んだものを二度読まずに使い回したい時。",
+    "sample": "CAssetRegistry reg;\nreg.RegisterDefaultLoaders();             // 標準ローダ一括登録\nauto r = reg.Load(L\"textures/hero.png\");\nif (r.IsOk()) {\n    TSharedPtr<AAsset> a = r.Value();      // 同じパスの再 Load は同じ a を返す\n}",
+    "members": [
+      {
+        "sig": "void RegisterLoader(IAssetLoader* loader)",
+        "desc": "拡張子マッチで使うローダを 1 つ登録する。 所有権はレジストリに渡らない(ローダの寿命は呼び出し側が管理)。",
+        "when": "自前ローダや特定型だけ追加したい時。"
+      },
+      {
+        "sig": "void RegisterDefaultLoaders()",
+        "desc": "標準ローダ群(Image / Audio / Mesh / Text / Binary)を一括登録する。",
+        "when": "とりあえず一般的な素材を読みたい最初の一手。"
+      },
+      {
+        "sig": "TResult<TSharedPtr<AAsset>> Load(const wchar_t* path)",
+        "ret": "アセット または エラー",
+        "desc": "同期でファイル読み込み + ローダ呼び出し。 キャッシュ済みなら即返却。 Result で成否を返す。",
+        "sample": "auto r = reg.Load(L\"mesh/box.glb\");\nif (r.IsOk()) use(r.Value());"
+      },
+      {
+        "sig": "FAssetFuture LoadAsync(const wchar_t* path)",
+        "ret": "完了ハンドル",
+        "desc": "非同期で CThreadPool ワーカーに読み込みを投げ、FAssetFuture を返す。 キャッシュ済みなら即完了状態の future。",
+        "when": "大きいモデル等をフレームを止めずに読みたい時。",
+        "sample": "FAssetFuture fut = reg.LoadAsync(L\"big.glb\");\n// ...別の処理...\nif (fut.IsReady()) use(fut.Get().Value());"
+      },
+      {
+        "sig": "TSharedPtr<AAsset> Find(FAssetId id)",
+        "ret": "アセット または 空",
+        "desc": "キャッシュからのみ取得。 未キャッシュなら空の TSharedPtr(読み込みはしない)。",
+        "when": "既に読んだはずのものを ID で引きたい時。"
+      },
+      {
+        "sig": "void Unload(FAssetId id)",
+        "desc": "キャッシュから外す。 ファイル変更時の再読み込み準備に使う(保持中の TSharedPtr は生き続ける)。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "全キャッシュをクリアする。"
+      },
+      {
+        "sig": "TResult<void> AsyncCacheInsert(FAssetId, TSharedPtr<AAsset>)",
+        "ret": "成功 または エラー",
+        "desc": "ワーカースレッドからロック付きでキャッシュへ挿入する内部 API。 レジストリ終了中やキャッシュ挿入失敗はエラーで返す。 一般ユーザは使わない。"
+      },
+      {
+        "sig": "using FAssetRegistry = CAssetRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CAssetRegistry を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-core",
+    "title": "render — 描画(コア)",
+    "description": "GPU に絵を描くための土台。 バックエンド(DX12 / Diligent)の違いを隠す低レベルな RHI 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・スプライト・フォント・空・ポストプロセス等)をまとめて提供します。"
+  },
+  "feature": {
+    "name": "FSwapchainConfig / CreateRhiSwapchain",
+    "kind": "構造体 / ファクトリ関数",
+    "header": "render/IRhiSwapchain.h",
+    "summary": "スワップチェインを作るための設定(対象ウィンドウ・フォーマット・バッファ枚数・VSync)と生成関数。",
+    "when": "RHI を自前で組むとき。",
+    "sample": "FSwapchainConfig cfg;\ncfg.window = &window;\ncfg.buffer_count = 2;          // ダブルバッファ\ncfg.vsync = true;\nauto sc = CreateRhiSwapchain(*dev, cfg).Value();",
+    "members": [
+      {
+        "sig": "struct FSwapchainConfig{ window, format, buffer_count=2, vsync=true }",
+        "desc": "2=ダブル、3=トリプルバッファ。"
+      },
+      {
+        "sig": "TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device, const FSwapchainConfig& cfg)",
+        "ret": "スワップチェイン",
+        "desc": "スワップチェインを作る。"
+      }
+    ]
+  }
+}

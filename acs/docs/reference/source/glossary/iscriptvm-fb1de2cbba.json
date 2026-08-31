@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IScriptVm",
+  "definition": "スクリプト VM の純粋仮想インターフェース。 Lua/Wren/Python 等を差し替えるための seam。 CLuaVm がこれを実装する。"
+}

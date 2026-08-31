@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ecs",
+    "title": "ecs — エンティティ・コンポーネント・システム",
+    "description": "ゲームの登場物をエンティティ(ただの ID)と、それにくっつけたコンポーネント(位置・速度などのデータ)で表す仕組みです。 データを型ごとにまとめて持つので、大量の物体を高速に走査できます。"
+  },
+  "feature": {
+    "name": "CSystemScheduler",
+    "kind": "クラス",
+    "header": "ecs/System.h",
+    "summary": "システム関数(SystemFn)を登録し、毎フレームまとめて順番に呼ぶ実行器。 登録順に実行される。",
+    "when": "ゲームループの中で複数のシステム(移動→当たり判定→描画準備…)を一括で回したい時。",
+    "sample": "CSystemScheduler sched;\nsched.Add(&MovementSystem);\nsched.Add(&CollisionSystem);\nwhile (running) {\n    sched.Tick(world, dt);  // 全システムを順に実行\n}",
+    "members": [
+      {
+        "sig": "void Add(SystemFn fn)",
+        "desc": "システム関数を末尾に登録する。 実行はこの登録順。"
+      },
+      {
+        "sig": "void Tick(CWorld& world, f32 dt)",
+        "desc": "登録された全システムを順に 1 回ずつ呼ぶ。 dt は前フレームからの経過秒。",
+        "when": "毎フレーム 1 回呼ぶ。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "登録済みシステムを全消去する。"
+      },
+      {
+        "sig": "usize Count() const",
+        "ret": "登録数",
+        "desc": "今登録されているシステムの数を返す。"
+      },
+      {
+        "sig": "using FSystemScheduler = CSystemScheduler",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CSystemScheduler を使う。"
+      }
+    ]
+  }
+}

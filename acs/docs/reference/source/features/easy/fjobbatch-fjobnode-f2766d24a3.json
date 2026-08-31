@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "FJobBatch / FJobNode",
+    "kind": "構造体",
+    "header": "easy/Easy.h",
+    "summary": "並列処理のハンドル。 FJobBatch は RunAsync で投げた非同期ジョブ群を、FJobNode は依存グラフの 1 ノードを指す軽量値型（id==0 は無効）。",
+    "when": "RunAsync の戻りを WaitJobs に渡す、Job の戻りを Then でつなぐ、といった並列 API の受け渡しに使う。",
+    "sample": "FJobBatch b = RunAsync([&]{ heavyCalc(); });\nWaitJobs(b);\nFJobNode a = Job([]{ stepA(); });\nFJobNode c = Job([]{ stepC(); });\nThen(a, c);   // a の後に c",
+    "members": [
+      {
+        "sig": "u32 id",
+        "desc": "ジョブ群／ノードを指す内部番号。 0 は無効。"
+      }
+    ]
+  }
+}

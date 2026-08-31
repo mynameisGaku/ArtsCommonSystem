@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FFixedStepRuntimeSnapshot",
+    "kind": "構造体",
+    "header": "gameframework/FixedStepRuntimeSnapshot.h",
+    "summary": "固定時計とactive sceneの未消費入力を同じ復元境界で保持するprocess内保存値。 取得元game・scene・sourceも識別する。",
+    "when": "同じ実行中gameで固定tickをrollbackし、時計と入力edgeをずらさず復元する時。"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "xr_err::kSub_NotImplemented",
+    "kind": "定数(エラー subcode)",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "「未実装」を表すエラー細分番号(99)。 stub の Init() や、backend 未統合時に Result へ載る。 他モジュール(ML 等)と番号を揃え、横断で「未実装」を一律に扱える。",
+    "when": "Init 失敗が「ランタイム無し」ではなく「そもそも未実装/未リンク」なのかを判別したい時。",
+    "sample": "auto r = acs::game::GetDefaultOpenXrBridge().Init();\nif (r.IsErr() && r.Error().subcode == acs::game::xr_err::kSub_NotImplemented) {\n    // backend 未リンク。常に 2D で動かす。\n}"
+  }
+}

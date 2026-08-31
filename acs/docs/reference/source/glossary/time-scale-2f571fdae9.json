@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "time_scale",
+  "definition": "時間の流れる倍率。 1=通常、0=停止、>1=早送り、<1=スロー。 CSceneClock がこれを掛けて scaled な時間を作る。"
+}

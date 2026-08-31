@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CUiRenderer",
+  "definition": "AWidget ツリーを CSpriteBatch/FFont で描き、UTF-8 全体・prefix の幅も測る UI renderer。"
+}

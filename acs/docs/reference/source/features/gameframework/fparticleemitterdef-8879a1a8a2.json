@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FParticleEmitterDef",
+    "kind": "構造体",
+    "header": "gameframework/ParticleEffectSystem.h",
+    "summary": "emitter の挙動パラメータ。 色 (color_start/end)、寿命 (lifetime_sec)、毎秒放出数 (emit_rate_per_sec)、初速 (speed_min/max)、サイズ (scale_start/end)、重力 (gravity)、Burst 数 (burst_count) を持つ。",
+    "when": "CreateEmitter() に渡す設定の塊。 色やサイズは出生時から寿命末まで線形補間される。",
+    "sample": "FParticleEmitterDef fire{};\nfire.color_start = {1.0f, 0.6f, 0.1f};  // 橙\nfire.color_end   = {0.5f, 0.0f, 0.0f};  // 暗赤\nfire.scale_start = 8.0f; fire.scale_end = 0.0f;"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "HDR",
+  "definition": "High Dynamic Range。 明暗の幅を float で広く保持する描画。 最後にトーンマップで表示用に圧縮する。"
+}

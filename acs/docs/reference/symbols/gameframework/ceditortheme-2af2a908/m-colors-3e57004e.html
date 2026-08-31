@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="現在のカラーパレット (preset 既定 or Custom)。">
+  <title>acs::game::editor_core::CEditorTheme::m_Colors — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ceditortheme-2af2a908.html">CEditorTheme の概要</a><a class="tree-child" href="applypreset-d790cab6.html">ApplyPreset</a><a class="tree-child" href="applytoimgui-bd241590.html">ApplyToImGui</a><a class="tree-child" href="ceditortheme-aac83e04.html">CEditorTheme</a><a class="tree-child" href="ceditortheme-f33e2c4f.html">CEditorTheme</a><a class="tree-child" href="ceditortheme-f5424c9f.html">CEditorTheme</a><a class="tree-child" href="colors-0467fda5.html">Colors</a><a class="tree-child" href="currentpreset-e095cbc6.html">CurrentPreset</a><a class="tree-child" href="drawthemesettingsui-be599868.html">DrawThemeSettingsUI</a><a class="tree-child" href="fillpresetcolors-739119b6.html">FillPresetColors</a><a class="tree-child" href="fontscale-02256851.html">FontScale</a><a class="tree-child" href="init-d1a5f452.html">Init</a><a class="tree-child" href="kcurrentversion-e901c02a.html">kCurrentVersion</a><a class="tree-child" href="kmagic-744cd918.html">kMagic</a><a class="tree-child" href="kmaxpersistencepathchars-0acb48a6.html">kMaxPersistencePathChars</a><a class="tree-child" href="kmaxthemebytes-71890aa1.html">kMaxThemeBytes</a><a class="tree-child" href="kmaxthemelinebytes-915e14e7.html">kMaxThemeLineBytes</a><a class="tree-child" href="kmaxthemelines-b2372e38.html">kMaxThemeLines</a><a class="tree-child" href="loadtheme-f910dc3c.html">LoadTheme</a><a class="tree-child" href="m-colors-3e57004e.html" aria-current="page">m_Colors</a><a class="tree-child" href="m-cornerradius-902c001e.html">m_CornerRadius</a><a class="tree-child" href="m-fontscale-8e41ab08.html">m_FontScale</a><a class="tree-child" href="m-itemspacingy-40589c40.html">m_ItemSpacingY</a><a class="tree-child" href="m-preset-af588284.html">m_Preset</a><a class="tree-child" href="operator-c5be9ca9.html">operator=</a><a class="tree-child" href="operator-ed25904c.html">operator=</a><a class="tree-child" href="roundedcorners-c3ae13ed.html">RoundedCorners</a><a class="tree-child" href="savetheme-36ef1a5d.html">SaveTheme</a><a class="tree-child" href="setcustomcolors-f708e450.html">SetCustomColors</a><a class="tree-child" href="setfontscale-3815d07a.html">SetFontScale</a><a class="tree-child" href="setroundedcorners-ec921d14.html">SetRoundedCorners</a><a class="tree-child" href="setspacing-6ef0f033.html">SetSpacing</a><a class="tree-child" href="spacing-9abd04d3.html">Spacing</a><a class="tree-child" href="tryloadtheme-c55ab7f8.html">TryLoadTheme</a><a class="tree-child" href="tryparsethemetext-7f14e492.html">TryParseThemeText</a><a class="tree-child" href="trysavetheme-c3703698.html">TrySaveTheme</a><a class="tree-child" href="ceditortheme-277c78ce.html">~CEditorTheme</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ceditortheme-2af2a908.html">CEditorTheme</a><span>/</span><span aria-current="page">m_Colors</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー変数 / gameframework</div>
+<h1 class="identifier">acs::game::editor_core::CEditorTheme::m_Colors</h1>
+<p class="lead">現在のカラーパレット (<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-10008">preset</button><span class="term-tooltip" id="term-tip-10008" role="tooltip">テーマの色 / spacing / corner をまとめた既定スナップショット。 ACS では EEditorThemePreset(Dark / DarkBlue / Light など)。</span></span> 既定 or Custom)。</p></div>
+<div class="badges"><span class="badge internal">private 内部API</span><span class="badge">メンバー変数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::editor_core::CEditorTheme::m_Colorsの宣言"><code><a href="../feditorthemecolors-f322b058.html">FEditorThemeColors</a> <a href="m-colors-3e57004e.html" aria-current="page">m_Colors</a> {};</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー変数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ceditortheme-2af2a908.html"><code>acs::game::editor_core::CEditorTheme</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/tools/editor_core/EditorTheme.h:412</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

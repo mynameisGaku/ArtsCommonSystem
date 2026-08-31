@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="既定のアロケータを返す(起動時は CSystemAllocator)。 MakeShared 等が指定なしの時に使う。 SetDefaultAllocator で差し替え可能。">
+  <title>DefaultAllocator() — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/memory.html">memory モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/memory.html">memory</a><span>/</span><span aria-current="page">DefaultAllocator()</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / memory</div><h1 class="identifier">DefaultAllocator()</h1>
+<p class="lead">既定の<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27476">アロケータ</button><span class="term-tooltip" id="term-tip-27476" role="tooltip">メモリの確保/解放のやり方を担当する部品。 用途に応じて差し替えられる。</span></span>を返す(起動時は CSystemAllocator)。 MakeShared 等が指定なしの時に使う。 Set<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27477">DefaultAllocator</button><span class="term-tooltip" id="term-tip-27477" role="tooltip">既定のアロケータ。 指定なしの確保で使われる。</span></span> で差し替え可能。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/memory/defaultallocator-e84023d2.html"><code>acs::DefaultAllocator</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>特別な事情がなければこれでよい。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>memory</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>memory/Memory.h</dd></div></dl></section>
+
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="DefaultAllocator()の使用例"><code>IAllocator&amp; a = DefaultAllocator();</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

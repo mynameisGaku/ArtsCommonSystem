@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "EFieldKind",
+    "kind": "列挙(enum)",
+    "header": "gameframework/InspectorSeam.h",
+    "summary": "インスペクタのフィールド型タグ。 Bool / I32 / U32 / F32 / Vec2-4 / String (read-only) / Enum。",
+    "when": "FInspectableField の kind に入れ、描画側が switch して data を正しい型にキャストする時。"
+  }
+}

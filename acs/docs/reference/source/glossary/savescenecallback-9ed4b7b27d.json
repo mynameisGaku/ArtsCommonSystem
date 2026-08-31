@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SaveSceneCallback",
+  "definition": "AEditorToolbar の Save ボタン押下で発火する raw 関数ポインタ型。 serialize 先は user 側で決める。"
+}

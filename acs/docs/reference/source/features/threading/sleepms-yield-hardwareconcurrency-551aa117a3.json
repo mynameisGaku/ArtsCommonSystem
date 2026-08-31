@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "SleepMs / Yield / HardwareConcurrency",
+    "kind": "関数",
+    "header": "threading/Thread.h",
+    "summary": "現在スレッドを操作するフリー関数。 SleepMs=指定ミリ秒眠る。 Yield=同優先度の他スレッドに実行を譲る。 HardwareConcurrency=論理 CPU 数を返す。",
+    "when": "SleepMs はポーリング間隔の調整、Yield は短い待ち、HardwareConcurrency は並列数の決定(CThreadPool の既定 worker 数等)に。",
+    "sample": "SleepMs(16);                     // ~1 フレーム眠る\nu32 cpus = HardwareConcurrency(); // 例: 8\nFThreadPool::Init(cpus);",
+    "members": [
+      {
+        "sig": "void SleepMs(u32 ms)",
+        "desc": "指定ミリ秒スリープする。"
+      },
+      {
+        "sig": "void Yield()",
+        "desc": "同優先度の他スレッドへ CPU を譲る。"
+      },
+      {
+        "sig": "u32 HardwareConcurrency()",
+        "ret": "論理 CPU 数",
+        "desc": "この機械の論理コア数を返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FPickupInfo",
+    "kind": "構造体",
+    "header": "gameframework/PickupSystem.h",
+    "summary": "pickup 1 件の定義。 kind 種別 / item_id (非所有) / world_pos / radius 拾取半径 / magnet_radius 磁石半径 / lifetime_sec (0 で無期限) / value 価値。 radius < magnet_radius を想定。",
+    "when": "Spawn() に渡す設定。 寿命 0 にすれば明示削除まで残る永続 pickup になる。",
+    "sample": "FPickupInfo hp{};\nhp.kind = EPickupKind::HealthOrb;\nhp.world_pos = {x, y};\nhp.radius = 14.0f; hp.magnet_radius = 90.0f;\nhp.lifetime_sec = 8.0f; hp.value = 25;"
+  }
+}

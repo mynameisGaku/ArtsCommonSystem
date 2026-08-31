@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SAT",
+  "definition": "分離軸判定（Separating Axis Theorem）。 凸形状同士の重なりを「どこかの軸で離れているか」で調べる手法。"
+}

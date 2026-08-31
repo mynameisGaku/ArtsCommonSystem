@@ -1,0 +1,28 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TSharedFromThis<T>",
+    "kind": "基底クラステンプレート",
+    "header": "memory/SharedPtr.h",
+    "summary": "class T : public TSharedFromThis<T> と継承する。",
+    "when": "オブジェクトが『自分を共有する TSharedPtr』を他へ渡したい時(コールバック登録など)。 必ず MakeShared 経由で生成すること。",
+    "sample": "struct FNode : TSharedFromThis<FNode> {\n    TSharedPtr<FNode> Self() { return AsShared(); }\n};\nauto n = MakeShared<FNode>();\nauto same = n->Self();   // n と同じ対象を共有(カウント+1)",
+    "members": [
+      {
+        "sig": "TSharedPtr<T> AsShared()",
+        "ret": "自分への強参照",
+        "desc": "自分自身を指す TSharedPtr を返す。"
+      },
+      {
+        "sig": "TWeakPtr<T> AsWeak() const",
+        "ret": "自分への弱参照",
+        "desc": "自分自身を指す TWeakPtr を返す。"
+      }
+    ]
+  }
+}

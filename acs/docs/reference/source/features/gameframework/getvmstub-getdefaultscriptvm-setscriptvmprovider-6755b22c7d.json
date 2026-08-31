@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "GetVmStub / GetDefaultScriptVm / SetScriptVmProvider",
+    "kind": "関数",
+    "header": "gameframework/ScriptHost.h",
+    "summary": "既定の IScriptVm を取得/差し替える結線。 実 backend モジュールが SetScriptVmProvider で実 VM を提供し、ゲームコードは GetDefaultScriptVm で backend 非依存に既定 VM を得る。 未登録なら GetVmStub のスタブが返る。",
+    "when": "スクリプト backend をアプリ起動時に一度だけ結線したい時。",
+    "sample": "// 実 backend 側で:\nacs::game::SetScriptVmProvider(&MyLuaVmProvider);\n// ゲーム側で:\nIScriptVm& vm = acs::game::GetDefaultScriptVm();",
+    "members": [
+      {
+        "sig": "IScriptVm& GetVmStub()",
+        "ret": "静的スタブ",
+        "desc": "常に存在する防御的スタブ VM を返す。"
+      },
+      {
+        "sig": "void SetScriptVmProvider(ScriptVmProvider provider)",
+        "desc": "既定 VM を返す関数を登録する。 nullptr でスタブに戻す (後勝ち)。"
+      },
+      {
+        "sig": "IScriptVm& GetDefaultScriptVm()",
+        "ret": "既定 VM",
+        "desc": "provider 登録済みなら実 VM、未登録ならスタブを返す。"
+      }
+    ]
+  }
+}

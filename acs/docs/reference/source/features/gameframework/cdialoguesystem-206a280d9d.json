@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CDialogueSystem",
+    "kind": "クラス",
+    "header": "gameframework/DialogueSystem.h",
+    "summary": "1 行ずつ会話テキストを送り出すstate holder。 タイプライタ演出 (1 文字ずつ表示) と分岐選択肢を扱う。 描画や入力には触れず、「今どの行か」「何文字まで見えているか」「選択肢を出している最中か」だけを保持する。",
+    "when": "NPC との会話、シナリオ、イベントシーンを作りたい時。 実際の文字描画は UI 層で行い、この型は進行状態だけを管理する。",
+    "sample": "CDialogueSystem dlg;\ndlg.AddLine({ \"アリス\", \"こんにちは、勇者よ。\", 30.0f });\ndlg.AddLine({ \"アリス\", \"旅の目的を聞かせて。\", 30.0f });\ndlg.Start();\n// 毎フレーム:\ndlg.Tick(dt);                // タイプライタを進める\nif (input.JustPressed(EKey::Enter)) dlg.AdvanceLine();",
+    "members": [
+      {
+        "sig": "void AddLine(const FDialogueLine& line)",
+        "desc": "会話行を末尾に追加。 挿入順に再生される。"
+      },
+      {
+        "sig": "void AddChoices(u32 at_line_index, const FDialogueChoice* choices, u32 count)",
+        "desc": "指定行の表示完了後に出す選択肢群を登録。 同じ行に 2 回目以降の登録は無視。",
+        "when": "「はい / いいえ」のような分岐を入れたい時。"
+      },
+      {
+        "sig": "void Start()",
+        "desc": "先頭行から再生開始。 行が空なら何もしない。"
+      },
+      {
+        "sig": "void AdvanceLine()",
+        "desc": "次の行へ。 タイプ完了済みで、かつ選択肢が pending でない時のみ進む。 末尾で呼ぶと完了。"
+      },
+      {
+        "sig": "void SkipTypewriter()",
+        "desc": "現在行を即座に全文表示 (タイプ中なら強制完了)。",
+        "when": "プレイヤーがボタン連打で早送りしたい時。"
+      },
+      {
+        "sig": "void ChooseOption(u32 choice_index)",
+        "desc": "分岐選択を確定し、選択肢の次行 index へジャンプ (範囲外なら終了)。"
+      },
+      {
+        "sig": "bool IsActive() / bool IsCompleted()",
+        "desc": "再生中か / 全行を終えたか。"
+      },
+      {
+        "sig": "bool HasChoicesPending()",
+        "ret": "選択肢提示中か",
+        "desc": "タイプ完了 + 選択肢登録あり + 未選択の状態。"
+      },
+      {
+        "sig": "const FDialogueLine* CurrentLine()",
+        "ret": "現在行 または null",
+        "desc": "非アクティブ時は nullptr。"
+      },
+      {
+        "sig": "u32 VisibleCharCount()",
+        "ret": "表示文字数",
+        "desc": "タイプライタで今見えている文字数 (本文先頭から)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "dt 秒進める。 タイプライタ進行と auto-advance を行う。"
+      },
+      {
+        "sig": "void SetAutoAdvanceDelay(f32 delay_sec)",
+        "desc": "タイプ完了 + 一定秒で自動的に次行へ進む。 <=0 で無効 (既定)。 選択肢のある行では発火しない。"
+      },
+      {
+        "sig": "using FDialogueSystem = CDialogueSystem",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDialogueSystem を使う。"
+      }
+    ]
+  }
+}

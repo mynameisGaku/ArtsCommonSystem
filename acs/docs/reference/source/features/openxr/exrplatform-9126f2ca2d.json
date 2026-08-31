@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "EXrPlatform",
+    "kind": "列挙(enum)",
+    "header": "gameframework/OpenXrBridge.h",
+    "summary": "想定する XR プラットフォーム(HMD 種別)の列挙。 Init() に渡して指定するか、ActivePlatform() で今どれが選ばれたかを知る。",
+    "when": "特定機種向けの分岐や、自動検出させたい(Unknown)時。",
+    "sample": "using P = acs::game::EXrPlatform;\nxr.Init(P::MetaQuest);            // Quest 指定\n// または\nxr.Init(P::Unknown);              // 自動検出に任せる",
+    "members": [
+      {
+        "sig": "Unknown = 0",
+        "desc": "未指定/検出失敗。 stub の既定。 Init に渡すと自動検出。"
+      },
+      {
+        "sig": "MetaQuest = 1",
+        "desc": "Init(EXrPlatform)でMetaQuest backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "ValveIndex = 2",
+        "desc": "Init(EXrPlatform)でValveIndex backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "HtcVive = 3",
+        "desc": "HTC Vive 系。"
+      },
+      {
+        "sig": "PicoNeo = 4",
+        "desc": "Init(EXrPlatform)でPicoNeo backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "AppleVisionPro = 5",
+        "desc": "Init(EXrPlatform)でAppleVisionPro backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "PsVr2 = 6",
+        "desc": "Init(EXrPlatform)でPsVr2 backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "WindowsMR = 7",
+        "desc": "Init(EXrPlatform)でWindowsMR backendを明示指定する列挙値です。"
+      },
+      {
+        "sig": "SteamLink = 8",
+        "desc": "Steam Link(ネットワークストリーミング)。"
+      }
+    ]
+  }
+}

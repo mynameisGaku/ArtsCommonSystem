@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FHotReloadEvent",
+  "definition": "watcher が所有する UTF-8 path、monotonic timestamp、削除 flag を持つ 1 件の変更通知。"
+}

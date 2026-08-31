@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組むのに繰り返し必要になる「部品」を集めたモジュール。 入力マッピング・インベントリ・空腹/サバイバル統計・適応 BGM・ローカライズ・ネットコード (lockstep / snapshot)・Mod 管理・ホットリロード・LLM NPC 安全フィルタ・シーンの基本ノード (ANode) などを、すぐ使える形で提供します。"
+  },
+  "feature": {
+    "name": "FInputActionState",
+    "kind": "構造体",
+    "header": "gameframework/InputActionState.h",
+    "summary": "一つの名前付きactionを一入力時点から評価した結果。 押下・保持・解放と、[-1,+1]の合成axisをまとめて持つ。",
+    "when": "固定tickの移動、姿勢、視点、決定などを FInputMap::Evaluate から受け取る時。"
+  }
+}

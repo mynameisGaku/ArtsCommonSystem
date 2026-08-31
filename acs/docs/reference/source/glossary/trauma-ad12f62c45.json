@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "trauma",
+  "definition": "画面振動 (camera shake) の強さを表す [0,1] の連続値。 被弾などで加算し、毎フレーム減衰させる。"
+}

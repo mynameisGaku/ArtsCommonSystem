@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "assetpack",
+    "title": "assetpack — アセットパック(配布/暗号化)",
+    "description": "ゲームの画像・音・データなど大量のアセットを .acpak という 1 つの書庫ファイルにまとめ、必要に応じて 圧縮(LZ4)・暗号化(AES-256-GCM)して配布する仕組みです。 実行中はその書庫から名前でファイルを取り出します。"
+  },
+  "feature": {
+    "name": "kAcpakNonceSize / kAcpakTagSize",
+    "kind": "定数",
+    "header": "assetpack/AcpakCrypto.h",
+    "summary": "AES-256-GCM の nonce と認証タグのバイト長定数。 kAcpakNonceSize = 12(96bit、GCM 推奨幅)、kAcpakTagSize = 16(128bit 認証タグ)。 CAcpakCrypto の引数配列長として使われ、呼び出し側の長さ誤りを防ぐ。",
+    "when": "Encrypt/Decrypt/GenerateRandomNonce に渡す nonce/tag バッファのサイズを決める時。",
+    "sample": "u8 nonce[kAcpakNonceSize];   // 12\nu8 tag[kAcpakTagSize];       // 16\nFAcpakCrypto::GenerateRandomNonce(nonce);\nFAcpakCrypto::Encrypt(key, nonce, pt, n, ct, tag);",
+    "members": [
+      {
+        "sig": "inline constexpr u32 kAcpakNonceSize = 12",
+        "desc": "GCM nonce 幅(96bit)。 FAcpakFileEntry::cipher_nonce と同じ長さ。"
+      },
+      {
+        "sig": "inline constexpr u32 kAcpakTagSize = 16",
+        "desc": "GCM 認証タグ幅(128bit)。 FAcpakFileEntry::cipher_tag と同じ長さ。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "crashwin",
+    "title": "crashwin — クラッシュレポート",
+    "description": "ゲームが落ちた時に Windows のミニダンプ（.dmp）とテキスト報告書を自動で吐き出す実 backend です。 gameframework の抽象 ICrashReporterBackend を Windows の DbgHelp で実装し、起動時に 1 行登録するだけで使えます。"
+  },
+  "feature": {
+    "name": "CWindowsCrashReporter",
+    "kind": "クラス",
+    "header": "crashwin/WindowsCrashReporter.h",
+    "summary": "Windows 専用のクラッシュ報告 backend。 gameframework の ICrashReporterBackend を実装し、DbgHelp の MiniDumpWriteDump でミニダンプを、合わせて人間が読めるテキスト報告書を書き出します。 直前の パンくず（breadcrumb）も最大 32 件まで添付します。 コピー／ムーブは禁止。",
+    "when": "Windows タイトルで、クラッシュや非致命エラーをローカルファイルとして残したい時。 多くの場合は直接 new せず InstallWindowsCrashReporterAsDefault 経由で singleton として使います。",
+    "sample": "CWindowsCrashReporter reporter;\nif (reporter.Init(\"com.example.mygame\", \"1.2.3\").IsOk()) {\n    reporter.AddBreadcrumb(\"scene\", \"TitleScreen ロード完了\");\n    // ... 何か落ちそうな処理 ...\n    reporter.ReportError(\"save\", \"セーブファイルが壊れています\");\n}\nreporter.Shutdown();",
+    "members": [
+      {
+        "sig": "explicit CWindowsCrashReporter(const FWindowsCrashReporterConfig& Config)",
+        "desc": "出力フォルダ等を指定して構築する。 引数なしの既定構築も可（出力先は \"crash_dumps\"）。"
+      },
+      {
+        "sig": "TResult<void> Init(const char* ProductId, const char* Version)",
+        "ret": "成否（Result）",
+        "desc": "報告に付ける製品 ID とバージョンを控えて初期化する。 両文字列の寿命は呼出側が保証。",
+        "when": "アプリ起動直後に一度だけ。",
+        "sample": "auto r = reporter.Init(\"com.example.mygame\", \"1.2.3\");\nif (r.IsErr()) { /* 失敗は握り潰す（二次クラッシュ防止） */ }"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "後始末。 Init() 前に呼んでも安全（no-op）。"
+      },
+      {
+        "sig": "bool IsAvailable() const",
+        "ret": "利用可能か",
+        "desc": "Init() 成功後かつ Shutdown() 前なら true。"
+      },
+      {
+        "sig": "TResult<void> ReportCrash(const FCrashContext& Context)",
+        "ret": "成否（Result）",
+        "desc": "クラッシュ 1 件を処理する。 ミニダンプ（.dmp）と、例外種別・メッセージ・スタック・パンくずを含むテキスト報告書を出力フォルダに書く。",
+        "when": "自前のクラッシュハンドラからプロセスがまだ生きている間に呼ぶ。",
+        "sample": "acs::game::FCrashContext ctx;\nctx.exception_type = \"SEH_ACCESS_VIOLATION\";\nctx.message        = \"null deref in Foo::Bar\";\nreporter.ReportCrash(ctx);"
+      },
+      {
+        "sig": "TResult<void> ReportError(const char* Category, const char* Message)",
+        "ret": "成否（Result）",
+        "desc": "非致命的エラーを 1 件、テキスト報告書として書き出す。 Category は集計用のキー（\"net\" / \"save\" 等）。",
+        "sample": "reporter.ReportError(\"shader\", \"PSO のコンパイルに失敗\");"
+      },
+      {
+        "sig": "TResult<void> AddBreadcrumb(const char* Category, const char* Message)",
+        "ret": "成否（Result）",
+        "desc": "クラッシュ前の文脈をリングバッファに 1 件積む（最大 32 件、古いものから上書き）。 送信はせず、次の ReportCrash でまとめて添付される。",
+        "when": "「どこまで進んでいたか」を残したい節目ごとに呼ぶ。",
+        "sample": "reporter.AddBreadcrumb(\"input\", \"ボス部屋に入室\");"
+      },
+      {
+        "sig": "void SetUserId(const char* AnonymousId)",
+        "desc": "報告に付ける匿名ユーザー IDを設定する。 GDPR/CCPA 対応のため、生の email でなく初回起動時に作った UUID 等を渡す。",
+        "sample": "reporter.SetUserId(\"a1b2c3d4-...\");"
+      },
+      {
+        "sig": "void Tick(f32 Dt)",
+        "desc": "毎フレーム呼ぶ pump 用フック（Dt は経過秒）。 本 backend は同期書き込みなので実質 no-op。"
+      },
+      {
+        "sig": "const char* LastDumpPath() const",
+        "ret": "最後の .dmp パス",
+        "desc": "直近に書き出したミニダンプのファイルパス。 未出力なら空文字列。",
+        "when": "出力されたダンプの場所をログに出す／UI で案内する時。"
+      },
+      {
+        "sig": "const char* LastReportPath() const",
+        "ret": "最後の .txt パス",
+        "desc": "直近に書き出したテキスト報告書のファイルパス。 未出力なら空文字列。"
+      },
+      {
+        "sig": "using FWindowsCrashReporter = CWindowsCrashReporter",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWindowsCrashReporter を使う。"
+      }
+    ]
+  }
+}

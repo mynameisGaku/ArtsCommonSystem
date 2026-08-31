@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "ASprite2DComponent",
+    "kind": "クラス",
+    "header": "gameframework/Sprite2DComponent.h",
+    "summary": "ANode に付けるスプライト描画コンポーネント。 色付き矩形やテクスチャを描く。 サイズはワールド単位で、位置 / 回転 / 拡縮は親の FTransform2D が供給する。",
+    "when": "2D のキャラ・背景・UI 部品など、1 枚の四角い絵を表示したい時の基本部品。",
+    "sample": "auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{1, 1});\nspr.SetTexture(hero_tex);\nspr.SetTint(FVec4{1, 1, 1, 1});\nspr.SetUvRect(0, 0, 0.25f, 1.0f); // シートの 1 コマ",
+    "members": [
+      {
+        "sig": "void SetTexture(IRhiTexture* tex) / IRhiTexture* Texture() const",
+        "desc": "描くテクスチャ (非所有) を設定 / 取得する。 nullptr なら単色矩形。"
+      },
+      {
+        "sig": "void SetSize(FVec2 s) / FVec2 Size() const",
+        "desc": "ワールド単位の表示サイズ。"
+      },
+      {
+        "sig": "void SetTint(FVec4 c) / FVec4 Tint() const",
+        "desc": "乗算する色 (RGBA)。 半透明や色付けに使う。"
+      },
+      {
+        "sig": "void SetPivot(FVec2 p) / FVec2 Pivot() const",
+        "desc": "回転・配置の基準点 (0..1、既定は中心 {0.5,0.5})。"
+      },
+      {
+        "sig": "void SetUvRect(f32 u0, f32 v0, f32 u1, f32 v1)",
+        "desc": "テクスチャ内の表示矩形を指定。 スプライトシートの 1 コマを切り出す。",
+        "when": "アニメ用に ASpriteAnimComponent が毎フレーム書き換える。"
+      },
+      {
+        "sig": "FVec2 UvMin() const / FVec2 UvMax() const",
+        "desc": "現在の UV 矩形の左上 / 右下。"
+      },
+      {
+        "sig": "void OnDraw(FRenderContext& rc) override",
+        "desc": "描画処理。 CGame が共有し AScene が FRenderContext へ配線する CSpriteBatch 経由で描く (利用者は通常呼ばない)。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "mlonnx",
+    "title": "mlonnx — 機械学習(ONNX)推論",
+    "description": "学習済み AI モデルを ONNX 形式で読み込み、ゲーム内で推論(入力 → 出力の計算)を実行するモジュール。 NPC の行動判断・画像認識・音声処理などに使えます。 ゲーム本体はbackend(具体的な ML 実行エンジン)を意識せず、acs::game の共通窓口越しに呼べるのが特徴です。"
+  },
+  "feature": {
+    "name": "GetDefaultOnnxMlRuntime()",
+    "kind": "関数",
+    "header": "mlonnx/OnnxMlRuntime.h",
+    "summary": "プロセス全体で 1 個だけ共有される、既定の COnnxMlRuntime シングルトンへの参照を返す。 戻り値は基底の acs::game::IMlRuntime& 型。",
+    "when": "自分でランタイムを new せず、プロセス共有の 1 個を使い回したい時。 InstallOnnxAsDefault が裏でこれを provider として登録する。",
+    "sample": "acs::game::IMlRuntime& rt = acs::mlonnx::GetDefaultOnnxMlRuntime();\nrt.Init();\nauto h = rt.LoadModel(\"models/m.onnx\");",
+    "members": [
+      {
+        "sig": "acs::game::IMlRuntime& GetDefaultOnnxMlRuntime() noexcept",
+        "ret": "共有ランタイム",
+        "desc": "プロセス共有の既定 COnnxMlRuntime を IMlRuntime& として返す。"
+      }
+    ]
+  }
+}

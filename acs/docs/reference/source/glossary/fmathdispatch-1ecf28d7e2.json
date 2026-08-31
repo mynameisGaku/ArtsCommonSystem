@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FMathDispatch",
+  "definition": "CPU 機能に応じてバッチ演算の最適実装を選ぶ仕組み。"
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "AVX",
+  "definition": "SSE の後継のSIMD命令セット。 AVX2 などより広い幅で計算できる。"
+}

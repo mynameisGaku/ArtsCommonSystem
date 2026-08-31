@@ -1,0 +1,140 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "ABehaviorTreeEditorPanel",
+    "kind": "クラス(AEditorPanel 派生)",
+    "header": "gameframework/tools/btedit/BehaviorTreeEditorPanel.h",
+    "summary": "CBehaviorTree を 可視化 + step debug する ImGui パネル。 実体 BT は private で覗けないため、利用側が AddNode で「親 id / kind / 表示名」を push する メタミラー方式を採る。 node 状態は SetNodeStatus で push。 root status の履歴を 60-frame ring に保持。 非コピー・非ムーブ・全 noexcept。",
+    "when": "実行中の BT を観察 / step 実行したい時。 BT 構築直後にミラーも組み立て、tick のたびに status を push する。",
+    "sample": "namespace bt = acs::game::btedit;\nbt::ABehaviorTreeEditorPanel panel;\npanel.Init();\nacs::game::CBehaviorTree tree;  // 別途構築済とする\npanel.SetTree(&tree);\nacs::u32 root = panel.AddNode(bt::EBtKind::Selector, \"Root\", bt::ABehaviorTreeEditorPanel::kInvalidId);\nacs::u32 act  = panel.AddNode(bt::EBtKind::Action, \"Move\", root);\npanel.SetNodeStatus(act, acs::game::EBtStatus::Running);\npanel.StepOnce();\npanel.Shutdown();",
+    "members": [
+      {
+        "sig": "using StepCallback = void(*)(void* user, CBehaviorTree* tree, f32 dt) noexcept",
+        "desc": "「1 tick 進めたい」時に呼ばれる関数ポインタ型。 登録時は panel は tree->Tick を直接呼ばず callback だけ呼ぶ (blackboard を渡す自由を与える)。"
+      },
+      {
+        "sig": "static constexpr u32 kHistorySize = 60u",
+        "desc": "履歴 ring buffer の長さ (frame 数)。"
+      },
+      {
+        "sig": "static constexpr u32 kInvalidId = 0xFFFFFFFFu",
+        "desc": "SelectedNodeId / parent_id の \"none\" シグネル。 root の parent_id にも使う。"
+      },
+      {
+        "sig": "static constexpr u32 kMaxNodes = 128u",
+        "desc": "同時登録可能 node 数の上限。 到達時 AddNode は kInvalidId を返す。"
+      },
+      {
+        "sig": "static constexpr f32 kStepDt = 0.016f",
+        "desc": "StepOnce で使う固定 dt (60 fps の 1 frame)。"
+      },
+      {
+        "sig": "void Init() noexcept",
+        "ret": "—",
+        "desc": "メタミラー / 履歴を空に、autorun / step counter / selection を default に。 callback はリセットしない。 多重 Init 可。"
+      },
+      {
+        "sig": "void Shutdown() noexcept",
+        "ret": "—",
+        "desc": "メタミラー / 履歴 / callback を全クリア。 多重 Shutdown 可。"
+      },
+      {
+        "sig": "void SetTree(CBehaviorTree* tree) noexcept",
+        "ret": "—",
+        "desc": "観察対象 BT を差し替え (nullptr で解除、非所有)。 step counter / history / status を初期化するがメタミラーは触らない。",
+        "when": "観察対象設定時。"
+      },
+      {
+        "sig": "CBehaviorTree* CurrentTree() const noexcept",
+        "ret": "tree または nullptr",
+        "desc": "現在観察中の BT。"
+      },
+      {
+        "sig": "bool IsAutorun() const noexcept / void SetAutorun(bool b) noexcept",
+        "ret": "bool",
+        "desc": "autorun (毎フレーム自動 Tick) の取得 / 切替。 ON 時は OnFrameBegin で毎 frame 1 tick 進む。"
+      },
+      {
+        "sig": "void StepOnce() noexcept",
+        "ret": "—",
+        "desc": "dt=0.016f で 1 tick 手動進行。 StepCallback 登録時はそちらに委譲。 tree 未設定なら no-op。 history に root status を push、step_count++。",
+        "when": "手動 step 時。"
+      },
+      {
+        "sig": "void Reset() noexcept",
+        "ret": "—",
+        "desc": "step counter / history / 全 node の last_status を初期化。 メタミラーと autorun は触らない。"
+      },
+      {
+        "sig": "u32 StepCount() const noexcept",
+        "ret": "回数",
+        "desc": "現在の step counter (Reset で 0、StepOnce で +1)。"
+      },
+      {
+        "sig": "u32 SelectedNodeId() const noexcept",
+        "ret": "id または kInvalidId",
+        "desc": "現在の選択 node id。 未選択は kInvalidId。"
+      },
+      {
+        "sig": "void SelectNode(u32 node_id) noexcept",
+        "ret": "—",
+        "desc": "選択 node を設定。 範囲外 / kInvalidId は「未選択」に正規化。"
+      },
+      {
+        "sig": "u32 AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept",
+        "ret": "払い出した node_id または kInvalidId",
+        "desc": "メタミラーに node を追加し id (0..N-1) を返す。 name は永続領域 (非所有)。 parent_id が範囲外なら root 扱い。 上限到達は kInvalidId。",
+        "when": "BT 構造を panel に教える時。"
+      },
+      {
+        "sig": "void SetNodeStatus(u32 node_id, EBtStatus status) noexcept",
+        "ret": "—",
+        "desc": "node の last_status を更新。 ABtAction の Fn から呼ぶ想定。 範囲外は no-op。"
+      },
+      {
+        "sig": "void ClearNodes() noexcept",
+        "ret": "—",
+        "desc": "メタミラー全削除 + selection 解除。 autorun / step counter / history はクリアしない。"
+      },
+      {
+        "sig": "u32 NodeCount() const noexcept",
+        "ret": "個数",
+        "desc": "現在登録済 node 数。"
+      },
+      {
+        "sig": "EBtStatus NodeStatus(u32 node_id) const noexcept",
+        "ret": "status",
+        "desc": "指定 id の last_status (範囲外は Failure)。"
+      },
+      {
+        "sig": "void SetOnStepCallback(StepCallback cb, void* user) noexcept",
+        "ret": "—",
+        "desc": "1 tick 進める独自処理を登録 (nullptr で解除)。"
+      },
+      {
+        "sig": "const char* Title() const noexcept override",
+        "ret": "\"Behavior Tree Editor\"",
+        "desc": "AEditorPanel override: window タイトル。"
+      },
+      {
+        "sig": "void OnFrameBegin(f32 dt) noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: autorun が ON のとき実 dt で 1 tick 進める non-ImGui hook。"
+      },
+      {
+        "sig": "void DrawUI() noexcept override",
+        "ret": "—",
+        "desc": "AEditorPanel override: toolbar / history graph / tree view / node inspector を描画。"
+      },
+      {
+        "sig": "using FBehaviorTreeEditorPanel = ABehaviorTreeEditorPanel",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABehaviorTreeEditorPanel を使う。"
+      }
+    ]
+  }
+}

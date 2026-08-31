@@ -1,0 +1,29 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "FSeasonInfo",
+    "kind": "構造体",
+    "header": "gameframework/SeasonPass.h",
+    "summary": "1 シーズンの定義。 シーズンキー・表示名・開始/終了 timestamp・想定 tier 数を持つ。",
+    "when": "StartSeason に渡してシーズンの期間と表示を決める時。",
+    "members": [
+      {
+        "sig": "const char* season_id / const char* display_name",
+        "desc": "シーズンキー (永続化/分析用) と UI 表示名。"
+      },
+      {
+        "sig": "u64 start_timestamp / u64 end_timestamp",
+        "desc": "シーズン期間 (典型は Unix 秒、Tick の dt 単位と揃える)。"
+      },
+      {
+        "sig": "u32 max_tier",
+        "desc": "UI 表示用の想定 tier 数 (情報用)。"
+      }
+    ]
+  }
+}

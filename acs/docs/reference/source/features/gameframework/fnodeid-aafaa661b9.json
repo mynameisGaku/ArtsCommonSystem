@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための部品集 (acs::game 名前空間)。 シーンの ANode を識別するハンドル、敵 AI 用の経路探索や知覚、パーティクル、ポーズ/写真モード、拾えるアイテム、レベルアップ進行、プライバシー同意など、ジャンルを問わず使える機能をまとめています。"
+  },
+  "feature": {
+    "name": "FNodeId",
+    "kind": "構造体",
+    "header": "gameframework/NodeId.h",
+    "summary": "シーングラフの ANode を一意に指す 32bit の世代付きハンドル。 中身は 24bit の index + 8bit の generation を 1 個の u32 に詰めたもの。 packed == 0 が無効値。",
+    "when": "ANode を生ポインタで持つと破棄後にダングリングになる。 代わりにこの ID で持っておき、使う直前に CNodePool::Get() で取り出すと、破棄済みなら安全に nullptr が返る。",
+    "sample": "FNodeId id = pool.RegisterExistingNode(node);\nif (id.IsValid()) {\n    u32 slot = id.Index();       // プール配列の index\n    u8  gen  = id.Generation();  // 世代カウンタ\n}\nif (a == b) { /* 完全一致 */ }",
+    "members": [
+      {
+        "sig": "constexpr FNodeId(u32 index, u8 gen)",
+        "desc": "index(24bit) と generation(8bit) を pack して構築。 index は & 0x00FFFFFF でマスクされ、24bit を超える上位 bit は黙って捨てられる。"
+      },
+      {
+        "sig": "constexpr u32 Index() const",
+        "ret": "0〜16,777,215",
+        "desc": "プール / SoA 配列の index を取り出す。"
+      },
+      {
+        "sig": "constexpr u8 Generation() const",
+        "ret": "0〜255",
+        "desc": "slot の世代カウンタ。 stale(古い) ハンドル検出に使う。"
+      },
+      {
+        "sig": "constexpr bool IsValid() const",
+        "ret": "無効でなければ true",
+        "desc": "packed != 0 なら true。 ただし「pool に該当 slot が今も生きているか」は別途 CNodePool で検証すること。"
+      },
+      {
+        "sig": "constexpr bool operator==(FNodeId) const",
+        "desc": "index と generation の両方が一致した時のみ true。 != もある。"
+      }
+    ]
+  }
+}

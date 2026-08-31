@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EGizmoAxis",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "どの軸 / 平面ハンドルが hot(ホバー or drag 中)か。 None_ の末尾アンダースコアは None キーワード衝突回避の ACS 規約。 XY / XZ / YZ は translate モードの平面ハンドル。 ScreenAlign は rotate の画面平行ハンドル用に予約された値。",
+    "when": "CEditorGizmo::HotAxis() や FGizmoState::hot_axis で現在 hot な軸を読む時。",
+    "members": [
+      {
+        "sig": "None_ = 0",
+        "desc": "どのハンドルもホバー / drag していない。"
+      },
+      {
+        "sig": "X = 1 / Y = 2 / Z = 3",
+        "desc": "各軸ハンドル。"
+      },
+      {
+        "sig": "XY = 4 / XZ = 5 / YZ = 6",
+        "desc": "平面ハンドル(translate モードで 2 軸同時 drag)。"
+      },
+      {
+        "sig": "ScreenAlign = 7",
+        "desc": "画面平行ハンドル(rotate 用、現在は予約値)。"
+      }
+    ]
+  }
+}

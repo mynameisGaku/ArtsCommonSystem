@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "AssetType",
+    "kind": "型エイリアス",
+    "header": "asset/Asset.h",
+    "summary": "アセット型を識別する 32-bit 値(using AssetType = u32)。 文字列名からハッシュで一意に生成され、衝突しない前提。",
+    "when": "ローダの担当型や AAsset::Type() の比較で使う数値 ID。",
+    "sample": "AssetType t = AImageAsset::StaticType();"
+  }
+}

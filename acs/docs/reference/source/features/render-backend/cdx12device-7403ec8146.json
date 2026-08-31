@@ -1,0 +1,99 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "render-backend",
+    "title": "render — 描画バックエンド(DX12 / Diligent)",
+    "description": "GPU に実際に絵を描かせるRHI(描画ハードウェア抽象)の中身。 共通インターフェイス IRhiDevice 等を、Windows ネイティブの DX12 と、複数 API を束ねる Diligent の 2 系統で実装します。 ふだんはこれらを直接 new せず、CreateRhiDevice() 等のファクトリ越しに IRhi* ハンドルだけ触ります。 ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。"
+  },
+  "feature": {
+    "name": "CDx12Device",
+    "kind": "クラス",
+    "header": "render/Dx12/Dx12Device.h",
+    "summary": "DX12 ネイティブのRHIデバイス実装(IRhiDevice 派生)。 ID3D12Device・コマンドキュー・ディスクリプタヒープ(SRV/RTV/DSV)・フレームフェンスを抱える、DX12 描画の中枢です。",
+    "when": "DX12 バックエンドでビルドした時に CreateRhiDevice() が内部で生成する実体。 直接 new せず、返ってきた IRhiDevice を使うのが基本。 生の ID3D12Device が要る低レベル統合(ImGui バックエンド等)でだけダウンキャストして触ります。",
+    "sample": "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;       // Debug ビルド推奨\nauto dev = CreateRhiDevice(cfg).Value();  // 中身が CDx12Device\nprintf(\"%s / %s\\n\", dev->BackendName(), dev->AdapterName());",
+    "members": [
+      {
+        "sig": "const char* BackendName() const",
+        "ret": "\"DX12\"",
+        "desc": "バックエンド名。 常に \"DX12\" を返す。"
+      },
+      {
+        "sig": "const char* AdapterName() const",
+        "ret": "GPU 名",
+        "desc": "選ばれたアダプタ(GPU)の名前。 デバッグ表示用。"
+      },
+      {
+        "sig": "void WaitIdle()",
+        "desc": "GPU の処理が全部終わるまで CPU 側で待つ。 フェンスを使う。 シャットダウン前や破棄前に必須。"
+      },
+      {
+        "sig": "FHrResult Init(const FDeviceConfig& cfg)",
+        "ret": "成否(HRESULT)",
+        "desc": "DXGI ファクトリ・デバイス・キュー・各ディスクリプタヒープを作る初期化。 CreateRhiDevice から呼ばれる。",
+        "when": "通常は直接呼ばない。"
+      },
+      {
+        "sig": "ID3D12Device* D3DDevice() const",
+        "ret": "生デバイス",
+        "desc": "生の ID3D12Device。 外部ライブラリと統合する時だけ使う。"
+      },
+      {
+        "sig": "ID3D12CommandQueue* GraphicsQueue() const",
+        "ret": "グラフィックスキュー",
+        "desc": "描画コマンドを投入するキュー。"
+      },
+      {
+        "sig": "i32 AllocateSrvSlot() / void FreeSrvSlot(i32)",
+        "ret": "スロット番号(-1=失敗)",
+        "desc": "シェーダ可視 SRV ヒープ(容量 1024)から 1 スロット確保/返却。 テクスチャ作成・破棄時に内部で呼ばれる。"
+      },
+      {
+        "sig": "i32 AllocateRtvSlot() / AllocateDsvSlot()",
+        "desc": "オフスクリーン RT 用 RTV(容量 256)・深度用 DSV(容量 16)を確保。 返却は FreeRtvSlot/FreeDsvSlot。"
+      },
+      {
+        "sig": "D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle(i32) const",
+        "ret": "GPU ハンドル",
+        "desc": "SRV スロットの GPU ハンドル。 ルートディスクリプタテーブルへのバインドに使う。"
+      },
+      {
+        "sig": "u64 SignalGraphicsQueue()",
+        "ret": "完了値",
+        "desc": "投入後にキューへフェンス値を Signal し、その値を返す。 後で WaitForFenceValue に渡す。"
+      },
+      {
+        "sig": "void WaitForFenceValue(u64 value)",
+        "desc": "指定フェンス値以上に GPU が到達するまで CPU 側で待つ(到達済みなら即 return)。"
+      },
+      {
+        "sig": "u32 CurrentFrameSlot() / void AdvanceFrameSlot()",
+        "ret": "0..1",
+        "desc": "フレームインフライト(kFramesInFlight=2)のリングインデックス。 Uniform バッファ等が二重バッファリングに使う。"
+      },
+      {
+        "sig": "IDXGIFactory6* DxgiFactory() const",
+        "ret": "生ファクトリ",
+        "desc": "内部用。 DXGI ファクトリ。 FDx12Swapchain がスワップチェイン生成時に使う。"
+      },
+      {
+        "sig": "ID3D12DescriptorHeap* SrvHeap() / u32 SrvHandleSize() const",
+        "desc": "内部用。 シェーダ可視 SRV/CBV/UAV ヒープ本体と、1 記述子あたりのバイト幅。 バインド時にハンドル計算へ使う。"
+      },
+      {
+        "sig": "D3D12_CPU_DESCRIPTOR_HANDLE SrvCpuHandle(i32 index) const",
+        "ret": "CPU ハンドル",
+        "desc": "内部用。 SRV スロットの CPU ハンドル。 テクスチャ作成時にビューを書き込む先。"
+      },
+      {
+        "sig": "D3D12_CPU_DESCRIPTOR_HANDLE DsvCpuHandle(i32) / RtvCpuHandle(i32) const",
+        "ret": "CPU ハンドル",
+        "desc": "内部用。 確保した DSV / オフスクリーン RTV スロットの CPU ハンドル。 CommandList がレンダーターゲット/深度のバインドに使う。"
+      },
+      {
+        "sig": "using FDx12Device = CDx12Device",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDx12Device を使う。"
+      }
+    ]
+  }
+}

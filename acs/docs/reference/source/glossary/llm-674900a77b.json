@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "LLM",
+  "definition": "大規模言語モデル (Large Language Model)。 NPC のセリフ生成などに使う。 出力が非決定論なので決定論ゾーンの外で扱う。"
+}

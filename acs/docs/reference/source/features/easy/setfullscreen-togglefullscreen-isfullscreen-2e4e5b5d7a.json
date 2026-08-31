@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "easy",
+    "title": "easy — かんたんモード",
+    "description": "クラスもテンプレートも使わず、関数を呼ぶだけで 2D ゲームを書くための入口。 ウィンドウ・図形・画像・文字・音・入力・乱数・当たり判定・カメラ・セーブが手続き的に扱えます。 using namespace acs::easy; で全関数が使えます。"
+  },
+  "feature": {
+    "name": "SetFullscreen / ToggleFullscreen / IsFullscreen",
+    "kind": "関数",
+    "header": "easy/Easy.h",
+    "summary": "全画面表示（ボーダーレス）の ON/OFF。 次のフレームから反映されます。",
+    "when": "設定画面の全画面トグルや、Alt+Enter 相当の切替に。",
+    "sample": "if (IsKeyPressed(EKey::F11)) ToggleFullscreen();\nif (IsFullscreen()) DrawString(20, 20, \"FULL\", FColor::White);",
+    "members": [
+      {
+        "sig": "void SetFullscreen(bool on)",
+        "desc": "全画面の ON/OFF を直接指定。"
+      },
+      {
+        "sig": "void ToggleFullscreen()",
+        "desc": "現在の状態を反転する。"
+      },
+      {
+        "sig": "bool IsFullscreen()",
+        "ret": "全画面か",
+        "desc": "今が全画面なら true。"
+      }
+    ]
+  }
+}

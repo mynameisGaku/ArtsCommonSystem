@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "シングルトン",
+  "definition": "プロセス内に 1 個だけ存在するインスタンス。 GetDefaultLuaVm() はこれを返す。"
+}

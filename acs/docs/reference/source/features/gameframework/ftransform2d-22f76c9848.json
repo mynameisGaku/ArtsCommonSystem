@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに繰り返し必要になる「部品」を集めた層です。 スプライトアニメ・タイルマップ・状態機械・演出シーケンス・3D 音響・設定保存・実績/解析の窓口などを、STL 不使用・例外なし (Result) の ACS 規約で提供します。"
+  },
+  "feature": {
+    "name": "FTransform2D",
+    "kind": "構造体",
+    "header": "gameframework/Transform2D.h",
+    "summary": "2D ノードの位置 / 回転 / スケールを表す軽量な値型 (20 byte)。 FMat4 より小さく合成が速く、親 transform の回転 / スケールを取り出せる (分解可能)。",
+    "when": "2D ノードの座標系を扱う時。 親子階層で Compose によりワールド transform を求める。",
+    "sample": "FTransform2D parent{{100, 50}, 0.0f, {2, 2}};\nFTransform2D local{{10, 0}, 0.0f, {1, 1}};\nFTransform2D world = parent.Compose(local);\nFMat4 m = world.ToMat4(); // 行列が要る描画で",
+    "members": [
+      {
+        "sig": "FVec2 position / f32 rotation / FVec2 scale",
+        "desc": "位置・回転 (ラジアン)・スケール。"
+      },
+      {
+        "sig": "FTransform2D Compose(const FTransform2D& local) const",
+        "ret": "world transform を返します。",
+        "desc": "親の座標系に local を載せたワールド transform を返す。",
+        "when": "親子ノードのワールド座標を求める時。"
+      },
+      {
+        "sig": "FMat4 ToMat4() const",
+        "ret": "4x4 行列",
+        "desc": "CSpriteBatch 等で 4x4 行列が要るときの変換 (合成内では使わない)。"
+      },
+      {
+        "sig": "static FTransform2D Identity()",
+        "ret": "単位 transform",
+        "desc": "原点 / 無回転 / 等倍の単位 transform。"
+      }
+    ]
+  }
+}

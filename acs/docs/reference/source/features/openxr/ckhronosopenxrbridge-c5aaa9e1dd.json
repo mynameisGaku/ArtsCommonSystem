@@ -1,0 +1,76 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "openxr",
+    "title": "openxr — VR/XR 連携",
+    "description": "VR/AR ヘッドセット(HMD)を扱う窓口です。 OpenXR という業界標準を通して、頭やコントローラの位置・向きを読み取り、パススルー(現実映像の表示)を切り替えます。 実機が無くても安全に動くフォールバック付き。"
+  },
+  "feature": {
+    "name": "CKhronosOpenXrBridge",
+    "kind": "クラス",
+    "header": "openxr/KhronosOpenXrBridge.h",
+    "summary": "OpenXR 公式ローダ(Khronos loader)を使った実backend。 共通インターフェース IOpenXrBridge を実装し、HMD やコントローラのポーズを提供する。 コピー/ムーブ不可のsingleton運用前提。",
+    "when": "実機の VR ランタイムに接続して頭・手の位置を取りたい時。 通常は直接 new せず、GetDefaultKhronosOpenXrBridge() か GetDefaultOpenXrBridge() 経由で使う。",
+    "sample": "auto& xr = acs::openxr::GetDefaultKhronosOpenXrBridge();\nif (xr.IsTracking()) {\n    auto head = xr.HeadPose();      // 頭の位置・向き\n    auto left = xr.LeftController(); // 左手の入力\n}",
+    "members": [
+      {
+        "sig": "TResult<void> Init(EXrPlatform platform = Unknown)",
+        "ret": "成功 または 失敗",
+        "desc": "XR ランタイムへ接続し instance を作る。 platform 省略時は backend が自動検出。 ランタイムが無ければ失敗(Result でエラー)を返す。",
+        "when": "起動時に一度。 失敗したら 2D 描画へフォールバックする。"
+      },
+      {
+        "sig": "void Shutdown()",
+        "desc": "接続を破棄し loader を解放する。 Init 前に呼んでも安全。"
+      },
+      {
+        "sig": "bool IsInitialized() const",
+        "ret": "初期化済みか",
+        "desc": "Init() が成功し Shutdown() 前なら true。"
+      },
+      {
+        "sig": "bool IsTracking() const",
+        "ret": "追跡中か",
+        "desc": "実セッションが確立してポーズが実際に更新されているか。 本 backend は session loop 未実装のため現状は常に false。 IsInitialized() とは別概念。",
+        "when": "ポーズを使う前に必ず確認する。 false ならゼロポーズなので使わない。"
+      },
+      {
+        "sig": "EXrPlatform ActivePlatform() const",
+        "ret": "プラットフォーム種別",
+        "desc": "今選ばれている XR プラットフォーム(Meta Quest 等)を返す。 未接続は Unknown。"
+      },
+      {
+        "sig": "FXrPose HeadPose() const",
+        "ret": "頭のポーズ",
+        "desc": "直近 Tick 時点の HMD の位置と向き。 未追跡時は原点(ゼロポーズ)。"
+      },
+      {
+        "sig": "FXrControllerState LeftController() const",
+        "ret": "左手の状態",
+        "desc": "左コントローラの 1 フレーム分の入力スナップショット。"
+      },
+      {
+        "sig": "FXrControllerState RightController() const",
+        "ret": "右手の状態",
+        "desc": "右コントローラの入力スナップショット。"
+      },
+      {
+        "sig": "void Tick(f32 Dt)",
+        "desc": "XR ランタイムのイベントを取り込み、ポーズ/入力を更新する。 ゲームループから毎フレーム呼ぶ。 Dt は実時間秒。"
+      },
+      {
+        "sig": "bool IsPassthroughSupported() const",
+        "ret": "対応可否",
+        "desc": "パススルー(MR モード)に対応しているか。"
+      },
+      {
+        "sig": "void SetPassthrough(bool bOn)",
+        "desc": "パススルーの on/off を要求する。 非対応/未初期化なら何もしない。"
+      },
+      {
+        "sig": "using FKhronosOpenXrBridge = CKhronosOpenXrBridge",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CKhronosOpenXrBridge を使う。"
+      }
+    ]
+  }
+}

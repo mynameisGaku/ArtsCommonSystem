@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="効果音の 1 回再生・BGM のループ再生・停止・音量制御。 音量はすべて 0.0〜1.0。">
+  <title>音（Play ほか） — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/easy.html">easy モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/easy.html">easy モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/easy.html">easy</a><span>/</span><span aria-current="page">音（Play ほか）</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / easy</div><h1 class="identifier">音（Play ほか）</h1>
+<p class="lead">効果音の 1 回再生・<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22938">BGM</button><span class="term-tooltip" id="term-tip-22938" role="tooltip">バックグラウンドミュージック。 場面の間ずっとループで流す音楽。</span></span> のループ再生・停止・音量制御。 音量はすべて 0.0〜1.0。</p></div><div class="badges"><span class="badge">関数</span></div></header>
+<div class="notice"><p>対応するAPI候補</p><ul><li><a href="../../symbols/easy/play-9f309a1a.html"><code>acs::easy::Play</code></a><span class="summary"><code>void Play(FSound sound) noexcept;</code></span></li><li><a href="../../symbols/easy/play-f8d9f61e.html"><code>acs::easy::Play</code></a><span class="summary"><code>void Play(FSound sound, f32 volume) noexcept;</code></span></li></ul></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>ジャンプ音や爆発音は Play、<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22935">BGM</button><span class="term-tooltip" id="term-tip-22935" role="tooltip">バックグラウンドミュージック。 場面の間ずっとループで流す音楽。</span></span> は PlayLoop。 設定画面の音量スライダーには SetMasterVolume。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>easy</dd></div><div class="fact"><dt>分類</dt><dd>関数</dd></div><div class="fact"><dt>ヘッダー</dt><dd>easy/Easy.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-cd943657828b7a1685ad"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>void Play(<a href="../../symbols/easy/fsound-551e1565.html">FSound</a> s) / void Play(<a href="../../symbols/easy/fsound-551e1565.html">FSound</a> s, f32 volume)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>効果音を 1 回鳴らす。 音量は 0.0〜1.0。</dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>Play</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/easy/play-9f309a1a.html"><code>acs::easy::Play</code></a><span class="summary"><code>void Play(FSound sound) noexcept;</code></span></li><li><a href="../../symbols/easy/play-f8d9f61e.html"><code>acs::easy::Play</code></a><span class="summary"><code>void Play(FSound sound, f32 volume) noexcept;</code></span></li></ul></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/fsound-551e1565.html"><code>acs::easy::FSound</code></a> <span class="kind-label">構造体</span></dd></div></dl></article><article class="card" id="member-3abd5074e65c80f26763"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>void PlayLoop(<a href="../../symbols/easy/fsound-551e1565.html">FSound</a> s) / void PlayLoop(<a href="../../symbols/easy/fsound-551e1565.html">FSound</a> s, f32 volume)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>ループ再生（<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22936">BGM</button><span class="term-tooltip" id="term-tip-22936" role="tooltip">バックグラウンドミュージック。 場面の間ずっとループで流す音楽。</span></span> 向け）。</dd></div></dl><dl class="facts"><div class="fact"><dt>overload候補</dt><dd><span><code>PlayLoop</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/easy/playloop-e36a45fb.html"><code>acs::easy::PlayLoop</code></a><span class="summary"><code>void PlayLoop(FSound sound) noexcept;</code></span></li><li><a href="../../symbols/easy/playloop-3c98d3dc.html"><code>acs::easy::PlayLoop</code></a><span class="summary"><code>void PlayLoop(FSound sound, f32 volume) noexcept;</code></span></li></ul></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/fsound-551e1565.html"><code>acs::easy::FSound</code></a> <span class="kind-label">構造体</span></dd></div></dl></article><article class="card" id="member-5f748e0c63a061140cb4"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>void <a href="../../symbols/easy/stopsound-24690b59.html">StopSound</a>(<a href="../../symbols/easy/fsound-551e1565.html">FSound</a> s)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>その音のループを止める。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/stopsound-24690b59.html"><code>acs::easy::StopSound</code></a> <span class="kind-label">関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/fsound-551e1565.html"><code>acs::easy::FSound</code></a> <span class="kind-label">構造体</span></dd></div></dl></article><article class="card" id="member-6d444c65ad6e876c8fdf"><h3>API項目 4</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 4 の宣言"><code>void <a href="../../symbols/easy/stopallsounds-0db118ae.html">StopAllSounds</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>鳴っている音を全部止める。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/stopallsounds-0db118ae.html"><code>acs::easy::StopAllSounds</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-d4b7c18b42e1c4a0d301"><h3>API項目 5</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 5 の宣言"><code>void <a href="../../symbols/easy/setmastervolume-99d490ab.html">SetMasterVolume</a>(f32 volume)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全体音量（0.0〜1.0）。 音量スライダー用。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/setmastervolume-99d490ab.html"><code>acs::easy::SetMasterVolume</code></a> <span class="kind-label">関数</span></dd></div></dl></article><article class="card" id="member-31d3bc2b2486b70ef156"><h3>API項目 6</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 6 の宣言"><code>void <a href="../../symbols/easy/pauseallsounds-cdcddb9f.html">PauseAllSounds</a>() / void <a href="../../symbols/easy/resumeallsounds-650773d4.html">ResumeAllSounds</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>全音を一時停止／再開（位置は保たれる）。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-22937">ポーズ</button><span class="term-tooltip" id="term-tip-22937" role="tooltip">位置と向きをまとめた姿勢情報。 XR では頭や手の ポーズ を追跡する。</span></span>画面に。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/pauseallsounds-cdcddb9f.html"><code>acs::easy::PauseAllSounds</code></a> <span class="kind-label">関数</span></dd></div><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/easy/resumeallsounds-650773d4.html"><code>acs::easy::ResumeAllSounds</code></a> <span class="kind-label">関数</span></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="音（Play ほか）の使用例"><code>Play(jumpSe);                 // 効果音 1 回
+Play(hitSe, 0.5f);            // 音量半分
+PlayLoop(bgm, 0.8f);          // BGM ループ
+StopSound(bgm);               // その音を止める
+SetMasterVolume(0.3f);        // 全体音量</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

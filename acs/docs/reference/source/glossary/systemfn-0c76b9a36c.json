@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "SystemFn",
+  "definition": "ECS のシステム関数の型 void(*)(World&, f32 dt)。 World とデルタタイムを受け取り毎フレーム呼ばれる処理単位。"
+}

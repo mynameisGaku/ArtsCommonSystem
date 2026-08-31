@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "memory",
+    "title": "memory — メモリ / スマートポインタ",
+    "description": "所有権と寿命を安全に扱う型。 手で new/delete を書かずに済ませ、アロケータを用途別に使い分けます。"
+  },
+  "feature": {
+    "name": "TObjectPtr<T>",
+    "kind": "クラステンプレート",
+    "header": "memory/ObjectPtr.h",
+    "summary": "AObject 派生への強参照(生かし続ける所有ポインタ)。 別名 TStrongObjectPtr<T>。 生ポインタ T* からも構築できる。",
+    "when": "オブジェクトを確実に生存させたい所有者側。",
+    "sample": "TObjectPtr<AEnemy> e = NewObject<AEnemy>(50);\ne->hp -= 10;\nTObjectPtr<AEnemy> e2 = e;  // 共有(カウント+1)\ne.Reset();                  // まだ e2 が居るので生存",
+    "members": [
+      {
+        "sig": "explicit TObjectPtr(T* obj)",
+        "desc": "生ポインタから強参照を作る(NewObject 由来である必要あり)。"
+      },
+      {
+        "sig": "T* Get() / *o / o->",
+        "desc": "中身にアクセスする。"
+      },
+      {
+        "sig": "u32 UseCount() const",
+        "ret": "強参照数",
+        "desc": "今この対象を持つ強参照の数。"
+      },
+      {
+        "sig": "bool IsValid() / void Reset() / void Swap(...)",
+        "desc": "TSharedPtr と同じ操作。"
+      }
+    ]
+  }
+}

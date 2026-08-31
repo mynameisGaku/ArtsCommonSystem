@@ -1,0 +1,38 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "FUiColors",
+    "kind": "構造体",
+    "header": "ui/Widgets.h",
+    "summary": "UI 全体のテーマ色をまとめた構造体。 パネル背景・ボタン・スライダー・チェック・文字・入力欄などの色を FVec4(RGBA) で持つ。",
+    "when": "アプリの配色を一括で変えたい時。 CUiRenderer::Colors() から取得して書き換える。",
+    "sample": "FUiColors& c = ur.Colors();\nc.button_bg   = { 0.2f, 0.6f, 0.3f, 1.0f };\nc.button_hover = { 0.3f, 0.8f, 0.4f, 1.0f };",
+    "members": [
+      {
+        "sig": "FVec4 panel_bg / panel_border",
+        "desc": "パネルの背景色・枠線色。"
+      },
+      {
+        "sig": "FVec4 button_bg / button_hover / button_press / button_text",
+        "desc": "ボタンの通常/ホバー/押下/文字色。"
+      },
+      {
+        "sig": "FVec4 slider_track / slider_fill / slider_knob",
+        "desc": "スライダーの溝/塗り/つまみの色。"
+      },
+      {
+        "sig": "FVec4 check_box / check_mark",
+        "desc": "チェックボックスの枠/チェック印の色。"
+      },
+      {
+        "sig": "FVec4 text / text_dim / input_bg / input_focus / input_selection",
+        "desc": "文字色(通常/淡色)、入力欄の背景/フォーカス色、フォーカス中の選択範囲色。"
+      }
+    ]
+  }
+}

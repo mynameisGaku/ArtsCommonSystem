@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="参照カウントで管理される『オブジェクト』の基底。">
+  <title>AObject — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/memory.html">memory モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/memory.html">memory モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/memory.html">memory</a><span>/</span><span aria-current="page">AObject</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / memory</div><h1 class="identifier">AObject</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27347">参照カウント</button><span class="term-tooltip" id="term-tip-27347" role="tooltip">そのオブジェクトを今いくつの所有者が指しているかの数。 0 になったら破棄する。 TSharedPtr が使う仕組み。</span></span>で管理される『オブジェクト』の基底。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/memory/aobject-69ed11ad.html"><code>acs::AObject</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>エンジン上の実体(キャラ・アクター等)を表し、生<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27344">ポインタ</button><span class="term-tooltip" id="term-tip-27344" role="tooltip">メモリ上の場所(アドレス)を指す値。 中身そのものではなく『在りか』を持つ。</span></span>を持ち回りつつ安全に生死を監視したい時。 NewObject で生成する。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>memory</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>memory/AObject.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-88df61ebedf4c88d0d6b"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>virtual <a href="../../symbols/memory/aobject-69ed11ad/aobject-42be5458.html">~AObject</a>()</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27345">デストラクタ</button><span class="term-tooltip" id="term-tip-27345" role="tooltip">オブジェクトが破棄される時に自動で呼ばれる後始末の関数(~ClassName)。</span></span>は仮想。 派生クラスが正しく破棄される。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/aobject-69ed11ad/aobject-42be5458.html"><code>acs::AObject::~AObject</code></a> <span class="kind-label">メンバー関数</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>AObject</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/memory/aobject-69ed11ad.html"><code>acs::AObject</code></a><span class="summary"><code>class AObject;</code></span></li><li><a href="../../symbols/memory/aobject-69ed11ad/aobject-d4d4291d.html"><code>acs::AObject::AObject</code></a><span class="summary"><code>AObject() noexcept = default;</code></span></li><li><a href="../../symbols/memory/aobject-69ed11ad/aobject-67c4a27d.html"><code>acs::AObject::AObject</code></a><span class="summary"><code>AObject(const AObject&amp;) noexcept;</code></span></li></ul></dd></div></dl></article><article class="card" id="member-8d259df494ea51280339"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>using <a href="../../symbols/memory/fobject-0c3af3f7.html">FObject</a> = AObject</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-27346">AObject</button><span class="term-tooltip" id="term-tip-27346" role="tooltip">参照カウント管理されるオブジェクトの基底。 生ポインタからも強/弱参照を作れる。</span></span> を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/memory/fobject-0c3af3f7.html"><code>acs::FObject</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>AObject</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/memory/aobject-69ed11ad.html"><code>acs::AObject</code></a><span class="summary"><code>class AObject;</code></span></li><li><a href="../../symbols/memory/aobject-69ed11ad/aobject-d4d4291d.html"><code>acs::AObject::AObject</code></a><span class="summary"><code>AObject() noexcept = default;</code></span></li><li><a href="../../symbols/memory/aobject-69ed11ad/aobject-67c4a27d.html"><code>acs::AObject::AObject</code></a><span class="summary"><code>AObject(const AObject&amp;) noexcept;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="AObjectの使用例"><code>class AEnemy : public AObject {
+public:
+    int hp = 100;
+};
+TObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;();
+AEnemy* raw = e.Get();
+TWeakObjectPtr&lt;AEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

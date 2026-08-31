@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "FAnimationClipBinding / FAnimationStateNode / FAnimationTransition",
+    "kind": "構造体",
+    "header": "gameframework/AnimationGraph.h",
+    "summary": "CAnimationGraph を組み立てる 3 つの部品。 FAnimationClipBinding=clip メタ情報 (名前/長さ/ループ/速度)、FAnimationStateNode=1 状態 (ID/clip/入退場 blend 長)、FAnimationTransition=遷移ルール (from/to/条件 param/しきい値)。",
+    "when": "AddClip / AddStateNode / AddTransition にそれぞれ渡す。",
+    "sample": "FAnimationClipBinding jump{ \"Jump\", 0.8f, false, 1.0f };\nFAnimationStateNode  s{ \"Jump\", EAnimationGraphState::Jump, g.AddClip(jump), 0.1f, 0.2f };\ng.AddStateNode(s);"
+  }
+}

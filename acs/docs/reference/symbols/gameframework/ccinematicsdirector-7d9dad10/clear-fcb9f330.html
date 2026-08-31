@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="全 keyframe と再生状態を破棄する。 AScene::OnExit 等で使う。">
+  <title>acs::game::CCinematicsDirector::Clear — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../../assets/css/reference.css">
+  <script src="../../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../../guide.html">はじめる</a><a href="../../../index.html">API</a><a href="../../../search.html">検索</a><a href="../../../glossary.html">用語集</a><a href="../../../troubleshooting.html">問題を調べる</a><a href="../../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../../index.html">リファレンス概要</a><a href="../../../guide.html">はじめる</a><a href="../../../search.html">機能とAPIを検索</a><a href="../../../modules/gameframework.html">gameframework モジュール</a><a href="../ccinematicsdirector-7d9dad10.html">CCinematicsDirector の概要</a><a class="tree-child" href="addkeyframe-27a5bcf5.html">AddKeyframe</a><a class="tree-child" href="ccinematicsdirector-51005482.html">CCinematicsDirector</a><a class="tree-child" href="ccinematicsdirector-5a30c5b6.html">CCinematicsDirector</a><a class="tree-child" href="ccinematicsdirector-df968a14.html">CCinematicsDirector</a><a class="tree-child" href="clear-fcb9f330.html" aria-current="page">Clear</a><a class="tree-child" href="currenttime-90e67ca5.html">CurrentTime</a><a class="tree-child" href="fireone-c9819e70.html">FireOne</a><a class="tree-child" href="fireupto-39803072.html">FireUpTo</a><a class="tree-child" href="isfinished-acc70d71.html">IsFinished</a><a class="tree-child" href="isplaying-33daf97a.html">IsPlaying</a><a class="tree-child" href="keyframecount-0a82ad26.html">KeyframeCount</a><a class="tree-child" href="m-cameracb-b36f054e.html">m_CameraCb</a><a class="tree-child" href="m-camerauser-d3e0f9b4.html">m_CameraUser</a><a class="tree-child" href="m-dialoguecb-9818b685.html">m_DialogueCb</a><a class="tree-child" href="m-dialogueuser-f118db23.html">m_DialogueUser</a><a class="tree-child" href="m-eventcb-ebd0c720.html">m_EventCb</a><a class="tree-child" href="m-eventuser-5374f0d3.html">m_EventUser</a><a class="tree-child" href="m-keyframes-b855671b.html">m_Keyframes</a><a class="tree-child" href="m-lastfiredindex-c615c28a.html">m_LastFiredIndex</a><a class="tree-child" href="m-musiccb-e7add0ee.html">m_MusicCb</a><a class="tree-child" href="m-musicuser-ae0d0601.html">m_MusicUser</a><a class="tree-child" href="m-playing-c71acec2.html">m_Playing</a><a class="tree-child" href="m-time-510640d6.html">m_Time</a><a class="tree-child" href="operator-6452ebef.html">operator=</a><a class="tree-child" href="operator-b91c381c.html">operator=</a><a class="tree-child" href="pause-d4adcfdc.html">Pause</a><a class="tree-child" href="play-bc9949f0.html">Play</a><a class="tree-child" href="setcameracallback-6dbb2ff8.html">SetCameraCallback</a><a class="tree-child" href="setdialoguecallback-b586c794.html">SetDialogueCallback</a><a class="tree-child" href="seteventcallback-ae161459.html">SetEventCallback</a><a class="tree-child" href="setmusiccallback-058f64ef.html">SetMusicCallback</a><a class="tree-child" href="skip-01c8b382.html">Skip</a><a class="tree-child" href="stop-8fca3413.html">Stop</a><a class="tree-child" href="tick-b66303ad.html">Tick</a><a class="tree-child" href="totalduration-c40005f2.html">TotalDuration</a><a class="tree-child" href="tryaddkeyframe-0bda49b3.html">TryAddKeyframe</a><a class="tree-child" href="tryreplacekeyframes-7815b2dd.html">TryReplaceKeyframes</a><a class="tree-child" href="ccinematicsdirector-921f7250.html">~CCinematicsDirector</a><a href="../../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../../index.html">リファレンス</a><span>/</span><a href="../../../modules/gameframework.html">gameframework</a><span>/</span><a href="../ccinematicsdirector-7d9dad10.html">CCinematicsDirector</a><span>/</span><span aria-current="page">Clear</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">メンバー関数 / gameframework</div>
+<h1 class="identifier">acs::game::CCinematicsDirector::Clear</h1>
+<p class="lead">全 keyframe と再生<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-5258">状態</button><span class="term-tooltip" id="term-tip-5258" role="tooltip">オブジェクトが取りうる局面を区別した値(例: Idle / Spawning)。 状態機械の各点。</span></span>を破棄する。 AScene::OnExit 等で使う。</p></div>
+<div class="badges"><span class="badge public">公開API</span><span class="badge">メンバー関数</span></div></header>
+<section class="section" id="signature"><h2>宣言</h2><pre class="signature signature--declaration" aria-label="acs::game::CCinematicsDirector::Clearの宣言"><code>void <a href="clear-fcb9f330.html" aria-current="page">Clear</a>() noexcept;</code></pre></section>
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts">
+<div class="fact"><dt>モジュール</dt><dd><a href="../../../modules/gameframework.html">gameframework</a></dd></div>
+<div class="fact"><dt>分類</dt><dd>メンバー関数</dd></div>
+<div class="fact"><dt>所有型</dt><dd><a href="../ccinematicsdirector-7d9dad10.html"><code>acs::game::CCinematicsDirector</code></a></dd></div><div class="fact"><dt>宣言位置</dt><dd class="path">src/gameframework/CinematicsDirector.h:253</dd></div>
+</dl></section>
+
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#signature">宣言</a><a href="#facts">基本情報</a></nav></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ASpriteAnimComponent",
+  "definition": "スプライトの UV 矩形を毎フレーム書き換えてスプライトシートアニメ(コマ送り)を再生するコンポーネント。"
+}

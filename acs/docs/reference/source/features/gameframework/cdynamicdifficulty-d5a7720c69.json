@@ -1,0 +1,79 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CDynamicDifficulty",
+    "kind": "クラス",
+    "header": "gameframework/DynamicDifficulty.h",
+    "summary": "プレイヤーの実プレイ統計 (死亡 / 撃破 / リトライ / クリア時間 / パワーアップ取得) を追跡し、難易度を調整するDDA (動的難易度調整)。 Easy/Normal/Hard/VeryHard の固定 4 段と、腕前から自動で寄せる Adaptive を持つ。 敵 HP・ダメージ・速度・プレイヤー HP の乗数を返すので、戦闘ロジックが pull して使う。",
+    "when": "下手なプレイヤーには優しく、上手いプレイヤーには手応えのある難易度に自動調整したい時。 Adaptive 以外は固定値なのでリプレイ同期にも使える。",
+    "sample": "CDynamicDifficulty dda;\ndda.Init(EDifficultyLevel::Adaptive);\n// イベント発生時:\ndda.RecordDeath(); dda.RecordRetry();\ndda.RecordKill();\ndda.RecordLevelComplete(/*time=*/45.0f);\n// 毎フレーム:\ndda.Tick(dt);\nf32 hp_mul  = dda.EnemyHealthMultiplier();\nf32 dmg_mul = dda.EnemyDamageMultiplier();",
+    "members": [
+      {
+        "sig": "void Init(EDifficultyLevel base_level = EDifficultyLevel::Normal)",
+        "desc": "初期モードで初期化。 Adaptive 指定時は Normal 相当からスタートして目標へ寄せていく。"
+      },
+      {
+        "sig": "void SetMode(EDifficultyLevel mode)",
+        "desc": "モード切替。 固定モードは即その段の値にスナップ、Adaptive は現在値を保持して追従続行。"
+      },
+      {
+        "sig": "EDifficultyLevel CurrentMode()",
+        "desc": "現在のモードを返す。"
+      },
+      {
+        "sig": "void RecordDeath() / RecordKill() / RecordRetry() / RecordPowerupCollected()",
+        "desc": "ゲーム側がイベント駆動で呼ぶ統計記録。"
+      },
+      {
+        "sig": "void RecordLevelComplete(f32 time_taken)",
+        "desc": "レベルクリア時間を記録。 指数移動平均で平均を更新し、リトライ数を 0 リセット。"
+      },
+      {
+        "sig": "f32 CurrentDifficulty()",
+        "ret": "[0,1] の連続難易度",
+        "desc": "0=最易、1=最難。 Adaptive 中はゆっくり追従する現在値。"
+      },
+      {
+        "sig": "f32 EnemyHealthMultiplier()",
+        "ret": "敵 HP 倍率",
+        "desc": "Easy=0.5、Normal=1.0、Hard=1.5、VeryHard=2.0です。Adaptiveは4値を補間します。"
+      },
+      {
+        "sig": "f32 EnemyDamageMultiplier()",
+        "ret": "敵ダメージ倍率",
+        "desc": "Easy=0.6、Normal=1.0、Hard=1.4、VeryHard=1.8です。Adaptiveは4値を補間します。"
+      },
+      {
+        "sig": "f32 EnemySpeedMultiplier()",
+        "ret": "敵速度倍率",
+        "desc": "Easy=0.85、Normal=1.0、Hard=1.15、VeryHard=1.3です。Adaptiveは4値を補間します。"
+      },
+      {
+        "sig": "f32 PlayerHealthMultiplier()",
+        "ret": "プレイヤー HP 倍率",
+        "desc": "難易度と逆相関。 Easy 1.5 / Normal 1.0 / Hard 0.85 / VeryHard 0.75。"
+      },
+      {
+        "sig": "const FPlayerSkillStats& Stats()",
+        "desc": "現在の統計を参照する。"
+      },
+      {
+        "sig": "void ResetStats()",
+        "desc": "統計のみ初期化 (モード・難易度値は維持)。 新規ゲームやシーン切替向け。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "Adaptive 時のみ腕前推定 → 目標 → なめらかな追従を進める。 固定モードでは no-op。"
+      },
+      {
+        "sig": "using FDynamicDifficulty = CDynamicDifficulty",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CDynamicDifficulty を使う。"
+      }
+    ]
+  }
+}

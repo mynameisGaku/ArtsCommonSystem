@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "ASlider",
+  "definition": "指定範囲の連続値を drag で編集し、TObservable<f32> で公開する UI slider。"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "FCardId",
+    "kind": "構造体",
+    "header": "gameframework/DeckSystem.h",
+    "summary": "場に存在する 1 枚のカードを識別するハンドル。 24bit index + 8bit generation の packed u32。 0 は invalid。",
+    "when": "カード個体を ID で扱う拡張時。",
+    "sample": "FCardId id;\nif (id.IsValid()) { /* ... */ }"
+  }
+}

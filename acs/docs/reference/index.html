@@ -3,54 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ACS リファレンス</title>
-  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="description" content="ACSの機能、型、関数、メンバー、定数を個別ページで参照できます。">
+  <title>概要 — ACS リファレンス</title>
+  <link rel="stylesheet" href="assets/css/reference.css">
+  <script src="assets/js/reference.js" defer></script>
 </head>
-<body data-page="home">
-  <script>window.ACS_REF = { modules: [], glossary: {}, guide: [], troubleshooting: [] };</script>
-  <script src="data/_meta.js"></script>
-  <script src="assets/nav.js"></script>
-  <!-- DATA-SCRIPTS:START -->
-  <script src="data/app.js"></script>
-  <script src="data/asset.js"></script>
-  <script src="data/assetpack.js"></script>
-  <script src="data/audio.js"></script>
-  <script src="data/collision.js"></script>
-  <script src="data/container.js"></script>
-  <script src="data/crashwin.js"></script>
-  <script src="data/easy.js"></script>
-  <script src="data/ecs.js"></script>
-  <script src="data/editor.js"></script>
-  <script src="data/event.js"></script>
-  <script src="data/foundation.js"></script>
-  <script src="data/gameframework_1.js"></script>
-  <script src="data/gameframework_2.js"></script>
-  <script src="data/gameframework_3.js"></script>
-  <script src="data/gameframework_4.js"></script>
-  <script src="data/gameframework_5.js"></script>
-  <script src="data/gameframework_6.js"></script>
-  <script src="data/gameframework_7.js"></script>
-  <script src="data/gameframework_8.js"></script>
-  <script src="data/imgui.js"></script>
-  <script src="data/localmatch.js"></script>
-  <script src="data/math.js"></script>
-  <script src="data/memory.js"></script>
-  <script src="data/mlonnx.js"></script>
-  <script src="data/mvvm.js"></script>
-  <script src="data/network.js"></script>
-  <script src="data/openxr.js"></script>
-  <script src="data/platform.js"></script>
-  <script src="data/render_backend.js"></script>
-  <script src="data/render_core.js"></script>
-  <script src="data/scripting.js"></script>
-  <script src="data/steamworks.js"></script>
-  <script src="data/subsystem.js"></script>
-  <script src="data/telemetryfile.js"></script>
-  <script src="data/test.js"></script>
-  <script src="data/timing.js"></script>
-  <script src="data/threading.js"></script>
-  <script src="data/ui.js"></script>
-  <!-- DATA-SCRIPTS:END -->
-  <script src="assets/app.js"></script>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="guide.html">はじめる</a><a href="index.html">API</a><a href="search.html">検索</a><a href="glossary.html">用語集</a><a href="troubleshooting.html">問題を調べる</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="index.html">リファレンス概要</a><a href="guide.html">はじめる</a><a href="search.html">機能とAPIを検索</a><a href="glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><span aria-current="page">リファレンス</span></nav>
+<section class="hero">
+  <div class="eyebrow">ACS / 機能リファレンス</div>
+  <h1>ACSを、機能からコードまで辿る</h1>
+  <p class="lead">機能、モジュール、型、関数、メンバー変数、定数を個別ページで確認できます。識別子を選ぶと、その項目のページへ移動します。</p>
+  <div class="stats" aria-label="収録件数">
+    <div class="stat"><strong>34</strong><span>モジュール</span></div>
+    <div class="stat"><strong>906</strong><span>機能ページ</span></div>
+    <div class="stat"><strong>2998</strong><span>型・関数・定数</span></div>
+    <div class="stat"><strong>16088</strong><span>メンバー・列挙値</span></div>
+  </div>
+</section>
+<section class="section" id="screen"><h2>ACS Blueprint</h2><figure class="reference-figure"><a class="reference-image-link" href="../media/captures/edited/editor/blueprint-editor.png" aria-label="ACS BlueprintのEvent Graphを原寸で表示"><picture><source media="(max-width: 700px)" srcset="../media/captures/edited/editor/mobile/blueprint-event-flow.png" width="522" height="202"><img src="../media/captures/edited/editor/blueprint-editor.png" alt="ACS BlueprintでEvent Graphを編集している画面" loading="lazy" width="1296" height="753"></picture></a><figcaption>Event、関数、macro、変数をgraph上で接続します。狭い画面では主要な接続を拡大し、画像を選択すると全体を原寸で表示します。</figcaption></figure></section>
+<section class="section" id="modules"><h2>モジュール</h2><div class="card-grid"><a class="card" href="modules/app.html"><span class="card-title">app</span><span class="card-description">12件のAPIと3件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/asset.html"><span class="card-title">asset</span><span class="card-description">93件のAPIと35件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/assetpack.html"><span class="card-title">assetpack</span><span class="card-description">64件のAPIと18件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/audio.html"><span class="card-title">audio</span><span class="card-description">5件のAPIと3件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/collision.html"><span class="card-title">collision</span><span class="card-description">5件のAPIと3件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/container.html"><span class="card-title">container</span><span class="card-description">53件のAPIと15件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/crashwin.html"><span class="card-title">crashwin</span><span class="card-description">5件のAPIと4件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/easy.html"><span class="card-title">easy</span><span class="card-description">200件のAPIと30件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/ecs.html"><span class="card-title">ecs</span><span class="card-description">33件のAPIと12件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/editor.html"><span class="card-title">editor</span><span class="card-description">0件のAPIと60件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/editor-abi.html"><span class="card-title">editor_abi</span><span class="card-description">79件のAPIと0件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/event.html"><span class="card-title">event</span><span class="card-description">38件のAPIと19件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/foundation.html"><span class="card-title">foundation</span><span class="card-description">236件のAPIと26件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/gameframework.html"><span class="card-title">gameframework</span><span class="card-description">1243件のAPIと398件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/imgui.html"><span class="card-title">imgui</span><span class="card-description">1件のAPIと1件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/localmatch.html"><span class="card-title">localmatch</span><span class="card-description">5件のAPIと4件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/math.html"><span class="card-title">math</span><span class="card-description">166件のAPIと20件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/memory.html"><span class="card-title">memory</span><span class="card-description">114件のAPIと31件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/mlonnx.html"><span class="card-title">mlonnx</span><span class="card-description">4件のAPIと3件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/mvvm.html"><span class="card-title">mvvm</span><span class="card-description">71件のAPIと17件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/network.html"><span class="card-title">network</span><span class="card-description">7件のAPIと5件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/openxr.html"><span class="card-title">openxr</span><span class="card-description">6件のAPIと14件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/platform.html"><span class="card-title">platform</span><span class="card-description">29件のAPIと18件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/render.html"><span class="card-title">render</span><span class="card-description">370件のAPIと0件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/render-backend.html"><span class="card-title">render-backend</span><span class="card-description">0件のAPIと26件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/render-core.html"><span class="card-title">render-core</span><span class="card-description">0件のAPIと56件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/scripting.html"><span class="card-title">scripting</span><span class="card-description">8件のAPIと12件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/steamworks.html"><span class="card-title">steamworks</span><span class="card-description">9件のAPIと4件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/subsystem.html"><span class="card-title">subsystem</span><span class="card-description">23件のAPIと11件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/telemetryfile.html"><span class="card-title">telemetryfile</span><span class="card-description">4件のAPIと3件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/test.html"><span class="card-title">test</span><span class="card-description">12件のAPIと10件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/threading.html"><span class="card-title">threading</span><span class="card-description">48件のAPIと23件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/timing.html"><span class="card-title">timing</span><span class="card-description">19件のAPIと5件の機能説明</span><span class="card-meta">モジュールを開く →</span></a><a class="card" href="modules/ui.html"><span class="card-title">ui</span><span class="card-description">36件のAPIと17件の機能説明</span><span class="card-meta">モジュールを開く →</span></a></div></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#modules">モジュール</a></nav></aside>
+  </div>
 </body>
 </html>

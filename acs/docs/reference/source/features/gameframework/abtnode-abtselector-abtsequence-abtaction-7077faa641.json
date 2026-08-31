@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "ABtNode / ABtSelector / ABtSequence / ABtAction",
+    "kind": "クラス",
+    "header": "gameframework/BehaviorTree.h",
+    "summary": "ビヘイビアツリーのノード群。 ABtNode=抽象基底、ABtSelector=OR 合成 (どれか成功で成功)、ABtSequence=AND 合成 (全部成功で成功)、ABtAction=関数ポインタを呼ぶ末端 leaf。 子は TUniquePtr で所有する。",
+    "when": "MakeUnique で作って AddChild でツリーを組み立てる時。",
+    "sample": "auto seq = acs::MakeUnique<ABtSequence>();\nseq->AddChild(acs::MakeUnique<ABtAction>(&CheckHp));\nseq->AddChild(acs::MakeUnique<ABtAction>(&Flee));",
+    "members": [
+      {
+        "sig": "virtual EBtStatus Tick(void* blackboard, f32 dt)",
+        "desc": "[ABtNode] 1 フレーム分の評価。 派生で実装する。"
+      },
+      {
+        "sig": "void AddChild(TUniquePtr<ABtNode> child)",
+        "desc": "[Selector/Sequence] 子の所有権を奪って末尾に追加する。 nullptr は no-op。"
+      },
+      {
+        "sig": "explicit ABtAction(Fn fn)",
+        "desc": "[ABtAction] leaf 関数 (EBtStatus(*)(void*, f32)) を受け取る。 fn が null なら常に Failure。"
+      },
+      {
+        "sig": "usize ChildCount() const",
+        "desc": "[Selector/Sequence] 子の数を返す。"
+      },
+      {
+        "sig": "using FBtAction = ABtAction",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtAction を使う。"
+      },
+      {
+        "sig": "using FBtNode = ABtNode",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtNode を使う。"
+      },
+      {
+        "sig": "using FBtSelector = ABtSelector",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtSelector を使う。"
+      },
+      {
+        "sig": "using FBtSequence = ABtSequence",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ABtSequence を使う。"
+      }
+    ]
+  }
+}

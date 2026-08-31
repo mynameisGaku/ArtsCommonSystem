@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Reader",
+  "definition": ".acpak などのアセットを読む側の部品。 pak をマウントして仮想ファイルを取り出す(対になる書き出し側が Writer)。"
+}

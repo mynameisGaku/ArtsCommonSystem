@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てる高レベル部品の集まり。 シーンの切り替え、弾の発射、スコアやコンボ、乱数、セーブデータ、リプレイ、スクリプト連携、バトルパスなど『ゲームらしさ』をすぐ足せる道具を提供します。"
+  },
+  "feature": {
+    "name": "CSceneRenderResources",
+    "kind": "クラス",
+    "header": "gameframework/SceneRenderResources.h",
+    "summary": "全シーンが CGame の寿命で共有する描画リソース束。 world/HUD・反射・水深度の 3 本の CSpriteBatch と、反射 RT・水深度 RT・stencil を必要になるまで確保しない。",
+    "when": "独自のシーン描画パスで共有バッチや遅延生成 RT を準備・参照する時。 通常の AScene 描画では CGame が管理するため直接触らない。",
+    "members": [
+      {
+        "sig": "bool EnsureSpriteBatch(FRenderContext& rc) / EnsureSceneSprites(rc) / EnsureWaterDepthSprites(rc)",
+        "desc": "対応する CSpriteBatch を必要になった時だけ初期化する。 失敗時は false。"
+      },
+      {
+        "sig": "bool EnsureSceneRt(FRenderContext& rc) / EnsureWaterDepthRt(rc) / EnsureStencilBuffer(rc)",
+        "desc": "対応する GPU texture を遅延生成する。 失敗時は false で既存状態を保つ。"
+      },
+      {
+        "sig": "CSpriteBatch& SpriteBatch() / SceneSprites() / WaterDepthSprites()",
+        "desc": "初期化済みの world/HUD・反射・水深度用バッチを取得する。"
+      },
+      {
+        "sig": "IRhiTexture* SceneRt() / WaterDepthRt() / StencilBuffer()",
+        "desc": "生成済み texture を返す。 未生成なら nullptr。"
+      }
+    ]
+  }
+}

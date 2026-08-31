@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="IBuildFarmBackend のローカル本実装。 CreateProcessW で実際にビルドコマンドを起動して終了コードを回収する「サイズ 1 のビルドファーム」。 同期実行ヘルパも持つ (stub ではなく実動作)。">
+  <title>CLocalBuildRunner — ACS リファレンス</title>
+  <link rel="stylesheet" href="../../assets/css/reference.css">
+  <script src="../../assets/js/reference.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <a class="brand" href="../../index.html"><span class="brand-mark">ACS</span><span class="brand-label">機能リファレンス</span></a>
+    <form class="site-search" action="../../search.html" method="get" role="search" aria-label="ACSリファレンス全体を検索">
+      <label class="visually-hidden" for="header-search">ACSの機能とAPIを検索</label>
+      <input id="header-search" name="q" type="search" placeholder="型、関数、機能を検索…" autocomplete="off">
+    </form>
+    <div class="header-actions">
+      <button class="icon-button" type="button" data-theme-toggle aria-label="配色を切り替える">◐</button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="mobile-drawer" aria-expanded="false" aria-label="ナビゲーションを開く">☰</button>
+    </div>
+  </header>
+  <noscript><nav class="noscript-nav" aria-label="主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav></noscript>
+  <div class="drawer-backdrop" data-drawer-backdrop hidden aria-hidden="true"></div>
+  <aside class="mobile-drawer" id="mobile-drawer" data-mobile-drawer hidden inert role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <button class="icon-button" type="button" data-nav-close aria-label="ナビゲーションを閉じる">×</button>
+    <h2 class="drawer-title" id="drawer-title">ACS リファレンス</h2>
+    <nav class="drawer-nav" aria-label="モバイル用主要ナビゲーション"><a href="../../guide.html">はじめる</a><a href="../../index.html">API</a><a href="../../search.html">検索</a><a href="../../glossary.html">用語集</a><a href="../../troubleshooting.html">問題を調べる</a><a href="../../modules/gameframework.html">gameframework モジュール</a></nav>
+  </aside>
+  <div class="layout">
+    <aside class="sidebar" aria-label="ページナビゲーション"><h2>ACS リファレンス</h2><nav aria-label="リファレンス内の関連ページ"><a href="../../index.html">リファレンス概要</a><a href="../../guide.html">はじめる</a><a href="../../search.html">機能とAPIを検索</a><a href="../../modules/gameframework.html">gameframework モジュール</a><a href="../../glossary.html">用語集</a></nav></aside>
+    <main id="main" class="content">
+<nav class="breadcrumbs" aria-label="パンくず"><a href="../../index.html">リファレンス</a><span>/</span><a href="../../modules/gameframework.html">gameframework</a><span>/</span><span aria-current="page">CLocalBuildRunner</span></nav>
+<header class="symbol-header"><div><div class="eyebrow">ACS 機能 / gameframework</div><h1 class="identifier">CLocalBuildRunner</h1>
+<p class="lead"><span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25134">IBuildFarmBackend</button><span class="term-tooltip" id="term-tip-25134" role="tooltip">ビルドファームの抽象シーム (Jenkins 等)。</span></span> のローカル本実装。 CreateProcessW で実際にビルドコマンドを起動して終了コードを回収する「サイズ 1 のビルドファーム」。 <span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25135">同期</button><span class="term-tooltip" id="term-tip-25135" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>実行ヘルパも持つ (stub ではなく実動作)。</p></div><div class="badges"><span class="badge">クラス</span></div></header>
+<div class="notice">対応するAPI: <a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc.html"><code>acs::game::CLocalBuildRunner</code></a></div>
+<section class="section" id="usage"><h2>使う場面</h2><p>外部ファーム無しで、ローカルマシン上でビルドコマンドを実行・追跡したい時。</p></section>
+
+<section class="section" id="facts"><h2>基本情報</h2><dl class="facts"><div class="fact"><dt>モジュール</dt><dd>gameframework</dd></div><div class="fact"><dt>分類</dt><dd>クラス</dd></div><div class="fact"><dt>ヘッダー</dt><dd>gameframework/StudioWorkflow.h</dd></div></dl></section>
+<section class="section" id="api-items"><h2>API項目</h2><div class="member-list"><article class="card" id="member-7bfa45d0926d1537b308"><h3>API項目 1</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 1 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc/runbuild-8d941d9b.html">RunBuild</a>(const wchar_t* command_line, u32&amp; out_exit_code, u32 timeout_ms = 0)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>コマンドを起動し完了まで待って終了コードを返す<span class="term-wrap"><button class="term-trigger" type="button" aria-describedby="term-tip-25133">同期</button><span class="term-tooltip" id="term-tip-25133" role="tooltip">処理が終わるまでその場で待つやり方。 結果がすぐ手に入る代わりに止まる。</span></span>ヘルパ。 timeout_ms = 0 で無限待ち。</dd></div><div class="fact"><dt>戻り値</dt><dd>成否</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc/runbuild-8d941d9b.html"><code>acs::game::CLocalBuildRunner::RunBuild</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-742957b06b75ad948c9f"><h3>API項目 2</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 2 の宣言"><code>TResult&lt;void&gt; <a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc/runbuildutf8-643d6fb1.html">RunBuildUtf8</a>(const char* command_line, u32&amp; out_exit_code, u32 timeout_ms = 0)</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>コマンドラインを UTF-8 で受ける版 (内部で UTF-16 変換)。</dd></div><div class="fact"><dt>戻り値</dt><dd>成否</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc/runbuildutf8-643d6fb1.html"><code>acs::game::CLocalBuildRunner::RunBuildUtf8</code></a> <span class="kind-label">メンバー関数</span></dd></div></dl></article><article class="card" id="member-725a0b39ce0a164ac7a6"><h3>API項目 3</h3><pre class="signature signature--declaration" tabindex="0" aria-label="API項目 3 の宣言"><code>using <a href="../../symbols/gameframework/flocalbuildrunner-35348e68.html">FLocalBuildRunner</a> = CLocalBuildRunner</code></pre><dl class="facts"><div class="fact"><dt>説明</dt><dd>旧名を使う既存コード向けの互換別名。 新しいコードでは CLocalBuildRunner を使う。</dd></div></dl><dl class="facts"><div class="fact"><dt>対応API</dt><dd><a href="../../symbols/gameframework/flocalbuildrunner-35348e68.html"><code>acs::game::FLocalBuildRunner</code></a> <span class="kind-label">型alias</span></dd></div><div class="fact"><dt>overload候補</dt><dd><span><code>CLocalBuildRunner</code> は複数の宣言に対応します。</span><ul><li><a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc.html"><code>acs::game::CLocalBuildRunner</code></a><span class="summary"><code>class CLocalBuildRunner final : public IBuildFarmBackend;</code></span></li><li><a href="../../symbols/gameframework/clocalbuildrunner-0673f4cc/clocalbuildrunner-dde6f364.html"><code>acs::game::CLocalBuildRunner::CLocalBuildRunner</code></a><span class="summary"><code>CLocalBuildRunner() noexcept = default;</code></span></li></ul></dd></div></dl></article></div></section>
+<section class="section" id="sample"><h2>使用例</h2><pre class="signature" tabindex="0" aria-label="CLocalBuildRunnerの使用例"><code>CLocalBuildRunner&amp; runner = GetLocalBuildRunner();
+u32 ec = 0;
+(void)runner.RunBuild(L&quot;cmd /c exit 3&quot;, ec);</code></pre></section>
+<footer class="footer">ACS の機能、型、関数、メンバー、定数を参照できます。</footer></main>
+    <aside class="right-rail" aria-label="このページの目次"><h2>このページ</h2><nav aria-label="このページ内の見出し"><a href="#usage">使う場面</a><a href="#facts">基本情報</a><a href="#api-items">API項目</a><a href="#sample">使用例</a></nav></aside>
+  </div>
+</body>
+</html>

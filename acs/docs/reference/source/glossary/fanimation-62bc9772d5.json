@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "FAnimation",
+  "definition": "1 つのボーンアニメーション(尺と時刻ごとの姿勢キー)。"
+}

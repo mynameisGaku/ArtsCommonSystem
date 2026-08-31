@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "collision",
+    "title": "collision — 当たり判定",
+    "description": "形(スプライトの絵やメッシュ)から当たり判定の形状を自動で作り、当たっているか・どこで当たったかを調べる道具です。 アルファ画像から輪郭や凸包を起こしたり、点群から 3D 凸包を組み立てたり、メッシュにレイキャストしたりできます。"
+  },
+  "feature": {
+    "name": "CMeshCollider",
+    "kind": "クラス",
+    "header": "collision/MeshCollider.h",
+    "summary": "3D の三角形メッシュから当たり判定を作るクラス。 内部で BVH(三角形を空間で階層分けした木)を組み、レイキャストや AABB との重なり判定を高速に行う。",
+    "when": "床・壁・地形などのメッシュに対して、視線・弾・マウスのレイがどこに当たるかを調べたい時。 レンダリング用メッシュをそのまま当たり判定に流用できる。",
+    "sample": "acs::CMeshCollider col;\ncol.BuildFromMesh(*Primitive::MakeCube(2.0f));\nacs::FRay3 ray{ {0,5,0}, {0,-1,0} };\nacs::FRayHit3 h = col.Raycast(ray);\nif (h.hit) Place(h.point, h.normal);  // 当たった位置と面の向き",
+    "members": [
+      {
+        "sig": "TResult<void> BuildFromMesh(const AMeshAsset& mesh)",
+        "ret": "成功/失敗(Result)",
+        "desc": "レンダリング用メッシュ(AMeshAsset)の頂点位置だけを使って当たり判定を構築する。",
+        "when": "描画に使っているメッシュをそのまま衝突にも使いたい時。"
+      },
+      {
+        "sig": "TResult<void> BuildFromTriangles(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count)",
+        "ret": "成功/失敗",
+        "desc": "生の頂点位置配列 + 三角形インデックス列(3 個 1 組)から構築する。 BuildConvexHull3 の出力をそのまま渡せる。",
+        "sample": "col.BuildFromTriangles(hv.Data(), hv.Size(), hi.Data(), hi.Size());"
+      },
+      {
+        "sig": "FRayHit3 Raycast(const FRay3& ray, f32 t_max = 3.4028235e38f) const",
+        "ret": "ヒット情報",
+        "desc": "レイを飛ばし最も近い当たりを返す。 結果の hit(当たったか)・t(距離)・point(位置)・normal(三角形の面法線)を見る。 当たらなければ hit=false。",
+        "when": "マウスピッキング・着弾点・視線判定など。"
+      },
+      {
+        "sig": "bool OverlapsAabb(const FAabb3& box) const",
+        "ret": "重なるなら true",
+        "desc": "指定した AABB がメッシュ(の三角形)と重なるかを BVH で素早く判定する。 ブロードフェーズのふるい分けに。"
+      },
+      {
+        "sig": "FAabb3 Bounds() const",
+        "ret": "外接箱",
+        "desc": "メッシュ全体を囲む 3D のAABB。"
+      },
+      {
+        "sig": "u32 TriangleCount() const / u32 NodeCount() const",
+        "ret": "三角形数 / ノード数",
+        "desc": "保持する三角形の数と、組み上がった BVH のノード数。 主にデバッグ・規模確認用。"
+      },
+      {
+        "sig": "void Clear()",
+        "desc": "構築済みの三角形と BVH をすべて捨てて空に戻す。"
+      },
+      {
+        "sig": "using FMeshCollider = CMeshCollider",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CMeshCollider を使う。"
+      }
+    ]
+  }
+}

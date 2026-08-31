@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたいどんなゲームでも要る」部品を、すぐ使える形でまとめたモジュール。 チェックポイント・クールダウン・カードのデッキ・クラフト・当たり判定・デバッグ表示などを、描画や音とは切り離した小さなマネージャとして提供します。"
+  },
+  "feature": {
+    "name": "ECraftStatus",
+    "kind": "列挙(enum)",
+    "header": "gameframework/CraftingSystem.h",
+    "summary": "クラフトの現在状態。 Idle / Crafting / Completed (成果物付与済) / Cancelled の 4 種。",
+    "when": "クラフト状態で UI を分岐する時。",
+    "sample": "if (cs.Status() == ECraftStatus::Crafting) ShowProgressBar();"
+  }
+}

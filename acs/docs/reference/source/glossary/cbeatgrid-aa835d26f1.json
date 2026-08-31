@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CBeatGrid",
+  "definition": "リズムゲームの checked 譜面読み込みと timing 判定。 通常 note に加え、PressLane/ReleaseLane で hold の head/tail を 1 回だけ集計する。"
+}

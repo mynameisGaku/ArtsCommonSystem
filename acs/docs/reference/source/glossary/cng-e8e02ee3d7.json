@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CNG",
+  "definition": "Windows 標準の暗号 API(Cryptography Next Generation)。 外部ライブラリ無しで AES などが使える。"
+}

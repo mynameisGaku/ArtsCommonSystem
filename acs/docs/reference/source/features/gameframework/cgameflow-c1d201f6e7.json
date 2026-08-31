@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを組み立てるための高レベル部品。 会話・ダンジョン生成・難易度調整・画面演出・エフェクト・体力管理など、よくある仕組みをstate holderとして用意し、描画や音は呼び出し側に任せます。 acs::game 名前空間。"
+  },
+  "feature": {
+    "name": "CGameFlow",
+    "kind": "クラス",
+    "header": "gameframework/GameFlow.h",
+    "summary": "タイトル / メニュー / ゲームプレイ / ポーズ / ゲームオーバー等、ゲーム全体のフローを管理する高レベルステートマシン。 CSceneManager より 1 段上で「今ゲームのどの段階か」を表す。 状態の出入りでコールバックを発火し、fade overlay の進捗も提供する。 不正な遷移は遷移許可テーブルで弾く。",
+    "when": "シーン管理とは別に、ゲーム全体の論理状態 (タイトル中か、プレイ中か等) を 1 箇所で扱いたい時。 状態切替時に BGM 切替やセーブ等の副作用を発火したい時。",
+    "sample": "CGameFlow flow;\nflow.SetOnEnterCallback(EFlowState::Gameplay, &OnGameplayEnter, this);\nflow.Init(EFlowState::Splash);\n// 毎フレーム:\nflow.Tick(dt);\nif (pressed_start && flow.CurrentState() == EFlowState::MainTitle)\n    flow.RequestTransition(EFlowState::MainMenu, 0.5f);\nif (flow.IsTransitioning()) DrawFadeOverlay(flow.FadeProgress());",
+    "members": [
+      {
+        "sig": "void Init(EFlowState initial_state = EFlowState::Splash)",
+        "desc": "10 個の状態スロットと遷移許可テーブルを構築し、初期状態に入る (OnEnter 発火)。"
+      },
+      {
+        "sig": "EFlowState CurrentState() / EFlowState PendingState()",
+        "desc": "現在の状態 / 遷移先の状態。"
+      },
+      {
+        "sig": "bool IsTransitioning()",
+        "desc": "遷移 (fade) 中か。"
+      },
+      {
+        "sig": "bool CanTransitionTo(EFlowState to)",
+        "ret": "遷移可能か",
+        "desc": "遷移許可テーブルに照らした合法性。 同一状態は false。"
+      },
+      {
+        "sig": "f32 FadeProgress()",
+        "ret": "[0,1] の overlay 不透明度",
+        "desc": "fade_out 中は 0→1、切替後の fade_in 中は 1→0。 非遷移中は 0。"
+      },
+      {
+        "sig": "void RequestTransition(EFlowState to, f32 fade_sec = 0.3f)",
+        "desc": "状態遷移を要求。 不正遷移や遷移中の追加要求は no-op (後勝ちしない)。 fade_sec=0 で即時。"
+      },
+      {
+        "sig": "void SetOnEnterCallback(EFlowState state, StateCallback cb, void* user)",
+        "desc": "状態への入場コールバックを登録 (各状態 1 個)。 OnExit 用の SetOnExitCallback もある。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "fade タイマを進め、必要なら状態切替と enter/exit コールバックを発火する driver。"
+      },
+      {
+        "sig": "using FGameFlow = CGameFlow",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CGameFlow を使う。"
+      }
+    ]
+  }
+}

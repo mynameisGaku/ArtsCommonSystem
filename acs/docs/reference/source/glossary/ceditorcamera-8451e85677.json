@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CEditorCamera",
+  "definition": "editor_core のエディタ用カメラ。 3D orbit / pan / dolly 操作と ViewMatrix / ProjectionMatrix の取得を提供し、各パネルが値メンバとして所有する。"
+}

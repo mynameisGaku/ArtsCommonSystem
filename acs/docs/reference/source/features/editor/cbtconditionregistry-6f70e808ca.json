@@ -1,0 +1,21 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "CBtConditionRegistry",
+    "kind": "クラス",
+    "header": "gameframework/tools/btedit/BtCatalog.h",
+    "summary": "behavior tree editorで選べるcondition factoryを登録する。",
+    "when": "condition nodeの候補を列挙または生成する時。",
+    "members": [
+      {
+        "sig": "using FBtConditionRegistry = CBtConditionRegistry",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CBtConditionRegistry を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "asset",
+    "title": "asset — アセット読み込み / レジストリ",
+    "description": "画像・音声・メッシュ・テキストなどの素材ファイルをパスを渡すだけで読み込み、一度読んだものはレジストリで共有・再利用します。 同期でも非同期でも読み込めます。"
+  },
+  "feature": {
+    "name": "MakeAssetId(path)",
+    "kind": "関数",
+    "header": "asset/AssetId.h",
+    "summary": "パス文字列(FStringView)から FAssetId を作る。 同じパスなら必ず同じ ID。 値が 0 になった場合は 1 に補正(0 は無効用)。",
+    "when": "事前にパスから ID を求めておき、後で Find 等で引きたい時。",
+    "sample": "FAssetId id = MakeAssetId(\"audio/bgm.ogg\");",
+    "members": [
+      {
+        "sig": "FAssetId MakeAssetId(FStringView path)",
+        "ret": "識別子",
+        "desc": "パスのバイト列をハッシュして ID を返す。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "CWaterVolume",
+    "kind": "クラス",
+    "header": "gameframework/WaterVolume.h",
+    "summary": "AABB で定義した 2D の水域を複数登録し、点が水中かの判定と、物体に掛かる浮力 + 抗力を力ベクトルで返す部品。 「浮く」「沈む」「水中で減速」をゲームに組み込めます。",
+    "when": "池・川・海などの水場を作り、入った物体を浮かせたり沈ませたりしたい時。",
+    "sample": "CWaterVolume water;\nFWaterVolumeInfo pond{ {0,50}, {200,50}, 9.8f, 2.0f, 0.0f, {0.1f,0.3f,0.6f} };\nauto id = water.AddVolume(pond);\nif (water.IsUnderwater(body.position)) {\n    FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);\n    body.ApplyForce(f);\n}",
+    "members": [
+      {
+        "sig": "FWaterVolumeId AddVolume(const FWaterVolumeInfo& info)",
+        "ret": "水域 ハンドル",
+        "desc": "水域を登録し、以降の参照 / 更新に使うハンドルを返す。"
+      },
+      {
+        "sig": "void RemoveVolume(FWaterVolumeId id)",
+        "desc": "水域を削除する(スロット再利用、古いハンドルは無効)。"
+      },
+      {
+        "sig": "void UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size)",
+        "desc": "幾何(中心 / 半サイズ)だけ更新する。 surface_y は引き継ぐので、水面位置を変えたいなら登録し直す。"
+      },
+      {
+        "sig": "bool IsUnderwater(FVec2 pos) const",
+        "ret": "水中か",
+        "desc": "どれかの水域 AABB 内に pos が入っていれば true。",
+        "when": "毎フレーム物体が水に浸かったか判定する時。"
+      },
+      {
+        "sig": "f32 SubmersionDepth(FVec2 pos) const",
+        "ret": "沈み深さ",
+        "desc": "水面からの沈み深さ(pos.y - surface_y、+Y=画面下なので沈むほど大)。 水中でなければ 0。"
+      },
+      {
+        "sig": "FVec2 ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) const",
+        "ret": "合力(world)",
+        "desc": "浮力(上向き = -Y) + 抗力(-velocity*drag)の合計を返す。 重なる水域は加算。 水中でなければ (0,0)。",
+        "when": "物理ボディに ApplyForce する力を得る時。"
+      },
+      {
+        "sig": "u32 VolumeCount() const",
+        "desc": "有効な水域数を返す。"
+      },
+      {
+        "sig": "const FWaterVolumeInfo* AllVolumes(u32& out_count) const",
+        "ret": "先頭ポインタ",
+        "desc": "有効な全水域を詰めた配列を返す(Add/Remove/Update で無効化)。 レンダラが水面描画に使う。"
+      },
+      {
+        "sig": "void ClearAll()",
+        "desc": "全水域を破棄する。"
+      },
+      {
+        "sig": "using FWaterVolume = CWaterVolume",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CWaterVolume を使う。"
+      }
+    ]
+  }
+}

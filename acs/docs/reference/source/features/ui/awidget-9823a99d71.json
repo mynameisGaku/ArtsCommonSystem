@@ -1,0 +1,97 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "AWidget",
+    "kind": "基底クラス",
+    "header": "ui/Widget.h",
+    "summary": "すべての UI 部品の共通の親。 子を TUniquePtr で所有してツリーを作り、レイアウト(配置)・描画・ヒットテスト(クリック判定)・入力イベントの仮想メソッドを持ちます。 コピー不可。",
+    "when": "ボタンやパネルなど具体的な部品はこれを継承して作る。 直接インスタンス化するより、派生型(AStackPanel / AButton 等)を使うのが普通。",
+    "sample": "AStackPanel root;\nFButton* btn = root.Add<AButton>(\"OK\");  // 子を追加して生ポインタを得る\n// 毎フレーム ui_renderer.Render(root, cmd, 1280, 720)\n// が Layout と描画をまとめて実行",
+    "members": [
+      {
+        "sig": "template<W,Args...> W* Add(Args&&... args)",
+        "ret": "追加した子の生ポインタ",
+        "desc": "子ウィジェットを W 型で作って自分の子に取り込み、その生ポインタを返す。 所有権は親が持つ。",
+        "when": "UI ツリーに部品を足す時の基本操作。",
+        "sample": "ALabel* l = root.Add<ALabel>(\"スコア\");"
+      },
+      {
+        "sig": "AWidget* Parent() const",
+        "ret": "親 または null",
+        "desc": "自分を取り込んでいる親を返す。 ルートなら null。"
+      },
+      {
+        "sig": "usize ChildCount() const",
+        "ret": "子の数",
+        "desc": "直接の子ウィジェットの個数。"
+      },
+      {
+        "sig": "AWidget* Child(usize i) const",
+        "ret": "i 番目の子",
+        "desc": "範囲外なら null。"
+      },
+      {
+        "sig": "virtual void Layout(f32 x, f32 y, f32 w, f32 h)",
+        "desc": "自分の絶対座標(rect)を確定し、子があれば配置する。 派生型ごとに並べ方が違う。",
+        "when": "CUiRenderer::Render が毎フレーム root に対して呼ぶ。 layout 単体の検証時は直接呼べる。"
+      },
+      {
+        "sig": "virtual void Render(CUiRenderer& r)",
+        "desc": "自分の見た目を描く。 既定は visible な子を再帰描画するだけ。",
+        "when": "CUiRenderer::Render から自動で呼ばれる。 手で呼ばない。"
+      },
+      {
+        "sig": "virtual bool HitTest(f32 px, f32 py) const",
+        "ret": "拾うか",
+        "desc": "点 (px,py) が自分の領域内なら true(=その入力を自分が拾う)。 既定は rect.Contains。"
+      },
+      {
+        "sig": "AWidget* HitTestRecursive(f32 px, f32 py)",
+        "ret": "当たった一番上の子",
+        "desc": "ツリーを上に描かれた子から優先してヒットテストし、最初に当たったウィジェットを返す。"
+      },
+      {
+        "sig": "virtual void OnPointerDown / OnPointerUp / OnPointerMove(f32 px, f32 py)",
+        "desc": "マウス押下/離す/移動が来た時に呼ばれる。 既定は何もしない。 派生型で上書きする。"
+      },
+      {
+        "sig": "virtual void OnTextInput(u32 codepoint)",
+        "desc": "文字入力が来た時に呼ばれる(ATextInput 等が使う)。"
+      },
+      {
+        "sig": "virtual void OnKey(i32 key, bool pressed)",
+        "desc": "従来互換のキー押下/解放イベント。 CUiInput は押下を true、解放を false で配信する。 修飾キー付き既定実装からも転送されるため、既存の override はそのまま動作する。"
+      },
+      {
+        "sig": "virtual void OnKey(i32 key, bool pressed, const FUiKeyModifiers& modifiers)",
+        "desc": "Shift / Ctrl / Alt / Super の押下中スナップショットを含むキー押下/解放イベント。 既定実装は2引数版へ転送する。"
+      },
+      {
+        "sig": "bool visible",
+        "ret": "表示するか",
+        "desc": "false にするとそのウィジェット(と子)は描画・配置されない。"
+      },
+      {
+        "sig": "FUiRect rect",
+        "desc": "Layout 後に確定する絶対座標(画面上の最終的な矩形)。"
+      },
+      {
+        "sig": "FUiRect requested",
+        "desc": "希望サイズ。 0 は『親のレイアウトに任せる』の意味。"
+      },
+      {
+        "sig": "bool hovered / focused / pressed",
+        "desc": "マウスが乗っている/フォーカス中/押下中の状態フラグ。 CUiInput や派生型が更新する。"
+      },
+      {
+        "sig": "using FWidget = AWidget",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは AWidget を使う。"
+      }
+    ]
+  }
+}

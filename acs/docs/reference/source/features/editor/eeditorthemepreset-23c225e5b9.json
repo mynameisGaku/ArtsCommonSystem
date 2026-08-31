@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "EEditorThemePreset",
+    "kind": "列挙(enum class : u8)",
+    "header": "gameframework/tools/editor_core/EditorTheme.h",
+    "summary": "CEditorTheme のプリセット種別。 ApplyPreset に渡すと色 / spacing / corner のスナップショットが適用される。 SetCustomColors を呼ぶと自動で Custom になる。",
+    "when": "エディタの配色を切り替える時。",
+    "members": [
+      {
+        "sig": "Dark = 0",
+        "desc": "標準 dark grey(デフォルト)。"
+      },
+      {
+        "sig": "DarkBlue = 1",
+        "desc": "青みを加えた暗色配色。"
+      },
+      {
+        "sig": "Light = 2",
+        "desc": "明るい背景(屋外 / プロジェクタ向け)。"
+      },
+      {
+        "sig": "HighContrast = 3",
+        "desc": "黒 / 白 / 黄(アクセシビリティ連動可)。"
+      },
+      {
+        "sig": "Sepia = 4",
+        "desc": "焼け紙風暖色(長時間作業向け)。"
+      },
+      {
+        "sig": "Custom = 5",
+        "desc": "SetCustomColors() で渡された任意パレット。"
+      }
+    ]
+  }
+}

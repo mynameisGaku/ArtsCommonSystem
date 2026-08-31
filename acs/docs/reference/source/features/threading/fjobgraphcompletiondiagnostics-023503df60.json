@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "threading",
+    "title": "threading — スレッド / ジョブ / アトミック / 排他",
+    "description": "複数の処理を同時に走らせ(スレッド・ジョブ)、その時にデータが壊れないよう守る(アトミック・排他)ための道具一式。 STL の <thread> / <atomic> / <mutex> を ACS 流に置き換えたものです。"
+  },
+  "feature": {
+    "name": "FJobGraphCompletionDiagnostics",
+    "kind": "構造体",
+    "header": "threading/JobGraphCompletionDiagnostics.h",
+    "summary": "現在の JobGraph 完了カウンタ一括予約だけを返す 16B の診断値。 累計ではなく、Reset 後の job 追加を含む次回 Submit の実 job 数を正しく表すため現在状態に限定する。",
+    "when": "依存 job ごとの Add(1) が復活していないことと、Submit が全 job を一括予約したことを決定的に検証する時。",
+    "sample": "auto d = graph.CompletionDiagnostics();\nif (d.reservation_batch_count == 1)\n    ACS_ASSERT(d.reserved_job_count == graph.JobCount());",
+    "members": [
+      {
+        "sig": "u64 reservation_batch_count",
+        "desc": "現在 Submit 済みなら 1、未 Submit または Reset 後なら 0。"
+      },
+      {
+        "sig": "u64 reserved_job_count",
+        "desc": "現在の一括予約に含めた job 数。 予約なしなら 0。"
+      }
+    ]
+  }
+}

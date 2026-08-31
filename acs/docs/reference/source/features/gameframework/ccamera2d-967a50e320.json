@@ -1,0 +1,74 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "実際のゲームを組み立てるためのすぐ使える部品集。 カメラ・アニメ・音・AI・実績・バフ・アクセシビリティなど、ジャンルを問わず必要になる仕組みを acs::game 名前空間にまとめています。 多くは「状態を保持して毎フレーム Tick(dt) で進める」共通スタイルです。"
+  },
+  "feature": {
+    "name": "CCamera2D",
+    "kind": "クラス",
+    "header": "gameframework/Camera2D.h",
+    "summary": "2D カメラ。 position/zoom/rotation、target 追従 (フレームレート非依存の指数 smoothing)、画面振動 (trauma 方式)、world↔screen 座標変換、移動範囲の clamp を持つ。 CSceneServices 経由で自動 Tick できる。",
+    "when": "2D ゲームでプレイヤー追従・ヒット時の画面振動・座標変換が欲しい時。",
+    "sample": "CCamera2D cam;\ncam.SetTargetPos(player.Position());  // 追従\nif (player.JustHit()) cam.AddShake(0.5f); // 画面振動\n// 毎フレーム自動 Tick (Services 経由) or 手動:\ncam.Tick(dt);\nFVec2 world = cam.ScreenToWorld(mouse, w, h);",
+    "members": [
+      {
+        "sig": "void SetPosition(FVec2 p) / FVec2 Position() const",
+        "desc": "カメラ位置を設定/取得する。"
+      },
+      {
+        "sig": "void SetZoom(f32 z) / void SetRotation(f32 r)",
+        "desc": "ズーム (>1 で拡大) と回転 (radians, + で CCW) を設定する。"
+      },
+      {
+        "sig": "void SetTargetPos(FVec2 target_pos, f32 smoothing = 5.0f)",
+        "desc": "追従先を毎フレーム値で渡す (安定ポインタ不要)。 smoothing 大ほどキビキビ、0 以下で即スナップ。",
+        "when": "プレイヤー位置にカメラを追わせる時。"
+      },
+      {
+        "sig": "void AddShake(f32 amount)",
+        "desc": "trauma を加算して画面振動を起こす ([0,1] にクランプ)。 重ねると派手になる。",
+        "when": "被弾/爆発などのインパクト時。"
+      },
+      {
+        "sig": "void SetShakeAmplitude(f32 a) / void SetShakeDecayRate(f32 r)",
+        "desc": "振動の最大幅 / 減衰速度を設定する。"
+      },
+      {
+        "sig": "FVec2 EffectiveViewCenter() const",
+        "ret": "振動込みの中心",
+        "desc": "shake オフセットを足した実際の view 中心。 レンダラが view に使う値。"
+      },
+      {
+        "sig": "void SetBounds(FVec2 min, FVec2 max) / void ClearBounds()",
+        "desc": "カメラ位置を矩形内に clamp する範囲を設定/解除する。"
+      },
+      {
+        "sig": "FVec2 ScreenToWorld(FVec2 screen, u32 w, u32 h) const / FVec2 WorldToScreen(FVec2 world, u32 w, u32 h) const",
+        "desc": "画面ピクセル↔world 座標を相互変換する (zoom/rotation 考慮)。"
+      },
+      {
+        "sig": "void Tick(f32 dt)",
+        "desc": "追従 smoothing・範囲 clamp・trauma 減衰と振動オフセット計算を行う。 Services が自動で呼ぶ。"
+      },
+      {
+        "sig": "f32 TraumaLevel() const",
+        "ret": "trauma [0,1]",
+        "desc": "現在の trauma 値 (振動の強さ)。 0 で無振動。"
+      },
+      {
+        "sig": "bool HasTarget() const / void ClearTarget()",
+        "desc": "追従先が設定済みか / 追従を解除する (位置は固定される)。"
+      },
+      {
+        "sig": "bool HasBounds() const",
+        "desc": "移動範囲の clamp が設定済みか (SetBounds 済みなら true)。"
+      },
+      {
+        "sig": "using FCamera2D = CCamera2D",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは CCamera2D を使う。"
+      }
+    ]
+  }
+}

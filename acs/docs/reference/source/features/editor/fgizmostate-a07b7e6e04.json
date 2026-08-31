@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "editor",
+    "title": "editor — 制作支援 / エディタ (acs::game::tools)",
+    "description": "ゲーム制作を支援する ImGui ベースのエディタ部品群(acs::game::tools)。 パネル基底 AEditorPanel とワークスペース CEditorWorkspace を土台に、シーン階層 / インスペクタ / アセットブラウザ / ギズモ、Particle・Level・SpriteAtlas・Font・BehaviorTree・Cinematics・ModelViewer の専用エディタを分離する。"
+  },
+  "feature": {
+    "name": "FGizmoState",
+    "kind": "構造体(POD)",
+    "header": "gameframework/tools/editor_core/EditorGizmo.h",
+    "summary": "現フレームのギズモ操作状態。 公開フィールドだが書き換えは CEditorGizmo 内部のみ。 テストや inspector から「今 drag 中か」「どの軸が hot か」を ImGui::Text 等で覗ける。 drag_start_world は drag 開始時の world ヒット点(delta 計算の基点)。",
+    "when": "CEditorGizmo::State() でギズモの内部状態を読み取る時。",
+    "members": [
+      {
+        "sig": "EGizmoMode mode = EGizmoMode::Translate",
+        "desc": "現在のモード。"
+      },
+      {
+        "sig": "EGizmoSpace space = EGizmoSpace::World",
+        "desc": "現在の座標系。"
+      },
+      {
+        "sig": "EGizmoAxis hot_axis = EGizmoAxis::None_",
+        "desc": "ホバー or drag 中の軸。"
+      },
+      {
+        "sig": "bool dragging = false",
+        "desc": "LMB 押下中の drag フラグ。"
+      },
+      {
+        "sig": "acs::FVec3 drag_start_world{}",
+        "desc": "drag 開始時の world hit point。"
+      }
+    ]
+  }
+}

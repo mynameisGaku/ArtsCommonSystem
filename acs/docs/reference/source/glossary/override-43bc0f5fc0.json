@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "Override",
+  "definition": "基底クラスの仮想関数を派生クラスで上書き実装すること。"
+}

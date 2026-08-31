@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "gameframework",
+    "title": "gameframework — ゲーム部品 (acs::game)",
+    "description": "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。 当たり判定のトリガ、ターン制、武器・弾薬、敵のウェーブ、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。"
+  },
+  "feature": {
+    "name": "FWorkshopItem",
+    "kind": "構造体",
+    "header": "gameframework/WorkshopBridge.h",
+    "summary": "プラットフォーム共通のUGCアイテムのメタ情報。 item_id / タイトル / 説明 / 作者(文字列は非所有)・ファイルサイズ・インストール / 購読状態を持ちます。",
+    "when": "MOD ブラウザ UI にアイテム一覧を表示する時。",
+    "sample": "if (auto r = ws->QueryItem(itemId); r.IsOk()) {\n    const FWorkshopItem& it = r.Value();\n\n}",
+    "members": [
+      {
+        "sig": "u64 item_id / u64 file_size",
+        "desc": "SDK 固有の opaque ID / DL 後のファイルサイズ(バイト)。"
+      },
+      {
+        "sig": "const char* title / const char* description / const char* author",
+        "desc": "表示タイトル / 説明 / 投稿者名(UTF-8、非所有、次 Tick まで有効)。"
+      },
+      {
+        "sig": "bool installed / bool subscribed",
+        "desc": "ローカルに DL 済みか / ローカルプレイヤーが購読中か。"
+      }
+    ]
+  }
+}

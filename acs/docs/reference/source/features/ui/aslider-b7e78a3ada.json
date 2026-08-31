@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "module": {
+    "id": "ui",
+    "title": "ui — UI 部品",
+    "description": "ボタン・スライダー・テキスト入力などのウィジェットを木構造で組み立て、画面に描いて操作を受け取るための部品集です。 retained-mode(ツリーを保持し続ける方式)で、各部品は MVVM の TObservable プロパティを公開するので画面とデータを直結できます。"
+  },
+  "feature": {
+    "name": "ASlider",
+    "kind": "クラス",
+    "header": "ui/Widgets.h",
+    "summary": "つまみをドラッグして範囲内の数値を選ぶウィジェット。 下限〜上限を指定し、現在値は TObservable で公開される。",
+    "when": "音量・難易度・パラメータなど連続値をマウスで調整させたい時。 value を ViewModel と双方向 Bind すると便利。",
+    "sample": "ASlider* sl = root.Add<ASlider>(0.0f, 100.0f);  // 0〜100\nsl->value.Subscribe([](const f32& v, void*){ SetVolume(v); }, nullptr);\nauto bind = MakeTwoWayBind(vm.hp, sl->value);  // 双方向同期",
+    "members": [
+      {
+        "sig": "TObservable<f32> value",
+        "desc": "現在の値。 ドラッグで更新され、Subscribe / Bind で受け取れる。"
+      },
+      {
+        "sig": "f32 min_value / max_value",
+        "desc": "選べる値の下限・上限。 コンストラクタ ASlider(min, max) で指定。"
+      },
+      {
+        "sig": "using FSlider = ASlider",
+        "desc": "旧名を使う既存コード向けの互換別名。 新しいコードでは ASlider を使う。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "IBackendClient",
+  "definition": "gameframework が定める『サーバ側との窓口』インターフェース。 テレメトリ送信などを抽象化し、実装を差し替えられる。"
+}

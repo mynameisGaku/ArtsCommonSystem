@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "platform",
+  "definition": "OS ごとのウィンドウ・入力・時間などを抽象化する低レベルモジュール。 easy の入力コード列挙 EKey 等もここで定義される。"
+}

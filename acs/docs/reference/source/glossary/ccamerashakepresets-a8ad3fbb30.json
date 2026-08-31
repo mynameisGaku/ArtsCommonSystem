@@ -1,0 +1,5 @@
+{
+  "schema": 2,
+  "term": "CCameraShakePresets",
+  "definition": "『爆発/地震/着弾』などジャンル別の画面振動パラメータを名前付きで提供する preset ライブラリ。"
+}
