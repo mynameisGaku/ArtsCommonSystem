@@ -5463,6 +5463,32 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
         probeRecoveredB-probeBaseB,
         length(probeTargetRadialB)
             -(CLOUD_PLANET_RADIUS+probeTargetAltitudeB));
+
+    // 正負の遠方座標と二つの水平軸で、実距離・途中再初期化・順逆方向の同じ境界を検査する。
+    const float3 pathOrigins[3]={float3(200000,2000,0),float3(-200000,2000,4000),float3(0,2000,200000)};
+    const float3 pathDirections[3]={float3(0.6,0.8,0),float3(-0.6,0.8,0),float3(0,0.8,0.6)};
+    [unroll] for(uint pathIndex=0u;pathIndex<3u;++pathIndex){
+        float3 pathStart=pathOrigins[pathIndex];
+        float3 pathDirection=pathDirections[pathIndex];
+        float3 pathEnd=pathStart+100.0*pathDirection;
+        float startCoordinate=cloudCorrelatedTransportPathCoordinate(pathStart,pathDirection);
+        float endCoordinate=cloudCorrelatedTransportPathCoordinate(pathEnd,pathDirection);
+        float middleCoordinate=cloudCorrelatedTransportPathCoordinate(pathStart+10.0*pathDirection,pathDirection);
+        float reverseCoordinate=cloudCorrelatedTransportPathCoordinate(pathEnd,-pathDirection);
+        CloudFourStateTransportLanes startPhase=cloudInitialFourStateTransportLanes();
+        CloudFourStateTransportLanes middlePhase=cloudInitialFourStateTransportLanes();
+        CloudFourStateTransportLanes reversePhase=cloudInitialFourStateTransportLanes();
+        bool phasesValid=cloudInitializeFourStateTransportPhaseLanes(startPhase,startCoordinate,50.0);
+        phasesValid=cloudInitializeFourStateTransportPhaseLanes(middlePhase,middleCoordinate,50.0)&&phasesValid;
+        phasesValid=cloudInitializeFourStateTransportPhaseLanes(reversePhase,reverseCoordinate,50.0)&&phasesValid;
+        cloudOut[uint2(55u+pathIndex*2u,0)]=float4(startCoordinate,endCoordinate,middleCoordinate,reverseCoordinate);
+        cloudOut[uint2(56u+pathIndex*2u,0)]=float4(startPhase.boundaryDistances.x,middlePhase.boundaryDistances.x,reversePhase.boundaryDistances.x,phasesValid?1.0:0.0);
+    }
+    // 旧式を負の対照として残す。実距離100mに球面高度差を混ぜると、同じ入力で約1.48mずれる。
+    float3 oldStart=pathOrigins[0];
+    float3 oldEnd=oldStart+100.0*pathDirections[0];
+    float oldIncrement=dot(float3(oldEnd.x-oldStart.x,cloudAltitude(oldEnd)-cloudAltitude(oldStart),oldEnd.z-oldStart.z),pathDirections[0]);
+    cloudOut[uint2(61,0)]=float4(oldIncrement,cloudCorrelatedTransportPathCoordinate(oldStart+float3(0,0,1000),pathDirections[0]),0,0);
 }
 )";
 
@@ -5488,6 +5514,8 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
 
     FComputePipelineDesc pipelineDescription{};
     pipelineDescription.cs = shaderResult.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CloudCB";
     pipelineDescription.uav_slots = 1u;
     pipelineDescription.uav_names[0] = "cloudOut";
     auto pipelineResult =
@@ -5495,7 +5523,7 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(pipelineResult.IsOk());
     if (pipelineResult.IsErr()) return;
 
-    constexpr u32 kProbeTexelCount = 55u;
+    constexpr u32 kProbeTexelCount = 62u;
     FTextureDesc textureDescription{};
     textureDescription.width = kProbeTexelCount;
     textureDescription.height = 1u;
@@ -5509,8 +5537,21 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(commandResult.IsOk());
     if (commandResult.IsErr()) return;
     auto command = Move(commandResult.Value());
+    // 16バイト単位のc17が曲面原点、c21.xyが風移動量。原点0だけで成立する式を排除する。
+    FVec4 transportConstants[48]{};
+    transportConstants[17].y = 700.0f;
+    transportConstants[21] = FVec4{300.0f, -200.0f, 0.0f, 0.0f};
+    FBufferDesc transportBufferDescription{};
+    transportBufferDescription.size = sizeof(transportConstants);
+    transportBufferDescription.usage = EBufferUsage::Uniform;
+    transportBufferDescription.cpu_writable = true;
+    auto transportBuffer = CreateRhiBuffer(*device, transportBufferDescription);
+    EXPECT_TRUE(transportBuffer.IsOk());
+    if (transportBuffer.IsErr()) return;
+    transportBuffer.Value()->Update(transportConstants, sizeof(transportConstants));
     command->Begin();
     command->SetComputePipeline(*pipelineResult.Value());
+    command->SetConstantBuffer(0u, *transportBuffer.Value());
     command->BindUav(0u, *textureResult.Value());
     command->Dispatch(1u, 1u, 1u);
     command->End();
@@ -5526,6 +5567,28 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     const auto gpuValue = [&gpuValues](u32 texel, u32 component) noexcept {
         return gpuValues[texel * 4u + component];
     };
+
+    // 独立した倍精度の直線参照。約120kmの単精度座標に対して0.058m未満の丸め差を許容する。
+    const double expectedStarts[3] = {120860.0, 121220.0, 121160.0};
+    for (u32 path = 0u; path < 3u; ++path) {
+        const u32 coordinates = 55u + path * 2u;
+        const u32 boundaries = coordinates + 1u;
+        const f32 tolerance = static_cast<f32>(4.0 * 0.00000011920928955078125 * expectedStarts[path]);
+        const f32 start = gpuValue(coordinates, 0u);
+        const f32 end = gpuValue(coordinates, 1u);
+        const f32 middle = gpuValue(coordinates, 2u);
+        const f32 reverse = gpuValue(coordinates, 3u);
+        EXPECT_NEAR(start, expectedStarts[path], tolerance);
+        EXPECT_NEAR(end - start, 100.0f, tolerance);
+        EXPECT_NEAR(middle - start, 10.0f, tolerance);
+        EXPECT_NEAR(reverse, -end, tolerance);
+        EXPECT_NEAR(gpuValue(boundaries, 0u) - 10.0f, gpuValue(boundaries, 1u), tolerance);
+        EXPECT_NEAR(gpuValue(boundaries, 0u), 100.0f - gpuValue(boundaries, 2u), tolerance);
+        EXPECT_EQ(gpuValue(boundaries, 3u), 1.0f);
+    }
+    EXPECT_TRUE(gpuValue(61u, 0u) - 100.0f > 1.0f);
+    EXPECT_NEAR(gpuValue(61u, 1u), gpuValue(55u, 0u), 0.0f);
+    test::RecordInfo(FSourceLoc::Current(), "cloud_transport_metric_gpu_readback completed paths=3 distance=100m");
 
     struct FCombinedTransportForTest {
         // 二区間を合わせた透過率。

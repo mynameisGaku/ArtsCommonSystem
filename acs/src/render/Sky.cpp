@@ -5064,14 +5064,14 @@ float4 cloudLowLodDensityLanesFromMacro(
     CloudMacroSample macro,float weatherMask){
     return cloudLowLodDensityFromMacro(macro,weatherMask).xxxx;
 }
-// 光路始点を風で移動する物質座標へ写し、相関セルの入口位相を求める。
-// 固定した半セルから全光路を始めると、平行な太陽光路へ同じ人工境界が並ぶ。
+// 光路始点を風に追従する直交座標へ写す。正規化済み方向への射影は、光路上で実距離と同じだけ増える。
+// 球面高度は非線形なので距離の位相には使わず、雲の形状と球殻交差の判定にだけ使う。
 float cloudCorrelatedTransportPathCoordinate(
     float3 segmentStartPosition,float3 rayDirection){
     float2 windOffset=cloudWindWorld();
     float3 materialPosition=float3(
         segmentStartPosition.x-windOffset.x,
-        cloudAltitude(segmentStartPosition),
+        segmentStartPosition.y-worldOrigin.y,
         segmentStartPosition.z-windOffset.y);
     return dot(materialPosition,rayDirection);
 }
