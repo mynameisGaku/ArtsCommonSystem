@@ -802,7 +802,7 @@ struct FVolumetricCloudFrameWorkloadPlan {
     u32 trace_height = 0u;
     u32 output_width = 0u;
     u32 output_height = 0u;
-    /** 1 本の視線レイで実行できる区間セル数。各セル内の求積点は負荷計画側で加える。 */
+    /** 1本の視線レイで実行できる密度採取数。完全な4点求積へ切り下げて使う。 */
     u32 maximum_view_steps = kVolumetricCloudViewSteps;
     /** 自己影を各軸で何画素おきに更新するか。1 は全更新。 */
     u32 shadow_update_divisor = 1u;
@@ -980,9 +980,11 @@ FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
 /**
  * 遠方の太陽方向積分と、空・地面方向の半球透過率を保持するキャッシュ。
  *
- * 現在の密度場から一つの3次元テクスチャへ生成する。一つの水平セルを16スレッドで
- * 面積積分し、そのうち4スレッドが太陽円盤の各方向を担当する。雲中でも頭上の空隙と
- * 厚い雲芯を分け、キャッシュの信頼度が不足する場所では相関長に応じた最大16区間の積分へ戻す。
+ * 現在の固定密度場から、完成密度、方向別光路、半球解決の三処理を同じGPU提出で
+ * 完了する。低いフレーム率でも生成途中に媒質世代が期限切れにならず、完成結果は
+ * 同じ提出の雲描画から読み、提出成功時だけ次回の公開用キャッシュと交換する。
+ * 第二処理の16スレッドは同じ密度場を周囲光の面積積分へ使い、先頭4スレッドは
+ * 太陽円盤の各方向を雲帯上端から一度だけ累積する。
  */
 inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 
@@ -990,6 +992,43 @@ inline constexpr bool kVolumetricCloudShadowCacheEnabled = true;
 inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
 inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
 inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
+/** 完成密度で下層・上層へそれぞれ割り当てる合計高度数。 */
+inline constexpr u32 kVolumetricCloudShadowDensityProfileCount =
+    2u * kVolumetricCloudShadowCacheHeight;
+/** 分散生成との負荷比較で使う、旧4x4水平分割の各軸幅。 */
+inline constexpr u32 kVolumetricCloudShadowDensityTemporalDivisor = 4u;
+/** 分散生成との負荷比較で使う、旧4x4水平分割の位相数。 */
+inline constexpr u32 kVolumetricCloudShadowDensityTemporalPhaseCount =
+    kVolumetricCloudShadowDensityTemporalDivisor *
+    kVolumetricCloudShadowDensityTemporalDivisor;
+static_assert(kVolumetricCloudShadowDensityTemporalPhaseCount == 16u);
+static_assert(
+    kVolumetricCloudShadowCacheWidth %
+        kVolumetricCloudShadowDensityTemporalDivisor == 0u);
+static_assert(
+    kVolumetricCloudShadowCacheDepth %
+        kVolumetricCloudShadowDensityTemporalDivisor == 0u);
+/** 分散生成との負荷比較で使う、旧方向別光路の各軸分割幅。 */
+inline constexpr u32 kVolumetricCloudShadowLightingTemporalDivisor = 4u;
+/** 分散生成との負荷比較で使う、旧方向別光路の位相数。 */
+inline constexpr u32 kVolumetricCloudShadowLightingTemporalPhaseCount =
+    kVolumetricCloudShadowLightingTemporalDivisor *
+    kVolumetricCloudShadowLightingTemporalDivisor;
+/** 方向別環境光を描画用の半球積分値へ集約する処理数。 */
+inline constexpr u32 kVolumetricCloudShadowAmbientResolveStageCount = 1u;
+/** 一つの完成世代を同一提出で作る、密度・方向別光路・半球解決の処理数。 */
+inline constexpr u32 kVolumetricCloudShadowBuildStageCount = 3u;
+static_assert(kVolumetricCloudShadowLightingTemporalPhaseCount == 16u);
+static_assert(kVolumetricCloudShadowBuildStageCount == 3u);
+/** 太陽透過率で下層・上層へそれぞれ割り当てる合計高度数。 */
+inline constexpr u32 kVolumetricCloudSunCacheProfileCount =
+    2u * kVolumetricCloudShadowCacheHeight;
+/** 有限な太陽円盤を面積積分する方向数。 */
+inline constexpr u32 kVolumetricCloudSunDiskDirectionCount = 4u;
+/** 周囲光一領域と、散乱次数別太陽透過率三領域を並べた高さ。 */
+inline constexpr u32 kVolumetricCloudShadowCacheTextureHeight =
+    kVolumetricCloudShadowCacheHeight +
+    3u * kVolumetricCloudSunCacheProfileCount;
 inline constexpr f32 kVolumetricCloudShadowCacheExtent = 48000.0f;
 inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
     kVolumetricCloudShadowCacheExtent /
@@ -1000,14 +1039,34 @@ inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
 inline constexpr f32 kVolumetricCloudSunCacheMinimumReliableTransmittance =
     0.00006103515625f;
 
-/** 非一様な周囲光セルを各軸で分割し、物理面積を均等に標本化する。 */
-inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureAxis = 4u;
+/** 半球照度を積分する天頂角のGauss-Legendre標本数。 */
+inline constexpr u32 kVolumetricCloudAmbientZenithDirectionCount = 4u;
 
-/** 一つの周囲光セルで面積積分する鉛直列の本数。 */
+/** 各天頂角で水平方位を積分する等間隔標本数。 */
+inline constexpr u32 kVolumetricCloudAmbientAzimuthDirectionCount = 4u;
+
+/** 一つの周囲光セルから追跡する実3D方向の総数。 */
+inline constexpr u32 kVolumetricCloudAmbientDirectionCount =
+    kVolumetricCloudAmbientZenithDirectionCount *
+    kVolumetricCloudAmbientAzimuthDirectionCount;
+static_assert(kVolumetricCloudAmbientDirectionCount == 16u);
+
+/** 方向別生成と最終解決で、一つの水平列を担当するスレッド数。 */
+inline constexpr u32 kVolumetricCloudShadowCacheGroupThreadCount =
+    kVolumetricCloudAmbientDirectionCount;
+
+/** 方向別中間キャッシュで使う高さ方向の総数。 */
+inline constexpr u32 kVolumetricCloudAmbientDirectionalProfileCount =
+    kVolumetricCloudAmbientDirectionCount *
+    kVolumetricCloudShadowCacheHeight;
+
+/** 旧公開名。現在は水平方位の標本数を表す。 */
+inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureAxis =
+    kVolumetricCloudAmbientAzimuthDirectionCount;
+
+/** 旧公開名。現在は実3D方向の総数を表す。 */
 inline constexpr u32 kVolumetricCloudAmbientCacheQuadratureSamples =
-    kVolumetricCloudAmbientCacheQuadratureAxis *
-    kVolumetricCloudAmbientCacheQuadratureAxis;
-static_assert(kVolumetricCloudAmbientCacheQuadratureSamples == 16u);
+    kVolumetricCloudAmbientDirectionCount;
 
 /** 線形補間がキャッシュ外を参照し始める外周距離。 */
 inline constexpr f32 kVolumetricCloudShadowCacheFilterStartCells = 1.5f;
@@ -1016,7 +1075,7 @@ inline constexpr f32 kVolumetricCloudShadowCacheFilterStartCells = 1.5f;
 inline constexpr f32 kVolumetricCloudShadowCacheFilterFullCells = 2.5f;
 static_assert(kVolumetricCloudShadowCacheSafeRadius / kVolumetricCloudShadowCacheCellSize == 16.0f);
 
-/** 安定フレームの自己影を各軸で2画素おきに更新し、4フレームで全体を巡回する。 */
+/** 立体物用ワールド雲影を各軸で2画素おきに更新し、4フレームで全体を巡回する。 */
 inline constexpr u32 kVolumetricCloudShadowTemporalDivisor = 2u;
 static_assert(kVolumetricCloudShadowTemporalDivisor == 2u);
 static_assert(kVolumetricCloudShadowCacheWidth % kVolumetricCloudShadowTemporalDivisor == 0u);
@@ -1224,10 +1283,10 @@ public:
         TUniquePtr<IRhiShader> composite_pixel;
         TUniquePtr<IRhiShader> composite_atmosphere_pixel;
         TUniquePtr<IRhiShader> resolve;
-        /** 周囲光の面積積分と太陽円盤の有限光路を一つのセル単位で生成する。 */
+        /** 周囲光と、太陽積分が再利用する完成密度分布を生成する。 */
         TUniquePtr<IRhiShader> shadow;
         TUniquePtr<IRhiShader> world_shadow;
-        /** 旧二段構成とのソース互換用。現在は常に空であり、初期化には使わない。 */
+        /** 公開配置を変えず、生成済み完成密度から太陽円盤4方向を積分する後段を運ぶ。 */
         TUniquePtr<IRhiShader> shadow_finalize;
 
         /** 待機せず、投入済みの全シェーダー状態を集約する。 */
@@ -1307,7 +1366,8 @@ public:
      * @details
      * 通常は 1/4 の寸法でレイマーチし、時間方向の再構成で埋めている。そのため «汚い» ときに
      * 原因がライティングなのか再構成なのか分からない。参照描画では**等倍でレイマーチし、
-     * 時間方向の再構成を切り、刻みを細かくする**。
+     * 時間方向の再構成を切り、刻みを細かくし、自己影も現在の媒質から毎回
+     * 再生成する**。
      *
      * - 参照でも汚い → 密度かライティングか大気の側
      * - 参照だけ綺麗 → 低解像度か再構成か履歴の側
@@ -1591,7 +1651,22 @@ private:
         Idle = 0,
         MandatoryShaders,
         ShadowShader,
+        ShadowSunShader,
         WorldShadowShader,
+    };
+
+    /** 自己影を生成した媒質の固定値と対流位相を一つの世代として保持する。 */
+    struct FShadowMediumSignature {
+        /** 層、天候、光輸送など、公開設定から進む内容世代。 */
+        u64 content_revision = 0u;
+        /** 生成時の対流形状位相。 */
+        FVolumetricCloudEvolutionFrameTerms evolution{};
+        /** 光学的深さへ直接入る生成時の雲量。 */
+        f32 coverage = -1.0f;
+        /** 光学的深さへ直接入る生成時の密度。 */
+        f32 density = -1.0f;
+        /** 上記の値を一度以上確定した場合はtrue。 */
+        bool initialized = false;
     };
 
     /** 中心付き周期最大値階層に必要なGPU資源を一つの寿命へまとめる。 */
@@ -1611,15 +1686,28 @@ private:
             FVec3 previous_sun_direction{};
             FVec3 previous_sun_color{};
             FVec3 previous_sky_color{};
+            /** 生成中の密度と光輸送へ固定した太陽方向。 */
+            FVec3 shadow_build_sun_direction{0.0f, 1.0f, 0.0f};
+            /** 現在表示中の光キャッシュを生成した太陽方向。 */
+            FVec3 shadow_published_sun_direction{0.0f, 1.0f, 0.0f};
+            /** 生成中と表示中の自己影が対応する媒質世代。 */
+            FShadowMediumSignature shadow_build_medium{};
+            FShadowMediumSignature shadow_published_medium{};
             /** 次回履歴へ公開する現在フレームの放射輝度設定。 */
             FVolumetricCloudLighting current_lighting{};
 
-            /** 自己影と立体物影の次回公開座標。 */
+            /** 現在表示中の自己影と、立体物影の次回公開座標。 */
             FVec2 shadow_grid_minimum_material_xz{};
             FVec2 shadow_grid_center_material_xz{};
+            /** 同一提出の三処理を通して固定する、生成用自己影の物質座標。 */
+            FVec2 shadow_build_grid_minimum_material_xz{};
+            FVec2 shadow_build_grid_center_material_xz{};
             FVec2 world_shadow_map_minimum_reference_xz{};
             FVec3 world_shadow_sun_direction{0.0f, 1.0f, 0.0f};
             FVec3 world_shadow_world_origin{};
+            /** 生成中と表示中の自己影がそれぞれ使う曲面原点。 */
+            FVec3 shadow_build_world_origin{};
+            FVec3 shadow_published_world_origin{};
 
             /** 次回履歴へ公開する連続値。 */
             f32 previous_wind_offset = 0.0f;
@@ -1638,13 +1726,17 @@ private:
             u64 submission_id = 0u;
             /** 記録時に対応していた雲設定の世代。 */
             u64 settings_revision = 0u;
+            /** 記録時に対応していた自己影内容の世代。 */
+            u64 shadow_content_revision = 0u;
 
             /** 提出成功後に公開する時間再構成の位置。 */
             u32 frame_index = 0u;
             u32 temporal_phase = 0u;
             u32 resolved_index = 0u;
+            /** 影世代交換を全ての4x4時間位相へ伝える残りフレーム数。 */
+            u32 shadow_generation_transition_frames_remaining = 0u;
 
-            /** 提出成功後に公開する段階生成状態。 */
+            /** 提出成功後に公開する生成状態。 */
             u8 shadow_cache_warmup_mask = 0u;
             u8 world_shadow_warmup_mask = 0u;
             u8 density_bake_stage = 0u;
@@ -1662,6 +1754,8 @@ private:
             bool world_shadow_mapping_initialized = false;
             bool shadow_grid_initialized = false;
             bool shadow_cache_valid = false;
+            /** 提出成功時に生成用と表示用の光キャッシュを交換する場合はtrue。 */
+            bool shadow_cache_publish = false;
             bool world_shadow_valid = false;
             bool history_valid = false;
         };
@@ -1676,11 +1770,33 @@ private:
         /** 一回目と完成した三回目の軸別最大値を保持する128角RGBA体積。 */
         TUniquePtr<IRhiTexture> filtered_texture;
 
+        /** 生成済み完成密度分布を再利用して太陽円盤4光路を生成する。 */
+        TUniquePtr<IRhiShader> shadow_sun_shader;
+        TUniquePtr<IRhiPipeline> shadow_sun_pipeline;
+        /** 周囲光と太陽4方向が共有する96x64x96の完成密度四状態分布。 */
+        TUniquePtr<IRhiTexture> shadow_density_texture;
+        /** 16方向x32高度の実3D環境光を、最終解決まで保持する中間キャッシュ。 */
+        TUniquePtr<IRhiTexture> shadow_ambient_directional_texture;
+        /** 同一提出の三処理で完成させ、成功時だけ表示用と交換する光キャッシュ。 */
+        TUniquePtr<IRhiTexture> shadow_build_texture;
+        /** 一世代の三処理で時刻・対流・天候・格子を固定する定数バッファ。 */
+        TUniquePtr<IRhiBuffer> shadow_density_snapshot_cb;
+        /** 全水平位置を生成する密度・方向別光路用の定数バッファ。 */
+        TUniquePtr<IRhiBuffer> shadow_density_dispatch_cb;
+        /** 方向別光路を半球積分値へ解決する定数バッファ。 */
+        TUniquePtr<IRhiBuffer> shadow_resolve_dispatch_cb;
+
         /** 段階初期化と完成GPU資源を所有するRHIデバイス。 */
         IRhiDevice* resource_device = nullptr;
 
-        /** 履歴または影の互換性を変えた雲設定の世代。 */
+        /** 画面履歴の互換性を変えた雲設定の世代。 */
         u64 settings_revision = 0u;
+
+        /** 静止媒質の影世代交換を全ての4x4位相へ伝える残り提出数。公開クラスの配置は変えない。 */
+        u32 shadow_generation_transition_frames_remaining = 0u;
+
+        /** 自己影と立体物影の内容を変えた雲設定の世代。 */
+        u64 shadow_content_revision = 0u;
 
         /** 最後に提出できたフレームの雲照明設定。公開クラス外の状態として保持する。 */
         FVolumetricCloudLighting previous_lighting{};
@@ -1697,6 +1813,24 @@ private:
 
         /** 初回密度場生成で次に実行する段階。0から3が形状、4が形状完成。 */
         u8 density_bake_stage = 0u;
+
+        /** 生成中の密度と光輸送へ固定した太陽方向。 */
+        FVec3 shadow_build_sun_direction{0.0f, 1.0f, 0.0f};
+
+        /** 現在表示中の光キャッシュを生成した太陽方向。 */
+        FVec3 shadow_published_sun_direction{0.0f, 1.0f, 0.0f};
+
+        /** 生成中と表示中の自己影が対応する媒質世代。 */
+        FShadowMediumSignature shadow_build_medium{};
+        FShadowMediumSignature shadow_published_medium{};
+
+        /** 同一提出の三処理を通して固定する、生成用自己影の物質座標。 */
+        FVec2 shadow_build_grid_minimum_material_xz{};
+        FVec2 shadow_build_grid_center_material_xz{};
+
+        /** 生成中と表示中の自己影がそれぞれ使う曲面原点。 */
+        FVec3 shadow_build_world_origin{};
+        FVec3 shadow_published_world_origin{};
 
         /** 立体物影の固定地図座標を一度以上決定済みならtrue。 */
         bool world_shadow_mapping_initialized = false;
@@ -1777,10 +1911,10 @@ private:
     TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    /** 周囲光の面積積分と太陽方向光学的深さを生成するシェーダー。 */
+    /** 周囲光と、太陽積分用の完成密度分布を生成するシェーダー。 */
     TUniquePtr<IRhiShader>   m_ShadowCs;
     TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    /** 96x128x96の周囲光と、三つの散乱次数別太陽透過率を高さ方向へ分けたキャッシュ。 */
+    /** 96x224x96の周囲光と、三つの散乱次数別太陽透過率を高さ方向へ分けたキャッシュ。 */
     TUniquePtr<IRhiTexture>  m_ShadowTex;
     /** 立体物の直接光へ掛ける256角の雲透過率地図。 */
     TUniquePtr<IRhiShader>   m_WorldShadowCs;

@@ -10,6 +10,17 @@ namespace acs::render_internal {
 /** 一つの視線セルへ常に使うGauss-Legendre求積点数。 */
 inline constexpr u32 kVolumetricCloudDensityGaussSampleCount = 4u;
 
+/**
+ * 一視線の密度採取予算から、完全な4点求積を実行できるセル数を求める。
+ * 端数は切り捨て、呼び出し側が指定した採取上限を超えない。4未満では0を返す。
+ */
+inline constexpr u32 ResolveVolumetricCloudViewCellBudget_Internal(
+    u32 density_sample_budget) noexcept
+{
+    return density_sample_budget /
+        kVolumetricCloudDensityGaussSampleCount;
+}
+
 /** 隣接するGauss点のうち最も広い間隔を区間長で割った値。 */
 inline constexpr f32 kVolumetricCloudDensityGaussMaximumGapFraction =
     0.3399810436f;
@@ -153,8 +164,12 @@ inline constexpr f32 kVolumetricCloudCoarseCorrelationDomainLengthY =
 inline constexpr f32 kVolumetricCloudCoarseCorrelationDomainLengthZ =
     0.197809963f;
 
-/** 2×2実空間サブレイがそれぞれ所有する画素面積。 */
-inline constexpr f32 kVolumetricCloudSubrayAreaWeight = 0.25f;
+/** 参照描画で一画素内の面積積分へ使う2×2実空間サブレイ数。 */
+inline constexpr u32 kVolumetricCloudReferenceAreaSubrayCount = 4u;
+
+/** 参照描画の各実空間サブレイが所有する画素面積。 */
+inline constexpr f32 kVolumetricCloudSubrayAreaWeight =
+    1.0f / static_cast<f32>(kVolumetricCloudReferenceAreaSubrayCount);
 
 /** 画素中心から各2点Gauss-Legendre位置までの画素幅比。 */
 inline constexpr f32 kVolumetricCloudSubrayGaussOffset =
@@ -175,6 +190,12 @@ inline constexpr f32 kVolumetricCloudCondensationMaximumBillowOffset =
 /** 高周波侵食が凝結場へ加え得る最大値。 */
 inline constexpr f32 kVolumetricCloudCondensationMaximumErosionOffset =
     0.12f;
+
+/** 雲底補助を除き、基本形状と詳細形状が後段で取り得る最大凝結場。 */
+inline constexpr f32
+kVolumetricCloudCondensationMaximumShapeDetailPotential =
+    1.0f + kVolumetricCloudCondensationMaximumBillowOffset +
+    kVolumetricCloudCondensationMaximumErosionOffset;
 
 /** 天候と高さ以外の後段処理が凝結場へ加え得る最大値。 */
 inline constexpr f32 kVolumetricCloudCondensationMaximumPositiveOffset =
@@ -259,6 +280,19 @@ inline bool CloudDensityIntegrationValueIsFinite_Internal(f32 value) noexcept
     constexpr f32 maximumFiniteValue = 3.402823466e+38F;
     return value == value && value >= -maximumFiniteValue &&
            value <= maximumFiniteValue;
+}
+
+/**
+ * 天候・高さ・雲底補助を合成した共通ポテンシャルから、後段の形状が凝結し得るか判定する。
+ * 基本形状1と房・侵食の最大正寄与を足しても0以下なら、3D形状採取を省略できる。
+ */
+inline bool CouldVolumetricCloudMacroCondense_Internal(
+    f32 common_potential) noexcept
+{
+    if (!CloudDensityIntegrationValueIsFinite_Internal(common_potential))
+        return false;
+    return common_potential +
+        kVolumetricCloudCondensationMaximumShapeDetailPotential > 0.0f;
 }
 
 /**
@@ -1069,6 +1103,44 @@ inline void ResetVolumetricCloudFourStateTransport_Internal(
     state.correlation_cell_length = 0.0f;
     state.awaiting_next_cell_length = false;
     state.initialized = true;
+}
+
+/**
+ * 物質空間の光路座標から最初の相関セル境界を決め、固定半セル開始を避ける。
+ * floatでセル位相を表せないほど細かい場合はfalseを返し、呼び出し側で均質極限へ移す。
+ */
+inline bool InitializeVolumetricCloudFourStateTransportPhase_Internal(
+    FVolumetricCloudFourStateTransportStateInternal& state,
+    f32 path_coordinate, f32 correlation_length) noexcept
+{
+    ResetVolumetricCloudFourStateTransport_Internal(state);
+    if (!CloudDensityIntegrationValueIsFinite_Internal(path_coordinate) ||
+        !CloudDensityIntegrationValueIsFinite_Internal(correlation_length) ||
+        correlation_length <= 1.0e-6f)
+        return false;
+    const f32 cellLength = 2.0f * correlation_length;
+    if (!CloudDensityIntegrationValueIsFinite_Internal(cellLength) ||
+        cellLength <= 0.0f)
+        return false;
+    const f32 absoluteCoordinate = path_coordinate < 0.0f
+        ? -path_coordinate : path_coordinate;
+    const f32 cellCoordinate = absoluteCoordinate / cellLength;
+    // 単精度で整数部と小数部を同時に保持できない領域では、任意の位相を作らない。
+    if (!CloudDensityIntegrationValueIsFinite_Internal(cellCoordinate) ||
+        cellCoordinate >= 8388608.0f)
+        return false;
+    const f32 signedCellCoordinate = path_coordinate / cellLength;
+    const f32 cellIndex = Floor(signedCellCoordinate);
+    f32 phaseDistance = path_coordinate - cellIndex * cellLength;
+    if (phaseDistance < 0.0f) phaseDistance = 0.0f;
+    if (phaseDistance >= cellLength) phaseDistance = 0.0f;
+    f32 remainingDistance = cellLength - phaseDistance;
+    if (!(remainingDistance > 0.0f) || remainingDistance > cellLength)
+        remainingDistance = cellLength;
+    state.remaining_boundary_distance = remainingDistance;
+    state.correlation_cell_length = cellLength;
+    state.awaiting_next_cell_length = false;
+    return true;
 }
 
 /** 一つの相関セル内で四状態を更新した結果。 */

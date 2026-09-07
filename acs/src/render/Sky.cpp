@@ -1241,7 +1241,8 @@ cbuffer CloudCB : register(b0) {
     float4 dims;       // xy=ray-march 解像度, zw=全解像度の寸法
     float4 temporal;   // x=履歴の有効性, y=前回の風オフセット, z=フレーム番号, w=2x2 interleave
     float4 layer;      // x=world base Y, y=world top Y, z=XZ noise scale, w=1 m当たりの基準消散
-    float4 worldOrigin;// xyz=discrete curved-shell tangent origin
+    // xyz=曲面接平面原点、w=0は移動画面、1は安定再投影、2は画素と視線が完全一致
+    float4 worldOrigin;
     float4 shadowGrid; // xy=material-space min XZ, zw=inverse horizontal extents
     // x=valid, y=太陽の角半径(rad), z=1/width/depth, w=環境光外周の二次係数
     float4 shadowState;
@@ -1292,20 +1293,30 @@ cbuffer CloudCB : register(b0) {
     float4 cloudPreviousEvolution;
     // xy=立体物影で更新する偶奇位置, z=各軸の更新間隔, w=1なら全更新
     float4 cloudWorldShadowUpdate;
-    // x=前フレーム照明との差による履歴更新割合
+    // x=前フレーム照明との差。-1未満は影世代の採取位相遷移中。
     float4 cloudLightingHistory;
+    // xyz=現在表示中または生成中の自己影が使う曲面原点
+    float4 shadowWorldOrigin;
+};
+// 完成密度の物理状態はCloudCBへ固定し、密度・光路・解決の担当範囲を指定する。
+cbuffer CloudShadowDensityDispatchCB : register(b1) {
+    // xy=水平開始位置, z=各軸の間隔, w=密度生成時の下層・上層高度数。0なら半球解決
+    uint4 cloudShadowDensityDispatch;
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
-// 先頭32高度はxy=上層の空・地面方向、zw=下層の空・地面方向の面積平均透過率。
+// 先頭32高度はxy=上層の空・地面方向、zw=下層の空・地面方向の半球積分透過率。
 // 続く各32高度は、同じ始点で評価した太陽円盤4方向の一次・二次・三次透過率。
 RWTexture3D<float4> cloudShadowOut : register(u2);
+// 密度段階では完成密度四状態、光段階では方向別環境光の中間値を書き出す作業UAV。
+RWTexture3D<float4> cloudShadowDensityOut : register(u3);
 Texture3D<float4> shapeNoise     : register(t0);   // RGB=周波数2・4・8までの密度形状
 Texture3D<float4> shapeOccupancy : register(t1);   // RGB=7・19・67角の全帯域最大値、A=点最大値
 Texture2D    weatherMap          : register(t2);   // coverage/type/precipitation/warp
 Texture3D<float2> detailNoise    : register(t3);   // (低周波房, 三帯域侵食)
 Texture2D    curlNoise           : register(t4);   // independent world-space curl field
-// CSCloud は、現在フレームに生成した周囲光と三つの散乱次数別太陽透過率をt5から読む。
+// CSCloudは完成した光キャッシュを読む。CSCloudShadowSunの光生成段階は完成密度、
+// 最終解決段階は方向別環境光を同じ登録番号へ割り当てる。
 Texture3D<float4> cloudShadowCache : register(t5);
 SamplerState shapeNoise_sampler      : register(s0); // wrap (tileable)
 SamplerState shapeOccupancy_sampler  : register(s1); // 保守的最大値を読むpoint-wrap
@@ -1449,18 +1460,18 @@ float4 cloudBeerAbsorptionCentroidFraction4(
         cloudBeerAbsorptionCentroidFraction(
             opticalDepth.w,intervalTransmittance.w));
 }
-// 雲内部で有限・非負と確定済みの4レーンを一つの式で解く。
-// 成分ごとの同じ制御フローを旧FXCへ展開させず、スカラー版と同じ級数を使う。
+// 雲内部の4レーンを一つの式で解く。有限な正値の乗算でも上限を越え得るため、
+// 非有限値は無吸収へ開かず、単精度で透過を区別できない深さ80へ閉じる。
 float4 cloudFiniteBeerAbsorptionFraction4(float4 requestedOpticalDepth){
     float4 opticalDepth=float4(
         cloudValueIsFinite(requestedOpticalDepth.x)
-            ?max(requestedOpticalDepth.x,0.0):0.0,
+            ?max(requestedOpticalDepth.x,0.0):80.0,
         cloudValueIsFinite(requestedOpticalDepth.y)
-            ?max(requestedOpticalDepth.y,0.0):0.0,
+            ?max(requestedOpticalDepth.y,0.0):80.0,
         cloudValueIsFinite(requestedOpticalDepth.z)
-            ?max(requestedOpticalDepth.z,0.0):0.0,
+            ?max(requestedOpticalDepth.z,0.0):80.0,
         cloudValueIsFinite(requestedOpticalDepth.w)
-            ?max(requestedOpticalDepth.w,0.0):0.0);
+            ?max(requestedOpticalDepth.w,0.0):80.0);
     // 級数は0.125以下でだけ有効なため、その範囲へ先に閉じる。
     // lerpは未選択側も評価するので、未使用の4乗・5乗中間値も有限に保つ。
     float4 seriesOpticalDepth=min(opticalDepth,0.125.xxxx);
@@ -1575,43 +1586,6 @@ float4 cloudReducedIntervalScatteringWeight4(
 // 不均一なセルで exp(-平均深さ) を作ると、晴天側の太陽光を失うためである。
 float4 cloudSunTransmittanceFromDepth(float4 lightDepths,float extinction){
     return exp(-max(lightDepths,0.0.xxxx)*max(extinction,0.0));
-}
-// 低詳細度キャッシュへ近距離の有効光学的深さ差分を適用する。次数ごとに
-// 統計透過率から求めた差を受け取り、平均密度の共通残差を再利用しない。
-float4 cloudApplySunOpticalDepthResidual(
-    float4 pathTransmittance,float4 opticalDepthResiduals){
-    float4 safePathTransmittance=float4(
-        cloudValueIsFinite(pathTransmittance.x)
-            ?saturate(pathTransmittance.x):0.0,
-        cloudValueIsFinite(pathTransmittance.y)
-            ?saturate(pathTransmittance.y):0.0,
-        cloudValueIsFinite(pathTransmittance.z)
-            ?saturate(pathTransmittance.z):0.0,
-        cloudValueIsFinite(pathTransmittance.w)
-            ?saturate(pathTransmittance.w):0.0);
-    float4 safeOpticalDepthResiduals=float4(
-        cloudValueIsFinite(opticalDepthResiduals.x)
-            ?opticalDepthResiduals.x:0.0,
-        cloudValueIsFinite(opticalDepthResiduals.y)
-            ?opticalDepthResiduals.y:0.0,
-        cloudValueIsFinite(opticalDepthResiduals.z)
-            ?opticalDepthResiduals.z:0.0,
-        cloudValueIsFinite(opticalDepthResiduals.w)
-            ?opticalDepthResiduals.w:0.0);
-    float4 residualExponents=clamp(
-        -safeOpticalDepthResiduals,-16.0.xxxx,16.0.xxxx);
-    return saturate(safePathTransmittance*exp(residualExponents));
-}
-// 0～1のR16F透過率を丸めたときの最大誤差を返す。非正規化領域では固定の
-// 2^-25、正規化領域では指数に対応する半ULPとなる。
-float cloudR16TransmittanceHalfUlp(float visibility){
-    const float minimumNormal=0.00006103515625;
-    const float maximumBelowOne=0.99951171875;
-    const float subnormalHalfUlp=0.0000000298023223876953125;
-    float magnitude=clamp(
-        abs(visibility),minimumNormal,maximumBelowOne);
-    return max(
-        exp2(floor(log2(magnitude))-11.0),subnormalHalfUlp);
 }
 // 正の有限値を32単精度表現だけ上へ広げ、積和と指数演算の丸め誤差を
 // 残差上限へ含める。最近接丸めの結果だけでは境界を越えない保証にならない。
@@ -1790,64 +1764,6 @@ bool cloudR32PositiveRangeKeepsCode(float currentValue,float upperValue){
         &&upperValue<=250000.0;
     return finiteInput&&asuint(currentValue)==asuint(upperValue);
 }
-// 負の詳細残差で透過率を明るく戻すと、保存時の半ULPも同じ指数で増幅される。
-// 補正後の値をR16Fへ直接保存した場合の半ULPと比較し、元の量子化誤差がそれを
-// 越える分だけ正確積分へ連続的に移す。残差0では比が厳密に1へ戻る。
-float cloudAmplifiedR16VisibilityReliability(
-    float visibility,float opticalDepthResidual){
-    float reliability=1.0;
-    if(visibility<1.0){
-        float amplification=exp(clamp(
-            -opticalDepthResidual,0.0,16.0));
-        float correctedVisibility=saturate(
-            max(visibility,0.0)*amplification);
-        float amplifiedHalfUlp=
-            cloudR16TransmittanceHalfUlp(visibility)*amplification;
-        float correctedHalfUlp=
-            cloudR16TransmittanceHalfUlp(correctedVisibility);
-        reliability=saturate(
-            correctedHalfUlp/max(amplifiedHalfUlp,1e-30));
-    }
-    return reliability;
-}
-// 12本の次数別太陽光路のうち最も不確かな値へ合わせる。残差の符号だけでは
-// 分岐せず、実際の消散とR16Fの量子化誤差から連続信頼度を求める。
-float cloudSunDepthResidualCacheReliability(
-    float4 firstVisibility,float4 secondVisibility,
-    float4 thirdVisibility,
-    float4 firstOpticalDepthResiduals,
-    float4 secondOpticalDepthResiduals,
-    float4 thirdOpticalDepthResiduals){
-    bool validInput=!any(
-            firstOpticalDepthResiduals!=firstOpticalDepthResiduals)
-        &&!any(secondOpticalDepthResiduals!=secondOpticalDepthResiduals)
-        &&!any(thirdOpticalDepthResiduals!=thirdOpticalDepthResiduals)
-        &&all(abs(firstOpticalDepthResiduals)<=3.0e38.xxxx)
-        &&all(abs(secondOpticalDepthResiduals)<=3.0e38.xxxx)
-        &&all(abs(thirdOpticalDepthResiduals)<=3.0e38.xxxx)
-        &&!any(firstVisibility!=firstVisibility)
-        &&!any(secondVisibility!=secondVisibility)
-        &&!any(thirdVisibility!=thirdVisibility);
-    float reliability=0.0;
-    if(validInput){
-        reliability=1.0;
-        [unroll] for(uint directionIndex=0u;directionIndex<4u;++directionIndex){
-            reliability=min(reliability,
-                cloudAmplifiedR16VisibilityReliability(
-                    firstVisibility[directionIndex],
-                    firstOpticalDepthResiduals[directionIndex]));
-            reliability=min(reliability,
-                cloudAmplifiedR16VisibilityReliability(
-                    secondVisibility[directionIndex],
-                    secondOpticalDepthResiduals[directionIndex]));
-            reliability=min(reliability,
-                cloudAmplifiedR16VisibilityReliability(
-                    thirdVisibility[directionIndex],
-                    thirdOpticalDepthResiduals[directionIndex]));
-        }
-    }
-    return reliability;
-}
 // 太陽の見かけの半径は地球近傍で約0.00465 rad。円盤の二次モーメントへ
 // 合う半径R/sqrt(2)の4方向を用意し、同じ始点から全方向を独立して積分する。
 static const uint CLOUD_SUN_DISK_DIRECTION_COUNT=4u;
@@ -1856,7 +1772,9 @@ static const uint CLOUD_SUN_DISK_DIRECTION_COUNT=4u;
 // 直線光路として扱う。円盤の4点は中心対称なので、光量に片寄りを作らない。
 float3 cloudSunDiskDirection(
     float3 sun,float3 lightTangent,float3 lightBitangent,uint sampleIndex){
-    float axisOffset=0.5*max(shadowState.y,0.0);
+    // CPUは負号で地平線付近の直接光キャッシュ停止を伝える。円盤半径そのものは
+    // 散乱位相にも必要なので、符号を除いた物理角半径を使う。
+    float axisOffset=0.5*abs(shadowState.y);
     uint boundedIndex=sampleIndex&(CLOUD_SUN_DISK_DIRECTION_COUNT-1u);
     // 二つの添字ビットから中心対称な四符号を復元する。動的な定数配列添字を
     // 無くすことで、四本の重い光路を式展開せず通常ループとして実行できる。
@@ -1865,6 +1783,26 @@ float3 cloudSunDiskDirection(
     float2 offset=axisOffset*float2(signX,signY);
     float3 lateral=offset.x*lightTangent+offset.y*lightBitangent;
     return (sun+lateral)*rsqrt(1.0+dot(offset,offset));
+}
+
+// 表示用キャッシュを生成した太陽方向から、CPUと同じ連続直交基底を復元する。
+// cloudLightingHistory.yzwはキャッシュ交換と同時に更新され、現在の太陽へ先に
+// 動いた採取座標で古い世代を読むことを防ぐ。
+void cloudPublishedShadowLightBasis(
+    out float3 publishedSun,out float3 tangent,out float3 bitangent){
+    publishedSun=cloudLightingHistory.yzw;
+    float lengthSquared=dot(publishedSun,publishedSun);
+    bool finiteDirection=all(publishedSun==publishedSun)
+        &&lengthSquared==lengthSquared&&lengthSquared>1e-12;
+    publishedSun=finiteDirection
+        ?publishedSun*rsqrt(lengthSquared):float3(0.0,1.0,0.0);
+    float signY=publishedSun.y>=0.0?1.0:-1.0;
+    float a=-1.0/(signY+publishedSun.y);
+    float b=publishedSun.x*publishedSun.z*a;
+    tangent=float3(
+        1.0+signY*publishedSun.x*publishedSun.x*a,
+        -signY*publishedSun.x,signY*b);
+    bitangent=cross(publishedSun,tangent);
 }
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
@@ -1876,20 +1814,43 @@ static const float CLOUD_SHELL_DISCRIMINANT_RELATIVE_TOLERANCE=
     9.5367431640625e-7;
 // CPU側の kVolumetricCloudShadowCacheHeight と一致させる。一つのスレッドが縦列を完結させる。
 static const uint CLOUD_SHADOW_CACHE_HEIGHT=32u;
+// 完成密度は下層と上層へ32高度ずつ割り当てる。上層無効時は後半を生成しない。
+static const uint CLOUD_SHADOW_DENSITY_PROFILE_COUNT=
+    2u*CLOUD_SHADOW_CACHE_HEIGHT;
 // 一つの所有テクスチャへ、周囲光と一次・二次・三次の太陽透過率を縦に並べる。
+// 太陽透過率は下層32高度と上層32高度を独立に保持し、上層を追加しても
+// 既存の下層を16高度へ粗くしない。
+static const uint CLOUD_SUN_CACHE_PROFILE_COUNT=
+    2u*CLOUD_SHADOW_CACHE_HEIGHT;
 static const uint CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT=
-    4u*CLOUD_SHADOW_CACHE_HEIGHT;
-// 4x1x4スレッドが同じ水平セルの16標本を担当し、各自の32区間を保持する。
-// 可視率は16bit整数の成分別総和にして、外周で増やした部分標本も平均できるようにする。
+    CLOUD_SHADOW_CACHE_HEIGHT
+    +3u*CLOUD_SUN_CACHE_PROFILE_COUNT;
+// 4x1x4スレッドが4天頂角x4方位角の実3D光路を一方向ずつ担当する。
 static const uint CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT=16u;
-static const uint CLOUD_AMBIENT_CACHE_QUADRATURE_AXIS=4u;
+static const uint CLOUD_AMBIENT_ZENITH_DIRECTION_COUNT=4u;
+static const uint CLOUD_AMBIENT_AZIMUTH_DIRECTION_COUNT=4u;
+static const uint CLOUD_AMBIENT_DIRECTION_COUNT=
+    CLOUD_AMBIENT_ZENITH_DIRECTION_COUNT
+    *CLOUD_AMBIENT_AZIMUTH_DIRECTION_COUNT;
+static const uint CLOUD_AMBIENT_DIRECTIONAL_PROFILE_COUNT=
+    CLOUD_AMBIENT_DIRECTION_COUNT*CLOUD_SHADOW_CACHE_HEIGHT;
 static const uint CLOUD_SUN_CACHE_GROUP_THREAD_COUNT=4u;
-groupshared float2 cloudShadowColumnSegmentDepths[
+// 半球4方向は天頂角余弦のGauss-Legendre点、重みは等方放射輝度が
+// 水平面へ運ぶ照度 2*integral(mu*T(mu),mu=0..1) に対応する。
+static const float4 CLOUD_AMBIENT_DIRECTION_COSINES=float4(
+    0.0694318442029737,0.3300094782075719,
+    0.6699905217924281,0.9305681557970262);
+static const float4 CLOUD_AMBIENT_IRRADIANCE_WEIGHTS=float4(
+    0.0241522034128332,0.2152140822717850,
+    0.4369310725907611,0.3237026417246206);
+// 一つの方向が31区間を一度だけ掃引した累積深さを保持する。下端の深さ0を含む
+// 32端点なので、同じ区間を部分長でもう一度評価しない。
+groupshared float cloudAmbientLowerGroundDepths[
     CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT*CLOUD_SHADOW_CACHE_HEIGHT];
-groupshared uint4 cloudAmbientQuantizedVisibilitySums[
+groupshared float cloudAmbientUpperGroundDepths[
     CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT*CLOUD_SHADOW_CACHE_HEIGHT];
 groupshared float3 cloudSunVisibilityProfiles[
-    CLOUD_SUN_CACHE_GROUP_THREAD_COUNT*CLOUD_SHADOW_CACHE_HEIGHT];
+    CLOUD_SUN_CACHE_GROUP_THREAD_COUNT*CLOUD_SUN_CACHE_PROFILE_COUNT];
 // 線形補間が範囲外を参照しない境界と、完全なキャッシュ値へ到達する境界。
 static const float CLOUD_SHADOW_CACHE_FILTER_START_CELLS=1.5;
 static const float CLOUD_SHADOW_CACHE_FILTER_FULL_CELLS=2.5;
@@ -1897,12 +1858,16 @@ static const float CLOUD_SHADOW_CACHE_FILTER_FULL_CELLS=2.5;
 static const float CLOUD_AMBIENT_CACHE_UNIFORM_RADIUS_CELLS=16.0;
 // 光路の最大標本数。実際の区間数は形状の相関長から毎回求める。
 static const int CLOUD_LIGHT_MARCH_SAMPLE_COUNT=16;
-static const int CLOUD_LIGHT_DETAIL_SAMPLE_COUNT=3;
+// R16Fの最小正サブノーマル値との丸め境界より透過率が小さい光路は、保存時に
+// 厳密な0となる。-log(2^-25)を単精度で上側へ丸め、経験的なしきい値にしない。
+static const float CLOUD_LIGHT_OPAQUE_OPTICAL_DEPTH=17.32868003845215;
 // CPU公開値 kVolumetricCloudMinViewSteps と一致させ、各有効帯の最低探索量に使う。
 static const int CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT=32;
 // 採取数を距離で切り替えず、固定4点Gauss-Legendre求積で密度と一次距離モーメントを得る。
-// CPUの負荷計画も4点を使い、文字列契約試験でGPU側だけの値ずれを検出する。
+// ViewStepsは総密度採取予算であり、4点を一組とした完全なセル数へ切り下げる。
 static const int CLOUD_DENSITY_GAUSS_SAMPLE_COUNT=4;
+static const int CLOUD_MIN_VIEW_MARCH_CELL_COUNT=
+    CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT/CLOUD_DENSITY_GAUSS_SAMPLE_COUNT;
 static const float4 CLOUD_DENSITY_GAUSS_FRACTIONS=float4(
     0.0694318442,0.3300094782,0.6699905218,0.9305681558);
 static const float4 CLOUD_DENSITY_GAUSS_WEIGHTS=float4(
@@ -1939,13 +1904,16 @@ static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=true;
 // 視線標本は接平面原点から250 km以内、広域環境光キャッシュの外端標本は最大約426 km以内にある。
 // そのため xz^2/(R+y)^2 は0.0045未満となる。4次展開により標本ごとの平方根を省きながら、
 // 対応する全領域で雲殻高度の誤差を4 cm未満へ保つ。
-float cloudAltitude(float3 p){
-    float3 local=p-worldOrigin.xyz;
+float cloudAltitudeFromOrigin(float3 p,float3 shellWorldOrigin){
+    float3 local=p-shellWorldOrigin;
     float radialY=max(CLOUD_PLANET_RADIUS+local.y,1.0);
     float radialXz2=dot(local.xz,local.xz);
     float inverseRadialY=1.0/radialY;
     float q=radialXz2*inverseRadialY;
     return local.y+q*(0.5-q*inverseRadialY*0.125);
+}
+float cloudAltitude(float3 p){
+    return cloudAltitudeFromOrigin(p,worldOrigin.xyz);
 }
 // 雲層内のカメラでは、地平線より下の視線にもカメラ直前の雲が存在する。
 // 下層・上層のどちらに入っているかを一度だけ判定し、地面の地平線除外を後回しにする。
@@ -2310,8 +2278,9 @@ void sortCloudBandIntervalPair(
     }
 }
 
-CloudPackedBandIntervals packCloudBandIntervalPairs(
-    float4 lowerPair,float4 upperPair){
+void packCloudBandIntervalPairs(
+    float4 lowerPair,float4 upperPair,
+    out CloudPackedBandIntervals packed){
     float2 interval0=lowerPair.xy;
     float2 interval1=lowerPair.zw;
     float2 interval2=upperPair.xy;
@@ -2327,7 +2296,6 @@ CloudPackedBandIntervals packCloudBandIntervalPairs(
         interval1,bandId1,interval3,bandId3);
     sortCloudBandIntervalPair(
         interval1,bandId1,interval2,bandId2);
-    CloudPackedBandIntervals packed;
     packed.starts=float4(
         interval0.x,interval1.x,interval2.x,interval3.x);
     packed.ends=float4(
@@ -2338,15 +2306,15 @@ CloudPackedBandIntervals packCloudBandIntervalPairs(
     if(interval1.y>interval1.x) packed.count++;
     if(interval2.y>interval2.x) packed.count++;
     if(interval3.y>interval3.x) packed.count++;
-    return packed;
 }
 
 // 4実サブレイの交差を保持する。歩進包絡も同じ実光路だけから作り、
 // 近側・遠側の両区間を距離順へ並べる。
-CloudPackedBandIntervals intersectCloudSubrayBandUnion(
+void intersectCloudSubrayBandUnion(
     CloudPhysicalSubrayDirections subrayDirections,
     float maximumDistance,
-    out CloudSubrayBandIntervals subrayIntervals){
+    out CloudSubrayBandIntervals subrayIntervals,
+    out CloudPackedBandIntervals packedIntervals){
     subrayIntervals.lane0=intersectCloudBandsUnpacked(
         subrayDirections.lane0,maximumDistance);
     subrayIntervals.lane1=intersectCloudBandsUnpacked(
@@ -2361,7 +2329,7 @@ CloudPackedBandIntervals intersectCloudSubrayBandUnion(
     float4 upperPair=cloudBandIntervalPairFromCandidates(
         subrayIntervals.lane0.upper,subrayIntervals.lane1.upper,
         subrayIntervals.lane2.upper,subrayIntervals.lane3.upper);
-    return packCloudBandIntervalPairs(lowerPair,upperPair);
+    packCloudBandIntervalPairs(lowerPair,upperPair,packedIntervals);
 }
 
 float4 cloudBandIntervalSetById(
@@ -2450,8 +2418,9 @@ float cloudShellCFromLocalPosition(float3 local,float altitude){
 
 // 任意の始点から近側・遠側の全雲殻区間を求め、惑星の裏側は地表で切る。
 // 太陽光と立体物用雲影も、主視線と同じ曲面区間の定義を使う。
-CloudPackedBandIntervals intersectCloudBandsFromPosition(
-    float3 rayOrigin,float3 rayDir){
+void intersectCloudBandsFromPosition(
+    float3 rayOrigin,float3 rayDir,
+    out CloudPackedBandIntervals packedIntervals){
     float3 local=rayOrigin-worldOrigin.xyz;
     float3 centreOffset=float3(local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
     float b=dot(centreOffset,rayDir);
@@ -2469,7 +2438,8 @@ CloudPackedBandIntervals intersectCloudBandsFromPosition(
             cloudShellCFromLocalPosition(local,cloudUpperLayer.y),
             rayEnd,upperIntervals);
     }
-    return packCloudBandIntervalPairs(lowerIntervals,upperIntervals);
+    packCloudBandIntervalPairs(
+        lowerIntervals,upperIntervals,packedIntervals);
 }
 
 // 物理的な惑星直径を越えない有限区間長へ変換し、壊れた入力を空区間にする。
@@ -2529,14 +2499,14 @@ int4 cloudPackedIntervalSampleCounts(
     return sampleCounts;
 }
 
-// 固定標本の番号を担当区間の中央標本と物理帯IDへ写し、その区間だけの積分幅を返す。
-// 晴天の層間は積分幅へ含めず、実光線上の開始距離としてだけ反映する。
+// 固定標本の番号を担当区間の中央標本と区間IDへ写し、その区間だけの積分幅を返す。
+// 晴天の層間は積分幅へ含めず、区間IDの変化で輸送状態を明示的に切り離す。
 bool cloudLightSampleTerms(
     CloudPackedBandIntervals intervals,int requestedSampleCount,int sampleIndex,
-    out float rayDistance,out float sampleSpacing,out int sampleBandId){
+    out float rayDistance,out float sampleSpacing,out int sampleIntervalId){
     rayDistance=0.0;
     sampleSpacing=0.0;
-    sampleBandId=-1;
+    sampleIntervalId=-1;
     int4 sampleCounts=cloudPackedIntervalSampleCounts(
         intervals,requestedSampleCount);
     bool validSample=false;
@@ -2553,7 +2523,7 @@ bool cloudLightSampleTerms(
                 /float(max(intervalSampleCount,1));
             rayDistance=intervals.starts[intervalIndex]
                 +(float(intervalSampleIndex)+0.5)*sampleSpacing;
-            sampleBandId=intervals.bandIds[intervalIndex];
+            sampleIntervalId=intervalIndex;
             validSample=cloudValueIsFinite(intervalLength)
                 &&cloudValueIsFinite(sampleSpacing)
                 &&cloudValueIsFinite(rayDistance)
@@ -2735,11 +2705,21 @@ float cloudShapeVerticalSpan(bool upperBand){
         ?cloudUpperLayer.z:cloudFrameTerms.w;
     return cloudShapeScale()/max(inverseThickness,1e-6);
 }
+// CPU側で焼き込み形状の目標領域から求め、下層・上層の予約定数へ格納する。
+// 採取ごとに層厚を割らないため、形状座標の高さ変換を全経路で同じ値にできる。
+float cloudShapeVerticalVariation(bool upperBand){
+    float variation=upperBand
+        ?cloudUpperTerms.w:cloudCoverageReciprocals.w;
+    return variation==variation&&variation>0.0?variation:0.0;
+}
 // 局所対流の横曲げを、最大でも層厚の4分の1の高さ係数へ制限する。
 // 形状変位と相関長・占有上限で同じ係数を使い、経路ごとの安全幅を一致させる。
 static const float CLOUD_CONVECTION_LATERAL_BEND_FRACTION=0.22;
 static const float CLOUD_WEATHER_VALUE_DERIVATIVE_BOUND=1.5;
 static const float CLOUD_WEATHER_GLOBAL_PERIOD=65536.0;
+// 被覆、雲種、降水、対流を含む総観天候の最高格子周波数。
+// 光路側の点標本予算は、完成密度へ入る全チャンネルの生成式に合わせる。
+static const float CLOUD_WEATHER_MAX_FREQUENCY=29.0;
 static const float CLOUD_WEATHER_COVERAGE_FREQUENCY_WEIGHT_SUM=
     3.0*0.68+7.0*0.32;
 static const float CLOUD_CONVECTION_WARP_RESPONSE_RANGE=0.28;
@@ -2940,7 +2920,8 @@ float3 cloudUVWWithConvection(
     // 同じ物理点を視線・自己影・環境光が同じ3D物質座標として読むことで、
     // 空間探索の担当幅を解析可能にし、高さごとの縦筋と移流時の位相飛びを防ぐ。
     float canonicalY=saturate(normalizedLayerHeight)
-                    *cloudShapeVerticalSpan(upperBand)+0.07;
+                    *cloudShapeVerticalSpan(upperBand)
+                    *cloudShapeVerticalVariation(upperBand)+0.07;
     float3 canonicalPosition=float3(
         xz.x*shapeScale,
         canonicalY,
@@ -2958,6 +2939,10 @@ static const float CLOUD_CONDENSATION_BASE_SUPPORT_SCALE=0.20;
 static const float CLOUD_CONDENSATION_MAXIMUM_BASE_SUPPORT=0.42;
 static const float CLOUD_CONDENSATION_MAXIMUM_BILLOW_OFFSET=0.13;
 static const float CLOUD_CONDENSATION_MAXIMUM_EROSION_OFFSET=0.12;
+// 雲底補助は共通ポテンシャルへ既に含まれるため、後段で残る形状上限だけを持つ。
+static const float CLOUD_CONDENSATION_MAXIMUM_SHAPE_DETAIL_POTENTIAL=
+    1.0+CLOUD_CONDENSATION_MAXIMUM_BILLOW_OFFSET
+       +CLOUD_CONDENSATION_MAXIMUM_EROSION_OFFSET;
 static const float CLOUD_CONDENSATION_TRANSITION_WIDTH=0.06;
 // 周期Perlinの勾配分布と五次補間を全セル位置で積分した分散を、
 // 標準正規分布の4点Gauss-Hermite求積へ写した最粗ポテンシャルと確率。
@@ -2988,6 +2973,13 @@ bool cloudCondensationValueIsFinite(float value){
     return value==value
         &&value>=-3.402823466e+38
         &&value<=3.402823466e+38;
+}
+// 天候・高さ・雲底補助を合成した時点で、最大の3D形状と詳細を足しても
+// 凝結境界を越えない点だけを、後段の3Dテクスチャ採取から除外する。
+bool cloudMacroCouldCondense(float commonPotential){
+    return cloudCondensationValueIsFinite(commonPotential)
+        &&commonPotential
+            +CLOUD_CONDENSATION_MAXIMUM_SHAPE_DETAIL_POTENTIAL>0.0;
 }
 float cloudCondensationFiniteSaturate(float value){
     return cloudCondensationValueIsFinite(value)?saturate(value):0.0;
@@ -3251,7 +3243,7 @@ float cloudUnresolvedDensityCorrelationLengthAtDirection(
         layerHeight,upperBand);
     float3 materialDirection=float3(
         rayDirection.x+shearRate.x,
-        altitudeRate,
+        altitudeRate*cloudShapeVerticalVariation(upperBand),
         rayDirection.z+shearRate.y);
     float3 domainDirection=rotateNoise(materialDirection);
     float3 convectionDomainBound=float3(
@@ -3293,18 +3285,13 @@ bool cloudPackedBandIntervalsAreFinite(CloudPackedBandIntervals intervals){
     return valid;
 }
 
-// 光路区間の両端と中央で最短相関長を求め、曲率や高させん断で区間端だけが
-// 細かくなる場合も見落とさない。相関長の半分以下へ標本間隔を制限するため、
-// 長さだけで予算を配るより高周波の自己影を安定して積分できる。
+// 3D形状の未解像成分は後段の相関輸送が解析的に閉じるため、点標本の予算は
+// 点でしか変化を取得できない総観天候と高さ分布へ割り当てる。総観天候は生成時の
+// 最高格子周波数をNyquist間隔で、高さは通過した雲帯割合で予算化する。
 float cloudLightIntervalSampleDemand(
-    CloudPackedBandIntervals intervals,float3 rayOrigin,
-    float3 rayDirection,int intervalIndex){
-    float intervalStart=intervalIndex==0?intervals.starts.x:
-        (intervalIndex==1?intervals.starts.y:
-        (intervalIndex==2?intervals.starts.z:intervals.starts.w));
-    float intervalEnd=intervalIndex==0?intervals.ends.x:
-        (intervalIndex==1?intervals.ends.y:
-        (intervalIndex==2?intervals.ends.z:intervals.ends.w));
+    float intervalStart,float intervalEnd,int bandId,
+    float3 rayOrigin,float3 rayDirection){
+    float sampleDemand=0.0;
     bool validInput=cloudFiniteFloat3(rayOrigin)
         &&cloudFiniteFloat3(rayDirection)
         &&dot(rayDirection,rayDirection)>1e-12
@@ -3316,10 +3303,7 @@ float cloudLightIntervalSampleDemand(
     float evaluationEnd=intervalStart+intervalLength;
     validInput=validInput&&intervalLength>0.0;
     validInput=validInput&&cloudValueIsFinite(evaluationEnd);
-    float result=0.0;
-    if(!validInput)
-        return result;
-    if(intervalLength>0.0){
+    if(validInput){
         float midpoint=intervalStart+0.5*intervalLength;
         float3 startPosition=rayOrigin+rayDirection*intervalStart;
         float3 midpointPosition=rayOrigin+rayDirection*midpoint;
@@ -3327,65 +3311,46 @@ float cloudLightIntervalSampleDemand(
         bool finitePositions=cloudFiniteFloat3(startPosition)
             &&cloudFiniteFloat3(midpointPosition)
             &&cloudFiniteFloat3(endPosition);
-        int bandId=intervalIndex==0?intervals.bandIds.x:
-            (intervalIndex==1?intervals.bandIds.y:
-            (intervalIndex==2?intervals.bandIds.z:intervals.bandIds.w));
-        float startCorrelationLength=0.0;
-        float midpointCorrelationLength=0.0;
-        float endCorrelationLength=0.0;
+        sampleDemand=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
         if(finitePositions){
-            startCorrelationLength=
-                cloudUnresolvedDensityCorrelationLengthAtDirection(
-                    startPosition,rayDirection,bandId>0);
-            midpointCorrelationLength=
-                cloudUnresolvedDensityCorrelationLengthAtDirection(
-                    midpointPosition,rayDirection,bandId>0);
-            endCorrelationLength=
-                cloudUnresolvedDensityCorrelationLengthAtDirection(
-                    endPosition,rayDirection,bandId>0);
-        }
-        bool finiteCorrelation=finitePositions
-            &&cloudValueIsFinite(startCorrelationLength)
-            &&cloudValueIsFinite(midpointCorrelationLength)
-            &&cloudValueIsFinite(endCorrelationLength)
-            &&startCorrelationLength>=0.0
-            &&midpointCorrelationLength>=0.0
-            &&endCorrelationLength>=0.0;
-        float shortestCorrelationLength=3.402823466e+38;
-        bool hasPositiveCorrelation=false;
-        if(startCorrelationLength>0.0){
-            shortestCorrelationLength=min(
-                shortestCorrelationLength,startCorrelationLength);
-            hasPositiveCorrelation=true;
-        }
-        if(midpointCorrelationLength>0.0){
-            shortestCorrelationLength=min(
-                shortestCorrelationLength,midpointCorrelationLength);
-            hasPositiveCorrelation=true;
-        }
-        if(endCorrelationLength>0.0){
-            shortestCorrelationLength=min(
-                shortestCorrelationLength,endCorrelationLength);
-            hasPositiveCorrelation=true;
-        }
-        if(!finitePositions||!finiteCorrelation)
-            return float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
-        result=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT);
-        if(hasPositiveCorrelation){
-            float requestedDemand=
-                2.0*intervalLength/shortestCorrelationLength;
-            if(cloudValueIsFinite(requestedDemand))
-                result=min(
+            float2 horizontalDirection=rayDirection.xz;
+            float2 rotatedDirection=float2(
+                dot(horizontalDirection,float2(0.8660254,-0.5)),
+                dot(horizontalDirection,float2(0.5,0.8660254)));
+            float maximumWeatherAxisSpeed=max(
+                abs(rotatedDirection.x),abs(rotatedDirection.y));
+            float weatherKnotCount=intervalLength
+                *maximumWeatherAxisSpeed
+                *CLOUD_WEATHER_MAX_FREQUENCY
+                /CLOUD_WEATHER_GLOBAL_PERIOD;
+            bool upperBand=bandId>0;
+            float startHeight=heightFractionFromAltitude(
+                cloudAltitude(startPosition),upperBand);
+            float midpointHeight=heightFractionFromAltitude(
+                cloudAltitude(midpointPosition),upperBand);
+            float endHeight=heightFractionFromAltitude(
+                cloudAltitude(endPosition),upperBand);
+            float heightVariation=abs(midpointHeight-startHeight)
+                +abs(endHeight-midpointHeight);
+            bool finiteDemand=cloudValueIsFinite(weatherKnotCount)
+                &&cloudValueIsFinite(startHeight)
+                &&cloudValueIsFinite(midpointHeight)
+                &&cloudValueIsFinite(endHeight)
+                &&cloudValueIsFinite(heightVariation);
+            if(finiteDemand){
+                float weatherDemand=2.0*max(weatherKnotCount,0.0);
+                float heightDemand=float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT)
+                    *max(heightVariation,0.0);
+                sampleDemand=min(
                     float(CLOUD_LIGHT_MARCH_SAMPLE_COUNT),
-                    max(1.0,requestedDemand));
-        }else{
-            result=1.0;
+                    max(1.0,max(weatherDemand,heightDemand)));
+            }
         }
     }
-    return result;
+    return sampleDemand;
 }
 
-// 相関長に基づく要求量を、最大標本数を越えない整数予算へ変換する。
+// 総観天候と高さ分布の要求量を、最大標本数を越えない整数予算へ変換する。
 // 有効区間ごとに一標本を先に予約し、残りは要求量の不足が大きい区間へ優先する。
 int4 cloudAdaptiveLightSampleCounts(
     CloudPackedBandIntervals intervals,int requestedSampleCount,
@@ -3397,21 +3362,20 @@ int4 cloudAdaptiveLightSampleCounts(
     bool validInput=cloudPackedBandIntervalsAreFinite(intervals)
         &&cloudFiniteFloat3(rayOrigin)&&cloudFiniteFloat3(rayDirection)
         &&dot(rayDirection,rayDirection)>1e-12;
-    if(!validInput)
-        return sampleCounts;
-    if(intervalCount>0&&safeSampleCount>0){
-        float4 demands=float4(
-            cloudLightIntervalSampleDemand(
-                intervals,rayOrigin,rayDirection,0),
-            cloudLightIntervalSampleDemand(
-                intervals,rayOrigin,rayDirection,1),
-            cloudLightIntervalSampleDemand(
-                intervals,rayOrigin,rayDirection,2),
-            cloudLightIntervalSampleDemand(
-                intervals,rayOrigin,rayDirection,3));
-        if(intervalCount<4) demands.w=0.0;
-        if(intervalCount<3) demands.z=0.0;
-        if(intervalCount<2) demands.y=0.0;
+    if(validInput&&intervalCount>0&&safeSampleCount>0){
+        float4 demands=0.0.xxxx;
+        if(intervalCount>0) demands.x=cloudLightIntervalSampleDemand(
+            intervals.starts.x,intervals.ends.x,intervals.bandIds.x,
+            rayOrigin,rayDirection);
+        if(intervalCount>1) demands.y=cloudLightIntervalSampleDemand(
+            intervals.starts.y,intervals.ends.y,intervals.bandIds.y,
+            rayOrigin,rayDirection);
+        if(intervalCount>2) demands.z=cloudLightIntervalSampleDemand(
+            intervals.starts.z,intervals.ends.z,intervals.bandIds.z,
+            rayOrigin,rayDirection);
+        if(intervalCount>3) demands.w=cloudLightIntervalSampleDemand(
+            intervals.starts.w,intervals.ends.w,intervals.bandIds.w,
+            rayOrigin,rayDirection);
         int reservedPerInterval=safeSampleCount>=intervalCount?1:0;
         if(reservedPerInterval>0){
             sampleCounts.x=intervalCount>0?1:0;
@@ -3460,13 +3424,13 @@ int4 cloudAdaptiveLightSampleCounts(
     return sampleCounts;
 }
 
-// 相関長から決めた区間予算を、区間中央の標本位置と物理帯IDへ写す。
+// 天候と高さから決めた区間予算を、区間中央の標本位置と区間IDへ写す。
 bool cloudAdaptiveLightSampleTerms(
     CloudPackedBandIntervals intervals,int4 sampleCounts,int sampleIndex,
-    out float rayDistance,out float sampleSpacing,out int sampleBandId){
+    out float rayDistance,out float sampleSpacing,out int sampleIntervalId){
     rayDistance=0.0;
     sampleSpacing=0.0;
-    sampleBandId=-1;
+    sampleIntervalId=-1;
     bool validSample=false;
     int sampleStart=0;
     [unroll] for(int intervalIndex=0;intervalIndex<4;++intervalIndex){
@@ -3486,12 +3450,12 @@ bool cloudAdaptiveLightSampleTerms(
                 /float(max(intervalSampleCount,1));
             rayDistance=intervalStart
                 +(float(intervalSampleIndex)+0.5)*sampleSpacing;
-            sampleBandId=intervals.bandIds[intervalIndex];
+            sampleIntervalId=intervalIndex;
             validSample=cloudValueIsFinite(intervalStart)
                 &&cloudValueIsFinite(intervalLength)
                 &&cloudValueIsFinite(sampleSpacing)
                 &&cloudValueIsFinite(rayDistance)
-                &&sampleSpacing>1e-4;
+                &&sampleSpacing>0.0;
         }
         sampleStart=sampleEnd;
     }
@@ -3601,6 +3565,36 @@ CloudFourStateTransportLanes cloudInitialFourStateTransportLanes(){
     state.boundaryPending=0.0.xxxx;
     state.active=0.0.xxxx;
     return state;
+}
+// 物質空間の光路座標から最初の相関セル境界を決める。単精度で位相を
+// 表せないほど細かいセルはfalseを返し、呼び出し側で均質極限へ移す。
+bool cloudInitializeFourStateTransportPhaseLanes(
+    inout CloudFourStateTransportLanes state,
+    float pathCoordinate,float correlationLength){
+    state=cloudInitialFourStateTransportLanes();
+    bool valid=cloudValueIsFinite(pathCoordinate)
+        &&cloudValueIsFinite(correlationLength)
+        &&correlationLength>1e-6;
+    float cellLength=2.0*max(correlationLength,0.0);
+    valid=valid&&cloudValueIsFinite(cellLength)&&cellLength>0.0;
+    float cellCoordinate=abs(pathCoordinate)/max(cellLength,1e-30);
+    valid=valid&&cloudValueIsFinite(cellCoordinate)
+        &&cellCoordinate<8388608.0;
+    if(!valid) return false;
+    float signedCellCoordinate=pathCoordinate/cellLength;
+    float cellIndex=floor(signedCellCoordinate);
+    float phaseDistance=pathCoordinate-cellIndex*cellLength;
+    if(!cloudValueIsFinite(phaseDistance)
+       ||phaseDistance<0.0||phaseDistance>=cellLength)
+        phaseDistance=0.0;
+    float remainingDistance=cellLength-phaseDistance;
+    if(!(remainingDistance>0.0)||remainingDistance>cellLength)
+        remainingDistance=cellLength;
+    state.boundaryDistances=remainingDistance.xxxx;
+    state.cellLengths=cellLength.xxxx;
+    state.boundaryPending=0.0.xxxx;
+    state.active=1.0.xxxx;
+    return true;
 }
 void cloudResetFourStateTransportLanes(
     inout CloudFourStateTransportLanes state,float4 requestedMask){
@@ -3791,6 +3785,17 @@ CloudFourStateTransportResultLanes cloudFourStateTransportLanes(
     // 二倍で単精度上限を越える場合はCPU側と同じ最大有限値へ飽和する。
     float4 finiteCellLengths=
         2.0*min(safeCorrelations,1.701411733e38.xxxx);
+    float4 candidateCellLengths=lerp(
+        1.0.xxxx,finiteCellLengths,heterogeneousMask);
+    float4 candidateCellCounts=safeLengths/candidateCellLengths;
+    float4 finiteCellCountMask=float4(
+        cloudValueIsFinite(candidateCellCounts.x)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.y)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.z)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.w)?1.0:0.0);
+    // 相関長が単精度で数えられないほど小さい極限では、独立セル数が無限へ
+    // 発散する。0×Infを作らず、相関を失った極限である平均密度Beerへ移す。
+    heterogeneousMask*=finiteCellCountMask;
     float4 cellLengths=lerp(
         1.0.xxxx,finiteCellLengths,heterogeneousMask);
     float4 storedBoundaryDistances=
@@ -3974,6 +3979,288 @@ CloudFourStateTransportResultLanes cloudFourStateTransportLanes(
     state.active=max(state.active,activeMask);
     return result;
 }
+
+// 太陽透過率は吸収重心を使わないため、視線散乱用の高次級数を通さず
+// 同じ条件付き生存確率と相関セル境界だけを進める。
+struct CloudFourStateOpticalChunkLanes {
+    float4 transmittances;
+    float4 absorptions;
+};
+CloudFourStateOpticalChunkLanes cloudFourStateOpticalChunkLanes(
+    float4 densityState0Lanes,float4 densityState1Lanes,
+    float4 densityState2Lanes,float4 densityState3Lanes,
+    float extinction,float4 segmentLengths,
+    inout CloudFourStateTransportLanes state){
+    CloudFourStateOpticalChunkLanes result;
+    result.transmittances=1.0.xxxx;
+    result.absorptions=0.0.xxxx;
+    float4 safeLengths=cloudFiniteNonnegative4(segmentLengths);
+    float activeExtinction=
+        cloudValueIsFinite(extinction)&&extinction>0.0?1.0:0.0;
+    float4 activeMask=cloudPositiveMask4(safeLengths)
+        *activeExtinction.xxxx;
+    float4 weightSum=max(
+        state.state0+state.state1+state.state2+state.state3,0.0.xxxx);
+    float4 invalidWeightMask=1.0.xxxx-step(1e-30.xxxx,weightSum);
+    float4 inverseWeightSum=1.0.xxxx/max(weightSum,1e-30.xxxx);
+    float4 conditional0=lerp(
+        max(state.state0,0.0.xxxx)*inverseWeightSum,
+        CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT.xxxx,invalidWeightMask);
+    float4 conditional1=lerp(
+        max(state.state1,0.0.xxxx)*inverseWeightSum,
+        CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT.xxxx,invalidWeightMask);
+    float4 conditional2=lerp(
+        max(state.state2,0.0.xxxx)*inverseWeightSum,
+        CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT.xxxx,invalidWeightMask);
+    float4 conditional3=lerp(
+        max(state.state3,0.0.xxxx)*inverseWeightSum,
+        CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT.xxxx,invalidWeightMask);
+    float safeExtinction=max(extinction,0.0);
+    float4 opticalDepth0=max(densityState0Lanes,0.0.xxxx)
+        *safeExtinction*safeLengths;
+    float4 opticalDepth1=max(densityState1Lanes,0.0.xxxx)
+        *safeExtinction*safeLengths;
+    float4 opticalDepth2=max(densityState2Lanes,0.0.xxxx)
+        *safeExtinction*safeLengths;
+    float4 opticalDepth3=max(densityState3Lanes,0.0.xxxx)
+        *safeExtinction*safeLengths;
+    float4 absorption0=cloudFiniteBeerAbsorptionFraction4(opticalDepth0);
+    float4 absorption1=cloudFiniteBeerAbsorptionFraction4(opticalDepth1);
+    float4 absorption2=cloudFiniteBeerAbsorptionFraction4(opticalDepth2);
+    float4 absorption3=cloudFiniteBeerAbsorptionFraction4(opticalDepth3);
+    float4 transmittance0=lerp(
+        1.0.xxxx-absorption0,exp(-opticalDepth0),
+        cloudStrictGreaterMask4(opticalDepth0,0.125));
+    float4 transmittance1=lerp(
+        1.0.xxxx-absorption1,exp(-opticalDepth1),
+        cloudStrictGreaterMask4(opticalDepth1,0.125));
+    float4 transmittance2=lerp(
+        1.0.xxxx-absorption2,exp(-opticalDepth2),
+        cloudStrictGreaterMask4(opticalDepth2,0.125));
+    float4 transmittance3=lerp(
+        1.0.xxxx-absorption3,exp(-opticalDepth3),
+        cloudStrictGreaterMask4(opticalDepth3,0.125));
+    float4 unnormalized0=conditional0*transmittance0;
+    float4 unnormalized1=conditional1*transmittance1;
+    float4 unnormalized2=conditional2*transmittance2;
+    float4 unnormalized3=conditional3*transmittance3;
+    float4 chunkTransmittance=saturate(
+        unnormalized0+unnormalized1+unnormalized2+unnormalized3);
+    float4 chunkAbsorption=saturate(
+        conditional0*absorption0+conditional1*absorption1
+        +conditional2*absorption2+conditional3*absorption3);
+    float4 inverseChunkTransmittance=
+        1.0.xxxx/max(chunkTransmittance,1e-30.xxxx);
+    float4 extinguishedMask=
+        1.0.xxxx-step(1e-30.xxxx,chunkTransmittance);
+    float4 ending0=lerp(
+        unnormalized0*inverseChunkTransmittance,
+        CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT.xxxx,extinguishedMask);
+    float4 ending1=lerp(
+        unnormalized1*inverseChunkTransmittance,
+        CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT.xxxx,extinguishedMask);
+    float4 ending2=lerp(
+        unnormalized2*inverseChunkTransmittance,
+        CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT.xxxx,extinguishedMask);
+    float4 ending3=lerp(
+        unnormalized3*inverseChunkTransmittance,
+        CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT.xxxx,extinguishedMask);
+    state.state0=lerp(state.state0,ending0,activeMask);
+    state.state1=lerp(state.state1,ending1,activeMask);
+    state.state2=lerp(state.state2,ending2,activeMask);
+    state.state3=lerp(state.state3,ending3,activeMask);
+    result.transmittances=lerp(
+        1.0.xxxx,chunkTransmittance,activeMask);
+    result.absorptions=chunkAbsorption*activeMask;
+    return result;
+}
+
+struct CloudFourStateOpticalTransportResultLanes {
+    float4 absorptions;
+};
+CloudFourStateOpticalTransportResultLanes
+cloudFourStateOpticalTransportLanes(
+    float4 densityState0Lanes,float4 densityState1Lanes,
+    float4 densityState2Lanes,float4 densityState3Lanes,
+    float extinction,float4 correlationLengths,float4 segmentLengths,
+    inout CloudFourStateTransportLanes state){
+    CloudFourStateOpticalTransportResultLanes result;
+    result.absorptions=0.0.xxxx;
+    float4 safeLengths=cloudFiniteNonnegative4(segmentLengths);
+    float activeExtinction=
+        cloudValueIsFinite(extinction)&&extinction>0.0?1.0:0.0;
+    float4 finiteCorrelationMask=float4(
+        cloudValueIsFinite(correlationLengths.x)
+            &&correlationLengths.x>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.y)
+            &&correlationLengths.y>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.z)
+            &&correlationLengths.z>=0.0?1.0:0.0,
+        cloudValueIsFinite(correlationLengths.w)
+            &&correlationLengths.w>=0.0?1.0:0.0);
+    float4 invalidCorrelationMask=1.0.xxxx-finiteCorrelationMask;
+    cloudResetFourStateTransportLanes(state,invalidCorrelationMask);
+    state.active=lerp(state.active,0.0.xxxx,invalidCorrelationMask);
+    float4 activeMask=cloudPositiveMask4(safeLengths)
+        *activeExtinction.xxxx*finiteCorrelationMask;
+    float4 entryMask=activeMask*(1.0.xxxx-saturate(state.active));
+    float4 safeCorrelations=cloudFiniteNonnegative4(correlationLengths);
+    float4 heterogeneousMask=
+        activeMask*cloudPositiveMask4(safeCorrelations);
+    float4 meanDensities=
+        max(densityState0Lanes,0.0.xxxx)
+            *CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT
+        +max(densityState1Lanes,0.0.xxxx)
+            *CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT
+        +max(densityState2Lanes,0.0.xxxx)
+            *CLOUD_UNRESOLVED_COARSE_INNER_WEIGHT
+        +max(densityState3Lanes,0.0.xxxx)
+            *CLOUD_UNRESOLVED_COARSE_OUTER_WEIGHT;
+    float4 homogeneousDepths=
+        meanDensities*max(extinction,0.0)*safeLengths;
+    float4 homogeneousAbsorptions=
+        cloudFiniteBeerAbsorptionFraction4(homogeneousDepths);
+
+    float4 finiteCellLengths=
+        2.0*min(safeCorrelations,1.701411733e38.xxxx);
+    float4 candidateCellLengths=lerp(
+        1.0.xxxx,finiteCellLengths,heterogeneousMask);
+    float4 candidateCellCounts=safeLengths/candidateCellLengths;
+    float4 finiteCellCountMask=float4(
+        cloudValueIsFinite(candidateCellCounts.x)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.y)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.z)?1.0:0.0,
+        cloudValueIsFinite(candidateCellCounts.w)?1.0:0.0);
+    heterogeneousMask*=finiteCellCountMask;
+    float4 cellLengths=lerp(
+        1.0.xxxx,finiteCellLengths,heterogeneousMask);
+    float4 storedBoundaryDistances=
+        cloudFiniteNonnegative4(state.boundaryDistances);
+    float4 storedCellLengths=cloudFiniteNonnegative4(state.cellLengths);
+    float4 validBoundaryStateMask=
+        cloudPositiveMask4(storedBoundaryDistances)
+        *cloudPositiveMask4(storedCellLengths)
+        *step(storedBoundaryDistances,storedCellLengths);
+    float4 pendingBoundaryMask=heterogeneousMask
+        *saturate(cloudFiniteNonnegative4(state.boundaryPending))
+        *saturate(state.active);
+    float4 entryBoundaryMask=entryMask*heterogeneousMask;
+    float4 invalidBoundaryStateMask=heterogeneousMask
+        *(1.0.xxxx-entryBoundaryMask)
+        *(1.0.xxxx-pendingBoundaryMask)
+        *(1.0.xxxx-validBoundaryStateMask);
+    cloudResetFourStateTransportLanes(state,entryBoundaryMask);
+    float4 initializeHalfCellMask=saturate(
+        entryBoundaryMask+invalidBoundaryStateMask);
+    state.cellLengths=lerp(
+        state.cellLengths,cellLengths,initializeHalfCellMask);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,0.5*cellLengths,initializeHalfCellMask);
+    state.boundaryPending=lerp(
+        state.boundaryPending,0.0.xxxx,initializeHalfCellMask);
+    state.cellLengths=lerp(
+        state.cellLengths,cellLengths,pendingBoundaryMask);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,cellLengths,pendingBoundaryMask);
+    state.boundaryPending=lerp(
+        state.boundaryPending,0.0.xxxx,pendingBoundaryMask);
+    float4 distanceToBoundary=
+        cloudFiniteNonnegative4(state.boundaryDistances);
+    float4 firstLengths=min(safeLengths,distanceToBoundary)
+        *heterogeneousMask;
+    CloudFourStateOpticalChunkLanes firstChunk=
+        cloudFourStateOpticalChunkLanes(
+            densityState0Lanes,densityState1Lanes,
+            densityState2Lanes,densityState3Lanes,
+            extinction,firstLengths,state);
+    float4 pathTransmittances=firstChunk.transmittances;
+    float4 pathAbsorptions=firstChunk.absorptions;
+    float4 remainingLengths=max(safeLengths-firstLengths,0.0.xxxx)
+        *heterogeneousMask;
+    float4 reachedBoundaryMask=heterogeneousMask*step(
+        distanceToBoundary,safeLengths);
+    float4 advancedBoundaryDistances=max(
+        distanceToBoundary-firstLengths,0.0.xxxx);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,advancedBoundaryDistances,
+        heterogeneousMask*(1.0.xxxx-reachedBoundaryMask));
+    float4 remainingAfterFirstMask=
+        cloudPositiveMask4(remainingLengths)*reachedBoundaryMask;
+    float4 exactFirstBoundaryMask=
+        reachedBoundaryMask*(1.0.xxxx-remainingAfterFirstMask);
+    cloudResetFourStateTransportLanes(state,reachedBoundaryMask);
+    state.cellLengths=lerp(
+        state.cellLengths,cellLengths,remainingAfterFirstMask);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,cellLengths,remainingAfterFirstMask);
+    state.boundaryPending=lerp(
+        state.boundaryPending,1.0.xxxx,exactFirstBoundaryMask);
+
+    float4 fullCellCounts=floor(remainingLengths/cellLengths)
+        *reachedBoundaryMask;
+    float4 fullCellMask=step(1.0.xxxx,fullCellCounts);
+    float4 fullCellsLengths=fullCellCounts*cellLengths;
+    CloudFourStateTransportLanes cellState=
+        cloudInitialFourStateTransportLanes();
+    CloudFourStateOpticalChunkLanes cellChunk=
+        cloudFourStateOpticalChunkLanes(
+            densityState0Lanes,densityState1Lanes,
+            densityState2Lanes,densityState3Lanes,
+            extinction,cellLengths*fullCellMask,cellState);
+    float4 cellDepths=cloudFiniteOpticalDepthFromAbsorption4(
+        cellChunk.absorptions);
+    float4 fullCellsDepths=cellDepths*fullCellCounts;
+    float4 fullCellsAbsorptions=
+        cloudFiniteBeerAbsorptionFraction4(fullCellsDepths)
+        *fullCellMask;
+    float4 fullCellsTransmittances=lerp(
+        1.0.xxxx-fullCellsAbsorptions,exp(-fullCellsDepths),
+        cloudStrictGreaterMask4(fullCellsDepths,0.125));
+    fullCellsTransmittances=lerp(
+        1.0.xxxx,fullCellsTransmittances,fullCellMask);
+    pathAbsorptions+=pathTransmittances*fullCellsAbsorptions;
+    pathTransmittances*=fullCellsTransmittances;
+    remainingLengths=max(
+        remainingLengths-fullCellsLengths,0.0.xxxx);
+    float4 tailLengths=remainingLengths*reachedBoundaryMask;
+    float4 tailMask=cloudPositiveMask4(tailLengths);
+    float4 fullCellContinuesMask=fullCellMask*tailMask;
+    float4 exactFullCellBoundaryMask=
+        fullCellMask*(1.0.xxxx-tailMask);
+    cloudResetFourStateTransportLanes(state,fullCellMask);
+    state.cellLengths=lerp(
+        state.cellLengths,cellLengths,fullCellContinuesMask);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,cellLengths,fullCellContinuesMask);
+    state.boundaryPending=lerp(
+        state.boundaryPending,1.0.xxxx,exactFullCellBoundaryMask);
+
+    CloudFourStateOpticalChunkLanes tailChunk=
+        cloudFourStateOpticalChunkLanes(
+            densityState0Lanes,densityState1Lanes,
+            densityState2Lanes,densityState3Lanes,
+            extinction,tailLengths,state);
+    pathAbsorptions+=pathTransmittances*tailChunk.absorptions;
+    pathTransmittances*=tailChunk.transmittances;
+    state.cellLengths=lerp(state.cellLengths,cellLengths,tailMask);
+    float4 advancedTailBoundaryDistances=max(
+        cellLengths-tailLengths,0.0.xxxx);
+    state.boundaryDistances=lerp(
+        state.boundaryDistances,advancedTailBoundaryDistances,tailMask);
+    state.boundaryPending=lerp(
+        state.boundaryPending,0.0.xxxx,tailMask);
+
+    pathAbsorptions=saturate(pathAbsorptions);
+    float4 homogeneousMask=activeMask-heterogeneousMask;
+    cloudResetFourStateTransportLanes(state,homogeneousMask);
+    result.absorptions=lerp(
+        0.0.xxxx,
+        lerp(homogeneousAbsorptions,pathAbsorptions,
+             heterogeneousMask),activeMask);
+    state.active=max(state.active,activeMask);
+    return result;
+}
+
 // 一つの横断面を通る全光路の終端でだけ、各レーンを指数変換して面積平均する。
 float cloudDensityLaneTransmittance(
     float4 requestedDensityLanes,float opticalScale){
@@ -4094,7 +4381,7 @@ float cloudShapeMaximumDomainFootprint(
     // 天候・渦による非線形変形を低周波座標から除いたため、これが全変換の上限となる。
     float3 materialWidth=float3(
         physicalWidth.x+abs(shearDerivative.x)*altitudeWidth,
-        altitudeWidth,
+        altitudeWidth*cloudShapeVerticalVariation(upperBand),
         physicalWidth.z+abs(shearDerivative.y)*altitudeWidth);
     float3 canonicalWidth=materialWidth*cloudShapeScale();
     // rotateNoiseの直交基底へ軸別の箱幅を射影する。X・Z・高さを一つの
@@ -4248,10 +4535,10 @@ struct CloudMacroSample {
     // 高度計算で確定した層。後段の密度と積分尺度で再利用し、同じ高度を再計算しない。
     float upperBand;
 };
-// キャッシュ外でも、局所横断面密度を雲柱境界までの有効光学的深さへ変換する。
-// xyは空方向と地面方向で、各レーンを全経路の終端まで保持して評価する。
-float2 cloudAmbientFallbackOpticalDepth(
-    CloudMacroSample macro,float4 densityLanes,
+// キャッシュ外でも局所4密度状態を平均密度へ潰さず、各半球方向で指数変換した
+// 後に照度へ平均する。xyは空方向と地面方向の可視率。
+float2 cloudAmbientFallbackVisibility(
+    CloudMacroSample macro,float4 densityDistribution,
     float densityScale,float extinction){
     bool upperBand=macro.upperBand>0.5;
     float bandThickness=upperBand
@@ -4259,15 +4546,48 @@ float2 cloudAmbientFallbackOpticalDepth(
     float columnThickness=max(bandThickness,0.0)
                          *max(macro.columnSpan,0.0);
     float h=saturate(macro.height);
-    float commonScale=columnThickness
+    float commonVerticalScale=columnThickness
         *cloudOpticalDepthScaleFromBand(upperBand)
         *max(densityScale,0.0)*max(extinction,0.0);
+    float4 skyDirectionalTransmittances=float4(
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*(1.0-h)
+                /CLOUD_AMBIENT_DIRECTION_COSINES.x),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*(1.0-h)
+                /CLOUD_AMBIENT_DIRECTION_COSINES.y),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*(1.0-h)
+                /CLOUD_AMBIENT_DIRECTION_COSINES.z),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*(1.0-h)
+                /CLOUD_AMBIENT_DIRECTION_COSINES.w));
+    float4 groundDirectionalTransmittances=float4(
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*h/CLOUD_AMBIENT_DIRECTION_COSINES.x),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*h/CLOUD_AMBIENT_DIRECTION_COSINES.y),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*h/CLOUD_AMBIENT_DIRECTION_COSINES.z),
+        cloudDensityLaneTransmittance(
+            densityDistribution,
+            commonVerticalScale*h/CLOUD_AMBIENT_DIRECTION_COSINES.w));
     return float2(
-        cloudDensityLaneOpticalDepth(
-            densityLanes,commonScale*(1.0-h)),
-        cloudDensityLaneOpticalDepth(
-            densityLanes,commonScale*h));
+        saturate(dot(
+            CLOUD_AMBIENT_IRRADIANCE_WEIGHTS,
+            skyDirectionalTransmittances)),
+        saturate(dot(
+            CLOUD_AMBIENT_IRRADIANCE_WEIGHTS,
+            groundDirectionalTransmittances)));
 }
+
 // 天候しきい値と縦・横の物理担当幅から、主視線・光路・環境光で共通する低周波状態を作る。
 // 被覆率からしきい値を作る経路と、CPUで先に作ったしきい値を使う経路の処理順を揃える。
 CloudMacroSample sampleCloudMacroFromThreshold(
@@ -4344,6 +4664,13 @@ CloudMacroSample sampleCloudMacroFromThreshold(
     macro.heightProfile=saturate(cloudProfile(
         convectionHeight,macro.weather.g,macro.toweringStrength,
         macro.columnSpan,upperBand));
+    float commonPotentialUpper=cloudCondensationCommonPotential(
+        macro.heightProfile,macro.densityWeatherMask,
+        macro.height,macro.toweringStrength);
+    // ここまでの2D天候と解析高さだけで密度0が証明できる場合は、渦・3D形状・
+    // 詳細形状を一切読まない。等号は正値化後も厳密に0なので省略してよい。
+    if(!cloudMacroCouldCondense(commonPotentialUpper))
+        return macro;
     macro.curl=cloudCurlOffset(p,safeFootprint.xz);
     float maximumDomainFootprint=cloudShapeMaximumDomainFootprint(
         safeFootprint,upperBand,macro.layerHeight);
@@ -4474,17 +4801,17 @@ float cloudRayCellOffset(
     return offset;
 }
 
-// 物理雲帯ごとに、表示状態では変わらない標本予算を予約する。
+// 物理雲帯ごとに、表示状態では変わらない求積セル予算を予約する。
 // 球殻の最大接線光路は層厚の平方根に比例するため、その比で下層・上層へ配る。
 // 一方が画面外へ出ても他方の格子を再分配しないことが、時間方向の安定性を保つ。
-int2 cloudPhysicalBandSampleBudgets(int maximumSamples){
-    int safeMaximum=max(maximumSamples,1);
+int2 cloudPhysicalBandCellBudgets(int maximumCellCount){
+    int safeMaximum=max(maximumCellCount,1);
     int2 budgets=int2(safeMaximum,0);
     if(cloudUpperLayer.w>0.5&&safeMaximum>1){
         // 各帯へ通常描画の最低探索量を先に予約する。極端な厚さ比でも薄い帯を
-        // 1標本へ縮めず、残りだけを接線光路の平方根比で分配する。
+        // 1セルへ縮めず、残りだけを接線光路の平方根比で分配する。
         int minimumBandBudget=min(
-            CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT,safeMaximum>>1);
+            CLOUD_MIN_VIEW_MARCH_CELL_COUNT,safeMaximum>>1);
         int weightedBudget=max(
             safeMaximum-2*minimumBandBudget,0);
         float lowerWeight=sqrt(max(layer.y-layer.x,1e-4));
@@ -4499,10 +4826,10 @@ int2 cloudPhysicalBandSampleBudgets(int maximumSamples){
     return budgets;
 }
 
-// 同じ物理雲帯が近側・遠側へ分かれる場合、その帯へ予約済みの標本数を
-// 区間長に比例して分ける。各可視区間へ最低一標本を残し、合計は変えない。
-int cloudPackedIntervalSampleBudgetAt(
-    CloudPackedBandIntervals intervals,int2 physicalBandBudgets,
+// 同じ物理雲帯が近側・遠側へ分かれる場合、その帯へ予約済みのセル数を
+// 区間長に比例して分ける。各可視区間へ最低一セルを残し、合計は変えない。
+int cloudPackedIntervalCellBudgetAt(
+    CloudPackedBandIntervals intervals,int2 physicalBandCellBudgets,
     int targetIndex){
     float4 spans=max(intervals.ends-intervals.starts,0.0.xxxx);
     bool valid0=intervals.count>0&&spans.x>0.0;
@@ -4521,7 +4848,8 @@ int cloudPackedIntervalSampleBudgetAt(
     int sameCount=(same0?1:0)+(same1?1:0)
         +(same2?1:0)+(same3?1:0);
     int bandBudget=max(
-        targetBandId>0?physicalBandBudgets.y:physicalBandBudgets.x,1);
+        targetBandId>0
+            ?physicalBandCellBudgets.y:physicalBandCellBudgets.x,1);
     int result=0;
     if(targetValid){
         if(sameCount<=1){
@@ -4546,39 +4874,39 @@ int cloudPackedIntervalSampleBudgetAt(
     return result;
 }
 
-int4 cloudPackedIntervalSampleBudgets(
-    CloudPackedBandIntervals intervals,int2 physicalBandBudgets){
+int4 cloudPackedIntervalCellBudgets(
+    CloudPackedBandIntervals intervals,int2 physicalBandCellBudgets){
     return int4(
-        cloudPackedIntervalSampleBudgetAt(
-            intervals,physicalBandBudgets,0),
-        cloudPackedIntervalSampleBudgetAt(
-            intervals,physicalBandBudgets,1),
-        cloudPackedIntervalSampleBudgetAt(
-            intervals,physicalBandBudgets,2),
-        cloudPackedIntervalSampleBudgetAt(
-            intervals,physicalBandBudgets,3));
+        cloudPackedIntervalCellBudgetAt(
+            intervals,physicalBandCellBudgets,0),
+        cloudPackedIntervalCellBudgetAt(
+            intervals,physicalBandCellBudgets,1),
+        cloudPackedIntervalCellBudgetAt(
+            intervals,physicalBandCellBudgets,2),
+        cloudPackedIntervalCellBudgetAt(
+            intervals,physicalBandCellBudgets,3));
 }
 
-// 一区間の標本予算と距離LODから、終端だけが端数を吸収する細密セル幅を返す。
+// 一区間のセル予算と距離LODから、終端だけが端数を吸収する細密セル幅を返す。
 float cloudPackedIntervalFineStep(
-    float intervalStart,float intervalEnd,int intervalBudget,
+    float intervalStart,float intervalEnd,int intervalCellBudget,
     float baseFineStep,float maximumDistance){
     float intervalSpan=max(intervalEnd-intervalStart,0.0);
     float distanceLod=1.0+cloudRange.z
         *saturate(intervalStart/max(maximumDistance,1.0));
     return max(
         max(baseFineStep,
-            intervalSpan/float(max(intervalBudget,1)))*distanceLod,
+            intervalSpan/float(max(intervalCellBudget,1)))*distanceLod,
         1e-4);
 }
 
 int cloudPackedIntervalFineCellCount(
-    float intervalStart,float intervalEnd,int intervalBudget,
+    float intervalStart,float intervalEnd,int intervalCellBudget,
     float fineStep){
     float intervalSpan=max(intervalEnd-intervalStart,0.0);
     return clamp(
         (int)ceil(intervalSpan/max(fineStep,1e-4)),
-        1,max(intervalBudget,1));
+        1,max(intervalCellBudget,1));
 }
 // 高次散乱が周囲の媒質量を判定する低LOD密度を、未解像4状態のまま返す。
 float4 cloudLowLodDensityDistributionFromPositiveWeatherMacro(
@@ -4736,14 +5064,155 @@ float4 cloudLowLodDensityLanesFromMacro(
     CloudMacroSample macro,float weatherMask){
     return cloudLowLodDensityFromMacro(macro,weatherMask).xxxx;
 }
+// 光路始点を風で移動する物質座標へ写し、相関セルの入口位相を求める。
+// 固定した半セルから全光路を始めると、平行な太陽光路へ同じ人工境界が並ぶ。
+float cloudCorrelatedTransportPathCoordinate(
+    float3 segmentStartPosition,float3 rayDirection){
+    float2 windOffset=cloudWindWorld();
+    float3 materialPosition=float3(
+        segmentStartPosition.x-windOffset.x,
+        cloudAltitude(segmentStartPosition),
+        segmentStartPosition.z-windOffset.y);
+    return dot(materialPosition,rayDirection);
+}
+// 三つの散乱次数をxyzレーンへ詰め、同じ密度場と相関位相を一回だけ進める。
+// 消散0のレーンは長さも0にして、独立輸送と同じく状態を進めない。
+float3 cloudPackedFourStateOpticalDepthByOrder(
+    float4 requestedDistribution,float3 requestedExtinctionByOrder,
+    float requestedCorrelationLength,float requestedSegmentLength,
+    float requestedPathCoordinate,
+    inout CloudFourStateTransportLanes packedOrderState){
+    bool validDistribution=cloudValueIsFinite(requestedDistribution.x)
+        &&cloudValueIsFinite(requestedDistribution.y)
+        &&cloudValueIsFinite(requestedDistribution.z)
+        &&cloudValueIsFinite(requestedDistribution.w);
+    float3 validExtinctionMask=float3(
+        cloudValueIsFinite(requestedExtinctionByOrder.x)
+            &&requestedExtinctionByOrder.x>=0.0?1.0:0.0,
+        cloudValueIsFinite(requestedExtinctionByOrder.y)
+            &&requestedExtinctionByOrder.y>=0.0?1.0:0.0,
+        cloudValueIsFinite(requestedExtinctionByOrder.z)
+            &&requestedExtinctionByOrder.z>=0.0?1.0:0.0);
+    float4 invalidExtinctionMask=float4(
+        1.0.xxx-validExtinctionMask,0.0);
+    cloudResetFourStateTransportLanes(
+        packedOrderState,invalidExtinctionMask);
+    packedOrderState.active=lerp(
+        packedOrderState.active,0.0.xxxx,invalidExtinctionMask);
+    bool validGeometry=cloudValueIsFinite(requestedCorrelationLength)
+        &&requestedCorrelationLength>=0.0
+        &&cloudValueIsFinite(requestedSegmentLength)
+        &&requestedSegmentLength>=0.0
+        &&cloudValueIsFinite(requestedPathCoordinate);
+    float3 result=80.0.xxx;
+    if(!validDistribution||!validGeometry){
+        float4 packedLaneMask=float4(1.0,1.0,1.0,0.0);
+        cloudResetFourStateTransportLanes(
+            packedOrderState,packedLaneMask);
+        packedOrderState.active=lerp(
+            packedOrderState.active,0.0.xxxx,packedLaneMask);
+    }else if(requestedSegmentLength<=0.0){
+        result=float3(
+            validExtinctionMask.x>0.0?0.0:80.0,
+            validExtinctionMask.y>0.0?0.0:80.0,
+            validExtinctionMask.z>0.0?0.0:80.0);
+    }else{
+        float4 distribution=cloudFiniteNonnegative4(requestedDistribution);
+        float3 extinctionByOrder=float3(
+            validExtinctionMask.x>0.0
+                ?max(requestedExtinctionByOrder.x,0.0):0.0,
+            validExtinctionMask.y>0.0
+                ?max(requestedExtinctionByOrder.y,0.0):0.0,
+            validExtinctionMask.z>0.0
+                ?max(requestedExtinctionByOrder.z,0.0):0.0);
+        float4 activeOrderMask=float4(
+            extinctionByOrder.x>0.0?1.0:0.0,
+            extinctionByOrder.y>0.0?1.0:0.0,
+            extinctionByOrder.z>0.0?1.0:0.0,0.0);
+        float resolvedCorrelationLength=requestedCorrelationLength;
+        if(resolvedCorrelationLength>1e-6&&
+           any(activeOrderMask.xyz>0.5.xxx)){
+            float4 finiteBoundaryMask=float4(
+                cloudValueIsFinite(
+                    packedOrderState.boundaryDistances.x)
+                    &&cloudValueIsFinite(
+                        packedOrderState.cellLengths.x)?1.0:0.0,
+                cloudValueIsFinite(
+                    packedOrderState.boundaryDistances.y)
+                    &&cloudValueIsFinite(
+                        packedOrderState.cellLengths.y)?1.0:0.0,
+                cloudValueIsFinite(
+                    packedOrderState.boundaryDistances.z)
+                    &&cloudValueIsFinite(
+                        packedOrderState.cellLengths.z)?1.0:0.0,0.0);
+            float4 validBoundaryMask=finiteBoundaryMask
+                *step(0.5.xxxx,packedOrderState.active)
+                *(1.0.xxxx-step(
+                    0.5.xxxx,packedOrderState.boundaryPending))
+                *cloudPositiveMask4(
+                    packedOrderState.boundaryDistances)
+                *cloudPositiveMask4(packedOrderState.cellLengths)
+                *step(
+                    packedOrderState.boundaryDistances,
+                    packedOrderState.cellLengths);
+            float4 missingBoundaryMask=activeOrderMask
+                *(1.0.xxxx-saturate(validBoundaryMask));
+            if(any(missingBoundaryMask.xyz>0.5.xxx)){
+                bool initialized=
+                    cloudInitializeFourStateTransportPhaseLanes(
+                        packedOrderState,requestedPathCoordinate,
+                        resolvedCorrelationLength);
+                if(!initialized) resolvedCorrelationLength=0.0;
+                // 初期化関数は四レーンを揃えるため、使わない次数だけを再び停止する。
+                float4 inactiveOrderMask=1.0.xxxx-activeOrderMask;
+                cloudResetFourStateTransportLanes(
+                    packedOrderState,inactiveOrderMask);
+                packedOrderState.active=lerp(
+                    packedOrderState.active,0.0.xxxx,
+                    inactiveOrderMask);
+            }
+        }
+        if(resolvedCorrelationLength<=1e-6)
+            resolvedCorrelationLength=0.0;
+        float4 packedExtinction=float4(extinctionByOrder,0.0);
+        float4 correlationLengths=
+            resolvedCorrelationLength.xxxx*activeOrderMask;
+        float4 segmentLengths=requestedSegmentLength.xxxx*activeOrderMask;
+        CloudFourStateOpticalTransportResultLanes packedTransport;
+        packedTransport.absorptions=0.0.xxxx;
+        packedTransport=cloudFourStateOpticalTransportLanes(
+            distribution.x*packedExtinction,
+            distribution.y*packedExtinction,
+            distribution.z*packedExtinction,
+            distribution.w*packedExtinction,
+            1.0,correlationLengths,segmentLengths,packedOrderState);
+        float3 validAbsorptionMask=float3(
+            cloudValueIsFinite(packedTransport.absorptions.x)?1.0:0.0,
+            cloudValueIsFinite(packedTransport.absorptions.y)?1.0:0.0,
+            cloudValueIsFinite(packedTransport.absorptions.z)?1.0:0.0);
+        float4 invalidAbsorptionMask=float4(
+            1.0.xxx-validAbsorptionMask,0.0);
+        cloudResetFourStateTransportLanes(
+            packedOrderState,invalidAbsorptionMask);
+        packedOrderState.active=lerp(
+            packedOrderState.active,0.0.xxxx,invalidAbsorptionMask);
+        float3 opticalDepth=cloudOpticalDepthFromAbsorption3(
+            packedTransport.absorptions.xyz);
+        float3 validResultMask=validExtinctionMask*validAbsorptionMask;
+        result=float3(
+            validResultMask.x>0.0?opticalDepth.x:80.0,
+            validResultMask.y>0.0?opticalDepth.y:80.0,
+            validResultMask.z>0.0?opticalDepth.z:80.0);
+    }
+    return result;
+}
+
 float3 cloudDensityOpticalDepthByOrderFromMacro(
     float3 p,CloudMacroSample macro,float weatherMask,
     float billowVisibility,float middleBillowVisibility,
     float erosionVisibility,float3 extinctionByOrder,
     float3 rayDirection,float segmentLength,
-    inout CloudFourStateTransportLanes firstOrderState,
-    inout CloudFourStateTransportLanes secondOrderState,
-    inout CloudFourStateTransportLanes thirdOrderState){
+    inout CloudFourStateTransportLanes packedOrderState){
     float4 distribution=cloudDensityDistributionFromMacro(
         p,macro,weatherMask,
         billowVisibility,middleBillowVisibility,erosionVisibility);
@@ -4751,70 +5220,65 @@ float3 cloudDensityOpticalDepthByOrderFromMacro(
     float correlationLength=
         cloudUnresolvedDensityCorrelationLengthAtDirection(
             p,rayDirection,macro.upperBand>0.5);
-    float4 correlationLengths=correlationLength.xxxx;
-    float4 segmentLengths=max(segmentLength,0.0).xxxx;
-    CloudFourStateTransportResultLanes first=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.x,correlationLengths,segmentLengths,
-            firstOrderState);
-    CloudFourStateTransportResultLanes second=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.y,correlationLengths,segmentLengths,
-            secondOrderState);
-    CloudFourStateTransportResultLanes third=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.z,correlationLengths,segmentLengths,
-            thirdOrderState);
-    return cloudOpticalDepthFromAbsorption3(
-        float3(
-            first.absorptions.x,
-            second.absorptions.x,
-            third.absorptions.x));
+    float3 segmentStartPosition=
+        p-rayDirection*(0.5*max(segmentLength,0.0));
+    float pathCoordinate=cloudCorrelatedTransportPathCoordinate(
+        segmentStartPosition,rayDirection);
+    return cloudPackedFourStateOpticalDepthByOrder(
+        distribution,extinctionByOrder,correlationLength,
+        segmentLength,pathCoordinate,packedOrderState);
 }
+
 float3 cloudLowLodOpticalDepthByOrderFromMacro(
     float3 p,CloudMacroSample macro,float weatherMask,
     float3 extinctionByOrder,float3 rayDirection,float segmentLength,
-    inout CloudFourStateTransportLanes firstOrderState,
-    inout CloudFourStateTransportLanes secondOrderState,
-    inout CloudFourStateTransportLanes thirdOrderState){
+    inout CloudFourStateTransportLanes packedOrderState){
     float4 distribution=cloudLowLodDensityDistributionFromMacro(
         macro,weatherMask);
     distribution*=cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);
     float correlationLength=
         cloudUnresolvedDensityCorrelationLengthAtDirection(
             p,rayDirection,macro.upperBand>0.5);
-    float4 correlationLengths=correlationLength.xxxx;
-    float4 segmentLengths=max(segmentLength,0.0).xxxx;
-    CloudFourStateTransportResultLanes first=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.x,correlationLengths,segmentLengths,
-            firstOrderState);
-    CloudFourStateTransportResultLanes second=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.y,correlationLengths,segmentLengths,
-            secondOrderState);
-    CloudFourStateTransportResultLanes third=
-        cloudFourStateTransportLanes(
-            distribution.x.xxxx,distribution.y.xxxx,
-            distribution.z.xxxx,distribution.w.xxxx,
-            extinctionByOrder.z,correlationLengths,segmentLengths,
-            thirdOrderState);
-    return cloudOpticalDepthFromAbsorption3(
-        float3(
-            first.absorptions.x,
-            second.absorptions.x,
-            third.absorptions.x));
+    float3 segmentStartPosition=
+        p-rayDirection*(0.5*max(segmentLength,0.0));
+    float pathCoordinate=cloudCorrelatedTransportPathCoordinate(
+        segmentStartPosition,rayDirection);
+    return cloudPackedFourStateOpticalDepthByOrder(
+        distribution,extinctionByOrder,correlationLength,
+        segmentLength,pathCoordinate,packedOrderState);
 }
+// 一つの相関セル内で密度状態が固定される区間を、四状態のBeer-Lambert
+// 透過率期待値へ閉じる。初期状態の最初の一相関距離と、完全セルの両方で使う。
+float3 cloudFixedStateMixtureOpticalDepthByOrder(
+    float4 requestedDensityDistribution,float3 requestedExtinctionByOrder,
+    float requestedSegmentLength){
+    float4 densityDistribution=
+        cloudFiniteNonnegative4(requestedDensityDistribution);
+    float3 extinctionByOrder=float3(
+        cloudValueIsFinite(requestedExtinctionByOrder.x)
+            &&requestedExtinctionByOrder.x>0.0
+            ?requestedExtinctionByOrder.x:0.0,
+        cloudValueIsFinite(requestedExtinctionByOrder.y)
+            &&requestedExtinctionByOrder.y>0.0
+            ?requestedExtinctionByOrder.y:0.0,
+        cloudValueIsFinite(requestedExtinctionByOrder.z)
+            &&requestedExtinctionByOrder.z>0.0
+            ?requestedExtinctionByOrder.z:0.0);
+    float segmentLength=cloudValueIsFinite(requestedSegmentLength)
+        &&requestedSegmentLength>0.0?requestedSegmentLength:0.0;
+    float4 firstAbsorption=cloudFiniteBeerAbsorptionFraction4(
+        densityDistribution*extinctionByOrder.x*segmentLength);
+    float4 secondAbsorption=cloudFiniteBeerAbsorptionFraction4(
+        densityDistribution*extinctionByOrder.y*segmentLength);
+    float4 thirdAbsorption=cloudFiniteBeerAbsorptionFraction4(
+        densityDistribution*extinctionByOrder.z*segmentLength);
+    float3 expectedAbsorption=saturate(float3(
+        dot(firstAbsorption,CLOUD_UNRESOLVED_QUADRATURE_WEIGHTS),
+        dot(secondAbsorption,CLOUD_UNRESOLVED_QUADRATURE_WEIGHTS),
+        dot(thirdAbsorption,CLOUD_UNRESOLVED_QUADRATURE_WEIGHTS)));
+    return cloudOpticalDepthFromAbsorption3(expectedAbsorption);
+}
+
 float cloudDensity(float3 p, float coverage, float detailWeight){
     float densityResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(
@@ -4825,133 +5289,164 @@ float cloudDensity(float3 p, float coverage, float detailWeight){
     return densityResult;
 }
 
-// 低解像度影キャッシュへ足す近距離の高周波差分を、散乱次数別の有効光学的深さで求める。
-float3 cloudNearLightOpticalDepthResiduals(
-    float3 rayOrigin,float coverage,float3 lightDirection,
-    float3 extinctionByOrder){
-    float3 residuals=0.0.xxx;
-    CloudPackedBandIntervals intervals=
-        intersectCloudBandsFromPosition(rayOrigin,lightDirection);
-    CloudFourStateTransportLanes lowFirstState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes lowSecondState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes lowThirdState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes detailedFirstState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes detailedSecondState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes detailedThirdState=
-        cloudInitialFourStateTransportLanes();
-    float previousSegmentEnd=-1.0;
-    int previousBandId=-1;
-    [loop] for(int sampleIndex=0;
-               sampleIndex<CLOUD_LIGHT_DETAIL_SAMPLE_COUNT;
-               ++sampleIndex){
-        float rayDistance=0.0;
-        float sampleSpacing=0.0;
-        int sampleBandId=-1;
-        if(!cloudLightSampleTerms(
-               intervals,CLOUD_LIGHT_DETAIL_SAMPLE_COUNT,sampleIndex,
-               rayDistance,sampleSpacing,sampleBandId)) continue;
-        float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&
-           (sampleBandId!=previousBandId||
-            segmentStart>previousSegmentEnd+1e-3)){
-            lowFirstState.active=0.0.xxxx;
-            lowSecondState.active=0.0.xxxx;
-            lowThirdState.active=0.0.xxxx;
-            detailedFirstState.active=0.0.xxxx;
-            detailedSecondState.active=0.0.xxxx;
-            detailedThirdState.active=0.0.xxxx;
-        }
-        previousSegmentEnd=rayDistance+0.5*sampleSpacing;
-        previousBandId=sampleBandId;
-        float3 samplePosition=rayOrigin+lightDirection*rayDistance;
-        CloudMacroSample macro=sampleCloudMacroLightingSegment(
-            samplePosition,coverage,lightDirection,sampleSpacing);
-        float3 lowLodDepth=cloudLowLodOpticalDepthByOrderFromMacro(
-            samplePosition,macro,macro.densityWeatherMask,
-            max(extinctionByOrder,0.0.xxx),
-            lightDirection,sampleSpacing,
-            lowFirstState,lowSecondState,lowThirdState);
-        float billowVisibility=
-            cloudBillowVisibilityFromSampleSpacing(sampleSpacing);
-        float middleBillowVisibility=
-            cloudMiddleBillowVisibilityFromSampleSpacing(sampleSpacing);
-        float erosionVisibility=
-            cloudErosionVisibilityFromSampleSpacing(sampleSpacing);
-        float3 detailedDepth=cloudDensityOpticalDepthByOrderFromMacro(
-            samplePosition,macro,macro.densityWeatherMask,
-            billowVisibility,middleBillowVisibility,erosionVisibility,
-            max(extinctionByOrder,0.0.xxx),
-            lightDirection,sampleSpacing,
-            detailedFirstState,detailedSecondState,detailedThirdState);
-        residuals+=detailedDepth-lowLodDepth;
-    }
-    return residuals;
+// 消散0の次数を完了済みとして除外し、残る全次数がfloatの表現限界より
+// 暗くなった場合だけ光路を打ち切る。次数の大小関係には依存しない。
+bool cloudAllActiveLightOrdersOpaque(
+    float3 lightDepths,float3 extinctionByOrder){
+    bool firstOrderOpaque=extinctionByOrder.x<=0.0
+        ||lightDepths.x>=CLOUD_LIGHT_OPAQUE_OPTICAL_DEPTH;
+    bool secondOrderOpaque=extinctionByOrder.y<=0.0
+        ||lightDepths.y>=CLOUD_LIGHT_OPAQUE_OPTICAL_DEPTH;
+    bool thirdOrderOpaque=extinctionByOrder.z<=0.0
+        ||lightDepths.z>=CLOUD_LIGHT_OPAQUE_OPTICAL_DEPTH;
+    return firstOrderOpaque&&secondOrderOpaque&&thirdOrderOpaque;
 }
 
-// キャッシュを使えない場所では、太陽円盤の各方向を相関長で適応積分する。
+// 太陽影用の完成密度分布キャッシュを採取する。定義は非一様座標変換の後に置く。
+bool sampleCloudShadowDensityDistribution(
+    float3 p,out float4 distribution,out bool upperBand);
+
+// 影キャッシュ生成では、太陽円盤の各方向を相関長で適応積分する。
 // xyzは一次・二次・三次の消散率で求めた光学的深さ。
 // 光路方向の未解像密度は相関長ごとの透過率期待値へ閉じ、区間ごとの深さを加算する。
 float3 traceCloudMainLightDepths(
-    float3 rayOrigin,float coverage,float3 lightDirection,
+    float3 rayOrigin,float coverage,float3 requestedLightDirection,
     float3 extinctionByOrder){
-    float3 lightDepths=0.0.xxx;
-    CloudPackedBandIntervals intervals=
-        intersectCloudBandsFromPosition(rayOrigin,lightDirection);
-    CloudFourStateTransportLanes firstOrderState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes secondOrderState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes thirdOrderState=
-        cloudInitialFourStateTransportLanes();
-    int4 sampleCounts=cloudAdaptiveLightSampleCounts(
-        intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
-        rayOrigin,lightDirection);
-    float previousSegmentEnd=-1.0;
-    int previousBandId=-1;
-    [loop] for(int sampleIndex=0;
-               sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
-               ++sampleIndex){
-        float rayDistance=0.0;
-        float sampleSpacing=0.0;
-        int sampleBandId=-1;
-        if(!cloudAdaptiveLightSampleTerms(
-               intervals,sampleCounts,sampleIndex,
-               rayDistance,sampleSpacing,sampleBandId)) continue;
-        float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&
-           (sampleBandId!=previousBandId||
-            segmentStart>previousSegmentEnd+1e-3)){
-            firstOrderState.active=0.0.xxxx;
-            secondOrderState.active=0.0.xxxx;
-            thirdOrderState.active=0.0.xxxx;
+    float3 result=80.0.xxx;
+    float directionLengthSquared=dot(
+        requestedLightDirection,requestedLightDirection);
+    bool validInput=cloudFiniteFloat3(rayOrigin)
+        &&cloudValueIsFinite(coverage)
+        &&cloudValueIsFinite(directionLengthSquared)
+        &&directionLengthSquared>1e-12
+        &&cloudFiniteFloat3(extinctionByOrder)
+        &&all(extinctionByOrder>=0.0.xxx);
+    if(validInput){
+        if(all(extinctionByOrder<=0.0.xxx)){
+            result=0.0.xxx;
+        }else{
+            float3 lightDirection=requestedLightDirection
+                *rsqrt(directionLengthSquared);
+            float3 lightDepths=0.0.xxx;
+            CloudPackedBandIntervals intervals;
+            intersectCloudBandsFromPosition(
+                rayOrigin,lightDirection,intervals);
+            bool intervalsFinite=
+                cloudPackedBandIntervalsAreFinite(intervals);
+            if(intervalsFinite&&intervals.count<=0){
+                result=0.0.xxx;
+            }else if(intervalsFinite){
+                CloudFourStateTransportLanes packedOrderState=
+                    cloudInitialFourStateTransportLanes();
+                int4 sampleCounts=int4(0,0,0,0);
+                sampleCounts=cloudAdaptiveLightSampleCounts(
+                    intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
+                    rayOrigin,lightDirection);
+                int expectedSampleCount=sampleCounts.x+sampleCounts.y
+                    +sampleCounts.z+sampleCounts.w;
+                if(expectedSampleCount>0){
+                    int processedSampleCount=0;
+                    int previousIntervalId=-1;
+                    bool pathValid=true;
+                    bool reachedOpaqueDepth=false;
+                    [loop] for(int sampleIndex=0;
+                               sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
+                               ++sampleIndex){
+                        float rayDistance=0.0;
+                        float sampleSpacing=0.0;
+                        int sampleIntervalId=-1;
+                        bool validSample=cloudAdaptiveLightSampleTerms(
+                            intervals,sampleCounts,sampleIndex,
+                            rayDistance,sampleSpacing,sampleIntervalId);
+                        if(!validSample){
+                            if(sampleIndex<expectedSampleCount){
+                                pathValid=false;
+                                break;
+                            }
+                            continue;
+                        }
+                        processedSampleCount++;
+                        if(previousIntervalId>=0&&
+                           sampleIntervalId!=previousIntervalId){
+                            packedOrderState.active=0.0.xxxx;
+                        }
+                        previousIntervalId=sampleIntervalId;
+                        float3 samplePosition=
+                            rayOrigin+lightDirection*rayDistance;
+                        float3 lightSegmentDepth=80.0.xxx;
+                        float4 cachedDistribution=0.0.xxxx;
+                        bool cachedUpperBand=false;
+                        bool cachedDensity=
+                            sampleCloudShadowDensityDistribution(
+                                samplePosition,cachedDistribution,
+                                cachedUpperBand);
+                        if(cachedDensity){
+                            float correlationLength=
+                                cloudUnresolvedDensityCorrelationLengthAtDirection(
+                                    samplePosition,lightDirection,
+                                    cachedUpperBand);
+                            float3 segmentStartPosition=samplePosition
+                                -lightDirection*(0.5*sampleSpacing);
+                            float pathCoordinate=
+                                cloudCorrelatedTransportPathCoordinate(
+                                    segmentStartPosition,lightDirection);
+                            lightSegmentDepth=
+                                cloudPackedFourStateOpticalDepthByOrder(
+                                    cachedDistribution,
+                                    max(extinctionByOrder,0.0.xxx),
+                                    correlationLength,sampleSpacing,
+                                    pathCoordinate,
+                                    packedOrderState);
+                        }else{
+                            // 非一様キャッシュの外だけは同じ完成密度を直接評価し、
+                            // 低い太陽で範囲外へ出た光路を晴天として開放しない。
+                            CloudMacroSample macro=
+                                sampleCloudMacroLightingSegment(
+                                    samplePosition,coverage,
+                                    lightDirection,sampleSpacing);
+                            float billowVisibility=
+                                cloudBillowVisibilityFromSampleSpacing(
+                                    sampleSpacing);
+                            float middleBillowVisibility=
+                                cloudMiddleBillowVisibilityFromSampleSpacing(
+                                    sampleSpacing);
+                            float erosionVisibility=
+                                cloudErosionVisibilityFromSampleSpacing(
+                                    sampleSpacing);
+                            lightSegmentDepth=
+                                cloudDensityOpticalDepthByOrderFromMacro(
+                                    samplePosition,macro,
+                                    macro.densityWeatherMask,
+                                    billowVisibility,middleBillowVisibility,
+                                    erosionVisibility,
+                                    max(extinctionByOrder,0.0.xxx),
+                                    lightDirection,sampleSpacing,
+                                    packedOrderState);
+                        }
+                        if(!cloudFiniteFloat3(lightSegmentDepth)){
+                            pathValid=false;
+                            break;
+                        }
+                        lightDepths+=lightSegmentDepth;
+                        if(!cloudFiniteFloat3(lightDepths)){
+                            pathValid=false;
+                            break;
+                        }
+                        if(cloudAllActiveLightOrdersOpaque(
+                               lightDepths,extinctionByOrder)){
+                            reachedOpaqueDepth=true;
+                            break;
+                        }
+                    }
+                    bool completedPath=processedSampleCount
+                        ==expectedSampleCount;
+                    if(pathValid&&(completedPath||reachedOpaqueDepth))
+                        result=min(max(lightDepths,0.0.xxx),80.0.xxx);
+                }
+            }
         }
-        previousSegmentEnd=rayDistance+0.5*sampleSpacing;
-        previousBandId=sampleBandId;
-        float3 samplePosition=rayOrigin+lightDirection*rayDistance;
-        CloudMacroSample macro=sampleCloudMacroLightingSegment(
-            samplePosition,coverage,lightDirection,sampleSpacing);
-        float billowVisibility=
-            cloudBillowVisibilityFromSampleSpacing(sampleSpacing);
-        float middleBillowVisibility=
-            cloudMiddleBillowVisibilityFromSampleSpacing(sampleSpacing);
-        float erosionVisibility=
-            cloudErosionVisibilityFromSampleSpacing(sampleSpacing);
-        // 低詳細度密度へ近距離3点だけを足さず、担当幅で表現できる完成密度を積分する。
-        float3 lightSegmentDepth=cloudDensityOpticalDepthByOrderFromMacro(
-            samplePosition,macro,macro.densityWeatherMask,
-            billowVisibility,middleBillowVisibility,erosionVisibility,
-            max(extinctionByOrder,0.0.xxx),
-            lightDirection,sampleSpacing,
-            firstOrderState,secondOrderState,thirdOrderState);
-        lightDepths+=lightSegmentDepth;
-        if(lightDepths.z>18.0) break;
     }
-    return lightDepths;
+    return result;
 }
 
 // 移流を除いた安定XZ座標と高度から、現在の曲面雲層上の点を復元する。
@@ -4963,6 +5458,77 @@ float3 cloudShadowWorldPositionAtAltitude(float2 worldXz,float altitude){
     float root=sqrt(max(radius*radius-d2,0.0));
     float sag=d2/max(radius+root,1.0);
     return float3(worldXz.x,worldOrigin.y+altitude-sag,worldXz.y);
+}
+
+// 雲内の点から太陽と逆向きへ進み、同じ雲帯の底面にある光路アンカーを求める。
+// 太陽透過率をアンカー座標で保存すると、一つの列に属する全高度が同じ直線光路を
+// 共有でき、高度ごとに上空まで積分し直す必要がなくなる。
+bool cloudShadowBandBaseMaterialPosition(
+    float3 p,float3 lightDirection,bool upperBand,
+    out float2 materialXz){
+    materialXz=0.0.xx;
+    float baseAltitude=upperBand?cloudUpperLayer.x:layer.x;
+    float3 local=p-shadowWorldOrigin.xyz;
+    float3 centreOffset=float3(
+        local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
+    float baseShellC=cloudShellCFromLocalPosition(
+        local,baseAltitude);
+    float distance=0.0;
+    bool valid=cloudFiniteFloat3(p)
+        &&cloudFiniteFloat3(lightDirection)
+        &&cloudValueIsFinite(baseShellC);
+    if(valid&&baseShellC>0.0){
+        float nearDistance=0.0;
+        float farDistance=0.0;
+        float reverseB=dot(centreOffset,-lightDirection);
+        valid=sphereRootsFromTerms(
+            reverseB,baseShellC,false,
+            nearDistance,farDistance)
+            &&nearDistance>=0.0;
+        if(valid) distance=nearDistance;
+    }
+    if(valid){
+        float3 basePoint=p-lightDirection*distance;
+        valid=cloudFiniteFloat3(basePoint);
+        if(valid)
+            materialXz=basePoint.xz-cloudWindWorld();
+    }
+    return valid;
+}
+
+// 雲帯底面上の光路アンカーから、指定した球殻高度へ最初に上向き到達する距離を求める。
+// 巨大な半径同士を引かず、通常の曲面交差と同じ因数分解済みc項を使う。
+bool cloudShadowRayDistanceFromBandBase(
+    float3 basePoint,float3 lightDirection,
+    float baseAltitude,float targetAltitude,
+    out float rayDistance){
+    rayDistance=0.0;
+    bool valid=cloudFiniteFloat3(basePoint)
+        &&cloudFiniteFloat3(lightDirection)
+        &&cloudValueIsFinite(baseAltitude)
+        &&cloudValueIsFinite(targetAltitude)
+        &&targetAltitude>=baseAltitude;
+    if(valid&&targetAltitude>baseAltitude){
+        float3 local=basePoint-worldOrigin.xyz;
+        float3 centreOffset=float3(
+            local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
+        // 雲帯底で太陽が局所地平線以下なら、惑星を貫く遠側交差を
+        // 直接光として採用しない。
+        valid=dot(centreOffset,lightDirection)>0.0;
+        if(valid){
+            float nearDistance=0.0;
+            float farDistance=0.0;
+            float targetShellC=cloudShellCFromLocalPosition(
+                local,targetAltitude);
+            valid=sphereRootsFromTerms(
+                dot(centreOffset,lightDirection),
+                targetShellC,true,
+                nearDistance,farDistance)
+                &&farDistance>=0.0;
+            if(valid) rayDistance=farDistance;
+        }
+    }
+    return valid&&cloudValueIsFinite(rayDistance);
 }
 
 // 中央の等間隔半径を画素数から求め、CPUの中心追従半径と別の即値にしない。
@@ -5016,28 +5582,57 @@ float cloudAmbientCacheTextureAxis(float materialAxis,float minimumAxis,float in
     return textureAxis;
 }
 
-// 風移流前の物質座標を、環境光キャッシュの非一様な水平座標へ戻す。
+// 風移流前の物質座標を、環境光と太陽自己影が共有する非一様な水平座標へ戻す。
 float2 cloudAmbientCacheTexturePosition(float2 materialXz){
     return float2(cloudAmbientCacheTextureAxis(materialXz.x,shadowGrid.x,shadowGrid.z),cloudAmbientCacheTextureAxis(materialXz.y,shadowGrid.y,shadowGrid.w));
 }
 
-// 非一様な一画素の物理境界を四等分し、担当する小領域の中点と幅を返す。
-// テクスチャ座標を等分すると外周の物理面積が不均一になるため、写像後に分ける。
-void cloudAmbientCacheAxisSample(float textureAxis,uint sampleIndex,float minimumAxis,float inverseExtent,out float samplePosition,out float sampleWidth){
-    float halfTexel=0.5*shadowState.z;
-    float lowerBoundary=cloudAmbientCacheMaterialAxis(textureAxis-halfTexel,minimumAxis,inverseExtent);
-    float upperBoundary=cloudAmbientCacheMaterialAxis(textureAxis+halfTexel,minimumAxis,inverseExtent);
-    uint boundedIndex=min(sampleIndex,CLOUD_AMBIENT_CACHE_QUADRATURE_AXIS-1u);
-    sampleWidth=max(
-        (upperBoundary-lowerBoundary)
-        /float(CLOUD_AMBIENT_CACHE_QUADRATURE_AXIS),1e-4);
-    samplePosition=lowerBoundary
-        +(float(boundedIndex)+0.5)*sampleWidth;
+// 太陽積分用の完成密度分布を、生成時と同じ非一様物質座標と雲帯高度から読む。
+// 水平範囲外はclampせずfalseを返し、呼び出し側が用途に応じて光路を棄却する。
+bool sampleCloudShadowDensityDistribution(
+    float3 p,out float4 distribution,out bool upperBand){
+    distribution=0.0.xxxx;
+    upperBand=false;
+    bool valid=false;
+    float altitude=cloudAltitude(p);
+    bool inLowerBand=altitude>=layer.x&&altitude<=layer.y;
+    bool inUpperBand=cloudUpperLayer.w>0.5
+        &&altitude>=cloudUpperLayer.x&&altitude<=cloudUpperLayer.y;
+    if(inLowerBand||inUpperBand){
+        upperBand=inUpperBand;
+        float bandMinimum=upperBand?cloudUpperLayer.x:layer.x;
+        float bandMaximum=upperBand?cloudUpperLayer.y:layer.y;
+        float h=saturate(
+            (altitude-bandMinimum)/max(bandMaximum-bandMinimum,1e-4));
+        float bandProfileCount=float(CLOUD_SHADOW_CACHE_HEIGHT);
+        float logicalHeight=float(CLOUD_SHADOW_DENSITY_PROFILE_COUNT);
+        float profileIndex=(upperBand?bandProfileCount:0.0)
+            +h*(bandProfileCount-1.0);
+        float2 materialXz=p.xz-cloudWindWorld();
+        float2 uvwXz=cloudAmbientCacheTexturePosition(materialXz);
+        float halfTexel=0.5*shadowState.z;
+        bool insideHorizontalCache=all(uvwXz>=halfTexel.xx)
+            &&all(uvwXz<=1.0.xx-halfTexel.xx);
+        if(insideHorizontalCache){
+            float3 uvw=float3(
+                uvwXz.x,(profileIndex+0.5)/logicalHeight,uvwXz.y);
+            float4 cached=cloudShadowCache.SampleLevel(
+                cloudShadowCache_sampler,uvw,0);
+            bool finiteDistribution=all(cached==cached)
+                &&all(cached>=0.0.xxxx)
+                &&all(cached<=65504.0.xxxx);
+            if(finiteDistribution){
+                distribution=cached;
+                valid=true;
+            }
+        }
+    }
+    return valid;
 }
 
-// 一つの小領域を一スレッドだけで評価する。16標本を関数内で反復せず、
-// GPUグループの16スレッドへ分けてシェーダーコンパイラの式展開を防ぐ。
-float cloudAmbientQuadratureDensity(
+// 一つの太陽影voxelを担当する物理幅で完成密度の四状態を帯域制限する。
+// 光路ごとに天候、形状、侵食を再生成せず、方向依存の相関輸送だけを後段へ残す。
+float4 cloudShadowDensityDistribution(
     float2 worldXz,float2 horizontalFootprint,
     float altitude,float coverage,float verticalStep){
     float3 p=cloudShadowWorldPositionAtAltitude(worldXz,altitude);
@@ -5046,75 +5641,484 @@ float cloudAmbientQuadratureDensity(
         max(horizontalFootprint.y,0.0));
     CloudMacroSample macro=sampleCloudMacroLightingBandLimited(
         p,coverage,physicalFootprint,0.0.xxx);
-    return cloudLowLodDensityFromMacro(
-        macro,macro.densityWeatherMask);
+    float representativeWidth=max(
+        physicalFootprint.x,max(physicalFootprint.y,physicalFootprint.z));
+    float billowVisibility=cloudBillowVisibilityFromSampleSpacing(
+        representativeWidth);
+    float middleBillowVisibility=
+        cloudMiddleBillowVisibilityFromSampleSpacing(representativeWidth);
+    float erosionVisibility=cloudErosionVisibilityFromSampleSpacing(
+        representativeWidth);
+    float4 distribution=cloudDensityDistributionFromMacro(
+        p,macro,macro.densityWeatherMask,
+        billowVisibility,middleBillowVisibility,erosionVisibility);
+    distribution*=cloudOpticalDepthScaleFromBand(macro.upperBand>0.5);
+    return cloudFiniteNonnegative4(distribution);
 }
 
-// 影キャッシュは始点から雲殻出口までを相関長に応じた区間で覆う。
-// 光路方向へ平均した密度の光学的深さを加算し、区間数で透過率を変えない。
-float3 traceCloudShadowDepths(
-    float3 rayOrigin,float coverage,float3 lightDirection,
-    float3 extinctionByOrder){
-    float3 lightDepths=0.0.xxx;
-    CloudPackedBandIntervals intervals=
-        intersectCloudBandsFromPosition(rayOrigin,lightDirection);
-    CloudFourStateTransportLanes firstOrderState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes secondOrderState=
-        cloudInitialFourStateTransportLanes();
-    CloudFourStateTransportLanes thirdOrderState=
-        cloudInitialFourStateTransportLanes();
-    int4 sampleCounts=cloudAdaptiveLightSampleCounts(
-        intervals,CLOUD_LIGHT_MARCH_SAMPLE_COUNT,
-        rayOrigin,lightDirection);
-    float previousSegmentEnd=-1.0;
-    int previousBandId=-1;
-    [loop] for(int sampleIndex=0;
-               sampleIndex<CLOUD_LIGHT_MARCH_SAMPLE_COUNT;
-               ++sampleIndex){
-        float rayDistance=0.0;
-        float sampleSpacing=0.0;
-        int sampleBandId=-1;
-        if(!cloudAdaptiveLightSampleTerms(
-               intervals,sampleCounts,sampleIndex,
-               rayDistance,sampleSpacing,sampleBandId)) continue;
-        float segmentStart=rayDistance-0.5*sampleSpacing;
-        if(previousSegmentEnd>=0.0&&
-           (sampleBandId!=previousBandId||
-            segmentStart>previousSegmentEnd+1e-3)){
-            firstOrderState.active=0.0.xxxx;
-            secondOrderState.active=0.0.xxxx;
-            thirdOrderState.active=0.0.xxxx;
-        }
-        previousSegmentEnd=rayDistance+0.5*sampleSpacing;
-        previousBandId=sampleBandId;
-        float3 samplePosition=rayOrigin+lightDirection*rayDistance;
-        CloudMacroSample lightMacro=sampleCloudMacroLightingSegment(
-            samplePosition,coverage,lightDirection,sampleSpacing);
-        float3 lightSegmentDepth=cloudLowLodOpticalDepthByOrderFromMacro(
-            samplePosition,lightMacro,lightMacro.densityWeatherMask,
-            max(extinctionByOrder,0.0.xxx),
-            lightDirection,sampleSpacing,
-            firstOrderState,secondOrderState,thirdOrderState);
-        lightDepths+=lightSegmentDepth;
+// 方向番号から4点Gauss-Legendreの天頂角番号を取り出す。
+uint cloudAmbientZenithDirectionIndex(uint directionIndex){
+    return min(
+        directionIndex%CLOUD_AMBIENT_ZENITH_DIRECTION_COUNT,
+        CLOUD_AMBIENT_ZENITH_DIRECTION_COUNT-1u);
+}
+
+// 天頂角番号が持つ上向き成分を、FXCで定数ベクトルの動的添字にしない形で返す。
+float cloudAmbientDirectionCosine(uint zenithIndex){
+    float directionCosine=CLOUD_AMBIENT_DIRECTION_COSINES.x;
+    if(zenithIndex==1u)
+        directionCosine=CLOUD_AMBIENT_DIRECTION_COSINES.y;
+    else if(zenithIndex==2u)
+        directionCosine=CLOUD_AMBIENT_DIRECTION_COSINES.z;
+    else if(zenithIndex>=3u)
+        directionCosine=CLOUD_AMBIENT_DIRECTION_COSINES.w;
+    return directionCosine;
+}
+
+// 4方位へ分けた一方向が半球照度へ占める重みを返す。
+float cloudAmbientDirectionIrradianceWeight(uint directionIndex){
+    uint zenithIndex=cloudAmbientZenithDirectionIndex(directionIndex);
+    float weight=CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.x;
+    if(zenithIndex==1u)
+        weight=CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.y;
+    else if(zenithIndex==2u)
+        weight=CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.z;
+    else if(zenithIndex>=3u)
+        weight=CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.w;
+    return weight/float(CLOUD_AMBIENT_AZIMUTH_DIRECTION_COUNT);
+}
+
+// 4天頂角x4方位角を実際の上向き3D光路へ変換する。天頂角ごとに方位環を
+// 22.5度ずらし、格子軸へ全ての低角度経路が重なることを避ける。
+float3 cloudAmbientDirection(uint directionIndex){
+    uint boundedIndex=min(
+        directionIndex,CLOUD_AMBIENT_DIRECTION_COUNT-1u);
+    uint zenithIndex=cloudAmbientZenithDirectionIndex(boundedIndex);
+    uint azimuthIndex=boundedIndex/CLOUD_AMBIENT_ZENITH_DIRECTION_COUNT;
+    float directionCosine=cloudAmbientDirectionCosine(zenithIndex);
+    float azimuth=1.5707963267948966*float(azimuthIndex)
+        +0.3926990816987242*float(zenithIndex);
+    float horizontalLength=sqrt(max(
+        1.0-directionCosine*directionCosine,0.0));
+    return float3(
+        horizontalLength*cos(azimuth),directionCosine,
+        horizontalLength*sin(azimuth));
+}
+
+// 明示した惑星原点から局所半径方向を求め、固定方位を接平面へ射影する。
+// 定数バッファへ依存しないため、製品経路とGPU数値試験が同じ計算を共有できる。
+float3 cloudAmbientDirectionAtPointFromOrigin(
+    uint directionIndex,float3 samplePosition,float3 shellWorldOrigin){
+    float3 tangentDirection=cloudAmbientDirection(directionIndex);
+    float3 local=samplePosition-shellWorldOrigin;
+    float3 radial=float3(
+        local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
+    float radialLengthSquared=dot(radial,radial);
+    if(!cloudFiniteFloat3(radial)
+       ||!cloudValueIsFinite(radialLengthSquared)
+       ||radialLengthSquared<=1.0)
+        return tangentDirection;
+    float3 localUp=radial*rsqrt(radialLengthSquared);
+    float horizontalLength=length(tangentDirection.xz);
+    if(!cloudValueIsFinite(horizontalLength)
+       ||horizontalLength<=1e-4)
+        return tangentDirection;
+    float3 azimuthReference=float3(
+        tangentDirection.x/horizontalLength,0.0,
+        tangentDirection.z/horizontalLength);
+    float azimuthRadialDot=dot(azimuthReference,localUp);
+    float3 projectedAzimuth=
+        azimuthReference-azimuthRadialDot*localUp;
+    float projectedLengthSquared=dot(
+        projectedAzimuth,projectedAzimuth);
+    if(!cloudValueIsFinite(projectedLengthSquared)
+       ||projectedLengthSquared<=1e-6)
+        return tangentDirection;
+    return tangentDirection.y*localUp
+        +horizontalLength*projectedAzimuth
+            *rsqrt(projectedLengthSquared);
+}
+
+// 描画中の惑星原点を使う局所方向アダプター。
+float3 cloudAmbientDirectionAtPoint(
+    uint directionIndex,float3 samplePosition){
+    return cloudAmbientDirectionAtPointFromOrigin(
+        directionIndex,samplePosition,worldOrigin.xyz);
+}
+
+// 固定方位の局所接線に沿う直線光路を、既知の球殻高度から底面へ解析的に戻す。
+// 反復回数や層厚で参照列が変わらず、生成側の底面方向と同じ列を一回で決定する。
+bool cloudAmbientDirectionalBandBaseWorldPosition(
+    float3 samplePosition,uint directionIndex,float baseAltitude,
+    float targetAltitude,float3 shellWorldOrigin,out float3 basePoint){
+    basePoint=samplePosition;
+    float3 tangentDirection=cloudAmbientDirection(directionIndex);
+    float directionCosine=tangentDirection.y;
+    float horizontalLength=length(tangentDirection.xz);
+    float3 azimuthReference=float3(
+        tangentDirection.x/max(horizontalLength,1e-6),0.0,
+        tangentDirection.z/max(horizontalLength,1e-6));
+    float3 local=samplePosition-shellWorldOrigin;
+    float3 centerOffset=float3(
+        local.x,CLOUD_PLANET_RADIUS+local.y,local.z);
+    float baseRadius=CLOUD_PLANET_RADIUS+baseAltitude;
+    float targetRadius=CLOUD_PLANET_RADIUS+targetAltitude;
+    float baseRadiusSquared=baseRadius*baseRadius;
+    float targetRadiusSquared=targetRadius*targetRadius;
+    float radialDifference=(targetAltitude-baseAltitude)
+        *(2.0*CLOUD_PLANET_RADIUS+targetAltitude+baseAltitude);
+    float rootTerm=baseRadiusSquared
+        *directionCosine*directionCosine+radialDifference;
+    bool valid=cloudFiniteFloat3(samplePosition)
+        &&cloudFiniteFloat3(shellWorldOrigin)
+        &&cloudFiniteFloat3(centerOffset)
+        &&cloudValueIsFinite(directionCosine)&&directionCosine>0.0
+        &&cloudValueIsFinite(horizontalLength)&&horizontalLength>1e-4
+        &&cloudValueIsFinite(baseRadius)&&baseRadius>1.0
+        &&cloudValueIsFinite(targetRadius)&&targetRadius>=baseRadius
+        &&cloudValueIsFinite(rootTerm)&&rootTerm>=0.0;
+    float rayDistance=0.0;
+    if(valid){
+        rayDistance=-baseRadius*directionCosine+sqrt(rootTerm);
+        valid=cloudValueIsFinite(rayDistance)&&rayDistance>=0.0;
     }
-    return lightDepths;
+    float azimuthCoordinate=0.0;
+    float3 perpendicular=0.0.xxx;
+    float perpendicularLengthSquared=0.0;
+    if(valid){
+        azimuthCoordinate=dot(centerOffset,azimuthReference);
+        perpendicular=centerOffset
+            -azimuthCoordinate*azimuthReference;
+        perpendicularLengthSquared=dot(perpendicular,perpendicular);
+        valid=cloudValueIsFinite(perpendicularLengthSquared)
+            &&perpendicularLengthSquared>1.0
+            &&targetRadiusSquared>1.0;
+    }
+    if(valid){
+        float perpendicularLength=sqrt(perpendicularLengthSquared);
+        float radialAlongRay=
+            baseRadius+rayDistance*directionCosine;
+        float tangentAlongRay=rayDistance*horizontalLength;
+        float baseAzimuthCosine=
+            (radialAlongRay*azimuthCoordinate
+             -tangentAlongRay*perpendicularLength)
+            /targetRadiusSquared;
+        valid=cloudValueIsFinite(baseAzimuthCosine);
+        if(valid){
+            baseAzimuthCosine=clamp(baseAzimuthCosine,-1.0,1.0);
+            float basePerpendicularSine=sqrt(max(
+                1.0-baseAzimuthCosine*baseAzimuthCosine,0.0));
+            float3 baseNormal=
+                baseAzimuthCosine*azimuthReference
+                +(basePerpendicularSine/perpendicularLength)
+                    *perpendicular;
+            basePoint=shellWorldOrigin+float3(
+                baseRadius*baseNormal.x,
+                -CLOUD_PLANET_RADIUS+baseRadius*baseNormal.y,
+                baseRadius*baseNormal.z);
+            valid=cloudFiniteFloat3(basePoint);
+        }
+    }
+    return valid;
 }
 
-// 同一点で積分した太陽円盤4光路の一次・二次・三次透過率と混合率を返す。
-// 上層がある場合は縦32画素を下層16・上層16へ分け、別の雲帯を誤って採取しない。
+// 雲帯と高さを描画定数から選び、解析した底面を風に追従する物質座標へ変換する。
+bool cloudAmbientDirectionalBandBaseMaterialPosition(
+    float3 samplePosition,uint directionIndex,bool upperBand,
+    float normalizedHeight,out float2 materialXz){
+    materialXz=0.0.xx;
+    float baseAltitude=upperBand?cloudUpperLayer.x:layer.x;
+    float topAltitude=upperBand?cloudUpperLayer.y:layer.y;
+    float targetAltitude=lerp(
+        baseAltitude,topAltitude,saturate(normalizedHeight));
+    float3 basePoint=samplePosition;
+    bool valid=cloudAmbientDirectionalBandBaseWorldPosition(
+        samplePosition,directionIndex,baseAltitude,targetAltitude,
+        shadowWorldOrigin.xyz,basePoint);
+    if(valid) materialXz=basePoint.xz-cloudWindWorld();
+    return valid;
+}
+
+// 条件付き生存率と物質空間のセル位相を区間間で継承し、同じ媒質の分割数で
+// 光学的深さが変わらない環境光輸送を行う。
+float cloudAmbientCorrelatedSegmentOpticalDepth(
+    float4 distribution,float extinction,float correlationLength,
+    float segmentLength,float pathCoordinate,
+    inout CloudFourStateTransportLanes transportState){
+    bool valid=all(distribution==distribution)
+        &&all(distribution>=0.0.xxxx)
+        &&all(distribution<=65504.0.xxxx)
+        &&cloudValueIsFinite(extinction)&&extinction>=0.0
+        &&cloudValueIsFinite(correlationLength)&&correlationLength>=0.0
+        &&cloudValueIsFinite(segmentLength)&&segmentLength>=0.0
+        &&cloudValueIsFinite(pathCoordinate);
+    if(!valid){
+        cloudResetFourStateTransportLanes(transportState,1.0.xxxx);
+        transportState.active=0.0.xxxx;
+        return 80.0;
+    }
+    if(segmentLength<=0.0||extinction<=0.0) return 0.0;
+    float resolvedCorrelation=correlationLength;
+    bool validBoundaryState=transportState.active.x>0.5
+        &&transportState.boundaryPending.x<0.5
+        &&cloudValueIsFinite(transportState.boundaryDistances.x)
+        &&transportState.boundaryDistances.x>0.0
+        &&cloudValueIsFinite(transportState.cellLengths.x)
+        &&transportState.cellLengths.x>0.0
+        &&transportState.boundaryDistances.x<=transportState.cellLengths.x;
+    if(resolvedCorrelation>1e-6&&!validBoundaryState
+       &&!cloudInitializeFourStateTransportPhaseLanes(
+           transportState,pathCoordinate,resolvedCorrelation))
+        resolvedCorrelation=0.0;
+    if(resolvedCorrelation<=1e-6) resolvedCorrelation=0.0;
+    CloudFourStateOpticalTransportResultLanes interval=
+        cloudFourStateOpticalTransportLanes(
+            distribution.xxxx,distribution.yyyy,
+            distribution.zzzz,distribution.wwww,
+            extinction,resolvedCorrelation.xxxx,
+            segmentLength.xxxx,transportState);
+    float depth=cloudOpticalDepthFromAbsorption(interval.absorptions.x);
+    return cloudValueIsFinite(depth)?clamp(depth,0.0,80.0):80.0;
+}
+
+// 一つの直線上にある雲帯を31区間で一度だけ掃引し、各端点の地面側累積深さを保存する。
+bool cloudAccumulateAmbientBandDepthsFromBase(
+    float3 rayBasePoint,float rayBaseAltitude,
+    float bandBaseAltitude,float bandTopAltitude,
+    float3 direction,float ambientExtinction,bool expectedUpperBand,
+    bool storeProfile,bool upperProfile,uint groupIndex,
+    out float fullOpticalDepth){
+    fullOpticalDepth=0.0;
+    uint profileBase=groupIndex*CLOUD_SHADOW_CACHE_HEIGHT;
+    if(storeProfile){
+        if(upperProfile)
+            cloudAmbientUpperGroundDepths[profileBase]=0.0;
+        else
+            cloudAmbientLowerGroundDepths[profileBase]=0.0;
+    }
+    float previousDistance=0.0;
+    CloudFourStateTransportLanes transportState=
+        cloudInitialFourStateTransportLanes();
+    bool valid=bandTopAltitude>bandBaseAltitude
+        &&cloudShadowRayDistanceFromBandBase(
+            rayBasePoint,direction,rayBaseAltitude,
+            bandBaseAltitude,previousDistance);
+    [loop] for(uint profileIndex=1u;
+               profileIndex<CLOUD_SHADOW_CACHE_HEIGHT&&valid;
+               ++profileIndex){
+        float normalizedHeight=float(profileIndex)
+            /float(CLOUD_SHADOW_CACHE_HEIGHT-1u);
+        float targetAltitude=lerp(
+            bandBaseAltitude,bandTopAltitude,normalizedHeight);
+        float currentDistance=0.0;
+        valid=cloudShadowRayDistanceFromBandBase(
+            rayBasePoint,direction,rayBaseAltitude,
+            targetAltitude,currentDistance);
+        float segmentLength=currentDistance-previousDistance;
+        valid=valid&&cloudValueIsFinite(segmentLength)
+            &&segmentLength>=0.0;
+        if(valid&&segmentLength>0.0){
+            float3 samplePosition=rayBasePoint
+                +direction*(0.5*(previousDistance+currentDistance));
+            float4 distribution=0.0.xxxx;
+            bool sampledUpperBand=false;
+            valid=sampleCloudShadowDensityDistribution(
+                samplePosition,distribution,sampledUpperBand)
+                &&sampledUpperBand==expectedUpperBand;
+            if(valid){
+                float correlationLength=
+                    cloudUnresolvedDensityCorrelationLengthAtDirection(
+                        samplePosition,direction,expectedUpperBand);
+                float3 segmentStartPosition=rayBasePoint
+                    +direction*previousDistance;
+                float pathCoordinate=
+                    cloudCorrelatedTransportPathCoordinate(
+                        segmentStartPosition,direction);
+                float segmentDepth=
+                    cloudAmbientCorrelatedSegmentOpticalDepth(
+                        distribution,ambientExtinction,
+                        correlationLength,segmentLength,pathCoordinate,
+                        transportState);
+                valid=cloudValueIsFinite(segmentDepth)
+                    &&segmentDepth>=0.0;
+                if(valid)
+                    fullOpticalDepth=min(
+                        fullOpticalDepth+segmentDepth,80.0);
+            }
+        }
+        if(storeProfile&&valid){
+            if(upperProfile)
+                cloudAmbientUpperGroundDepths[
+                    profileBase+profileIndex]=fullOpticalDepth;
+            else
+                cloudAmbientLowerGroundDepths[
+                    profileBase+profileIndex]=fullOpticalDepth;
+        }
+        previousDistance=currentDistance;
+    }
+    return valid&&cloudValueIsFinite(fullOpticalDepth);
+}
+
+// 一つの曲面雲帯を上端から下端へ一度だけ積分し、同じ光線上の全高度へ
+// 累積透過率を書き出す。光の進行方向と逆順に辿るが、各区間は同じ直線上にあり、
+// Beer-Lambertの光学的深さは方向を反転しても同じになる。
+bool cloudAccumulateSunBandProfilesFromTop(
+    float3 rayBasePoint,float rayBaseAltitude,
+    float bandBaseAltitude,float bandTopAltitude,
+    float3 lightDirection,float3 extinctionByOrder,
+    bool storeProfiles,uint profileOffset,uint groupIndex,
+    inout float3 cumulativeDepth){
+    float upperDistance=0.0;
+    bool valid=bandTopAltitude>bandBaseAltitude
+        &&cloudShadowRayDistanceFromBandBase(
+            rayBasePoint,lightDirection,
+            rayBaseAltitude,bandTopAltitude,
+            upperDistance);
+    if(valid&&storeProfiles){
+        cloudSunVisibilityProfiles[
+            groupIndex*CLOUD_SUN_CACHE_PROFILE_COUNT
+            +profileOffset+CLOUD_SHADOW_CACHE_HEIGHT-1u]
+            =exp(-max(cumulativeDepth,0.0.xxx));
+    }
+    CloudFourStateTransportLanes packedOrderState=
+        cloudInitialFourStateTransportLanes();
+    [loop] for(int profileIndex=
+                   int(CLOUD_SHADOW_CACHE_HEIGHT)-2;
+               profileIndex>=0&&valid;
+               --profileIndex){
+        float normalizedHeight=float(profileIndex)
+            /max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);
+        float sampleAltitude=lerp(
+            bandBaseAltitude,bandTopAltitude,normalizedHeight);
+        float lowerDistance=0.0;
+        valid=cloudShadowRayDistanceFromBandBase(
+            rayBasePoint,lightDirection,
+            rayBaseAltitude,sampleAltitude,
+            lowerDistance);
+        float segmentLength=upperDistance-lowerDistance;
+        valid=valid&&cloudValueIsFinite(segmentLength)
+            &&segmentLength>=0.0;
+        if(valid&&segmentLength>0.0){
+            float3 samplePosition=rayBasePoint
+                +lightDirection*(0.5*(lowerDistance+upperDistance));
+            float3 reverseDirection=-lightDirection;
+            float4 cachedDistribution=0.0.xxxx;
+            bool cachedUpperBand=false;
+            valid=sampleCloudShadowDensityDistribution(
+                samplePosition,cachedDistribution,cachedUpperBand);
+            if(valid){
+                float correlationLength=
+                    cloudUnresolvedDensityCorrelationLengthAtDirection(
+                        samplePosition,reverseDirection,cachedUpperBand);
+                float3 segmentStartPosition=rayBasePoint
+                    +lightDirection*upperDistance;
+                float pathCoordinate=
+                    cloudCorrelatedTransportPathCoordinate(
+                        segmentStartPosition,reverseDirection);
+                float3 segmentDepth=
+                    cloudPackedFourStateOpticalDepthByOrder(
+                        cachedDistribution,extinctionByOrder,
+                        correlationLength,segmentLength,
+                        pathCoordinate,
+                        packedOrderState);
+                valid=cloudFiniteFloat3(segmentDepth);
+                if(valid) cumulativeDepth+=segmentDepth;
+            }
+            valid=valid&&cloudFiniteFloat3(cumulativeDepth);
+        }
+        if(valid&&storeProfiles){
+            cloudSunVisibilityProfiles[
+                groupIndex*CLOUD_SUN_CACHE_PROFILE_COUNT
+                +profileOffset+uint(profileIndex)]
+                =exp(-max(cumulativeDepth,0.0.xxx));
+        }
+        upperDistance=lowerDistance;
+        if(valid&&cloudAllActiveLightOrdersOpaque(
+               cumulativeDepth,extinctionByOrder)){
+            if(storeProfiles){
+                [loop] for(int fillIndex=profileIndex-1;
+                           fillIndex>=0;
+                           --fillIndex){
+                    cloudSunVisibilityProfiles[
+                        groupIndex*CLOUD_SUN_CACHE_PROFILE_COUNT
+                        +profileOffset+uint(fillIndex)]=0.0.xxx;
+                }
+            }
+            break;
+        }
+    }
+    return valid;
+}
+
+// 失敗した雲帯だけを不透明へ閉じ、別の雲帯や別の太陽円盤方向へ非数を広げない。
+void cloudClearSunBandProfiles(
+    uint profileOffset,uint groupIndex,float3 visibility){
+    [loop] for(uint profileIndex=0u;
+               profileIndex<CLOUD_SHADOW_CACHE_HEIGHT;
+               ++profileIndex){
+        cloudSunVisibilityProfiles[
+            groupIndex*CLOUD_SUN_CACHE_PROFILE_COUNT
+            +profileOffset+profileIndex]=visibility;
+    }
+}
+
+// 影キャッシュも通常描画と同じ完成密度光路を使う。低詳細度だけを保存して
+// 中心方向の局所差分を四方向へ複製すると、円盤方向ごとの雲縁と境界で不整合になる。
+float3 traceCloudShadowDepths(
+    float3 rayOrigin,float coverage,float3 requestedLightDirection,
+    float3 extinctionByOrder){
+    return traceCloudMainLightDepths(
+        rayOrigin,coverage,requestedLightDirection,extinctionByOrder);
+}
+
+// 太陽円盤の一方向について、現在点を雲帯底へ逆投影した光路アンカーを
+// キャッシュ座標へ写す。端の線形補間が無関係な列を混ぜる範囲は採用しない。
+bool cloudSunCacheAnchorTexturePosition(
+    float3 p,float3 lightDirection,bool upperBand,
+    out float2 uv,out float edgeWeight){
+    uv=0.5.xx;
+    edgeWeight=0.0;
+    float2 materialXz=0.0.xx;
+    bool valid=cloudShadowBandBaseMaterialPosition(
+        p,lightDirection,upperBand,materialXz);
+    if(valid){
+        uv=cloudAmbientCacheTexturePosition(materialXz);
+        float2 edgeCells=min(uv,1.0-uv)/shadowState.z;
+        float minimumEdgeCells=min(edgeCells.x,edgeCells.y);
+        valid=minimumEdgeCells>
+            CLOUD_SHADOW_CACHE_FILTER_START_CELLS;
+        if(valid)
+            edgeWeight=smoothstep(
+                CLOUD_SHADOW_CACHE_FILTER_START_CELLS,
+                CLOUD_SHADOW_CACHE_FILTER_FULL_CELLS,
+                minimumEdgeCells);
+    }
+    return valid;
+}
+
+// 同一点から太陽円盤4方向へ伸びる光路を、それぞれの雲帯底アンカーで読む。
+// 各方向は異なる水平座標へ逆投影されるため、同じUVのRGBAを読む近似は行わない。
 void sampleCloudSunTransmittance(
     float3 lp,out float cacheWeight,
     out float4 firstVisibility,out float4 secondVisibility,
     out float4 thirdVisibility){
-    // 全ての棄却経路で遮蔽なしを保ち、混合率0の正確積分へ安全に戻す。
+    // 資源不成立時の既定値は自己影なしとし、品質未受入れ状態を有限値で表示する。
     firstVisibility=1.0.xxxx;
     secondVisibility=1.0.xxxx;
     thirdVisibility=1.0.xxxx;
     cacheWeight=0.0;
+    // 地平線付近で生成した世代は、発散する水平投影を無遮蔽へ開かず不透明へ閉じる。
+    // 同じ3D資源の周囲光領域は別の採取関数が引き続き利用する。
+    if(shadowState.y<=0.0){
+        firstVisibility=0.0.xxxx;
+        secondVisibility=0.0.xxxx;
+        thirdVisibility=0.0.xxxx;
+        cacheWeight=1.0;
+        return;
+    }
     if(shadowState.x>0.5){
-        float2 q=lp.xz-cloudWindWorld();
-        float altitude=cloudAltitude(lp);
+        float altitude=cloudAltitudeFromOrigin(
+            lp,shadowWorldOrigin.xyz);
         bool inLowerBand=altitude>=layer.x&&altitude<=layer.y;
         bool inUpperBand=cloudUpperLayer.w>0.5&&
             altitude>=cloudUpperLayer.x&&altitude<=cloudUpperLayer.y;
@@ -5123,46 +6127,105 @@ void sampleCloudSunTransmittance(
             ?(altitude-cloudUpperLayer.x)
                 /max(cloudUpperLayer.y-cloudUpperLayer.x,1e-4)
             :(altitude-layer.x)/max(layer.y-layer.x,1e-4);
-        float logicalHeight=float(CLOUD_SHADOW_CACHE_HEIGHT);
-        float textureHeight=float(CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT);
-        float profileIndex=0.5+h*(logicalHeight-1.0);
-        if(cloudUpperLayer.w>0.5){
-            float bandCacheHeight=0.5*logicalHeight;
-            profileIndex=(upperBand?bandCacheHeight+0.5:0.5)
-                +h*(bandCacheHeight-1.0);
-        }
-        float2 uvwXz=float2(
-            (q.x-shadowGrid.x)*shadowGrid.z,
-            (q.y-shadowGrid.y)*shadowGrid.w);
-        // 範囲外の位置を無関係な端の画素へ固定しない。線形補間が境界をまたがないよう、
-        // 水平面に1.5画素分の余白を残す。縦座標は各雲帯の画素中心へ明示的に写す。
-        float2 edgeCells=min(uvwXz,1.0-uvwXz)/shadowState.z;
-        float minimumEdgeCells=min(edgeCells.x,edgeCells.y);
-        if((inLowerBand||inUpperBand)&&minimumEdgeCells>CLOUD_SHADOW_CACHE_FILTER_START_CELLS){
-            float borderWeight=smoothstep(CLOUD_SHADOW_CACHE_FILTER_START_CELLS,CLOUD_SHADOW_CACHE_FILTER_FULL_CELLS,minimumEdgeCells);
-            float3 firstUvw=float3(
-                uvwXz.x,(logicalHeight+profileIndex)/textureHeight,uvwXz.y);
-            float3 secondUvw=float3(
-                uvwXz.x,(2.0*logicalHeight+profileIndex)/textureHeight,uvwXz.y);
-            float3 thirdUvw=float3(
-                uvwXz.x,(3.0*logicalHeight+profileIndex)/textureHeight,uvwXz.y);
-            float4 cachedFirst=cloudShadowCache.SampleLevel(
-                cloudShadowCache_sampler,firstUvw,0);
-            float4 cachedSecond=cloudShadowCache.SampleLevel(
-                cloudShadowCache_sampler,secondUvw,0);
-            float4 cachedThird=cloudShadowCache.SampleLevel(
-                cloudShadowCache_sampler,thirdUvw,0);
-            bool finiteValue=all(cachedFirst==cachedFirst)
-                          && all(cachedSecond==cachedSecond)
-                          && all(cachedThird==cachedThird)
-                          && all(cachedFirst>=0.0)&&all(cachedFirst<=1.001)
-                          && all(cachedSecond>=0.0)&&all(cachedSecond<=1.001)
-                          && all(cachedThird>=0.0)&&all(cachedThird<=1.001);
-            if(finiteValue){
-                cacheWeight=borderWeight;
-                firstVisibility=saturate(cachedFirst);
-                secondVisibility=saturate(cachedSecond);
-                thirdVisibility=saturate(cachedThird);
+        if(inLowerBand||inUpperBand){
+            float3 publishedSun,publishedTangent,publishedBitangent;
+            cloudPublishedShadowLightBasis(
+                publishedSun,publishedTangent,publishedBitangent);
+            float3 direction0=cloudSunDiskDirection(
+                publishedSun,publishedTangent,
+                publishedBitangent,0u);
+            float3 direction1=cloudSunDiskDirection(
+                publishedSun,publishedTangent,
+                publishedBitangent,1u);
+            float3 direction2=cloudSunDiskDirection(
+                publishedSun,publishedTangent,
+                publishedBitangent,2u);
+            float3 direction3=cloudSunDiskDirection(
+                publishedSun,publishedTangent,
+                publishedBitangent,3u);
+            float2 uv0,uv1,uv2,uv3;
+            float weight0,weight1,weight2,weight3;
+            bool valid0=cloudSunCacheAnchorTexturePosition(
+                lp,direction0,upperBand,uv0,weight0);
+            bool valid1=cloudSunCacheAnchorTexturePosition(
+                lp,direction1,upperBand,uv1,weight1);
+            bool valid2=cloudSunCacheAnchorTexturePosition(
+                lp,direction2,upperBand,uv2,weight2);
+            bool valid3=cloudSunCacheAnchorTexturePosition(
+                lp,direction3,upperBand,uv3,weight3);
+            if(valid0&&valid1&&valid2&&valid3){
+                float logicalHeight=float(CLOUD_SHADOW_CACHE_HEIGHT);
+                float sunProfileCount=float(
+                    CLOUD_SUN_CACHE_PROFILE_COUNT);
+                float textureHeight=float(
+                    CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT);
+                float profileIndex=(upperBand?logicalHeight:0.0)
+                    +0.5+h*(logicalHeight-1.0);
+                float firstY=(logicalHeight+profileIndex)
+                    /textureHeight;
+                float secondY=(logicalHeight+sunProfileCount
+                    +profileIndex)/textureHeight;
+                float thirdY=(logicalHeight+2.0*sunProfileCount
+                    +profileIndex)/textureHeight;
+                float4 first0=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv0.x,firstY,uv0.y),0);
+                float4 first1=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv1.x,firstY,uv1.y),0);
+                float4 first2=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv2.x,firstY,uv2.y),0);
+                float4 first3=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv3.x,firstY,uv3.y),0);
+                float4 second0=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv0.x,secondY,uv0.y),0);
+                float4 second1=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv1.x,secondY,uv1.y),0);
+                float4 second2=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv2.x,secondY,uv2.y),0);
+                float4 second3=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv3.x,secondY,uv3.y),0);
+                float4 third0=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv0.x,thirdY,uv0.y),0);
+                float4 third1=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv1.x,thirdY,uv1.y),0);
+                float4 third2=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv2.x,thirdY,uv2.y),0);
+                float4 third3=cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,
+                    float3(uv3.x,thirdY,uv3.y),0);
+                float4 resolvedFirst=float4(
+                    first0.x,first1.y,first2.z,first3.w);
+                float4 resolvedSecond=float4(
+                    second0.x,second1.y,second2.z,second3.w);
+                float4 resolvedThird=float4(
+                    third0.x,third1.y,third2.z,third3.w);
+                bool finiteValue=all(resolvedFirst==resolvedFirst)
+                    &&all(resolvedSecond==resolvedSecond)
+                    &&all(resolvedThird==resolvedThird)
+                    &&all(resolvedFirst>=0.0)
+                    &&all(resolvedFirst<=1.001)
+                    &&all(resolvedSecond>=0.0)
+                    &&all(resolvedSecond<=1.001)
+                    &&all(resolvedThird>=0.0)
+                    &&all(resolvedThird<=1.001);
+                if(finiteValue){
+                    cacheWeight=min(
+                        min(weight0,weight1),
+                        min(weight2,weight3));
+                    firstVisibility=saturate(resolvedFirst);
+                    secondVisibility=saturate(resolvedSecond);
+                    thirdVisibility=saturate(resolvedThird);
+                }
             }
         }
     }
@@ -5174,7 +6237,8 @@ float3 sampleCloudAmbientVisibility(float3 p){
     float3 result=float3(0.0,1.0,1.0);
     if(shadowState.x>0.5){
         float2 q=p.xz-cloudWindWorld();
-        float altitude=cloudAltitude(p);
+        float altitude=cloudAltitudeFromOrigin(
+            p,shadowWorldOrigin.xyz);
         bool inLowerBand=altitude>=layer.x&&altitude<=layer.y;
         bool inUpperBand=cloudUpperLayer.w>0.5&&
             altitude>=cloudUpperLayer.x&&altitude<=cloudUpperLayer.y;
@@ -5208,33 +6272,36 @@ float3 sampleCloudAmbientVisibility(float3 p){
     return result;
 }
 
-// 一つの端点高度で、上層と下層それぞれから空・地面へ届く光路をRGBAへ詰める。
-// どちらの層でも空側と地面側の和は上下層を合わせた全光学的深さに一致する。
-float4 cloudLayeredAmbientDepth(float lowerColumnDepth,float lowerGroundDepth,float lowerSegmentDepth,float upperColumnDepth,float upperGroundDepth,float upperSegmentDepth,float segmentFraction){
-    segmentFraction=saturate(segmentFraction);
-    float lowerSampleGroundDepth=max(lowerGroundDepth+lowerSegmentDepth*segmentFraction,0.0);
-    float upperLocalGroundDepth=max(upperGroundDepth+upperSegmentDepth*segmentFraction,0.0);
-    float lowerSkyDepth=max(lowerColumnDepth-lowerSampleGroundDepth+upperColumnDepth,0.0);
-    float upperSkyDepth=max(upperColumnDepth-upperLocalGroundDepth,0.0);
-    float upperSampleGroundDepth=upperLocalGroundDepth+lowerColumnDepth;
-    return float4(upperSkyDepth,upperSampleGroundDepth,lowerSkyDepth,lowerSampleGroundDepth);
-}
-
 // 垂直光学的深さを、等方な半球放射輝度が平面へ運ぶ照度の透過率へ変換する。
 // 4点Gauss-Legendre積分で 2*integral(mu*exp(-tau/mu),mu=0..1) を評価する。
 float4 cloudHemisphericVisibility(float4 verticalOpticalDepth){
-    const float4 directionCosines=float4(
-        0.0694318442029737,0.3300094782075719,
-        0.6699905217924281,0.9305681557970262);
-    const float4 irradianceWeights=float4(
-        0.0241522034128332,0.2152140822717850,
-        0.4369310725907611,0.3237026417246206);
-    float4 depth=max(verticalOpticalDepth,0.0.xxxx);
-    return saturate(
-        irradianceWeights.x*exp(-depth/directionCosines.x)
-       +irradianceWeights.y*exp(-depth/directionCosines.y)
-       +irradianceWeights.z*exp(-depth/directionCosines.z)
-       +irradianceWeights.w*exp(-depth/directionCosines.w));
+    // CPU参照と同じく、非有限レーンだけを不透明へ閉じる。他レーンの
+    // 有限な環境光を巻き添えにせず、NaNをキャッシュへ書き出さない。
+    float4 depth=float4(
+        cloudValueIsFinite(verticalOpticalDepth.x)
+            ?max(verticalOpticalDepth.x,0.0):80.0,
+        cloudValueIsFinite(verticalOpticalDepth.y)
+            ?max(verticalOpticalDepth.y,0.0):80.0,
+        cloudValueIsFinite(verticalOpticalDepth.z)
+            ?max(verticalOpticalDepth.z,0.0):80.0,
+        cloudValueIsFinite(verticalOpticalDepth.w)
+            ?max(verticalOpticalDepth.w,0.0):80.0);
+    float4 visibility=saturate(
+        CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.x
+            *exp(-depth/CLOUD_AMBIENT_DIRECTION_COSINES.x)
+       +CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.y
+            *exp(-depth/CLOUD_AMBIENT_DIRECTION_COSINES.y)
+       +CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.z
+            *exp(-depth/CLOUD_AMBIENT_DIRECTION_COSINES.z)
+       +CLOUD_AMBIENT_IRRADIANCE_WEIGHTS.w
+            *exp(-depth/CLOUD_AMBIENT_DIRECTION_COSINES.w));
+    // CPU参照は深さ80以上を厳密な不透明として扱う。指数関数の非ゼロな
+    // 最小値を残さず、GPUとの判定差をキャッシュ境界へ持ち込まない。
+    return float4(
+        depth.x>=80.0?0.0:visibility.x,
+        depth.y>=80.0?0.0:visibility.y,
+        depth.z>=80.0?0.0:visibility.z,
+        depth.w>=80.0?0.0:visibility.w);
 }
 
 // 可視率は0..1なので、共有メモリでは各成分を16bit精度の整数へ量子化する。
@@ -5243,217 +6310,412 @@ uint4 cloudQuantizeAmbientVisibility(float4 visibility){
     return (uint4)round(saturate(visibility)*65535.0);
 }
 
-// 一つのGPUグループを一つの水平セルへ対応させ、16本の周囲光列と
-// 太陽円盤4方向を同時に積分する。光学的深さは各列で透過率へ変換してから
-// 平均し、疎密混在セルを暗く潰さない。
-[numthreads(4,1,4)]
-void CSCloudShadow(uint3 groupId : SV_GroupID,uint groupIndex : SV_GroupIndex){
-    uint updateStride=max((uint)cloudShadowUpdate.z,1u);
-    uint2 outputColumn=uint2(
-        groupId.x*updateStride+(uint)cloudShadowUpdate.x,
-        groupId.z*updateStride+(uint)cloudShadowUpdate.y);
+// 完成密度を一ボクセル一回だけ生成する。周囲光と太陽光は後段で同じ分布を読み、
+// 面積標本や光路ごとに天候・形状・詳細雑音を再生成しない。
+[numthreads(4,4,4)]
+void CSCloudShadow(uint3 logicalVoxel : SV_DispatchThreadID){
+    uint densityWidth,densityHeight,densityDepth;
+    cloudShadowDensityOut.GetDimensions(
+        densityWidth,densityHeight,densityDepth);
+    uint lightWidth,lightHeight,lightDepth;
+    cloudShadowOut.GetDimensions(lightWidth,lightHeight,lightDepth);
+    uint updateStride=max(cloudShadowDensityDispatch.z,1u);
+    uint2 updatePhase=min(
+        cloudShadowDensityDispatch.xy,
+        (updateStride-1u).xx);
+    uint requestedProfileCount=min(
+        cloudShadowDensityDispatch.w,densityHeight);
+    uint3 outputVoxel=uint3(
+        logicalVoxel.x*updateStride+updatePhase.x,
+        logicalVoxel.y,
+        logicalVoxel.z*updateStride+updatePhase.y);
+    if(logicalVoxel.y>=requestedProfileCount
+       ||any(outputVoxel>=uint3(
+           densityWidth,densityHeight,densityDepth))
+       ||densityHeight!=CLOUD_SHADOW_DENSITY_PROFILE_COUNT
+       ||lightWidth!=densityWidth
+       ||lightHeight!=CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT
+       ||lightDepth!=densityDepth)
+        return;
+    bool upperBand=outputVoxel.y>=CLOUD_SHADOW_CACHE_HEIGHT;
+    if(upperBand&&cloudUpperLayer.w<=0.5){
+        cloudShadowDensityOut[outputVoxel]=0.0.xxxx;
+        return;
+    }
+    uint bandHeightIndex=upperBand
+        ?outputVoxel.y-CLOUD_SHADOW_CACHE_HEIGHT:outputVoxel.y;
+    float normalizedHeight=float(bandHeightIndex)
+        /max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);
+    float bandMinimum=upperBand?cloudUpperLayer.x:layer.x;
+    float bandMaximum=upperBand?cloudUpperLayer.y:layer.y;
+    float altitude=lerp(
+        bandMinimum,bandMaximum,normalizedHeight);
+    float verticalFootprint=(bandMaximum-bandMinimum)
+        /max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);
+    float2 textureUv=(float2(outputVoxel.xz)+0.5)
+        /float2(densityWidth,densityDepth);
+    float halfTexel=0.5*shadowState.z;
+    float lowerX=cloudAmbientCacheMaterialAxis(
+        textureUv.x-halfTexel,shadowGrid.x,shadowGrid.z);
+    float upperX=cloudAmbientCacheMaterialAxis(
+        textureUv.x+halfTexel,shadowGrid.x,shadowGrid.z);
+    float lowerZ=cloudAmbientCacheMaterialAxis(
+        textureUv.y-halfTexel,shadowGrid.y,shadowGrid.w);
+    float upperZ=cloudAmbientCacheMaterialAxis(
+        textureUv.y+halfTexel,shadowGrid.y,shadowGrid.w);
+    float2 materialXz=float2(
+        cloudAmbientCacheMaterialAxis(
+            textureUv.x,shadowGrid.x,shadowGrid.z),
+        cloudAmbientCacheMaterialAxis(
+            textureUv.y,shadowGrid.y,shadowGrid.w));
+    float2 worldXz=materialXz+cloudWindWorld();
+    float2 horizontalFootprint=float2(
+        max(upperX-lowerX,1e-4),max(upperZ-lowerZ,1e-4));
+    cloudShadowDensityOut[outputVoxel]=
+        cloudShadowDensityDistribution(
+            worldXz,horizontalFootprint,altitude,
+            saturate(params.x),verticalFootprint);
+}
+
+// 方向別中間キャッシュから、指定点を同じ直線の雲帯底へ逆投影して一方向を読む。
+// 水平支持域外と格納値の破損は、未計算領域を晴天として漏らさないよう不透明へ閉じる。
+bool sampleCloudAmbientDirectionalVisibility(
+    float3 p,uint directionIndex,bool upperBand,float normalizedHeight,
+    out float2 visibility){
+    visibility=0.0.xx;
+    float2 materialXz=0.0.xx;
+    bool valid=cloudAmbientDirectionalBandBaseMaterialPosition(
+        p,directionIndex,upperBand,normalizedHeight,materialXz);
+    if(!valid) return false;
+    float2 uv=cloudAmbientCacheTexturePosition(materialXz);
+    float halfTexel=0.5*shadowState.z;
+    bool inside=all(uv>=halfTexel.xx)
+        &&all(uv<=1.0.xx-halfTexel.xx);
+    if(!inside) return false;
+    float profileIndex=float(
+        directionIndex*CLOUD_SHADOW_CACHE_HEIGHT)
+        +saturate(normalizedHeight)
+            *float(CLOUD_SHADOW_CACHE_HEIGHT-1u);
+    float profileY=(profileIndex+0.5)
+        /float(CLOUD_AMBIENT_DIRECTIONAL_PROFILE_COUNT);
+    float4 cached=cloudShadowCache.SampleLevel(
+        cloudShadowCache_sampler,float3(uv.x,profileY,uv.y),0);
+    bool finiteValue=all(cached==cached)
+        &&all(cached>=0.0.xxxx)&&all(cached<=1.001.xxxx);
+    if(!finiteValue){
+        visibility=0.0.xx;
+        return true;
+    }
+    visibility=saturate(upperBand?cached.xy:cached.zw);
+    return true;
+}
+
+// 16本の実3D方向をそれぞれの雲帯底アンカーで読み、半球照度へ積分して
+// 描画用の一回採取キャッシュへ解決する。各スレッドは二高度だけを担当する。
+void cloudResolveAmbientDirectionalCache(
+    uint2 outputColumn,uint groupIndex){
     uint width,height,depth;
     cloudShadowOut.GetDimensions(width,height,depth);
+    uint directionalWidth,directionalHeight,directionalDepth;
+    cloudShadowCache.GetDimensions(
+        directionalWidth,directionalHeight,directionalDepth);
     if(any(outputColumn>=uint2(width,depth))
-       ||height!=CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT)
+       ||height!=CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT
+       ||directionalWidth!=width
+       ||directionalHeight!=CLOUD_AMBIENT_DIRECTIONAL_PROFILE_COUNT
+       ||directionalDepth!=depth)
         return;
-    uint2 quadratureIndex=uint2(
-        groupIndex%CLOUD_AMBIENT_CACHE_QUADRATURE_AXIS,
-        groupIndex/CLOUD_AMBIENT_CACHE_QUADRATURE_AXIS);
-    float2 ambientTextureUv=(float2(outputColumn)+0.5)
+    float2 textureUv=(float2(outputColumn)+0.5)
         /float2(width,depth);
-    float ambientSampleX,ambientWidthX;
-    float ambientSampleZ,ambientWidthZ;
-    cloudAmbientCacheAxisSample(
-        ambientTextureUv.x,quadratureIndex.x,
-        shadowGrid.x,shadowGrid.z,
-        ambientSampleX,ambientWidthX);
-    cloudAmbientCacheAxisSample(
-        ambientTextureUv.y,quadratureIndex.y,
-        shadowGrid.y,shadowGrid.w,
-        ambientSampleZ,ambientWidthZ);
-    float coverage=saturate(params.x);
-    uint segmentBaseIndex=groupIndex*CLOUD_SHADOW_CACHE_HEIGHT;
-    // 各スレッドは四等分した一つの物理面積を担当する。形状側が担当幅から
-    // 解像可能な2・4・8周期を選ぶため、未解像帯域を追加点採取で追わない。
-    float2 ambientFootprint=float2(ambientWidthX,ambientWidthZ);
-    float2 ambientWorldXz=float2(ambientSampleX,ambientSampleZ)
-        +cloudWindWorld();
-    float lowerCellWorldStep=(layer.y-layer.x)
-        /float(CLOUD_SHADOW_CACHE_HEIGHT);
-    float upperCellWorldStep=(cloudUpperLayer.y-cloudUpperLayer.x)
-        /float(CLOUD_SHADOW_CACHE_HEIGHT);
-    // 空と地面から届く一次入射光なので、密度と通常の光側消散を使う。
-    // 二次以降だけの縮小率を掛けると、0指定で厚い雲まで完全に明るくなる。
+    float2 materialXz=float2(
+        cloudAmbientCacheMaterialAxis(
+            textureUv.x,shadowGrid.x,shadowGrid.z),
+        cloudAmbientCacheMaterialAxis(
+            textureUv.y,shadowGrid.y,shadowGrid.w));
+    float2 worldXz=materialXz+cloudWindWorld();
+    [loop] for(uint outputHeightIndex=groupIndex;
+               outputHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
+               outputHeightIndex+=CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT){
+        float normalizedHeight=float(outputHeightIndex)
+            /float(CLOUD_SHADOW_CACHE_HEIGHT-1u);
+        float3 lowerPoint=cloudShadowWorldPositionAtAltitude(
+            worldXz,lerp(layer.x,layer.y,normalizedHeight));
+        float2 lowerVisibility=0.0.xx;
+        float2 upperVisibility=cloudUpperLayer.w>0.5
+            ?0.0.xx:1.0.xx;
+        float3 upperPoint=0.0.xxx;
+        if(cloudUpperLayer.w>0.5)
+            upperPoint=cloudShadowWorldPositionAtAltitude(
+                worldXz,lerp(
+                    cloudUpperLayer.x,cloudUpperLayer.y,
+                    normalizedHeight));
+        [loop] for(uint directionIndex=0u;
+                   directionIndex<CLOUD_AMBIENT_DIRECTION_COUNT;
+                   ++directionIndex){
+            float directionWeight=
+                cloudAmbientDirectionIrradianceWeight(directionIndex);
+            float2 directionLowerVisibility=0.0.xx;
+            sampleCloudAmbientDirectionalVisibility(
+                lowerPoint,directionIndex,false,normalizedHeight,
+                directionLowerVisibility);
+            lowerVisibility+=
+                directionWeight*directionLowerVisibility;
+            if(cloudUpperLayer.w>0.5){
+                float2 directionUpperVisibility=0.0.xx;
+                sampleCloudAmbientDirectionalVisibility(
+                    upperPoint,directionIndex,true,normalizedHeight,
+                    directionUpperVisibility);
+                upperVisibility+=
+                    directionWeight*directionUpperVisibility;
+            }
+        }
+        cloudShadowOut[uint3(
+            outputColumn.x,outputHeightIndex,outputColumn.y)]
+            =saturate(float4(upperVisibility,lowerVisibility));
+    }
+}
+
+// 一つの水平セルを16本の方向へ分ける。光生成段階では完成密度を実際の
+// 斜め経路で31区間だけ掃引し、最終段階では全列を描画用キャッシュへ解決する。
+[numthreads(4,1,4)]
+void CSCloudShadowSun(
+    uint3 groupId : SV_GroupID,uint groupIndex : SV_GroupIndex){
+    if(cloudShadowDensityDispatch.w==0u){
+        cloudResolveAmbientDirectionalCache(groupId.xz,groupIndex);
+        return;
+    }
+    uint updateStride=max(cloudShadowDensityDispatch.z,1u);
+    uint2 updatePhase=min(
+        cloudShadowDensityDispatch.xy,(updateStride-1u).xx);
+    uint2 outputColumn=groupId.xz*updateStride+updatePhase;
+    uint width,height,depth;
+    cloudShadowOut.GetDimensions(width,height,depth);
+    uint densityWidth,densityHeight,densityDepth;
+    cloudShadowCache.GetDimensions(
+        densityWidth,densityHeight,densityDepth);
+    uint directionalWidth,directionalHeight,directionalDepth;
+    cloudShadowDensityOut.GetDimensions(
+        directionalWidth,directionalHeight,directionalDepth);
+    if(any(outputColumn>=uint2(width,depth))
+       ||height!=CLOUD_SHADOW_CACHE_TEXTURE_HEIGHT
+       ||densityWidth!=width
+       ||densityHeight!=CLOUD_SHADOW_DENSITY_PROFILE_COUNT
+       ||densityDepth!=depth
+       ||directionalWidth!=width
+       ||directionalHeight!=CLOUD_AMBIENT_DIRECTIONAL_PROFILE_COUNT
+       ||directionalDepth!=depth)
+        return;
+    float2 textureUv=(float2(outputColumn)+0.5)
+        /float2(width,depth);
+    float2 materialXz=float2(
+        cloudAmbientCacheMaterialAxis(
+            textureUv.x,shadowGrid.x,shadowGrid.z),
+        cloudAmbientCacheMaterialAxis(
+            textureUv.y,shadowGrid.y,shadowGrid.w));
+    float2 worldXz=materialXz+cloudWindWorld();
     float ambientExtinction=max(params.y,0.0)
         *max(cloudLightingExtinction.y,0.0);
-    float lowerColumnDepth=0.0;
-    [loop] for(uint densityHeightIndex=0u;
-               densityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
-               ++densityHeightIndex){
-        float normalizedHeight=(float(densityHeightIndex)+0.5)
-            /float(CLOUD_SHADOW_CACHE_HEIGHT);
-        float columnDensity=cloudAmbientQuadratureDensity(
-            ambientWorldXz,ambientFootprint,
-            lerp(layer.x,layer.y,normalizedHeight),
-            coverage,lowerCellWorldStep);
-        float segmentDepth=columnDensity*lowerCellWorldStep
-            *cloudOpticalDepthScaleFromBand(false)
-            *ambientExtinction;
-        cloudShadowColumnSegmentDepths[
-            segmentBaseIndex+densityHeightIndex]=
-            float2(segmentDepth,0.0);
-        lowerColumnDepth+=segmentDepth;
-    }
-    float upperColumnDepth=0.0;
+
+    float3 lowerBasePoint=cloudShadowWorldPositionAtAltitude(
+        worldXz,layer.x);
+    float3 lowerDirection=cloudAmbientDirectionAtPoint(
+        groupIndex,lowerBasePoint);
+    float lowerFullDepth=0.0;
+    bool lowerValid=cloudAccumulateAmbientBandDepthsFromBase(
+        lowerBasePoint,layer.x,layer.x,layer.y,
+        lowerDirection,ambientExtinction,false,true,false,groupIndex,
+        lowerFullDepth);
+    float lowerAnchoredUpperDepth=0.0;
+    bool lowerAnchoredUpperValid=true;
     if(cloudUpperLayer.w>0.5){
-        [loop] for(uint upperDensityHeightIndex=0u;
-                   upperDensityHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
-                   ++upperDensityHeightIndex){
-            float upperHeight=(float(upperDensityHeightIndex)+0.5)
-                /float(CLOUD_SHADOW_CACHE_HEIGHT);
-            float upperDensity=cloudAmbientQuadratureDensity(
-                ambientWorldXz,ambientFootprint,
-                lerp(cloudUpperLayer.x,cloudUpperLayer.y,upperHeight),
-                coverage,upperCellWorldStep);
-            float upperSegmentDepth=upperDensity*upperCellWorldStep
-                *cloudOpticalDepthScaleFromBand(true)
-                *ambientExtinction;
-            float2 segmentDepths=cloudShadowColumnSegmentDepths[
-                segmentBaseIndex+upperDensityHeightIndex];
-            segmentDepths.y=upperSegmentDepth;
-            cloudShadowColumnSegmentDepths[
-                segmentBaseIndex+upperDensityHeightIndex]=segmentDepths;
-            upperColumnDepth+=upperSegmentDepth;
+        lowerAnchoredUpperValid=
+            cloudAccumulateAmbientBandDepthsFromBase(
+                lowerBasePoint,layer.x,
+                cloudUpperLayer.x,cloudUpperLayer.y,
+                lowerDirection,ambientExtinction,true,false,false,groupIndex,
+                lowerAnchoredUpperDepth);
+    }
+
+    float upperFullDepth=0.0;
+    float upperAnchoredLowerDepth=0.0;
+    bool upperValid=true;
+    bool upperAnchoredLowerValid=true;
+    if(cloudUpperLayer.w>0.5){
+        float3 upperBasePoint=cloudShadowWorldPositionAtAltitude(
+            worldXz,cloudUpperLayer.x);
+        float3 upperDirection=cloudAmbientDirectionAtPoint(
+            groupIndex,upperBasePoint);
+        upperValid=cloudAccumulateAmbientBandDepthsFromBase(
+            upperBasePoint,cloudUpperLayer.x,
+            cloudUpperLayer.x,cloudUpperLayer.y,
+            upperDirection,ambientExtinction,true,true,true,groupIndex,
+            upperFullDepth);
+        float2 lowerAnchorMaterialXz=0.0.xx;
+        upperAnchoredLowerValid=
+            cloudShadowBandBaseMaterialPosition(
+                upperBasePoint,upperDirection,false,lowerAnchorMaterialXz);
+        if(upperAnchoredLowerValid){
+            float3 upperRayLowerBasePoint=
+                cloudShadowWorldPositionAtAltitude(
+                    lowerAnchorMaterialXz+cloudWindWorld(),layer.x);
+            upperAnchoredLowerValid=
+                cloudAccumulateAmbientBandDepthsFromBase(
+                    upperRayLowerBasePoint,layer.x,layer.x,layer.y,
+                    upperDirection,ambientExtinction,false,false,false,
+                    groupIndex,upperAnchoredLowerDepth);
         }
     }
-    float lowerGroundDepth=0.0;
-    float upperGroundDepth=0.0;
+
+    uint profileBase=groupIndex*CLOUD_SHADOW_CACHE_HEIGHT;
     [loop] for(uint outputHeightIndex=0u;
                outputHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
                ++outputHeightIndex){
-        float segmentFraction=float(outputHeightIndex)
-            /max(float(CLOUD_SHADOW_CACHE_HEIGHT-1u),1.0);
-        float2 segmentDepths=cloudShadowColumnSegmentDepths[
-            segmentBaseIndex+outputHeightIndex];
-        float4 pathDepth=cloudLayeredAmbientDepth(
-            lowerColumnDepth,lowerGroundDepth,segmentDepths.x,
-            upperColumnDepth,upperGroundDepth,segmentDepths.y,
-            segmentFraction);
-        uint profileIndex=segmentBaseIndex+outputHeightIndex;
-        cloudAmbientQuantizedVisibilitySums[profileIndex]=
-                cloudQuantizeAmbientVisibility(
-                cloudHemisphericVisibility(pathDepth));
-        lowerGroundDepth+=segmentDepths.x;
-        upperGroundDepth+=segmentDepths.y;
+        float2 upperVisibility=1.0.xx;
+        float2 lowerVisibility=0.0.xx;
+        if(lowerValid){
+            float lowerGroundDepth=
+                cloudAmbientLowerGroundDepths[
+                    profileBase+outputHeightIndex];
+            lowerVisibility.y=exp(-min(lowerGroundDepth,80.0));
+            if(lowerAnchoredUpperValid){
+                float lowerSkyDepth=max(
+                    lowerFullDepth-lowerGroundDepth,0.0)
+                    +lowerAnchoredUpperDepth;
+                lowerVisibility.x=exp(-min(lowerSkyDepth,80.0));
+            }
+        }
+        if(cloudUpperLayer.w>0.5){
+            upperVisibility=0.0.xx;
+            if(upperValid){
+                float upperGroundDepth=
+                    cloudAmbientUpperGroundDepths[
+                        profileBase+outputHeightIndex];
+                float upperSkyDepth=max(
+                    upperFullDepth-upperGroundDepth,0.0);
+                upperVisibility.x=exp(-min(upperSkyDepth,80.0));
+                if(upperAnchoredLowerValid){
+                    upperVisibility.y=exp(-min(
+                        upperGroundDepth+upperAnchoredLowerDepth,80.0));
+                }
+            }
+        }
+        cloudShadowDensityOut[uint3(
+            outputColumn.x,profileBase+outputHeightIndex,
+            outputColumn.y)]=saturate(float4(
+                upperVisibility,lowerVisibility));
     }
-    // 先頭4スレッドは太陽円盤の各方向を担当する。方向ループを高度ループ内で
-    // 展開しないため、コンパイラの式展開と一スレッドへの集中を防げる。
     if(groupIndex<CLOUD_SUN_CACHE_GROUP_THREAD_COUNT){
-        float3 sun=sunDir.xyz;
-        float3 finiteSunDirection=cloudSunDiskDirection(
-            sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,groupIndex);
-        // 太陽方向キャッシュは従来の一様48 km格子を保つ。環境光の広域写像を
-        // 混ぜると、視線側の太陽キャッシュ座標と一致しなくなる。
-        float2 sunColumnWorldXz=shadowGrid.xy
-            +ambientTextureUv/max(shadowGrid.zw,1e-8.xx)
-            +cloudWindWorld();
-        [loop] for(uint sunHeightIndex=0u;
-                   sunHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
-                   ++sunHeightIndex){
-            bool splitSunCache=cloudUpperLayer.w>0.5;
-            uint samplesPerSunBand=splitSunCache
-                ?CLOUD_SHADOW_CACHE_HEIGHT/2u:CLOUD_SHADOW_CACHE_HEIGHT;
-            bool sunUpperBand=splitSunCache&&
-                sunHeightIndex>=samplesPerSunBand;
-            uint bandHeightIndex=sunUpperBand
-                ?sunHeightIndex-samplesPerSunBand:sunHeightIndex;
-            float sunBandHeight=float(bandHeightIndex)
-                /max(float(samplesPerSunBand-1u),1.0);
-            float sunAltitude=sunUpperBand
-                ?lerp(cloudUpperLayer.x,cloudUpperLayer.y,sunBandHeight)
-                :lerp(layer.x,layer.y,sunBandHeight);
-            float3 sunP=cloudShadowWorldPositionAtAltitude(
-                sunColumnWorldXz,sunAltitude);
+        if(shadowState.y<=0.0){
+            // 水平投影を解けない方向は長い光路を実行せず、直接光だけを保守的な
+            // 不透明値へ初期化する。方向別周囲光の16本は上で通常どおり生成済み。
+            cloudClearSunBandProfiles(0u,groupIndex,0.0.xxx);
+            cloudClearSunBandProfiles(
+                CLOUD_SHADOW_CACHE_HEIGHT,groupIndex,0.0.xxx);
+        }else{
+            float3 sun=sunDir.xyz;
+            float3 finiteSunDirection=cloudSunDiskDirection(
+                sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,groupIndex);
             float firstExtinction=max(
                 params.y*cloudLightingExtinction.y,0.0);
             float secondExtinction=firstExtinction
                 *saturate(cloudLightingMulti.x);
             float thirdExtinction=secondExtinction
                 *saturate(cloudLightingMulti.x);
-            float3 sunDepths=traceCloudShadowDepths(
-                sunP,coverage,finiteSunDirection,
-                float3(firstExtinction,secondExtinction,thirdExtinction));
-            // 現在のRHIはt0..t3の連続配置を要求する。実行時に成立しない負の密度分岐へ
-            // 置くことで、t2/s2を宣言へ残しつつ通常時の採取を発生させない。
-            if(params.y<0.0){
-                float registerRetention=detailNoise.SampleLevel(
-                    detailNoise_sampler,float3(0.5,0.5,0.5),0).x;
-                sunDepths+=registerRetention.xxx;
+            float3 extinctionByOrder=float3(
+                firstExtinction,secondExtinction,thirdExtinction);
+            // 上層を使わない場合も、将来の上層領域は無遮蔽で初期化しておく。
+            cloudClearSunBandProfiles(
+                CLOUD_SHADOW_CACHE_HEIGHT,groupIndex,1.0.xxx);
+            float3 lowerBasePoint=cloudShadowWorldPositionAtAltitude(
+                worldXz,layer.x);
+            float3 lowerDepth=0.0.xxx;
+            bool lowerValid=true;
+            if(cloudUpperLayer.w>0.5){
+                // 下層内の点へ届く光は、同じ直線上にある上層も先に通過する。
+                // 晴天の層間では相関状態を継承せず、光学的深さだけを引き継ぐ。
+                lowerValid=cloudAccumulateSunBandProfilesFromTop(
+                    lowerBasePoint,layer.x,
+                    cloudUpperLayer.x,cloudUpperLayer.y,
+                    finiteSunDirection,extinctionByOrder,
+                    false,0u,groupIndex,lowerDepth);
             }
-            // 深さの補間は行わない。各円盤光路を次数別の透過率へ変換してから
-            // キャッシュへ保存し、空隙と濃い雲が混在するセルの太陽光を保つ。
+            if(lowerValid){
+                lowerValid=cloudAccumulateSunBandProfilesFromTop(
+                    lowerBasePoint,layer.x,
+                    layer.x,layer.y,
+                    finiteSunDirection,extinctionByOrder,
+                    true,0u,groupIndex,lowerDepth);
+            }
+            if(!lowerValid)
+                cloudClearSunBandProfiles(0u,groupIndex,0.0.xxx);
+            if(cloudUpperLayer.w>0.5){
+                float3 upperBasePoint=cloudShadowWorldPositionAtAltitude(
+                    worldXz,cloudUpperLayer.x);
+                float3 upperDepth=0.0.xxx;
+                bool upperValid=cloudAccumulateSunBandProfilesFromTop(
+                    upperBasePoint,cloudUpperLayer.x,
+                    cloudUpperLayer.x,cloudUpperLayer.y,
+                    finiteSunDirection,extinctionByOrder,
+                    true,CLOUD_SHADOW_CACHE_HEIGHT,
+                    groupIndex,upperDepth);
+                if(!upperValid)
+                    cloudClearSunBandProfiles(
+                        CLOUD_SHADOW_CACHE_HEIGHT,groupIndex,0.0.xxx);
+            }
+        }
+        // t0..t5を連続配置するRHI契約を、到達しない分岐でも維持する。
+        if(params.y<0.0){
+            float registerRetention=detailNoise.SampleLevel(
+                detailNoise_sampler,float3(0.5,0.5,0.5),0).x
+                +cloudShadowCache.SampleLevel(
+                    cloudShadowCache_sampler,float3(0.5,0.5,0.5),0).x;
             cloudSunVisibilityProfiles[
-                groupIndex*CLOUD_SHADOW_CACHE_HEIGHT+sunHeightIndex]=
-                exp(-max(sunDepths,0.0.xxx));
+                groupIndex*CLOUD_SUN_CACHE_PROFILE_COUNT]
+                +=registerRetention.xxx;
         }
     }
-    // 全プロファイルを書き終えた後に一度だけ同期する。高度ごとの同期は
-    // 初期コンパイルとGPU待機の双方を悪化させる。
     GroupMemoryBarrierWithGroupSync();
     if(groupIndex==0u){
         [loop] for(uint outputHeightIndex=0u;
-                   outputHeightIndex<CLOUD_SHADOW_CACHE_HEIGHT;
+                   outputHeightIndex<CLOUD_SUN_CACHE_PROFILE_COUNT;
                    ++outputHeightIndex){
-            uint4 resolvedVisibilitySum=uint4(0u,0u,0u,0u);
-            [loop] for(uint sampleIndex=0u;
-                       sampleIndex<CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT;
-                       ++sampleIndex){
-                uint profileIndex=
-                    sampleIndex*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex;
-                resolvedVisibilitySum+=
-                    cloudAmbientQuantizedVisibilitySums[profileIndex];
-            }
-            cloudShadowOut[uint3(
-                outputColumn.x,outputHeightIndex,outputColumn.y)]
-                =saturate(float4(resolvedVisibilitySum)
-                    /(65535.0
-                      *float(CLOUD_SHADOW_CACHE_GROUP_THREAD_COUNT)));
             float4 firstVisibility=float4(
                 cloudSunVisibilityProfiles[outputHeightIndex].x,
                 cloudSunVisibilityProfiles[
-                    CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].x,
+                    CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].x,
                 cloudSunVisibilityProfiles[
-                    2u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].x,
+                    2u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].x,
                 cloudSunVisibilityProfiles[
-                    3u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].x);
+                    3u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].x);
             float4 secondVisibility=float4(
                 cloudSunVisibilityProfiles[outputHeightIndex].y,
                 cloudSunVisibilityProfiles[
-                    CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].y,
+                    CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].y,
                 cloudSunVisibilityProfiles[
-                    2u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].y,
+                    2u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].y,
                 cloudSunVisibilityProfiles[
-                    3u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].y);
+                    3u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].y);
             float4 thirdVisibility=float4(
                 cloudSunVisibilityProfiles[outputHeightIndex].z,
                 cloudSunVisibilityProfiles[
-                    CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].z,
+                    CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].z,
                 cloudSunVisibilityProfiles[
-                    2u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].z,
+                    2u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].z,
                 cloudSunVisibilityProfiles[
-                    3u*CLOUD_SHADOW_CACHE_HEIGHT+outputHeightIndex].z);
+                    3u*CLOUD_SUN_CACHE_PROFILE_COUNT+outputHeightIndex].z);
             cloudShadowOut[uint3(
                 outputColumn.x,
                 outputHeightIndex+CLOUD_SHADOW_CACHE_HEIGHT,
                 outputColumn.y)]=saturate(firstVisibility);
             cloudShadowOut[uint3(
                 outputColumn.x,
-                outputHeightIndex+2u*CLOUD_SHADOW_CACHE_HEIGHT,
+                outputHeightIndex+CLOUD_SHADOW_CACHE_HEIGHT
+                    +CLOUD_SUN_CACHE_PROFILE_COUNT,
                 outputColumn.y)]=saturate(secondVisibility);
             cloudShadowOut[uint3(
                 outputColumn.x,
-                outputHeightIndex+3u*CLOUD_SHADOW_CACHE_HEIGHT,
+                outputHeightIndex+CLOUD_SHADOW_CACHE_HEIGHT
+                    +2u*CLOUD_SUN_CACHE_PROFILE_COUNT,
                 outputColumn.y)]=saturate(thirdVisibility);
         }
     }
@@ -5475,44 +6737,34 @@ void CSCloudWorldShadow(uint3 tid : SV_DispatchThreadID){
     // 未解像密度を区間透過率へ変換した後の有効光学的深さ。
     float opticalDepth=0.0;
     float3 sun=sunDir.xyz;
-    CloudPackedBandIntervals bandIntervals=
-        intersectCloudBandsFromPosition(rayOrigin,sun);
+    CloudPackedBandIntervals bandIntervals;
+    intersectCloudBandsFromPosition(
+        rayOrigin,sun,bandIntervals);
     if(sun.y>0.03&&bandIntervals.count>0){
         float extinction=max(
             params.y*cloudLightingExtinction.y,0.0);
         const int SAMPLE_COUNT=32;
-        CloudFourStateTransportLanes firstOrderState=
+        CloudFourStateTransportLanes packedOrderState=
             cloudInitialFourStateTransportLanes();
-        CloudFourStateTransportLanes secondOrderState=
-            cloudInitialFourStateTransportLanes();
-        CloudFourStateTransportLanes thirdOrderState=
-            cloudInitialFourStateTransportLanes();
-        float previousSegmentEnd=-1.0;
-        int previousBandId=-1;
+        int previousIntervalId=-1;
         [loop] for(int sampleIndex=0;sampleIndex<SAMPLE_COUNT;++sampleIndex){
             float sampleDistance=0.0;
             float stepLength=0.0;
-            int sampleBandId=-1;
+            int sampleIntervalId=-1;
             if(!cloudLightSampleTerms(
                    bandIntervals,SAMPLE_COUNT,sampleIndex,
-                   sampleDistance,stepLength,sampleBandId)) continue;
-            float segmentStart=sampleDistance-0.5*stepLength;
-            if(previousSegmentEnd>=0.0&&
-               (sampleBandId!=previousBandId||
-                segmentStart>previousSegmentEnd+1e-3)){
-                firstOrderState.active=0.0.xxxx;
-                secondOrderState.active=0.0.xxxx;
-                thirdOrderState.active=0.0.xxxx;
+                   sampleDistance,stepLength,sampleIntervalId)) continue;
+            if(previousIntervalId>=0&&
+               sampleIntervalId!=previousIntervalId){
+                packedOrderState.active=0.0.xxxx;
             }
-            previousSegmentEnd=sampleDistance+0.5*stepLength;
-            previousBandId=sampleBandId;
+            previousIntervalId=sampleIntervalId;
             float3 p=rayOrigin+sun*sampleDistance;
             CloudMacroSample macro=sampleCloudMacroLightingSegment(
                 p,saturate(params.x),sun,stepLength);
             float sampleDepth=cloudLowLodOpticalDepthByOrderFromMacro(
                 p,macro,macro.densityWeatherMask,extinction.xxx,
-                sun,stepLength,
-                firstOrderState,secondOrderState,thirdOrderState).x;
+                sun,stepLength,packedOrderState).x;
             opticalDepth+=sampleDepth;
             if(opticalDepth>=12.0) break;
         }
@@ -5693,8 +6945,8 @@ float3 cloudLinearLightingSourceAtFraction(
 // 密度を採取した同じ位置で太陽光・環境光・地面反射を評価する。
 // 消散と照明を別の代表点へ分けず、呼び出し側が前後順のBeer-Lambert重みを掛ける。
 CloudLightingSource cloudLightingSourceAtPoint(
-    float3 p,CloudMacroSample macro,CloudLightingContext context,
-    float lowLodDensity,float3 viewRayDirection){
+float3 p,CloudMacroSample macro,CloudLightingContext context,
+    float4 lowLodDensityDistribution,float3 viewRayDirection){
     CloudLightingSource source;
     source.firstOrder=0.0.xxx;
     source.secondOrder=0.0.xxx;
@@ -5704,57 +6956,15 @@ CloudLightingSource cloudLightingSourceAtPoint(
     float4 cachedFirstVisibility=1.0.xxxx;
     float4 cachedSecondVisibility=1.0.xxxx;
     float4 cachedThirdVisibility=1.0.xxxx;
-    // 参照描画は自己影キャッシュを介さず、各求積点から太陽面へ完成密度を積分する。
-    if(CLOUD_MAIN_SHADOW_CACHE_ENABLED&&cloudLightingAmbient.w<0.5){
+    // 参照描画ではCPU側が同じフレームに影キャッシュ全域を更新する。完成済みの
+    // 4方向光路を通常描画と共有し、参照だけ別の粗い積分へ切り替えない。
+    if(CLOUD_MAIN_SHADOW_CACHE_ENABLED){
         sampleCloudSunTransmittance(
             p,cacheBlendWeight,
             cachedFirstVisibility,cachedSecondVisibility,
             cachedThirdVisibility);
     }
-    float3 cacheExtinctionByOrder=float3(
-        context.lightExtinction,
-        context.lightExtinction*context.multiOcclusion,
-        context.lightExtinction*context.thirdOcclusion);
-    float4 firstDetailOpticalDepthResiduals=0.0.xxxx;
-    float4 secondDetailOpticalDepthResiduals=0.0.xxxx;
-    float4 thirdDetailOpticalDepthResiduals=0.0.xxxx;
-    if(cacheBlendWeight>0.0){
-        // 太陽円盤の各方向は異なる雲柱を通る。中心方向の残差を共有せず、
-        // キャッシュに保存した4光路と同じ方向ごとに近距離差分を積分する。
-        [loop] for(uint residualDirectionIndex=0u;
-                   residualDirectionIndex<CLOUD_SUN_DISK_DIRECTION_COUNT;
-                   ++residualDirectionIndex){
-            float3 residualSunDirection=cloudSunDiskDirection(
-                context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,
-                residualDirectionIndex);
-            float3 directionalResiduals=cloudNearLightOpticalDepthResiduals(
-                p,context.coverage,residualSunDirection,
-                cacheExtinctionByOrder);
-            // 動的なベクトル書き込みはFXCに重い光路全体の展開を強制する。
-            // 一方向だけ1となる選択子で加算し、通常ループのまま4成分を埋める。
-            float4 residualDirectionSelector=float4(
-                residualDirectionIndex==0u?1.0:0.0,
-                residualDirectionIndex==1u?1.0:0.0,
-                residualDirectionIndex==2u?1.0:0.0,
-                residualDirectionIndex==3u?1.0:0.0);
-            firstDetailOpticalDepthResiduals+=
-                residualDirectionSelector*directionalResiduals.x;
-            secondDetailOpticalDepthResiduals+=
-                residualDirectionSelector*directionalResiduals.y;
-            thirdDetailOpticalDepthResiduals+=
-                residualDirectionSelector*directionalResiduals.z;
-        }
-    }
-    float cacheReliability=cloudSunDepthResidualCacheReliability(
-        cachedFirstVisibility,cachedSecondVisibility,
-        cachedThirdVisibility,
-        firstDetailOpticalDepthResiduals,
-        secondDetailOpticalDepthResiduals,
-        thirdDetailOpticalDepthResiduals);
-    cacheBlendWeight*=cacheReliability;
-    // FXCは動的なベクトル添字を含む固定回数ループを、[loop]指定と同時に
-    // 解決できないことがある。4方向は太陽円盤積分そのものなので、添字を
-    // 実行時に持たず、各光路を明示してコンパイラと計算順を安定させる。
+    // 位相は方向ごとに明示し、動的なベクトル添字によるFXCの誤展開を避ける。
     float firstPhase0=0.0;
     float firstPhase1=0.0;
     float firstPhase2=0.0;
@@ -5763,78 +6973,76 @@ CloudLightingSource cloudLightingSourceAtPoint(
     float higherPhase1=0.0;
     float higherPhase2=0.0;
     float higherPhase3=0.0;
+    float3 diskDirection0=cloudSunDiskDirection(
+        context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,0u);
+    float3 diskDirection1=cloudSunDiskDirection(
+        context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,1u);
+    float3 diskDirection2=cloudSunDiskDirection(
+        context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,2u);
+    float3 diskDirection3=cloudSunDiskDirection(
+        context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,3u);
     cloudScatteringPhasesForDirections(
-        viewRayDirection,
-        cloudSunDiskDirection(
-            context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,0u),
+        viewRayDirection,diskDirection0,
         firstPhase0,higherPhase0);
     cloudScatteringPhasesForDirections(
-        viewRayDirection,
-        cloudSunDiskDirection(
-            context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,1u),
+        viewRayDirection,diskDirection1,
         firstPhase1,higherPhase1);
     cloudScatteringPhasesForDirections(
-        viewRayDirection,
-        cloudSunDiskDirection(
-            context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,2u),
+        viewRayDirection,diskDirection2,
         firstPhase2,higherPhase2);
     cloudScatteringPhasesForDirections(
-        viewRayDirection,
-        cloudSunDiskDirection(
-            context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,3u),
+        viewRayDirection,diskDirection3,
         firstPhase3,higherPhase3);
     float4 firstDiskPhase=float4(
         firstPhase0,firstPhase1,firstPhase2,firstPhase3);
     float4 higherDiskPhase=float4(
         higherPhase0,higherPhase1,higherPhase2,higherPhase3);
-    float3 exactAverageScattering=1.0.xxx;
-    if(cacheBlendWeight<1.0){
-        float3 exactExtinctionByOrder=float3(
-            context.lightExtinction,
-            context.lightExtinction*context.multiOcclusion,
-            context.lightExtinction*context.thirdOcclusion);
-        float3 exactScatteringSum=0.0.xxx;
-        [loop] for(uint sunDirectionIndex=0u;
-                   sunDirectionIndex<CLOUD_SUN_DISK_DIRECTION_COUNT;
-                   ++sunDirectionIndex){
-            float3 finiteSunDirection=cloudSunDiskDirection(
-                context.sun,cloudLightTangent.xyz,cloudLightBitangent.xyz,
-                sunDirectionIndex);
-            float directionalPhase=sunDirectionIndex==0u
-                ?firstPhase0
-                :(sunDirectionIndex==1u
-                    ?firstPhase1
-                    :(sunDirectionIndex==2u?firstPhase2:firstPhase3));
-            float directionalPhaseMulti=sunDirectionIndex==0u
-                ?higherPhase0
-                :(sunDirectionIndex==1u
-                    ?higherPhase1
-                    :(sunDirectionIndex==2u?higherPhase2:higherPhase3));
-            float3 exactDepths=traceCloudMainLightDepths(
-                p,context.coverage,finiteSunDirection,
-                exactExtinctionByOrder);
-            float3 exactVisibility=exp(-max(exactDepths,0.0.xxx));
-            exactScatteringSum+=exactVisibility*float3(
-                directionalPhase,directionalPhaseMulti,directionalPhaseMulti);
-        }
-        exactAverageScattering=exactScatteringSum
-            /float(CLOUD_SUN_DISK_DIRECTION_COUNT);
-    }
-    float4 correctedCachedFirst=cloudApplySunOpticalDepthResidual(
-        cachedFirstVisibility,firstDetailOpticalDepthResiduals);
-    float4 correctedCachedSecond=cloudApplySunOpticalDepthResidual(
-        cachedSecondVisibility,secondDetailOpticalDepthResiduals);
-    float4 correctedCachedThird=cloudApplySunOpticalDepthResidual(
-        cachedThirdVisibility,thirdDetailOpticalDepthResiduals);
-    // 各光路の透過率と位相を先に掛けてから平均する。透過率を平均して中心方向の
-    // 位相を掛けると、太陽円盤の端で生じる散乱角の違いを失い、縁の明るさが不正確になる。
-    float3 correctedCachedAverageScattering=float3(
-        dot(correctedCachedFirst,firstDiskPhase),
-        dot(correctedCachedSecond,higherDiskPhase),
-        dot(correctedCachedThird,higherDiskPhase))
+    // 可逆な広域写像は最大表示距離を完全信頼領域へ含める。キャッシュ機能を
+    // 利用できない構成だけは自己遮蔽なしへ縮退し、主視線の各密度標本から
+    // 巨大な四方向光路を再帰的に呼んで起動時間とGPU負荷を破綻させない。
+    float3 fallbackAverageScattering=float3(
+        dot(1.0.xxxx,firstDiskPhase),
+        dot(1.0.xxxx,higherDiskPhase),
+        dot(1.0.xxxx,higherDiskPhase))
+        /float(CLOUD_SUN_DISK_DIRECTION_COUNT);
+    // キャッシュのRGBAは公開世代の太陽円盤4方向に対応する。現在太陽の位相を
+    // 成分ごとに掛けると方向の組が崩れるため、公開方向の位相を同じ順で復元する。
+    float3 publishedSun,publishedTangent,publishedBitangent;
+    cloudPublishedShadowLightBasis(
+        publishedSun,publishedTangent,publishedBitangent);
+    diskDirection0=cloudSunDiskDirection(
+        publishedSun,publishedTangent,publishedBitangent,0u);
+    diskDirection1=cloudSunDiskDirection(
+        publishedSun,publishedTangent,publishedBitangent,1u);
+    diskDirection2=cloudSunDiskDirection(
+        publishedSun,publishedTangent,publishedBitangent,2u);
+    diskDirection3=cloudSunDiskDirection(
+        publishedSun,publishedTangent,publishedBitangent,3u);
+    cloudScatteringPhasesForDirections(
+        viewRayDirection,diskDirection0,
+        firstPhase0,higherPhase0);
+    cloudScatteringPhasesForDirections(
+        viewRayDirection,diskDirection1,
+        firstPhase1,higherPhase1);
+    cloudScatteringPhasesForDirections(
+        viewRayDirection,diskDirection2,
+        firstPhase2,higherPhase2);
+    cloudScatteringPhasesForDirections(
+        viewRayDirection,diskDirection3,
+        firstPhase3,higherPhase3);
+    firstDiskPhase=float4(
+        firstPhase0,firstPhase1,firstPhase2,firstPhase3);
+    higherDiskPhase=float4(
+        higherPhase0,higherPhase1,higherPhase2,higherPhase3);
+    // 各公開光路の透過率と対応位相を先に掛けてから平均する。透過率を平均して
+    // 中心方向の位相を掛けると、太陽円盤端の散乱角差を失う。
+    float3 cachedAverageScattering=float3(
+        dot(cachedFirstVisibility,firstDiskPhase),
+        dot(cachedSecondVisibility,higherDiskPhase),
+        dot(cachedThirdVisibility,higherDiskPhase))
         /float(CLOUD_SUN_DISK_DIRECTION_COUNT);
     float3 lightScatteringByOrder=lerp(
-        exactAverageScattering,correctedCachedAverageScattering,
+        fallbackAverageScattering,cachedAverageScattering,
         cacheBlendWeight);
     float firstLightScattering=lightScatteringByOrder.x;
     float secondLightScattering=lightScatteringByOrder.y;
@@ -5843,6 +7051,8 @@ CloudLightingSource cloudLightingSourceAtPoint(
         0.5,2.0,saturate((macro.height-0.30)/0.55));
     // ここでは一つの実サブレイだけを評価するため、旧4レーン値を複製せず
     // 同じ平均密度から一つの内部供給率を求める。
+    float lowLodDensity=cloudDensityDistributionMean(
+        lowLodDensityDistribution);
     float safeLowLodDensity=cloudValueIsFinite(lowLodDensity)
         ?max(lowLodDensity,0.0):0.0;
     float inScatterDepth=saturate(
@@ -5863,11 +7073,10 @@ CloudLightingSource cloudLightingSourceAtPoint(
     // 距離終端の表示フェードは視線消散だけへ適用する。環境光の物理媒質量へ
     // 混ぜると、同じ位置でもキャッシュ内外で雲内部の明るさが変わる。
     float ambientExtinction=max(cloudLightingExtinction.y,0.0);
-    float2 fallbackAmbientDepth=
-        cloudAmbientFallbackOpticalDepth(
-            macro,lowLodDensity.xxxx,context.density,ambientExtinction);
-    float4 fallbackAmbientVisibility=cloudHemisphericVisibility(
-        float4(fallbackAmbientDepth,0.0,0.0));
+    float2 fallbackAmbientVisibility=
+        cloudAmbientFallbackVisibility(
+            macro,lowLodDensityDistribution,
+            context.density,ambientExtinction);
     float3 cachedAmbientVisibility=sampleCloudAmbientVisibility(p);
     float skyAmbientVisibility=lerp(
         fallbackAmbientVisibility.x,
@@ -5959,14 +7168,13 @@ sampleCloudPhysicalLaneDensityLightingAtFraction(
     detailedDistribution=cloudScaleDensityDistribution(
         detailedDistribution,opticalDensityScale);
     float meanDensity=cloudDensityDistributionMean(detailedDistribution);
-    float lowLodDensity=cloudDensityDistributionMean(lowLodDistribution);
     sample.densityStates=detailedDistribution;
     sample.correlationLength=
         cloudUnresolvedDensityCorrelationLengthAtDirection(
             currentP,rayDirection,physicalBandId>0);
     if(meanDensity>0.0){
         CloudLightingSource lightingSource=cloudLightingSourceAtPoint(
-            currentP,currentMacro,lightingContext,lowLodDensity,
+            currentP,currentMacro,lightingContext,lowLodDistribution,
             rayDirection);
         sample.sourceValidity=1.0;
         sample.firstOrderSource=lightingSource.firstOrder;
@@ -6002,23 +7210,36 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float2 uv=(float2(rayPixel)+0.5)/rayDimensions;
     float4 clip=float4(uv.x*2-1, -(uv.y*2-1), 1, 1);
     float3 dir=CloudViewDirection(clip.xy);
-    // 現在画素内の2×2 Gauss位置を実投影で復元する。中心視線の雲殻区間を
-    // 流用せず、接線と雲中出口を各サブレイの物理光路として保持する。
+    // 通常描画は一つの実視線と画素幅で帯域制限した密度を組み合わせる。4x4時間再構成は
+    // 各位相が既に等倍画素の実視線を採取するため、さらに2x2面積求積すると同じ画素面積を
+    // 二重に積分して処理量とぼけを4倍へ増やす。比較用の参照描画だけ4本の面積求積を保つ。
+    bool referenceAreaQuadrature=cloudLightingAmbient.w>0.5;
+    float4 physicalSubrayWeights=referenceAreaQuadrature
+        ?CLOUD_SUBRAY_AREA_WEIGHTS:float4(1.0,0.0,0.0,0.0);
+    static const int CLOUD_REFERENCE_AREA_SUBRAY_COUNT=4;
+    int physicalLaneCount=referenceAreaQuadrature
+        ?CLOUD_REFERENCE_AREA_SUBRAY_COUNT:1;
     float2 pixelNdcStepX=float2(2.0/rayDimensions.x,0.0);
     float2 pixelNdcStepY=float2(0.0,-2.0/rayDimensions.y);
     CloudPhysicalSubrayDirections subrayDirections;
-    subrayDirections.lane0=CloudViewDirection(
-        clip.xy-CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
-               -CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
-    subrayDirections.lane1=CloudViewDirection(
-        clip.xy+CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
-               -CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
-    subrayDirections.lane2=CloudViewDirection(
-        clip.xy-CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
-               +CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
-    subrayDirections.lane3=CloudViewDirection(
-        clip.xy+CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
-               +CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
+    subrayDirections.lane0=dir;
+    subrayDirections.lane1=dir;
+    subrayDirections.lane2=dir;
+    subrayDirections.lane3=dir;
+    if(referenceAreaQuadrature){
+        subrayDirections.lane0=CloudViewDirection(
+            clip.xy-CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
+                   -CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
+        subrayDirections.lane1=CloudViewDirection(
+            clip.xy+CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
+                   -CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
+        subrayDirections.lane2=CloudViewDirection(
+            clip.xy-CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
+                   +CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
+        subrayDirections.lane3=CloudViewDirection(
+            clip.xy+CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepX
+                   +CLOUD_SUBRAY_GAUSS_OFFSET*pixelNdcStepY);
+    }
     float3 localUp=groundHorizon.xyz;
     float signedElevation=dot(dir,localUp);
     bool cameraBelowCloudBase=cloudCameraBelowCloudBase();
@@ -6070,9 +7291,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // カメラが雲層内または境界近傍にあるときは、CPUで連続補間した局所視程を使う。
     float MAX_DISTANCE=min(cloudRange.x,max(cloudRange.w,1.0));
     CloudSubrayBandIntervals subrayIntervals;
-    CloudPackedBandIntervals packedBandIntervals=
-        intersectCloudSubrayBandUnion(
-            subrayDirections,MAX_DISTANCE,subrayIntervals);
+    CloudPackedBandIntervals packedBandIntervals;
+    intersectCloudSubrayBandUnion(
+        subrayDirections,MAX_DISTANCE,
+        subrayIntervals,packedBandIntervals);
     if(packedBandIntervals.count<=0){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
@@ -6117,24 +7339,28 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         length(cornerDirection2-cornerDirection0));
     // 標本位置は世界距離で進める。区間を固定個数で割る方式では全画素が同じ
     // 高さ割合を読むため、視点を中心とした放射状の筋が生じる。
-    // 刻み数。参照描画では大きくする (cloudLightingAmbient.z に入っている)。
-    int MAX_STEPS=(int)cloudLightingAmbient.z;
-    if(MAX_STEPS<CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT)
-        MAX_STEPS=CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT;
+    // 公開値は密度採取総数である。固定4点求積を一組としてセル数を求め、
+    // 4点化前の採取予算を暗黙に四倍しない。参照描画の予算も同じ規則で扱う。
+    int maximumDensitySampleCount=(int)cloudLightingAmbient.z;
+    if(maximumDensitySampleCount<CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT)
+        maximumDensitySampleCount=CLOUD_MIN_VIEW_MARCH_SAMPLE_COUNT;
+    int maximumViewCellCount=max(
+        maximumDensitySampleCount/CLOUD_DENSITY_GAUSS_SAMPLE_COUNT,1);
     float baseFineStep=cloudCoverageReciprocals.z;
-    int2 physicalBandBudgets=cloudPhysicalBandSampleBudgets(MAX_STEPS);
-    int4 packedIntervalBudgets=cloudPackedIntervalSampleBudgets(
-        packedBandIntervals,physicalBandBudgets);
+    int2 physicalBandCellBudgets=cloudPhysicalBandCellBudgets(
+        maximumViewCellCount);
+    int4 packedIntervalCellBudgets=cloudPackedIntervalCellBudgets(
+        packedBandIntervals,physicalBandCellBudgets);
     float currentIntervalSpan=max(intervalEnd-intervalStart,0.0);
-    int currentIntervalBudget=max(
-        packedIntervalBudgets[packedIntervalIndex],1);
+    int currentIntervalCellBudget=max(
+        packedIntervalCellBudgets[packedIntervalIndex],1);
     // 距離LODは各物理雲帯の入口だけから求める。先に見える別帯の出入りで
     // 後続帯の刻みを変えず、予算由来の最小刻みと空間解像度由来の刻みを分離する。
     float safeCurrentRequestedFineStep=cloudPackedIntervalFineStep(
-        intervalStart,intervalEnd,currentIntervalBudget,
+        intervalStart,intervalEnd,currentIntervalCellBudget,
         baseFineStep,MAX_DISTANCE);
     int currentFineCellCount=cloudPackedIntervalFineCellCount(
-        intervalStart,intervalEnd,currentIntervalBudget,
+        intervalStart,intervalEnd,currentIntervalCellBudget,
         safeCurrentRequestedFineStep);
     float3 sun=sunDir.xyz;
     // dir はカメラから雲、sun は雲から太陽へ向く。光子の入射・出射方向は
@@ -6213,7 +7439,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     bool nearDensity=startsInsideShell;
     int refineUntilCell=startsInsideShell
         ?min(2,currentFineCellCount):0;
-    [loop] for(int i=0;i<MAX_STEPS;i++){
+    [loop] for(int i=0;i<maximumViewCellCount;i++){
         bool intervalFinished=fineCellIndex>=currentFineCellCount;
         if(intervalFinished){
             packedIntervalIndex++;
@@ -6222,14 +7448,14 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             intervalEnd=packedBandIntervals.ends[packedIntervalIndex];
             physicalBandId=
                 packedBandIntervals.bandIds[packedIntervalIndex];
-            currentIntervalBudget=max(
-                packedIntervalBudgets[packedIntervalIndex],1);
+            currentIntervalCellBudget=max(
+                packedIntervalCellBudgets[packedIntervalIndex],1);
             currentIntervalSpan=max(intervalEnd-intervalStart,0.0);
             safeCurrentRequestedFineStep=cloudPackedIntervalFineStep(
-                intervalStart,intervalEnd,currentIntervalBudget,
+                intervalStart,intervalEnd,currentIntervalCellBudget,
                 baseFineStep,MAX_DISTANCE);
             currentFineCellCount=cloudPackedIntervalFineCellCount(
-                intervalStart,intervalEnd,currentIntervalBudget,
+                intervalStart,intervalEnd,currentIntervalCellBudget,
                 safeCurrentRequestedFineStep);
             // 別の連続雲殻区間は晴天域または別物理帯を挟む。未解像状態を
             // 遠側へ持ち越さず、次に各レーンが入った位置で定常分布から再開する。
@@ -6337,10 +7563,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         }
         // レーン間のBeer状態は独立なので、一レーンの密度・照明・輸送を完結して
         // から次へ進む。4レーン分の太陽光路を同時保持せず、旧FXCの一時領域を抑える。
-        [loop] for(int physicalLaneIndex=0;physicalLaneIndex<4;
+        [loop] for(int physicalLaneIndex=0;
+                   physicalLaneIndex<physicalLaneCount;
                    ++physicalLaneIndex){
             float4 physicalLaneSelector=
                 cloudPhysicalSubraySelector(physicalLaneIndex);
+            float physicalLaneAreaWeight=dot(
+                physicalLaneSelector,physicalSubrayWeights);
             float laneComponentStartT=dot(
                 physicalLaneSelector,cellComponentOverlaps.starts);
             float laneComponentEndT=dot(
@@ -6474,13 +7703,13 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     physicalLaneSelector,secondOrderTransmitLanes);
                 float thirdLaneTransmit=dot(
                     physicalLaneSelector,thirdOrderTransmitLanes);
-                float firstSampleWeight=0.25*firstLaneTransmit
+                float firstSampleWeight=physicalLaneAreaWeight*firstLaneTransmit
                     *firstIntervalAbsorption;
-                float secondSampleWeight=0.25*secondLaneTransmit
+                float secondSampleWeight=physicalLaneAreaWeight*secondLaneTransmit
                     *cloudReducedIntervalScatteringWeight(
                         viewOpticalDepth,secondOpticalDepth,
                         secondIntervalTransmittance,multiContribution);
-                float thirdSampleWeight=0.25*thirdLaneTransmit
+                float thirdSampleWeight=physicalLaneAreaWeight*thirdLaneTransmit
                     *cloudReducedIntervalScatteringWeight(
                         viewOpticalDepth,thirdOpticalDepth,
                         thirdIntervalTransmittance,thirdContribution);
@@ -6562,12 +7791,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 thirdOrderTransmitLanes=exp(
                     -thirdOrderAccumulatedOpticalDepthLanes);
                 transmit=saturate(dot(
-                    CLOUD_SUBRAY_AREA_WEIGHTS,transmitLanes));
+                    physicalSubrayWeights,transmitLanes));
                 secondOrderTransmit=saturate(dot(
-                    CLOUD_SUBRAY_AREA_WEIGHTS,
+                    physicalSubrayWeights,
                     secondOrderTransmitLanes));
                 thirdOrderTransmit=saturate(dot(
-                    CLOUD_SUBRAY_AREA_WEIGHTS,
+                    physicalSubrayWeights,
                     thirdOrderTransmitLanes));
             }
         }
@@ -6602,7 +7831,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             if(remainingIntervalIndex>packedIntervalIndex&&
                remainingIntervalIndex<packedBandIntervals.count)
                 remainingPackedCellBudget+=max(
-                    packedIntervalBudgets[remainingIntervalIndex],0);
+                    packedIntervalCellBudgets[remainingIntervalIndex],0);
         }
         uint remainingTransportSegmentCount=
             cloudRemainingTransportSegmentCount(
@@ -7001,7 +8230,14 @@ float CloudTemporalEvolutionMismatch() {
 // 照明は形状を壊さないため、前フレームを捨てず現在の放射輝度へ連続収束させる。
 // CPUが正規化した角度・放射輝度差を使い、太陽や空の切替でも1フレームで追従する。
 float CloudTemporalLightingMismatch() {
-    return saturate(cloudLightingHistory.x);
+    float encodedMismatch=cloudLightingHistory.x;
+    float mismatch=encodedMismatch<=-1.0
+        ?-encodedMismatch-1.0:encodedMismatch;
+    return saturate(mismatch);
+}
+// 影世代交換中は、4x4の各画素が自身の等倍標本を得た時だけ新世代へ切り替える。
+bool CloudTemporalShadowGenerationTransitionActive() {
+    return cloudLightingHistory.x<=-1.0;
 }
 // 16フレームぶりの等倍標本を一度に表示せず、同じ雲体と判定済みの履歴へ段階的に反映する。
 // 静止形状でも10周期後の残差を4%未満にし、対流差が大きい場合は現在形状へ速く追従する。
@@ -7069,12 +8305,17 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float evolutionMismatch=CloudTemporalEvolutionMismatch();
     float lightingMismatch=CloudTemporalLightingMismatch();
     float temporalMismatch=max(evolutionMismatch,lightingMismatch);
+    bool shadowGenerationTransitionActive=
+        CloudTemporalShadowGenerationTransitionActive();
     // 未採取画素の現在値は別の等倍レイから作った空間再構成なので、固定割合で混ぜると
     // 16フレームの正確な画素履歴を毎フレームぼかす。非剛体な対流変化が実際に進んだ分だけ
     // 現在値へ寄せ、変化が無い場合は次の等倍採取まで画素別履歴をそのまま保つ。
-    float temporalCurrentWeight=temporalMismatch;
-    float scheduledCurrentWeight=
-        CloudTemporalScheduledCurrentWeight(temporalMismatch);
+    // 世代遷移中の未採取画素は、別レイから作った粗い現在値へ置換しない。
+    float temporalCurrentWeight=shadowGenerationTransitionActive
+        ?0.0:temporalMismatch;
+    float scheduledCurrentWeight=shadowGenerationTransitionActive
+        ?1.0
+        :CloudTemporalScheduledCurrentWeight(temporalMismatch);
     float scaledCurrentWeight=
         CloudTemporalScaledCurrentWeight(temporalMismatch);
     uint phaseIndex=(uint)temporal.z&15u;
@@ -7103,6 +8344,17 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float4 resolved=float4(0,0,0,0);
     float2 resolvedDepth=float2(250001.0,0.0);
 
+    // 影世代遷移は視線・移流・対流が全て不変の場合だけCPUが有効にする。未採取画素は
+    // 空・雲の別や再投影成否で分岐せず、画素自身の正確な色と深度を採取位相まで保持する。
+    if(shadowGenerationTransitionActive && temporal.x>0.5 &&
+       temporalSuperRes && !scheduled && worldOrigin.w>1.5) {
+        float4 transitionColor=historyColor.Load(int3(tid.xy,0));
+        float2 transitionDepth=historyDepth.Load(int3(tid.xy,0));
+        historyColorOut[tid.xy]=transitionColor;
+        historyDepthOut[tid.xy]=transitionDepth;
+        return;
+    }
+
     // The steady-state TSR resolve does not need a nine-tap spatial fallback
     // for the interior of a stable cloud. Reproject those pixels first, while
     // retaining the complete bilateral path for empty sky, silhouettes,
@@ -7115,7 +8367,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         float4 sameScreenColor=historyColor.Load(int3(tid.xy,0));
         float2 sameScreenDepth=historyDepth.Load(int3(tid.xy,0));
         bool currentDefinitelyEmpty=refC.a<=0.003 && refD.x>250000.0;
-        if(currentDefinitelyEmpty && sameScreenColor.a<=0.003) {
+        if(!shadowGenerationTransitionActive &&
+           currentDefinitelyEmpty && sameScreenColor.a<=0.003) {
             // A single low texel cannot classify a 4x4 TSR block. Confirm a
             // full-resolution 5x5 cross/corner neighbourhood from accumulated
             // history before taking the cheap empty-sky path. Horizon and
@@ -7197,7 +8450,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                         // 値は混ぜないため、広い雲縁や房の範囲内にある画素別の細部は維持する。
                         float4 stableHistPacked=float4(stableHist.rgb*stableHist.a,stableHist.a);
                         float4 stableReferencePacked=float4(refC.rgb*refC.a,refC.a);
-                        if(CloudTemporalNeighborhoodClipScheduled(tid.xy,phaseIndex) && CloudTemporalNeedsNeighborhoodClip(stableHistPacked,stableReferencePacked)) {
+                        if(!shadowGenerationTransitionActive &&
+                           CloudTemporalNeighborhoodClipScheduled(tid.xy,phaseIndex) &&
+                           CloudTemporalNeedsNeighborhoodClip(
+                               stableHistPacked,stableReferencePacked)) {
                             float4 stableCurrentMin=stableReferencePacked;
                             float4 stableCurrentMax=stableReferencePacked;
                             const int2 stableOffsets[4]={int2(-1,0),int2(1,0),int2(0,-1),int2(0,1)};
@@ -7399,7 +8655,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     // Empty sky has no world depth to reproject. It is nevertheless stable at
     // the same screen coordinate; retain it for an unscheduled phase when both
     // history and the conservative spatial fallback agree that it is empty.
-    if(temporal.x>0.5 && temporalSuperRes && !scheduled &&
+    if(!shadowGenerationTransitionActive && temporal.x>0.5 &&
+       temporalSuperRes && !scheduled &&
        worldOrigin.w>0.5 &&
        !historyAccepted && curA<=0.003) {
         float4 hist=historyColor.Load(int3(tid.xy,0));
@@ -7863,8 +9120,10 @@ struct FCloudCb {
     FVec4 cloudPreviousEvolution;
     FVec4 cloudWorldShadowUpdate;
     FVec4 cloudLightingHistory;
+    /** 現在表示中または生成中の自己影が使う曲面原点。 */
+    FVec4 shadowWorldOrigin;
 };
-static_assert(sizeof(FCloudCb) == 736, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 752, "CloudCB must match the HLSL layout");
 static_assert(
     offsetof(FCloudCb, groundHorizon) == 320u,
     "CloudCB ground horizon must remain at HLSL register c20");
@@ -7902,19 +9161,35 @@ static_assert(offsetof(FCloudCb, cloudWorldShadowMap) == 672u, "CloudCB の立�
 static_assert(offsetof(FCloudCb, cloudPreviousEvolution) == 688u, "CloudCB の前フレーム対流位相は HLSL の c43 と一致させる");
 static_assert(offsetof(FCloudCb, cloudWorldShadowUpdate) == 704u, "CloudCB の立体物影更新項は HLSL の c44 と一致させる");
 static_assert(offsetof(FCloudCb, cloudLightingHistory) == 720u, "CloudCB の照明履歴更新項は HLSL の c45 と一致させる");
+static_assert(offsetof(FCloudCb, shadowWorldOrigin) == 736u, "CloudCB の自己影曲面原点は HLSL の c46 と一致させる");
 static_assert(
     CBSize<FCloudCb>() == 768u,
     "CloudCB allocation must preserve DX12's 256-byte alignment");
+
+/** 完成密度の固定スナップショットから、今回書く水平範囲と処理種別を選ぶ。 */
+struct FCloudShadowDensityDispatchCb {
+    /** X方向の開始位置。 */
+    u32 phase_x = 0u;
+    /** Z方向の開始位置。 */
+    u32 phase_z = 0u;
+    /** 各軸で何画素おきに生成するか。 */
+    u32 stride = 1u;
+    /** 下層だけなら32、上層を含む場合は64。0なら半球解決。 */
+    u32 profile_count = kVolumetricCloudShadowCacheHeight;
+};
+static_assert(
+    sizeof(FCloudShadowDensityDispatchCb) == 16u,
+    "完成密度の位相CBはHLSLのuint4と一致させる");
 
 /** 画面描画と環境キューブマップで共有する密度採取項。 */
 struct FCloudSamplingTerms {
     /** xy=占有用と実密度用の天候しきい値、zw=予約。 */
     FVec4 coverage{};
 
-    /** xy=天候遷移幅の逆数、z=視線の細密刻み、w=予約。 */
+    /** xy=天候遷移幅の逆数、z=視線の細密刻み、w=下層形状の高さ展開率。 */
     FVec4 coverageReciprocals{};
 
-    /** xy=上層の被覆と濃さ、z=1 m当たりの基準消散、w=予約。 */
+    /** xy=上層の被覆と濃さ、z=1 m当たりの基準消散、w=上層形状の高さ展開率。 */
     FVec4 upperTerms{};
 };
 
@@ -7928,6 +9203,7 @@ struct FCloudSamplingTerms {
  */
 FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(
     f32 safeCoverage,f32 horizontalNoiseScale,
+    f32 inverseLayerHeight,
     const FVolumetricCloudUpperLayer& upperLayer) noexcept {
     // 呼び出し側が定数バッファーへ複製せず設定できる採取項。
     FCloudSamplingTerms out{};
@@ -7948,12 +9224,27 @@ FCloudSamplingTerms ResolveVolumetricCloudSamplingTerms_Internal(
     // ノイズ尺度に応じた細密刻みを、過剰採取と標本不足の両方を避ける範囲へ収める。
     const f32 unclampedFineStep = 0.035f / (horizontalNoiseScale > 0.001f ? horizontalNoiseScale : 0.001f);
     const f32 fineStep = unclampedFineStep < 0.5f ? 0.5f : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
+    const f32 authoredShapeScale = horizontalNoiseScale * 0.0030f;
+    const f32 shapeScale = authoredShapeScale < 0.00004f
+        ? 0.00004f
+        : (authoredShapeScale > 0.00020f ? 0.00020f : authoredShapeScale);
+    const f32 lowerVariation =
+        render_internal::ResolveVolumetricCloudShapeVerticalVariation_Internal(
+            shapeScale, inverseLayerHeight, false);
+    const f32 upperInverseLayerHeight =
+        upperLayer.top_height > upperLayer.base_height
+            ? 1.0f / (upperLayer.top_height - upperLayer.base_height)
+            : 0.0f;
+    const f32 upperVariation =
+        render_internal::ResolveVolumetricCloudShapeVerticalVariation_Internal(
+            shapeScale, upperInverseLayerHeight, true);
     out.coverageReciprocals = FVec4{
         1.0f / (occupancyWeatherUpper - out.coverage.x),
-        1.0f / (densityWeatherUpper - out.coverage.y),fineStep,0.0f};
+        1.0f / (densityWeatherUpper - out.coverage.y),fineStep,
+        lowerVariation};
     out.upperTerms = FVec4{
         upperLayer.coverage_scale,upperLayer.density_scale,
-        kVolumetricCloudReferenceExtinctionPerMeter,0.0f};
+        kVolumetricCloudReferenceExtinctionPerMeter,upperVariation};
     return out;
 }
 
@@ -8477,9 +9768,6 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
 namespace {
 
 constexpr u64 kCloudWorkloadMaximum = ~u64{0};
-// キャッシュ境界の最悪経路は、太陽円盤4方向それぞれの適応最大16標本と高周波3標本を使う。
-constexpr u64 kCloudMaximumMainLightDensitySamples =
-    4u * (static_cast<u64>(kVolumetricCloudMaxLightMarchSamples) + 3u);
 u64 SaturatingCloudWorkloadAdd(u64 left, u64 right) noexcept {
     return right > kCloudWorkloadMaximum - left
         ? kCloudWorkloadMaximum : left + right;
@@ -8542,6 +9830,27 @@ struct FVolumetricCloudFrameWorkloadInternalOptions {
 
     /** 立体物影の各軸更新間隔。0なら公開計画の自己影値を共用する。 */
     u32 world_shadow_update_divisor = 0u;
+
+    /** 上層が有効で、下層光路の上層通過と上層専用光路も数える場合はtrue。 */
+    bool upper_layer_enabled = false;
+
+    /** 完成密度を今回生成する場合はtrue。 */
+    bool shadow_density_dispatch = true;
+
+    /** 完成密度から周囲光と太陽光を今回生成する場合はtrue。 */
+    bool shadow_lighting_dispatch = true;
+
+    /** 16方向の中間値を32高度の表示用環境光へ解決する場合はtrue。 */
+    bool shadow_ambient_resolve_dispatch = true;
+
+    /** 完成密度を各軸で何画素おきに生成するか。 */
+    u32 shadow_density_update_divisor = 1u;
+
+    /** 周囲光と太陽光を各軸で何列おきに生成するか。 */
+    u32 shadow_lighting_update_divisor = 1u;
+
+    /** 比較用の参照描画で2×2面積求積の全実視線を数える場合はtrue。 */
+    bool reference_area_quadrature = false;
 };
 
 FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload_Internal(
@@ -8627,22 +9936,105 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload_Internal(
             ? kVolumetricCloudShadowTemporalDivisor
             : (options.world_shadow_update_divisor == 0u
                 ? shadowUpdateDivisor : 1u);
-    const u32 shadowCacheUpdateWidth = CloudCeilDivisor(kVolumetricCloudShadowCacheWidth, shadowUpdateDivisor);
-    const u32 shadowCacheUpdateDepth = CloudCeilDivisor(kVolumetricCloudShadowCacheDepth, shadowUpdateDivisor);
     const u32 worldShadowUpdateResolution = CloudCeilDivisor(kVolumetricCloudWorldShadowMapResolution, worldShadowUpdateDivisor);
 
     if (plan.rebuild_shadow_cache) {
-        // 一セル16スレッドのうち先頭4本が太陽円盤も担当し、一回の投入で
-        // 周囲光と太陽光路を同じテクスチャの別領域へ直接書く。
-        out.shadow_cache_dispatches = 1u;
-        const u64 shadowColumnCount = CloudLogicalInvocations2D(
-            shadowCacheUpdateWidth, shadowCacheUpdateDepth);
-        out.shadow_cache_logical_invocations =
+        // 完成密度、方向別光路、半球解決の三処理を同じ提出内で全域生成する。
+        // 公開負荷計画も三処理を分離して数え、方向別光路の密度読取りを落とさない。
+        const u32 densityProfileCount = options.upper_layer_enabled
+            ? kVolumetricCloudShadowDensityProfileCount
+            : kVolumetricCloudShadowCacheHeight;
+        const u32 densityUpdateDivisor =
+            options.shadow_density_update_divisor ==
+                    kVolumetricCloudShadowDensityTemporalDivisor
+                ? kVolumetricCloudShadowDensityTemporalDivisor : 1u;
+        const u32 densityUpdateWidth = CloudCeilDivisor(
+            kVolumetricCloudShadowCacheWidth,densityUpdateDivisor);
+        const u32 densityUpdateDepth = CloudCeilDivisor(
+            kVolumetricCloudShadowCacheDepth,densityUpdateDivisor);
+        if (options.shadow_density_dispatch) {
+            ++out.shadow_cache_dispatches;
+            out.shadow_cache_logical_invocations =
+                CloudLogicalInvocations3D(
+                    densityUpdateWidth,densityProfileCount,
+                    densityUpdateDepth);
+            out.shadow_cache_launched_threads =
+                CloudLaunchedThreads3D(
+                    densityUpdateWidth,densityProfileCount,
+                    densityUpdateDepth,4u,4u,4u);
+        }
+        const u32 lightingUpdateDivisor =
+            options.shadow_lighting_update_divisor ==
+                    kVolumetricCloudShadowLightingTemporalDivisor
+                ? kVolumetricCloudShadowLightingTemporalDivisor : 1u;
+        const u32 lightingUpdateWidth = CloudCeilDivisor(
+            kVolumetricCloudShadowCacheWidth,lightingUpdateDivisor);
+        const u32 lightingUpdateDepth = CloudCeilDivisor(
+            kVolumetricCloudShadowCacheDepth,lightingUpdateDivisor);
+        const u64 ambientColumnCount = CloudLogicalInvocations2D(
+            lightingUpdateWidth,lightingUpdateDepth);
+        const u64 sunColumnCount = CloudLogicalInvocations2D(
+            lightingUpdateWidth,lightingUpdateDepth);
+        const u64 ambientInvocations =
             SaturatingCloudWorkloadMultiply(
-                shadowColumnCount,
+                ambientColumnCount,
                 kVolumetricCloudAmbientCacheQuadratureSamples);
-        out.shadow_cache_launched_threads =
-            out.shadow_cache_logical_invocations;
+        const u64 sunInvocations =
+            SaturatingCloudWorkloadMultiply(
+                sunColumnCount,kVolumetricCloudSunDiskDirectionCount);
+        if (options.shadow_lighting_dispatch) {
+            ++out.shadow_cache_dispatches;
+            out.shadow_cache_logical_invocations =
+                SaturatingCloudWorkloadAdd(
+                    out.shadow_cache_logical_invocations,
+                    SaturatingCloudWorkloadAdd(
+                        ambientInvocations,sunInvocations));
+            const u64 lightingLaunchedThreads =
+                SaturatingCloudWorkloadMultiply(
+                    sunColumnCount,
+                    kVolumetricCloudAmbientCacheQuadratureSamples);
+            out.shadow_cache_launched_threads =
+                SaturatingCloudWorkloadAdd(
+                    out.shadow_cache_launched_threads,
+                    lightingLaunchedThreads);
+            const u64 ambientDensitySamples =
+                SaturatingCloudWorkloadMultiply(
+                    ambientColumnCount,
+                    render_internal::
+                        VolumetricCloudAmbientDensitySamplesPerColumn_Internal(
+                        options.upper_layer_enabled));
+            const u64 sunDensitySamples =
+                SaturatingCloudWorkloadMultiply(
+                    sunColumnCount,
+                    render_internal::
+                        VolumetricCloudSunDensitySamplesPerColumn_Internal(
+                        options.upper_layer_enabled));
+            out.maximum_light_samples =
+                SaturatingCloudWorkloadAdd(
+                    ambientDensitySamples,sunDensitySamples);
+        }
+        if (options.shadow_ambient_resolve_dispatch) {
+            ++out.shadow_cache_dispatches;
+            const u64 resolveColumnCount = CloudLogicalInvocations2D(
+                kVolumetricCloudShadowCacheWidth,
+                kVolumetricCloudShadowCacheDepth);
+            const u64 resolveHeightDirectionCount =
+                SaturatingCloudWorkloadMultiply(
+                    kVolumetricCloudShadowCacheHeight,
+                    kVolumetricCloudAmbientDirectionCount);
+            out.shadow_cache_logical_invocations =
+                SaturatingCloudWorkloadAdd(
+                    out.shadow_cache_logical_invocations,
+                    SaturatingCloudWorkloadMultiply(
+                        resolveColumnCount,
+                        resolveHeightDirectionCount));
+            out.shadow_cache_launched_threads =
+                SaturatingCloudWorkloadAdd(
+                    out.shadow_cache_launched_threads,
+                    SaturatingCloudWorkloadMultiply(
+                        resolveColumnCount,
+                        kVolumetricCloudShadowCacheGroupThreadCount));
+        }
     }
 
     if (plan.rebuild_world_shadow) {
@@ -8658,23 +10050,29 @@ FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload_Internal(
         out.world_shadow_dispatches;
     out.total_logical_invocations = SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.trace_logical_invocations, out.resolve_logical_invocations), SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.one_time_bake_logical_invocations, out.shadow_cache_logical_invocations), out.world_shadow_logical_invocations));
     out.total_launched_threads = SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.trace_launched_threads, out.resolve_launched_threads), SaturatingCloudWorkloadAdd(SaturatingCloudWorkloadAdd(out.one_time_bake_launched_threads, out.shadow_cache_launched_threads), out.world_shadow_launched_threads));
-    u32 maximumViewSteps = plan.maximum_view_steps;
-    if (maximumViewSteps < kVolumetricCloudMinViewSteps) {
-        maximumViewSteps = kVolumetricCloudMinViewSteps;
+    u32 maximumDensitySampleCount = plan.maximum_view_steps;
+    if (maximumDensitySampleCount < kVolumetricCloudMinViewSteps) {
+        maximumDensitySampleCount = kVolumetricCloudMinViewSteps;
     }
-    if (maximumViewSteps > kVolumetricCloudReferenceViewSteps) {
-        maximumViewSteps = kVolumetricCloudReferenceViewSteps;
+    if (maximumDensitySampleCount > kVolumetricCloudReferenceViewSteps) {
+        maximumDensitySampleCount = kVolumetricCloudReferenceViewSteps;
     }
-    const u64 maximumViewCells = SaturatingCloudWorkloadMultiply(
-        out.trace_logical_invocations, maximumViewSteps);
+    const u32 maximumViewCellCount =
+        render_internal::ResolveVolumetricCloudViewCellBudget_Internal(
+            maximumDensitySampleCount);
+    const u64 maximumDensitySamplesPerRay =
+        SaturatingCloudWorkloadMultiply(
+            maximumViewCellCount,
+            render_internal::kVolumetricCloudDensityGaussSampleCount);
+    const u64 maximumViewRays = SaturatingCloudWorkloadMultiply(
+        out.trace_logical_invocations,
+        options.reference_area_quadrature
+            ? render_internal::kVolumetricCloudReferenceAreaSubrayCount
+            : 1u);
     out.maximum_view_samples = SaturatingCloudWorkloadMultiply(
-        maximumViewCells,
-        render_internal::kVolumetricCloudDensityGaussSampleCount);
-    // 密度と照明は四つのGauss点ごとに同じ位置で評価する。セル数だけを
-    // 掛けると旧重心一点方式の値になり、実際の最悪光路標本数を四分の一に見積もる。
-    out.maximum_light_samples = SaturatingCloudWorkloadMultiply(
-        out.maximum_view_samples,
-        kCloudMaximumMainLightDensitySamples);
+        maximumViewRays, maximumDensitySamplesPerRay);
+    // 主視線は完成済み光キャッシュだけを読む。太陽光路の上限は上で
+    // 自己影キャッシュ更新時だけ数え、各Gauss密度点へ重複加算しない。
     out.maximum_world_shadow_samples = SaturatingCloudWorkloadMultiply(out.world_shadow_logical_invocations, kVolumetricCloudWorldShadowSamples);
     out.temporal_super_resolution =
         plan.output_width != 0u && plan.output_height != 0u &&
@@ -9418,13 +10816,16 @@ struct FCloudPhysicalBandBudgetsInternal {
 FCloudPhysicalBandBudgetsInternal ResolveCloudPhysicalBandBudgets_Internal(
     const FVolumetricCloudLayer& lower,
     const FVolumetricCloudUpperLayer& upper,
-    bool has_upper, u32 maximum_samples) noexcept {
+    bool has_upper, u32 maximum_cells) noexcept {
     FCloudPhysicalBandBudgetsInternal out{};
-    out.lower = maximum_samples > 0u ? maximum_samples : 1u;
+    out.lower = maximum_cells > 0u ? maximum_cells : 1u;
     if (!has_upper || out.lower <= 1u) return out;
 
-    const u32 minimumBandBudget = out.lower / 2u < kVolumetricCloudMinViewSteps
-        ? out.lower / 2u : kVolumetricCloudMinViewSteps;
+    const u32 minimumViewCellCount =
+        render_internal::ResolveVolumetricCloudViewCellBudget_Internal(
+            kVolumetricCloudMinViewSteps);
+    const u32 minimumBandBudget = out.lower / 2u < minimumViewCellCount
+        ? out.lower / 2u : minimumViewCellCount;
     const u32 weightedBudget = out.lower - 2u * minimumBandBudget;
     const f32 lowerThickness = lower.top_height - lower.base_height;
     const f32 upperThickness = upper.top_height - upper.base_height;
@@ -9602,9 +11003,16 @@ void render_internal::ResolveVolumetricCloudPhysicalBandBudgets_Internal(
     const FVolumetricCloudUpperLayer& upper_layer,
     bool has_upper_layer, u32 maximum_samples,
     u32& lower_budget, u32& upper_budget) noexcept {
+    const u32 maximumCellCount =
+        ResolveVolumetricCloudViewCellBudget_Internal(maximum_samples);
+    if (maximumCellCount == 0u) {
+        lower_budget = 0u;
+        upper_budget = 0u;
+        return;
+    }
     const FCloudPhysicalBandBudgetsInternal budgets =
         ResolveCloudPhysicalBandBudgets_Internal(
-            lower_layer, upper_layer, has_upper_layer, maximum_samples);
+            lower_layer, upper_layer, has_upper_layer, maximumCellCount);
     lower_budget = budgets.lower;
     upper_budget = budgets.upper;
 }
@@ -9638,6 +11046,8 @@ render_internal::PlanVolumetricCloudRayMarch_Internal(
         maximum_samples = kVolumetricCloudReferenceViewSteps;
     }
     out.maximum_samples = maximum_samples;
+    const u32 maximumViewCellCount =
+        ResolveVolumetricCloudViewCellBudget_Internal(maximum_samples);
     const f32 len2 = ray_direction.x * ray_direction.x +
                      ray_direction.y * ray_direction.y +
                      ray_direction.z * ray_direction.z;
@@ -9726,7 +11136,7 @@ render_internal::PlanVolumetricCloudRayMarch_Internal(
     if (baseFineStep > 2.0f) baseFineStep = 2.0f;
     const FCloudPhysicalBandBudgetsInternal bandBudgets =
         ResolveCloudPhysicalBandBudgets_Internal(
-            lower, upper, hasUpper, maximum_samples);
+            lower, upper, hasUpper, maximumViewCellCount);
     u32 intervalBudgets[4]{};
     for (u32 physicalBandId = 0u; physicalBandId < 2u;
          ++physicalBandId) {
@@ -9890,6 +11300,10 @@ void CVolumetricClouds::InvalidateCloudHistory_Internal(bool density_field_chang
 {
     if (m_NoiseFilterResources) {
         ++m_NoiseFilterResources->settings_revision;
+        m_NoiseFilterResources->shadow_generation_transition_frames_remaining = 0u;
+        if (density_field_changed) {
+            ++m_NoiseFilterResources->shadow_content_revision;
+        }
     }
     m_HistoryValid = false;
     if (density_field_changed) {
@@ -9897,6 +11311,9 @@ void CVolumetricClouds::InvalidateCloudHistory_Internal(bool density_field_chang
         m_WorldShadowValid = false;
         SetShadowCacheWarmupMask_Internal(0u);
         SetWorldShadowWarmupMask_Internal(0u);
+        if (m_NoiseFilterResources) {
+            m_NoiseFilterResources->shadow_build_medium = {};
+        }
     }
 }
 
@@ -9992,8 +11409,9 @@ EShaderStatus CVolumetricClouds::FCompiledShaders::Status() const noexcept {
         compiling = compiling || shadowStatus == EShaderStatus::Compiling;
     }
     if (shadow_finalize) {
-        const EShaderStatus ambientStatus = shadow_finalize->Status();
-        compiling = compiling || ambientStatus == EShaderStatus::Compiling;
+        const EShaderStatus shadowSunStatus = shadow_finalize->Status();
+        compiling = compiling ||
+            shadowSunStatus == EShaderStatus::Compiling;
     }
     if (world_shadow) {
         const EShaderStatus world_shadow_status = world_shadow->Status();
@@ -10071,8 +11489,12 @@ TResult<CVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
         auto shadow_result = compile(
             EShaderStage::Compute, kCloudCS,
             "CSCloudShadow", "Clouds.ShadowCacheCS");
-        if (shadow_result.IsOk()) {
+        auto shadow_sun_result = compile(
+            EShaderStage::Compute, kCloudCS,
+            "CSCloudShadowSun", "Clouds.ShadowSunCS");
+        if (shadow_result.IsOk() && shadow_sun_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
+            shaders.shadow_finalize = Move(shadow_sun_result.Value());
         }
     }
     if (include_optional_shadows &&
@@ -10153,8 +11575,12 @@ CVolumetricClouds::CompileShadersCpu() noexcept {
         auto shadow_result = compile(
             EShaderStage::Compute, kCloudCS,
             "CSCloudShadow", "Clouds.ShadowCacheCS");
-        if (shadow_result.IsOk()) {
+        auto shadow_sun_result = compile(
+            EShaderStage::Compute, kCloudCS,
+            "CSCloudShadowSun", "Clouds.ShadowSunCS");
+        if (shadow_result.IsOk() && shadow_sun_result.IsOk()) {
             shaders.shadow = Move(shadow_result.Value());
+            shaders.shadow_finalize = Move(shadow_sun_result.Value());
         }
     }
     if (kVolumetricCloudWorldShadowEnabled) {
@@ -10196,6 +11622,7 @@ bool CVolumetricClouds::InitializationPending() const noexcept {
         m_NoiseFilterResources->initialization_state;
     return state == EAsyncInitializationState::MandatoryShaders ||
         state == EAsyncInitializationState::ShadowShader ||
+        state == EAsyncInitializationState::ShadowSunShader ||
         state == EAsyncInitializationState::WorldShadowShader;
 }
 
@@ -10237,6 +11664,8 @@ CVolumetricClouds::TakePendingShaders_Internal() noexcept {
     if (m_NoiseFilterResources) {
         shaders.noise_filter =
             Move(m_NoiseFilterResources->shader);
+        shaders.shadow_finalize =
+            Move(m_NoiseFilterResources->shadow_sun_shader);
         m_NoiseFilterResources.Reset();
     }
     shaders.weather = Move(m_WeatherCs);
@@ -10360,9 +11789,16 @@ bool CVolumetricClouds::ResolveRecordedFrameSubmission_Internal(
         return true;
     }
 
-    const bool settingsUnchanged =
-        recorded.settings_revision ==
-        m_NoiseFilterResources->settings_revision;
+    const auto submissionCompatibility = render_internal::
+        ResolveVolumetricCloudSubmissionCompatibilityDecision_Internal(
+            recorded.settings_revision,
+            m_NoiseFilterResources->settings_revision,
+            recorded.shadow_content_revision,
+            m_NoiseFilterResources->shadow_content_revision);
+    const bool historySettingsUnchanged =
+        submissionCompatibility.commit_history_state;
+    const bool shadowContentUnchanged =
+        submissionCompatibility.commit_shadow_state;
 
     // 密度場は層や天候の係数に依存しない一回限りの基礎資源なので、記録後に
     // 設定が変わっても実際に提出できた生成段階だけは確定して再実行を避ける。
@@ -10376,14 +11812,57 @@ bool CVolumetricClouds::ResolveRecordedFrameSubmission_Internal(
     m_WorldShadowDispatchCount = recorded.world_shadow_dispatch_count;
     m_LastFrameWorkload.submitted = true;
 
-    if (!settingsUnchanged) {
-        // GPU上の履歴と影は変更前の設定で書かれている。新設定へ座標や世代だけを
-        // 混ぜず、次回に全位相を同じ設定で作り直す。
+    if (shadowContentUnchanged) {
+        // 影内容を変えない履歴設定の変更では、実際に提出できた影生成だけを進める。
+        // 内容世代が変わった場合は、InvalidateCloudHistory_Internal() が保持した
+        // 無効状態を古い命令一覧の結果で上書きしない。
+        m_NoiseFilterResources->shadow_cache_warmup_mask =
+            recorded.shadow_cache_warmup_mask;
+        m_NoiseFilterResources->shadow_build_sun_direction =
+            recorded.shadow_build_sun_direction;
+        m_NoiseFilterResources->shadow_published_sun_direction =
+            recorded.shadow_published_sun_direction;
+        m_NoiseFilterResources->shadow_build_medium =
+            recorded.shadow_build_medium;
+        m_NoiseFilterResources->shadow_published_medium =
+            recorded.shadow_published_medium;
+        m_NoiseFilterResources->shadow_build_grid_minimum_material_xz =
+            recorded.shadow_build_grid_minimum_material_xz;
+        m_NoiseFilterResources->shadow_build_grid_center_material_xz =
+            recorded.shadow_build_grid_center_material_xz;
+        m_NoiseFilterResources->shadow_build_world_origin =
+            recorded.shadow_build_world_origin;
+        m_NoiseFilterResources->shadow_published_world_origin =
+            recorded.shadow_published_world_origin;
+        if (recorded.shadow_cache_publish) {
+            // 生成用の全列と固定媒質世代を、最終提出の成功時だけ同時に公開する。
+            // 旧表示用は次世代の生成先として保持し、途中列を描画へ混ぜない。
+            Swap(m_ShadowTex, m_NoiseFilterResources->shadow_build_texture);
+        }
+        m_NoiseFilterResources->world_shadow_warmup_mask =
+            recorded.world_shadow_warmup_mask;
+        m_NoiseFilterResources->world_shadow_mapping_initialized =
+            recorded.world_shadow_mapping_initialized;
+
+        m_ShadowGridMinQ = recorded.shadow_grid_minimum_material_xz;
+        m_ShadowGridCenterQ = recorded.shadow_grid_center_material_xz;
+        m_ShadowGridInitialized = recorded.shadow_grid_initialized;
+        m_WorldShadowMapMinReferenceXz =
+            recorded.world_shadow_map_minimum_reference_xz;
+        m_WorldShadowReferenceHeight =
+            recorded.world_shadow_reference_height;
+        m_WorldShadowSunDirection = recorded.world_shadow_sun_direction;
+        m_WorldShadowWorldOrigin = recorded.world_shadow_world_origin;
+        m_WorldShadowCloudBaseAltitude =
+            recorded.world_shadow_cloud_base_altitude;
+        m_ShadowCacheValid = recorded.shadow_cache_valid;
+        m_WorldShadowValid = recorded.world_shadow_valid;
+    }
+
+    if (!historySettingsUnchanged) {
+        // 画面履歴だけを変える設定では、上で影生成を確定した後、古い画面結果だけを
+        // 公開しない。内容設定も変わった場合は影側も一切確定していない。
         m_HistoryValid = false;
-        m_ShadowCacheValid = false;
-        m_WorldShadowValid = false;
-        SetShadowCacheWarmupMask_Internal(0u);
-        SetWorldShadowWarmupMask_Internal(0u);
         m_LastFrameWorkload.submission_index = 0u;
         m_LastFrameWorkload.history_reused = false;
         m_LastFrameWorkload.history_invalidated =
@@ -10392,26 +11871,6 @@ bool CVolumetricClouds::ResolveRecordedFrameSubmission_Internal(
         return true;
     }
 
-    m_NoiseFilterResources->shadow_cache_warmup_mask =
-        recorded.shadow_cache_warmup_mask;
-    m_NoiseFilterResources->world_shadow_warmup_mask =
-        recorded.world_shadow_warmup_mask;
-    m_NoiseFilterResources->world_shadow_mapping_initialized =
-        recorded.world_shadow_mapping_initialized;
-
-    m_ShadowGridMinQ = recorded.shadow_grid_minimum_material_xz;
-    m_ShadowGridCenterQ = recorded.shadow_grid_center_material_xz;
-    m_ShadowGridInitialized = recorded.shadow_grid_initialized;
-    m_WorldShadowMapMinReferenceXz =
-        recorded.world_shadow_map_minimum_reference_xz;
-    m_WorldShadowReferenceHeight =
-        recorded.world_shadow_reference_height;
-    m_WorldShadowSunDirection = recorded.world_shadow_sun_direction;
-    m_WorldShadowWorldOrigin = recorded.world_shadow_world_origin;
-    m_WorldShadowCloudBaseAltitude =
-        recorded.world_shadow_cloud_base_altitude;
-    m_ShadowCacheValid = recorded.shadow_cache_valid;
-    m_WorldShadowValid = recorded.world_shadow_valid;
     m_PrevCameraRelativeViewProj =
         recorded.previous_camera_relative_view_projection;
     m_PrevCameraRelativeInvViewProj =
@@ -10430,6 +11889,8 @@ bool CVolumetricClouds::ResolveRecordedFrameSubmission_Internal(
     m_FrameIndex = recorded.frame_index;
     m_TemporalPhase = recorded.temporal_phase;
     m_ResolvedIndex = recorded.resolved_index;
+    m_NoiseFilterResources->shadow_generation_transition_frames_remaining =
+        recorded.shadow_generation_transition_frames_remaining;
     m_HistoryValid = recorded.history_valid;
     m_WorkloadSubmissionIndex = recorded.workload_submission_index;
 
@@ -10547,7 +12008,7 @@ TResult<bool> CVolumetricClouds::AdvanceInitialization(
             }
             ACS_LOG_WARN(
                 "CVolumetricClouds: 光キャッシュの非同期投入に失敗したため、"
-                "正確な光積分へ戻します: %s",
+                "自己影なしの縮退描画へ戻します: %s",
                 shadow.Error().message);
         }
         state = EAsyncInitializationState::ShadowShader;
@@ -10563,8 +12024,51 @@ TResult<bool> CVolumetricClouds::AdvanceInitialization(
                 m_ShadowCs.Reset();
                 ACS_LOG_WARN(
                     "CVolumetricClouds: 光キャッシュのコンパイルに失敗したため、"
-                    "正確な光積分へ戻します");
+                    "自己影なしの縮退描画へ戻します");
             }
+        }
+
+        if (m_ShadowCs) {
+            auto shadowSun = CreateCloudShaderHandle(
+                device, EShaderStage::Compute, kCloudCS,
+                "CSCloudShadowSun", "Clouds.ShadowSunCS", true);
+            if (shadowSun.IsOk()) {
+                m_NoiseFilterResources->shadow_sun_shader =
+                    Move(shadowSun.Value());
+                state = EAsyncInitializationState::ShadowSunShader;
+                ACS_LOG_INFO(
+                    "CVolumetricClouds: 完成密度分布の生成後に太陽光路の"
+                    "非同期コンパイルを開始しました");
+                return TResult<bool>(OkInit, false);
+            }
+            m_ShadowCs.Reset();
+            ACS_LOG_WARN(
+                "CVolumetricClouds: 太陽光路の非同期投入に失敗したため、"
+                "自己影なしの縮退描画へ戻します: %s",
+                shadowSun.Error().message);
+        }
+        state = EAsyncInitializationState::ShadowSunShader;
+    }
+
+    if (state == EAsyncInitializationState::ShadowSunShader) {
+        if (m_NoiseFilterResources->shadow_sun_shader) {
+            const EShaderStatus status =
+                m_NoiseFilterResources->shadow_sun_shader->Status();
+            if (status == EShaderStatus::Compiling) {
+                return TResult<bool>(OkInit, false);
+            }
+            if (status != EShaderStatus::Ready) {
+                m_NoiseFilterResources->shadow_sun_shader.Reset();
+                m_ShadowCs.Reset();
+                ACS_LOG_WARN(
+                    "CVolumetricClouds: 太陽光路のコンパイルに失敗したため、"
+                    "自己影なしの縮退描画へ戻します");
+            }
+        }
+        if (!m_ShadowCs ||
+            !m_NoiseFilterResources->shadow_sun_shader) {
+            m_ShadowCs.Reset();
+            m_NoiseFilterResources->shadow_sun_shader.Reset();
         }
 
         if (kVolumetricCloudWorldShadowEnabled) {
@@ -10575,7 +12079,7 @@ TResult<bool> CVolumetricClouds::AdvanceInitialization(
                 m_WorldShadowCs = Move(world_shadow.Value());
                 state = EAsyncInitializationState::WorldShadowShader;
                 ACS_LOG_INFO(
-                    "CVolumetricClouds: 光キャッシュの完了後に立体物用雲影の"
+                    "CVolumetricClouds: 太陽光路の完了後に立体物用雲影の"
                     "非同期コンパイルを開始しました");
                 return TResult<bool>(OkInit, false);
             }
@@ -10683,32 +12187,44 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
         pd.static_samplers[5].address_v = ESamplerAddress::Clamp;
         pd.static_samplers[5].address_w = ESamplerAddress::Clamp;
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CloudPipe = Move(r.Value()); }
-    // 任意機能である周囲光透過率と太陽円盤4光路を、一セル一グループで生成する。
-    // 作成できない場合は自己影キャッシュだけを無効化し、正確な積分へ戻す。
+    TUniquePtr<IRhiShader> pendingShadowSunShader;
+    TUniquePtr<IRhiPipeline> pendingShadowSunPipeline;
+    TUniquePtr<IRhiTexture> pendingShadowBuildTexture;
+    TUniquePtr<IRhiTexture> pendingShadowDensityTexture;
+    TUniquePtr<IRhiTexture> pendingShadowAmbientDirectionalTexture;
+    TUniquePtr<IRhiBuffer> pendingShadowDensitySnapshotCb;
+    TUniquePtr<IRhiBuffer> pendingShadowDensityDispatchCb;
+    TUniquePtr<IRhiBuffer> pendingShadowResolveDispatchCb;
+    // 任意機能である自己影は、完成密度分布の生成と太陽円盤4光路の積分を
+    // 別の処理へ分ける。どちらか一方でも作れない場合は一式を公開しない。
     {
         bool shadowOk = kVolumetricCloudShadowCacheEnabled &&
-            shaders.shadow;
+            shaders.shadow && shaders.shadow_finalize;
         if (shadowOk) {
             m_ShadowCs = Move(shaders.shadow);
+            pendingShadowSunShader = Move(shaders.shadow_finalize);
         }
-        const auto createShadowSamplingPipeline =
+        const auto createShadowDensityPipeline =
             [&device](IRhiShader* shader) noexcept {
                 FComputePipelineDesc pd{};
                 pd.cs = shader;
-                pd.cbuffer_slots = 1;
+                pd.cbuffer_slots = 2;
                 pd.cbuffer_names[0] = "CloudCB";
+                pd.cbuffer_names[1] =
+                    "CloudShadowDensityDispatchCB";
                 pd.srv_slots = 5;
                 pd.srv_names[0] = "shapeNoise";
                 pd.srv_names[1] = "shapeOccupancy";
                 pd.srv_names[2] = "weatherMap";
                 pd.srv_names[3] = "detailNoise";
                 pd.srv_names[4] = "curlNoise";
-                // 現在のRHIは登録番号の連続配置を要求する。u0/u1には無害な
-                // 代替テクスチャを割り当て、実際の出力はu2へ書く。
-                pd.uav_slots = 3;
+                // 現在のRHIは登録番号の連続配置を要求する。周囲光はu2、
+                // 太陽4方向が共有する完成密度分布はu3へ書く。
+                pd.uav_slots = 4;
                 pd.uav_names[0] = "cloudOut";
                 pd.uav_names[1] = "cloudDepthOut";
                 pd.uav_names[2] = "cloudShadowOut";
+                pd.uav_names[3] = "cloudShadowDensityOut";
                 pd.static_sampler_count = 5;
                 for (u32 i = 0; i < 5; ++i) {
                     pd.static_samplers[i].filter = ESamplerFilter::Linear;
@@ -10719,9 +12235,43 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
                 pd.static_samplers[1].filter = ESamplerFilter::Point;
                 return CreateRhiComputePipeline(device, pd);
             };
+        const auto createShadowSunPipeline =
+            [&device](IRhiShader* shader) noexcept {
+                FComputePipelineDesc pd{};
+                pd.cs = shader;
+                pd.cbuffer_slots = 2;
+                pd.cbuffer_names[0] = "CloudCB";
+                pd.cbuffer_names[1] =
+                    "CloudShadowDensityDispatchCB";
+                pd.srv_slots = 6;
+                pd.srv_names[0] = "shapeNoise";
+                pd.srv_names[1] = "shapeOccupancy";
+                pd.srv_names[2] = "weatherMap";
+                pd.srv_names[3] = "detailNoise";
+                pd.srv_names[4] = "curlNoise";
+                pd.srv_names[5] = "cloudShadowCache";
+                pd.uav_slots = 4;
+                pd.uav_names[0] = "cloudOut";
+                pd.uav_names[1] = "cloudDepthOut";
+                pd.uav_names[2] = "cloudShadowOut";
+                pd.uav_names[3] = "cloudShadowDensityOut";
+                pd.static_sampler_count = 6;
+                for (u32 i = 0; i < 5; ++i) {
+                    pd.static_samplers[i].filter = ESamplerFilter::Linear;
+                    pd.static_samplers[i].address_u = ESamplerAddress::Wrap;
+                    pd.static_samplers[i].address_v = ESamplerAddress::Wrap;
+                    pd.static_samplers[i].address_w = ESamplerAddress::Wrap;
+                }
+                pd.static_samplers[1].filter = ESamplerFilter::Point;
+                pd.static_samplers[5].filter = ESamplerFilter::Linear;
+                pd.static_samplers[5].address_u = ESamplerAddress::Clamp;
+                pd.static_samplers[5].address_v = ESamplerAddress::Clamp;
+                pd.static_samplers[5].address_w = ESamplerAddress::Clamp;
+                return CreateRhiComputePipeline(device, pd);
+            };
         if (shadowOk) {
             auto pipeResult =
-                createShadowSamplingPipeline(m_ShadowCs.Get());
+                createShadowDensityPipeline(m_ShadowCs.Get());
             if (pipeResult.IsErr()) {
                 shadowOk = false;
             } else {
@@ -10729,9 +12279,18 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
             }
         }
         if (shadowOk) {
+            auto pipeResult =
+                createShadowSunPipeline(pendingShadowSunShader.Get());
+            if (pipeResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowSunPipeline = Move(pipeResult.Value());
+            }
+        }
+        if (shadowOk) {
             FTextureDesc td{};
             td.width = kVolumetricCloudShadowCacheWidth;
-            td.height = 4u * kVolumetricCloudShadowCacheHeight;
+            td.height = kVolumetricCloudShadowCacheTextureHeight;
             td.depth = kVolumetricCloudShadowCacheDepth;
             td.format = EFormat::R16G16B16A16_Float;
             td.is_uav = true;
@@ -10742,14 +12301,104 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
                 m_ShadowTex = Move(textureResult.Value());
             }
         }
+        if (shadowOk) {
+            FTextureDesc td{};
+            td.width = kVolumetricCloudShadowCacheWidth;
+            td.height = kVolumetricCloudShadowCacheTextureHeight;
+            td.depth = kVolumetricCloudShadowCacheDepth;
+            td.format = EFormat::R16G16B16A16_Float;
+            td.is_uav = true;
+            auto textureResult = CreateRhiTexture(device, td);
+            if (textureResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowBuildTexture = Move(textureResult.Value());
+            }
+        }
+        if (shadowOk) {
+            FTextureDesc td{};
+            td.width = kVolumetricCloudShadowCacheWidth;
+            td.height = kVolumetricCloudShadowDensityProfileCount;
+            td.depth = kVolumetricCloudShadowCacheDepth;
+            td.format = EFormat::R16G16B16A16_Float;
+            td.is_uav = true;
+            auto textureResult = CreateRhiTexture(device, td);
+            if (textureResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowDensityTexture = Move(textureResult.Value());
+            }
+        }
+        if (shadowOk) {
+            FTextureDesc td{};
+            td.width = kVolumetricCloudShadowCacheWidth;
+            td.height = kVolumetricCloudAmbientDirectionalProfileCount;
+            td.depth = kVolumetricCloudShadowCacheDepth;
+            td.format = EFormat::R16G16B16A16_Float;
+            td.is_uav = true;
+            auto textureResult = CreateRhiTexture(device, td);
+            if (textureResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowAmbientDirectionalTexture =
+                    Move(textureResult.Value());
+            }
+        }
+        if (shadowOk) {
+            FBufferDesc bd{};
+            bd.size = CBSize<FCloudCb>();
+            bd.usage = EBufferUsage::Uniform;
+            bd.cpu_writable = true;
+            auto bufferResult = CreateRhiBuffer(device, bd);
+            if (bufferResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowDensitySnapshotCb =
+                    Move(bufferResult.Value());
+            }
+        }
+        if (shadowOk) {
+            FBufferDesc bd{};
+            bd.size = CBSize<FCloudShadowDensityDispatchCb>();
+            bd.usage = EBufferUsage::Uniform;
+            bd.cpu_writable = true;
+            auto bufferResult = CreateRhiBuffer(device, bd);
+            if (bufferResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowDensityDispatchCb =
+                    Move(bufferResult.Value());
+            }
+        }
+        if (shadowOk) {
+            FBufferDesc bd{};
+            bd.size = CBSize<FCloudShadowDensityDispatchCb>();
+            bd.usage = EBufferUsage::Uniform;
+            bd.cpu_writable = true;
+            auto bufferResult = CreateRhiBuffer(device, bd);
+            if (bufferResult.IsErr()) {
+                shadowOk = false;
+            } else {
+                pendingShadowResolveDispatchCb =
+                    Move(bufferResult.Value());
+            }
+        }
         if (!shadowOk) {
+            pendingShadowResolveDispatchCb.Reset();
+            pendingShadowDensityDispatchCb.Reset();
+            pendingShadowDensitySnapshotCb.Reset();
+            pendingShadowAmbientDirectionalTexture.Reset();
+            pendingShadowDensityTexture.Reset();
+            pendingShadowBuildTexture.Reset();
             m_ShadowTex.Reset();
+            pendingShadowSunPipeline.Reset();
             m_ShadowPipe.Reset();
+            pendingShadowSunShader.Reset();
             m_ShadowCs.Reset();
             if (kVolumetricCloudShadowCacheEnabled) {
                 ACS_LOG_WARN(
-                    "CVolumetricClouds: optional cloud-light cache unavailable; "
-                    "exact lighting fallback remains active");
+                    "CVolumetricClouds: 雲の完成密度分布または太陽光路を"
+                    "利用できないため、自己影なしの縮退描画へ戻します");
             }
         }
         m_ShadowCacheAvailable = shadowOk;
@@ -10828,6 +12477,22 @@ TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
                 "雲形状フィルター資源の所有領域を確保できません");
         }
         m_NoiseFilterResources->shader = Move(shaders.noise_filter);
+        m_NoiseFilterResources->shadow_sun_shader =
+            Move(pendingShadowSunShader);
+        m_NoiseFilterResources->shadow_sun_pipeline =
+            Move(pendingShadowSunPipeline);
+        m_NoiseFilterResources->shadow_density_texture =
+            Move(pendingShadowDensityTexture);
+        m_NoiseFilterResources->shadow_ambient_directional_texture =
+            Move(pendingShadowAmbientDirectionalTexture);
+        m_NoiseFilterResources->shadow_build_texture =
+            Move(pendingShadowBuildTexture);
+        m_NoiseFilterResources->shadow_density_snapshot_cb =
+            Move(pendingShadowDensitySnapshotCb);
+        m_NoiseFilterResources->shadow_density_dispatch_cb =
+            Move(pendingShadowDensityDispatchCb);
+        m_NoiseFilterResources->shadow_resolve_dispatch_cb =
+            Move(pendingShadowResolveDispatchCb);
         m_NoiseFilterResources->resource_device = &device;
     }
     {
@@ -11150,6 +12815,11 @@ u32 CVolumetricClouds::EnvironmentLightingSignature(
     add_float(m_Lighting.GroundColor.z);
     // 環境cubemap shaderが実際に使う固定方向光と空の放射輝度も追跡する。
     // 日周や天候の連続補間は呼び側の固定frame間隔でまとめて反映される。
+    const FVec3 signatureSunDirection =
+        ResolveVolumetricCloudLightBasis(m_PrevSunDir).direction;
+    add_float(signatureSunDirection.x);
+    add_float(signatureSunDirection.y);
+    add_float(signatureSunDirection.z);
     add_radiance(m_PrevSunColor.x);
     add_radiance(m_PrevSunColor.y);
     add_radiance(m_PrevSunColor.z);
@@ -11316,6 +12986,22 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     recorded.previous_sun_direction = m_PrevSunDir;
     recorded.previous_sun_color = m_PrevSunColor;
     recorded.previous_sky_color = m_PrevSkyColor;
+    recorded.shadow_build_sun_direction =
+        m_NoiseFilterResources->shadow_build_sun_direction;
+    recorded.shadow_published_sun_direction =
+        m_NoiseFilterResources->shadow_published_sun_direction;
+    recorded.shadow_build_medium =
+        m_NoiseFilterResources->shadow_build_medium;
+    recorded.shadow_published_medium =
+        m_NoiseFilterResources->shadow_published_medium;
+    recorded.shadow_build_grid_minimum_material_xz =
+        m_NoiseFilterResources->shadow_build_grid_minimum_material_xz;
+    recorded.shadow_build_grid_center_material_xz =
+        m_NoiseFilterResources->shadow_build_grid_center_material_xz;
+    recorded.shadow_build_world_origin =
+        m_NoiseFilterResources->shadow_build_world_origin;
+    recorded.shadow_published_world_origin =
+        m_NoiseFilterResources->shadow_published_world_origin;
     recorded.current_lighting = m_Lighting;
     recorded.previous_wind_offset = m_PrevWindOffset;
     recorded.previous_wind_speed = m_PrevWindSpeed;
@@ -11338,9 +13024,13 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     recorded.submission_id = submission_id;
     recorded.settings_revision =
         m_NoiseFilterResources->settings_revision;
+    recorded.shadow_content_revision =
+        m_NoiseFilterResources->shadow_content_revision;
     recorded.frame_index = m_FrameIndex;
     recorded.temporal_phase = m_TemporalPhase;
     recorded.resolved_index = m_ResolvedIndex;
+    recorded.shadow_generation_transition_frames_remaining =
+        m_NoiseFilterResources->shadow_generation_transition_frames_remaining;
     recorded.shadow_cache_warmup_mask =
         ShadowCacheWarmupMask_Internal();
     recorded.world_shadow_warmup_mask =
@@ -11359,38 +13049,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     recorded.history_valid = m_HistoryValid;
     recorded.active = true;
 
-    const FVec3 worldOrigin = RebaseVolumetricCloudWorldOrigin(cam_pos);
-    const FVec2 worldShadowCenterReferenceXz = ProjectVolumetricCloudWorldShadowReferenceXZ(cam_pos, safeSun, worldOrigin.y);
-    const FVec2 nextWorldShadowMapMinReferenceXz = VolumetricCloudWorldShadowMapMinimum(worldShadowCenterReferenceXz);
-    bool worldShadowMappingChanged = false;
-    constexpr f32 worldShadowSafeRadius =
-        kVolumetricCloudWorldShadowMapExtent * 0.25f;
-    if (!recorded.world_shadow_mapping_initialized) {
-        recorded.world_shadow_map_minimum_reference_xz =
-            nextWorldShadowMapMinReferenceXz;
-        recorded.world_shadow_mapping_initialized = true;
-        worldShadowMappingChanged = true;
-    } else {
-        const FVec2 currentWorldShadowCenter{
-            recorded.world_shadow_map_minimum_reference_xz.x +
-                kVolumetricCloudWorldShadowMapExtent * 0.5f,
-            recorded.world_shadow_map_minimum_reference_xz.y +
-                kVolumetricCloudWorldShadowMapExtent * 0.5f};
-        const f32 worldShadowCenterDeltaX =
-            worldShadowCenterReferenceXz.x - currentWorldShadowCenter.x;
-        const f32 worldShadowCenterDeltaZ =
-            worldShadowCenterReferenceXz.y - currentWorldShadowCenter.y;
-        if (Abs(worldShadowCenterDeltaX) > worldShadowSafeRadius ||
-            Abs(worldShadowCenterDeltaZ) > worldShadowSafeRadius) {
-            recorded.world_shadow_map_minimum_reference_xz =
-                nextWorldShadowMapMinReferenceXz;
-            worldShadowMappingChanged = true;
-        }
-    }
-    recorded.world_shadow_reference_height = worldOrigin.y;
-    recorded.world_shadow_sun_direction = safeSun;
-    recorded.world_shadow_world_origin = worldOrigin;
-    recorded.world_shadow_cloud_base_altitude = m_Layer.base_height;
+    const FVec3 rebasedWorldOrigin =
+        RebaseVolumetricCloudWorldOrigin(cam_pos);
     // 一つのワールド移流距離を天候、形状、侵食、渦、時間再投影で共有する。
     // 雑音の周波数とは分離し、各領域が風によって互いに滑ることを防ぐ。
     const f32 windOffset = ResolveVolumetricCloudAdvectionDistance(
@@ -11402,42 +13062,72 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     const FVolumetricCloudEvolutionFrameTerms evolutionFrameTerms =
         ResolveVolumetricCloudEvolutionFrameTerms(safeTime, safeWind);
     const FVec2 cameraQ = VolumetricCloudMaterialXZ(cam_pos, windOffset);
-    bool shadowGridChanged = false;
-    if (!recorded.shadow_grid_initialized) {
-        const auto mapping = CenterVolumetricCloudShadowCache(cameraQ);
-        recorded.shadow_grid_minimum_material_xz = mapping.min_material_xz;
-        recorded.shadow_grid_center_material_xz = mapping.center_material_xz;
-        recorded.shadow_grid_initialized = true;
-        shadowGridChanged = true;
-    } else {
-        const f32 dx = cameraQ.x -
-            recorded.shadow_grid_center_material_xz.x;
-        const f32 dz = cameraQ.y -
-            recorded.shadow_grid_center_material_xz.y;
-        if (Abs(dx) > kVolumetricCloudShadowCacheSafeRadius ||
-            Abs(dz) > kVolumetricCloudShadowCacheSafeRadius) {
-            const auto mapping = CenterVolumetricCloudShadowCache(cameraQ);
-            recorded.shadow_grid_minimum_material_xz =
-                mapping.min_material_xz;
-            recorded.shadow_grid_center_material_xz =
-                mapping.center_material_xz;
-            shadowGridChanged = true;
-        }
+    f32 highestCloudAltitude = m_Layer.top_height;
+    if (m_UpperLayer.top_height > m_UpperLayer.base_height &&
+        m_UpperLayer.top_height > highestCloudAltitude) {
+        highestCloudAltitude = m_UpperLayer.top_height;
     }
-    if (shadowGridChanged) {
-        // 新しい物質座標格子へ切り替えた直後は、旧格子の値を一部でも公開しない。
+    const f32 selfShadowVerticalSpan =
+        highestCloudAltitude - m_Layer.base_height;
+    // 次に生成する世代は現在の物質座標と媒質から先に組み立てる。完成済み世代を
+    // 保持するフレームでは生成用テクスチャの対応情報を上書きしない。
+    const auto nextShadowBuildMapping =
+        CenterVolumetricCloudShadowCache(cameraQ);
+    FShadowMediumSignature nextShadowBuildMedium{};
+    nextShadowBuildMedium.content_revision =
+        recorded.shadow_content_revision;
+    nextShadowBuildMedium.evolution = evolutionFrameTerms;
+    nextShadowBuildMedium.coverage = safeCoverage;
+    nextShadowBuildMedium.density = safeDensity;
+    nextShadowBuildMedium.initialized = true;
+    const auto nextShadowBuildMediumDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheMediumDecision_Internal(
+            nextShadowBuildMedium.initialized,
+            nextShadowBuildMedium.content_revision,
+            nextShadowBuildMedium.coverage,
+            nextShadowBuildMedium.density,
+            nextShadowBuildMedium.evolution,
+            recorded.shadow_content_revision,
+            safeCoverage,safeDensity,evolutionFrameTerms,
+            selfShadowVerticalSpan);
+    const bool publishedShadowGridSupportsCamera =
+        recorded.shadow_grid_initialized && render_internal::
+            VolumetricCloudAmbientCacheCenterSupportsMaterialPoint_Internal(
+                recorded.shadow_grid_center_material_xz, cameraQ);
+    const auto publishedMediumDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheMediumDecision_Internal(
+            recorded.shadow_published_medium.initialized,
+            recorded.shadow_published_medium.content_revision,
+            recorded.shadow_published_medium.coverage,
+            recorded.shadow_published_medium.density,
+            recorded.shadow_published_medium.evolution,
+            recorded.shadow_content_revision,
+            safeCoverage,safeDensity,evolutionFrameTerms,
+            selfShadowVerticalSpan);
+    const bool publishedShadowWorldOriginFinite = render_internal::
+        VolumetricCloudAmbientCacheWorldOriginIsFinite_Internal(
+            recorded.shadow_published_world_origin);
+    if (recorded.shadow_cache_valid &&
+        (!publishedShadowGridSupportsCamera ||
+         !publishedMediumDecision.compatible ||
+         !publishedShadowWorldOriginFinite)) {
+        // 完成格子の信頼領域外、内容・対流世代が成立範囲外、または曲面原点が
+        // 非有限なら採取を止める。
+        // 裏の世代は継続し、適合する完成世代だけを同じ提出結果として交換する。
         recorded.shadow_cache_valid = false;
         recorded.shadow_cache_warmup_mask = 0u;
-        recorded.history_valid = false;
-    }
-    if (worldShadowMappingChanged) {
-        // 固定地図の座標が変わった場合も、四つの偶奇位置が揃うまで外部公開しない。
-        recorded.world_shadow_valid = false;
-        recorded.world_shadow_warmup_mask = 0u;
     }
     const bool shadowResourcesReady =
         m_ShadowCacheAvailable &&
         m_ShadowCs && m_ShadowPipe &&
+        m_NoiseFilterResources->shadow_sun_shader &&
+        m_NoiseFilterResources->shadow_sun_pipeline &&
+        m_NoiseFilterResources->shadow_density_texture &&
+        m_NoiseFilterResources->shadow_ambient_directional_texture &&
+        m_NoiseFilterResources->shadow_build_texture &&
+        m_NoiseFilterResources->shadow_density_snapshot_cb &&
+        m_NoiseFilterResources->shadow_density_dispatch_cb &&
+        m_NoiseFilterResources->shadow_resolve_dispatch_cb &&
         m_ShadowTex;
     if (!shadowResourcesReady) {
         recorded.shadow_cache_valid = false;
@@ -11486,7 +13176,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     // 照明の変化は密度の位置や深度を変えない。CPUで求めた放射輝度・太陽角度の差だけを
     // GPUへ渡し、履歴を捨てずに現在フレームへ連続収束させる。視点切替や雲形状変更は
     // 上の判定で別途履歴を無効化する。
-    const f32 lightingMismatch = historyValid
+    f32 lightingMismatch = historyValid
         ? VolumetricCloudLightingTemporalMismatch(
               m_NoiseFilterResources->previous_lighting,
               m_PrevSunDir, m_PrevSunColor,
@@ -11541,11 +13231,6 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     const bool densityFieldsReady =
         recorded.noise_baked && recorded.weather_baked &&
         recorded.detail_baked && recorded.curl_baked;
-    // 雲は風移流とは別に対流変形するため、自己影は毎フレーム更新する。
-    // 生成したばかりの密度場と同じフレームへ影積分を集中させず、次のフレームから
-    // 四つの偶奇位置へ分ける。これにより初回だけGPUを長時間占有しない。
-    const bool rebuildShadowCacheThisFrame =
-        shadowResourcesReady && densityFieldsReady;
     const bool rebuildWorldShadowThisFrame =
         worldShadowResourcesReady &&
         safeSun.y > kVolumetricCloudWorldShadowMinimumSunY &&
@@ -11557,27 +13242,124 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     const bool cloudMediumChanged =
         previousShadowStateAvailable &&
         (coverageDelta != 0.0f || densityDelta != 0.0f);
-    f32 selfSunDirectionStepDistance = 0.0f;
     f32 worldSunDirectionStepDistance = 0.0f;
-    bool selfSunProjectionStepResolved = true;
     bool worldSunProjectionStepResolved = true;
-    if (previousShadowStateAvailable) {
-        f32 highestCloudAltitude = m_Layer.top_height;
-        if (m_UpperLayer.top_height > m_UpperLayer.base_height &&
-            m_UpperLayer.top_height > highestCloudAltitude) {
-            highestCloudAltitude = m_UpperLayer.top_height;
+    const bool directSunCacheSupportedThisFrame =
+        safeSun.y > kVolumetricCloudWorldShadowMinimumSunY;
+    f32 publishedSunProjectionDistance = 0.0f;
+    const bool publishedSunProjectionResolved =
+        recorded.shadow_cache_valid && directSunCacheSupportedThisFrame &&
+        render_internal::ResolveVolumetricCloudSunProjectionDelta_Internal(
+            safeSun, recorded.shadow_published_sun_direction,
+            selfShadowVerticalSpan, publishedSunProjectionDistance);
+    const auto publishedSunDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheSunDecision_Internal(
+            recorded.shadow_cache_valid,directSunCacheSupportedThisFrame,
+            publishedSunProjectionResolved,publishedSunProjectionDistance,
+            kVolumetricCloudShadowCacheCellSize);
+    if (publishedSunDecision.published_generation_requires_refresh) {
+        // 一段差ではなく、公開世代の太陽方向との差を累積で判定する。格子一セル以上
+        // ずれた古い光路は採取しない。地平線付近では直接光だけを止め、同じ完成世代の
+        // 方向別周囲光を保持するため、毎フレームの全再生成へ戻らない。
+        recorded.shadow_cache_valid = false;
+        recorded.shadow_cache_warmup_mask = 0u;
+    }
+    // 表示中の影と現在密度は同じ曲面原点で評価する。新世代を作る場合だけ現在視点へ
+    // 再基準化し、密度だけが先に別の惑星曲率へ移る不整合を防ぐ。
+    const auto worldOriginDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheWorldOrigin_Internal(
+            recorded.shadow_cache_valid,m_ReferenceMode,
+            recorded.shadow_published_world_origin,rebasedWorldOrigin);
+    if (!worldOriginDecision.valid) {
+        // 有限な曲面原点が無ければ、密度と影を異なる暗黙原点で描かない。
+        recorded = {};
+        m_HistoryValid = false;
+        m_ShadowCacheValid = false;
+        m_WorldShadowValid = false;
+        SetShadowCacheWarmupMask_Internal(0u);
+        SetWorldShadowWarmupMask_Internal(0u);
+        m_LastFrameWorkload.skip_reason =
+            EVolumetricCloudFrameSkipReason::InvalidCamera;
+        m_LastFrameWorkload.history_invalidated = historyWasAvailable;
+        return;
+    }
+    const FVec3 worldOrigin = worldOriginDecision.world_origin;
+    const bool worldOriginChanged = historyValid &&
+        (worldOrigin.x != recorded.world_origin.x ||
+         worldOrigin.y != recorded.world_origin.y ||
+         worldOrigin.z != recorded.world_origin.z);
+    if (worldOriginChanged) {
+        // 前フレームの色・深度は旧曲面原点で作られている。現在密度と影を新原点へ
+        // 同時に移したフレームでは再投影せず、異なる惑星曲率の履歴を混ぜない。
+        historyValid = false;
+        lightingMismatch = 1.0f;
+        recorded.temporal_phase = 0u;
+        recorded.shadow_generation_transition_frames_remaining = 0u;
+    }
+    const FVec2 worldShadowCenterReferenceXz =
+        ProjectVolumetricCloudWorldShadowReferenceXZ(
+            cam_pos,safeSun,worldOrigin.y);
+    const FVec2 nextWorldShadowMapMinReferenceXz =
+        VolumetricCloudWorldShadowMapMinimum(
+            worldShadowCenterReferenceXz);
+    bool worldShadowMappingChanged = false;
+    constexpr f32 worldShadowSafeRadius =
+        kVolumetricCloudWorldShadowMapExtent * 0.25f;
+    if (!recorded.world_shadow_mapping_initialized) {
+        recorded.world_shadow_map_minimum_reference_xz =
+            nextWorldShadowMapMinReferenceXz;
+        recorded.world_shadow_mapping_initialized = true;
+        worldShadowMappingChanged = true;
+    } else {
+        const FVec2 currentWorldShadowCenter{
+            recorded.world_shadow_map_minimum_reference_xz.x +
+                kVolumetricCloudWorldShadowMapExtent * 0.5f,
+            recorded.world_shadow_map_minimum_reference_xz.y +
+                kVolumetricCloudWorldShadowMapExtent * 0.5f};
+        const f32 worldShadowCenterDeltaX =
+            worldShadowCenterReferenceXz.x - currentWorldShadowCenter.x;
+        const f32 worldShadowCenterDeltaZ =
+            worldShadowCenterReferenceXz.y - currentWorldShadowCenter.y;
+        if (Abs(worldShadowCenterDeltaX) > worldShadowSafeRadius ||
+            Abs(worldShadowCenterDeltaZ) > worldShadowSafeRadius) {
+            recorded.world_shadow_map_minimum_reference_xz =
+                nextWorldShadowMapMinReferenceXz;
+            worldShadowMappingChanged = true;
         }
-        const f32 selfShadowVerticalSpan =
-            highestCloudAltitude - m_Layer.base_height;
+    }
+    recorded.world_shadow_reference_height = worldOrigin.y;
+    recorded.world_shadow_sun_direction = safeSun;
+    recorded.world_shadow_world_origin = worldOrigin;
+    recorded.world_shadow_cloud_base_altitude = m_Layer.base_height;
+    if (worldShadowMappingChanged) {
+        // 固定地図の座標が変わった場合も、四つの偶奇位置が揃うまで外部公開しない。
+        recorded.world_shadow_valid = false;
+        recorded.world_shadow_warmup_mask = 0u;
+    }
+    // 通常描画では、現在の視点・媒質・太陽を物理的な信頼範囲に含む完成世代を
+    // 保持する。参照描画だけは同じ時刻の自己影を比較基準として毎回生成する。
+    const auto shadowRefreshDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheRefreshDecision_Internal(
+            shadowResourcesReady,densityFieldsReady,
+            m_ReferenceMode,recorded.shadow_cache_valid);
+    const bool rebuildShadowCacheThisFrame =
+        shadowRefreshDecision.rebuild;
+    if (rebuildShadowCacheThisFrame) {
+        // 三つの処理が読む座標、曲面原点、太陽、媒質を一つの候補世代へ固定する。
+        recorded.shadow_build_grid_minimum_material_xz =
+            nextShadowBuildMapping.min_material_xz;
+        recorded.shadow_build_grid_center_material_xz =
+            nextShadowBuildMapping.center_material_xz;
+        recorded.shadow_build_world_origin = worldOrigin;
+        recorded.shadow_build_sun_direction = safeSun;
+        recorded.shadow_build_medium = nextShadowBuildMedium;
+    }
+    if (previousShadowStateAvailable) {
         const f32 worldShadowVerticalSpan =
             highestCloudAltitude > recorded.world_shadow_reference_height
                 ? highestCloudAltitude -
                     recorded.world_shadow_reference_height
                 : 0.0f;
-        selfSunProjectionStepResolved =
-            render_internal::ResolveVolumetricCloudSunProjectionDelta_Internal(
-                safeSun, m_PrevSunDir, selfShadowVerticalSpan,
-                selfSunDirectionStepDistance);
         worldSunProjectionStepResolved =
             render_internal::ResolveVolumetricCloudSunProjectionDelta_Internal(
                 safeSun, m_PrevSunDir, worldShadowVerticalSpan,
@@ -11585,22 +13367,11 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     }
     const f32 maximumPartialShadowAge = static_cast<f32>(
         render_internal::kCloudShadowTemporalPhaseCount - 1u);
-    const bool selfSunDirectionDiscontinuity =
-        previousShadowStateAvailable &&
-        (!selfSunProjectionStepResolved ||
-         selfSunDirectionStepDistance * maximumPartialShadowAge >=
-             kVolumetricCloudShadowCacheCellSize);
     const bool worldSunDirectionDiscontinuity =
         previousShadowStateAvailable &&
         (!worldSunProjectionStepResolved ||
          worldSunDirectionStepDistance * maximumPartialShadowAge >=
              kVolumetricCloudWorldShadowMapTexelSize);
-    // 自己影は物質座標で風移流が相殺される。対流・媒質・太陽方向の一段差から、
-    // 最大3世代古い値でも一セル未満に収まる場合だけ部分更新する。
-    const bool selfShadowTemporalDiscontinuity =
-        rebuildShadowCacheThisFrame &&
-        (shadowTemporalDecision.self_shadow_requires_full_refresh ||
-         cloudMediumChanged || selfSunDirectionDiscontinuity);
     // 立体物用雲影は固定ワールド地図なので、対流形状に加えて一段の
     // 移流距離も比較し、最大3世代で一画素以上の差を残さない。
     const bool worldShadowTemporalDiscontinuity =
@@ -11608,32 +13379,59 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         (shadowTemporalDecision.world_shadow_requires_full_refresh ||
          cloudMediumChanged || worldSunDirectionDiscontinuity ||
          worldShadowMappingChanged);
-    // 画面履歴の破棄は影の物質座標や密度場を変えない。視点移動だけを理由に
-    // 96x96列の全積分へ戻すと、一瞬粗くなる周期的なGPU停止を作る。
-    const bool refreshAllSelfShadows =
-        m_ReferenceMode || selfShadowTemporalDiscontinuity;
+    // 密度、方向別光路、半球解決を同じ提出で順に完了させる。処理間の資源遷移は
+    // 各Dispatchの後でRHIが確定し、時間の進まない一つの固定媒質だけを扱う。
+    const bool completeShadowCacheGenerationThisFrame =
+        rebuildShadowCacheThisFrame;
+    f32 completedBuildSunProjectionDistance = 0.0f;
+    const bool completedBuildSunProjectionResolved =
+        completeShadowCacheGenerationThisFrame &&
+        directSunCacheSupportedThisFrame && render_internal::
+            ResolveVolumetricCloudSunProjectionDelta_Internal(
+                safeSun, recorded.shadow_build_sun_direction,
+                selfShadowVerticalSpan,
+                completedBuildSunProjectionDistance);
+    const auto completedSunDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheSunDecision_Internal(
+            false,directSunCacheSupportedThisFrame,
+            completedBuildSunProjectionResolved,
+            completedBuildSunProjectionDistance,
+            kVolumetricCloudShadowCacheCellSize);
+    const bool completedBuildGridSupportsCamera =
+        !completeShadowCacheGenerationThisFrame || render_internal::
+            VolumetricCloudAmbientCacheCenterSupportsMaterialPoint_Internal(
+                recorded.shadow_build_grid_center_material_xz, cameraQ);
+    const bool completedShadowCacheUsable =
+        completeShadowCacheGenerationThisFrame &&
+        nextShadowBuildMediumDecision.compatible &&
+        completedSunDecision.completed_generation_supports_current_sun &&
+        completedBuildGridSupportsCamera;
+    const bool replacePublishedShadowCacheThisFrame =
+        completedShadowCacheUsable;
+    // 完成した生成用テクスチャは同じ命令一覧の後続雲描画から読める。提出成功時だけ
+    // 所有権を交換するため、失敗した命令一覧の結果は次回へ公開されない。
+    const auto shadowPublicationDecision = render_internal::
+        ResolveVolumetricCloudAmbientCachePublicationDecision_Internal(
+            recorded.shadow_cache_valid,
+            replacePublishedShadowCacheThisFrame,
+            completedShadowCacheUsable);
     const bool refreshAllWorldShadows =
         m_ReferenceMode || worldShadowTemporalDiscontinuity;
-    const u32 shadowUpdateDivisor = refreshAllSelfShadows
-        ? 1u : kVolumetricCloudShadowTemporalDivisor;
+    const u32 shadowUpdateDivisor = 1u;
     const u32 worldShadowUpdateDivisor = refreshAllWorldShadows
         ? 1u : kVolumetricCloudShadowTemporalDivisor;
-    const u32 shadowUpdateOffsetX = shadowUpdateDivisor == 1u
-        ? 0u : shadowTemporalDecision.partial_update_offset_x;
-    const u32 shadowUpdateOffsetY = shadowUpdateDivisor == 1u
-        ? 0u : shadowTemporalDecision.partial_update_offset_y;
+    const u32 shadowUpdateOffsetX = 0u;
+    const u32 shadowUpdateOffsetY = 0u;
     const u32 worldShadowUpdateOffsetX =
         worldShadowUpdateDivisor == 1u
             ? 0u : shadowTemporalDecision.partial_update_offset_x;
     const u32 worldShadowUpdateOffsetY =
         worldShadowUpdateDivisor == 1u
             ? 0u : shadowTemporalDecision.partial_update_offset_y;
-    const u8 shadowWarmupMaskAfterUpdate = rebuildShadowCacheThisFrame
-        ? render_internal::ResolveVolumetricCloudShadowWarmupMask_Internal(
-            recorded.shadow_cache_warmup_mask,
-            shadowTemporalDecision.phase,
-            refreshAllSelfShadows)
-        : recorded.shadow_cache_warmup_mask;
+    const u8 shadowWarmupMaskAfterUpdate =
+        replacePublishedShadowCacheThisFrame
+            ? render_internal::kCloudShadowTemporalCompleteMask
+            : recorded.shadow_cache_warmup_mask;
     const u8 worldShadowWarmupMaskAfterUpdate = rebuildWorldShadowThisFrame
         ? render_internal::ResolveVolumetricCloudShadowWarmupMask_Internal(
             recorded.world_shadow_warmup_mask,
@@ -11641,9 +13439,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
             refreshAllWorldShadows)
         : recorded.world_shadow_warmup_mask;
     const bool shadowCacheReadyAfterUpdate =
-        recorded.shadow_cache_valid ||
-        shadowWarmupMaskAfterUpdate ==
-            render_internal::kCloudShadowTemporalCompleteMask;
+        shadowPublicationDecision.valid_after_submit;
     const bool worldShadowReadyAfterUpdate =
         recorded.world_shadow_valid ||
         worldShadowWarmupMaskAfterUpdate ==
@@ -11668,6 +13464,18 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         bakeShapeNoiseThisFrame ? 1u : 0u;
     workloadOptions.world_shadow_update_divisor =
         worldShadowUpdateDivisor;
+    workloadOptions.shadow_density_update_divisor = 1u;
+    workloadOptions.shadow_density_dispatch =
+        rebuildShadowCacheThisFrame;
+    workloadOptions.shadow_lighting_update_divisor = 1u;
+    workloadOptions.shadow_lighting_dispatch =
+        rebuildShadowCacheThisFrame;
+    workloadOptions.shadow_ambient_resolve_dispatch =
+        rebuildShadowCacheThisFrame;
+    workloadOptions.reference_area_quadrature = m_ReferenceMode;
+    workloadOptions.upper_layer_enabled =
+        m_UpperLayer.top_height > m_UpperLayer.base_height &&
+        m_UpperLayer.base_height >= m_Layer.top_height;
     m_LastFrameWorkload = PlanVolumetricCloudFrameWorkload_Internal(
         workloadPlan, workloadOptions);
     m_LastFrameWorkload.attempted = true;
@@ -11677,6 +13485,26 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         !preparingDensityFields && historyValid;
     m_LastFrameWorkload.history_invalidated =
         historyWasAvailable && !historyValid;
+    // 同じ画素の固定保持は、視線だけでなく移流と対流も不変の場合に限る。
+    // 雲が動く場合は残数を破棄し、物質座標の移動を補正する通常の再投影へ戻す。
+    const bool transitionPixelMappingUnchanged = historyValid && safeCoverage == m_PrevCoverage && safeDensity == m_PrevDensity &&
+        render_internal::
+            VolumetricCloudTemporalPixelMappingUnchanged_Internal(
+                camera_relative_inv_view_proj,cam_pos,
+                m_PrevCameraRelativeInvViewProj,m_PrevCamPos) &&
+        render_internal::VolumetricCloudTemporalMaterialUnchanged_Internal(windOffset, evolutionFrameTerms, m_PrevWindOffset, previousEvolutionFrameTerms);
+    const auto shadowGenerationTransitionDecision = render_internal::
+        ResolveVolumetricCloudAmbientCacheTransitionDecision_Internal(
+            recorded.shadow_generation_transition_frames_remaining,
+            replacePublishedShadowCacheThisFrame && !m_ReferenceMode,
+            transitionPixelMappingUnchanged,
+            m_LastFrameWorkload.temporal_super_resolution);
+    // -1以下の値は影世代交換中を表し、絶対値側へ通常の照明差を保持する。
+    // 4x4位相採取では採取画素だけを自身の等倍標本へ移す。その他の縮小率では
+    // 全画素に現在の空間再構成があるため、通常の時間混合を16フレーム凍結しない。
+    const f32 encodedTemporalLightingMismatch = render_internal::
+        EncodeVolumetricCloudAmbientCacheTransitionMismatch_Internal(
+            shadowGenerationTransitionDecision.active,lightingMismatch);
 
     FCloudCb cb{};
     // 視線復元には、カメラ位置を含めずに反転した高精度な行列を使う。
@@ -11721,25 +13549,53 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     // 画面と環境光で同じ密度形状と物理消散を使う。
     const FCloudSamplingTerms samplingTerms =
         ResolveVolumetricCloudSamplingTerms_Internal(
-            safeCoverage,m_Layer.horizontal_noise_scale,m_UpperLayer);
+            safeCoverage,m_Layer.horizontal_noise_scale,
+            densityFrameTerms.inverse_layer_height,m_UpperLayer);
     const bool temporalHistoryStationary = historyValid &&
         cameraDeltaSquared <= 0.0025f && matrixDelta <= 0.002f;
     cb.worldOrigin = FVec4{
         worldOrigin.x, worldOrigin.y, worldOrigin.z,
-        temporalHistoryStationary ? 1.0f : 0.0f};
+        transitionPixelMappingUnchanged ? 2.0f
+            : (temporalHistoryStationary ? 1.0f : 0.0f)};
     const f32 invShadowExtent =
         1.0f / kVolumetricCloudShadowCacheExtent;
     // 最大描画距離の変更時だけ変わる外周写像をCPUで一度求め、視線標本ごとの導出を避ける。
-    const render_internal::FVolumetricCloudAmbientCacheMapTerms ambientCacheMapTerms = render_internal::ResolveVolumetricCloudAmbientCacheMapTerms_Internal(m_Range.MaxDistance);
+    const f32 ambientDirectionalHorizontalTravel = render_internal::
+        ResolveVolumetricCloudAmbientMaximumHorizontalTravel_Internal(
+            m_Layer,m_UpperLayer);
+    const render_internal::FVolumetricCloudAmbientCacheMapTerms ambientCacheMapTerms = render_internal::ResolveVolumetricCloudAmbientCacheMapTerms_Internal(
+        m_Range.MaxDistance,ambientDirectionalHorizontalTravel);
+    const bool sampleShadowCacheThisFrame =
+        shadowPublicationDecision.sample_completed_this_frame ||
+        shadowPublicationDecision.sample_published_this_frame;
+    const FVec2 sampledShadowGridMinimum =
+        shadowPublicationDecision.sample_completed_this_frame
+            ? recorded.shadow_build_grid_minimum_material_xz
+            : recorded.shadow_grid_minimum_material_xz;
     cb.shadowGrid = FVec4{
-        recorded.shadow_grid_minimum_material_xz.x,
-        recorded.shadow_grid_minimum_material_xz.y,
+        sampledShadowGridMinimum.x,
+        sampledShadowGridMinimum.y,
         invShadowExtent, invShadowExtent};
+    const FVec3 sampledShadowSunDirection =
+        shadowPublicationDecision.sample_completed_this_frame
+            ? recorded.shadow_build_sun_direction
+            : recorded.shadow_published_sun_direction;
     cb.shadowState = FVec4{
-        shadowCacheReadyAfterUpdate ? 1.0f : 0.0f,
-        kSkyPhysicalSunAngularRadiusRadians,
+        sampleShadowCacheThisFrame ? 1.0f : 0.0f,
+        directSunCacheSupportedThisFrame
+            ? kSkyPhysicalSunAngularRadiusRadians
+            : -kSkyPhysicalSunAngularRadiusRadians,
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheWidth),
         ambientCacheMapTerms.guard_coefficient};
+    const FVec3 sampledShadowWorldOrigin =
+        shadowPublicationDecision.sample_completed_this_frame
+            ? recorded.shadow_build_world_origin
+            : (shadowPublicationDecision.sample_published_this_frame
+                ? recorded.shadow_published_world_origin : worldOrigin);
+    cb.shadowWorldOrigin = FVec4{
+        sampledShadowWorldOrigin.x,
+        sampledShadowWorldOrigin.y,
+        sampledShadowWorldOrigin.z, 0.0f};
     const FVolumetricCloudGroundHorizon groundHorizon =
         ResolveVolumetricCloudGroundHorizon(
             cam_pos, m_Layer, worldOrigin);
@@ -11772,7 +13628,7 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         static_cast<f32>(shadowUpdateOffsetX),
         static_cast<f32>(shadowUpdateOffsetY),
         static_cast<f32>(shadowUpdateDivisor),
-        refreshAllSelfShadows ? 1.0f : 0.0f};
+        1.0f};
     cb.cloudWorldShadowMap = FVec4{
         recorded.world_shadow_map_minimum_reference_xz.x,
         recorded.world_shadow_map_minimum_reference_xz.y,
@@ -11783,7 +13639,11 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         static_cast<f32>(worldShadowUpdateOffsetY),
         static_cast<f32>(worldShadowUpdateDivisor),
         refreshAllWorldShadows ? 1.0f : 0.0f};
-    cb.cloudLightingHistory = FVec4{lightingMismatch, 0.0f, 0.0f, 0.0f};
+    cb.cloudLightingHistory = FVec4{
+        encodedTemporalLightingMismatch,
+        sampledShadowSunDirection.x,
+        sampledShadowSunDirection.y,
+        sampledShadowSunDirection.z};
     cb.cloudLightTangent = FVec4{
         lightBasis.tangent.x,
         lightBasis.tangent.y,
@@ -11925,16 +13785,45 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         return;
     }
     if (rebuildShadowCacheThisFrame) {
-        const u32 updateWidth = CloudCeilDivisor(
-            kVolumetricCloudShadowCacheWidth - shadowUpdateOffsetX,
-            shadowUpdateDivisor);
-        const u32 updateDepth = CloudCeilDivisor(
-            kVolumetricCloudShadowCacheDepth - shadowUpdateOffsetY,
-            shadowUpdateDivisor);
-        // 一つのGPUグループが一つの水平セルを担当する。16スレッドで周囲光を
-        // 面積積分し、その先頭4スレッドが太陽円盤の各光路も生成する。
+        const u32 densityProfileCount = hasUpperLayer
+            ? kVolumetricCloudShadowDensityProfileCount
+            : kVolumetricCloudShadowCacheHeight;
+        FCloudShadowDensityDispatchCb densityDispatch{};
+        densityDispatch.stride = 1u;
+        densityDispatch.profile_count = densityProfileCount;
+        FCloudShadowDensityDispatchCb resolveDispatch{};
+        resolveDispatch.stride = 1u;
+        resolveDispatch.profile_count = 0u;
+        // 三処理が読む物理状態を一つの定数バッファへ固定し、同じ提出内でも
+        // 現在画面用の履歴値や公開済み格子へ戻らないようにする。
+        FCloudCb shadowSnapshotCb = cb;
+        shadowSnapshotCb.worldOrigin.x =
+            recorded.shadow_build_world_origin.x;
+        shadowSnapshotCb.worldOrigin.y =
+            recorded.shadow_build_world_origin.y;
+        shadowSnapshotCb.worldOrigin.z =
+            recorded.shadow_build_world_origin.z;
+        shadowSnapshotCb.shadowGrid = FVec4{
+            recorded.shadow_build_grid_minimum_material_xz.x,
+            recorded.shadow_build_grid_minimum_material_xz.y,
+            invShadowExtent, invShadowExtent};
+        shadowSnapshotCb.shadowWorldOrigin = FVec4{
+            recorded.shadow_build_world_origin.x,
+            recorded.shadow_build_world_origin.y,
+            recorded.shadow_build_world_origin.z, 0.0f};
+        m_NoiseFilterResources->shadow_density_snapshot_cb->Update(
+            &shadowSnapshotCb,sizeof(shadowSnapshotCb));
+        m_NoiseFilterResources->shadow_density_dispatch_cb->Update(
+            &densityDispatch,sizeof(densityDispatch));
+        m_NoiseFilterResources->shadow_resolve_dispatch_cb->Update(
+            &resolveDispatch,sizeof(resolveDispatch));
+
+        // 第一処理は全96x64x96ボクセルの完成密度四状態を一度ずつ生成する。
         cl.SetComputePipeline(*m_ShadowPipe);
-        cl.SetConstantBuffer(0, *m_Cb);
+        cl.SetConstantBuffer(
+            0,*m_NoiseFilterResources->shadow_density_snapshot_cb);
+        cl.SetConstantBuffer(
+            1,*m_NoiseFilterResources->shadow_density_dispatch_cb);
         cl.SetTexture(0, *m_ShapeTex);
         cl.SetTexture(1, *m_NoiseFilterResources->filtered_texture);
         cl.SetTexture(2, *m_WeatherTex);
@@ -11942,14 +13831,98 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         cl.SetTexture(4, *m_CurlTex);
         cl.BindUav(0, *m_CloudTex);
         cl.BindUav(1, *m_CloudDepth);
-        // 現在の計算RHIはUAV登録番号を連続させるため、u0/u1へ有効な
-        // 代替テクスチャを割り当て、周囲光と太陽光路をu2へ書く。
-        cl.BindUav(2, *m_ShadowTex);
-        cl.Dispatch(updateWidth, 1u, updateDepth);
+        cl.BindUav(2, *m_NoiseFilterResources->shadow_build_texture);
+        cl.BindUav(3, *m_NoiseFilterResources->shadow_density_texture);
+        cl.Dispatch(
+            CloudCeilDivisor(kVolumetricCloudShadowCacheWidth,4u),
+            CloudCeilDivisor(densityProfileCount,4u),
+            CloudCeilDivisor(kVolumetricCloudShadowCacheDepth,4u));
+
+        // 第二処理は完成密度を読み、全列の実3D方向16本と太陽円盤4本を生成する。
+        cl.SetComputePipeline(
+            *m_NoiseFilterResources->shadow_sun_pipeline);
+        cl.SetConstantBuffer(
+            0,*m_NoiseFilterResources->shadow_density_snapshot_cb);
+        cl.SetConstantBuffer(
+            1,*m_NoiseFilterResources->shadow_density_dispatch_cb);
+        cl.SetTexture(0, *m_ShapeTex);
+        cl.SetTexture(1, *m_NoiseFilterResources->filtered_texture);
+        cl.SetTexture(2, *m_WeatherTex);
+        cl.SetTexture(3, *m_DetailTex);
+        cl.SetTexture(4, *m_CurlTex);
+        cl.SetTexture(5, *m_NoiseFilterResources->shadow_density_texture);
+        cl.BindUav(0, *m_CloudTex);
+        cl.BindUav(1, *m_CloudDepth);
+        cl.BindUav(2, *m_NoiseFilterResources->shadow_build_texture);
+        cl.BindUav(
+            3,*m_NoiseFilterResources->shadow_ambient_directional_texture);
+        cl.Dispatch(
+            kVolumetricCloudShadowCacheWidth,1u,
+            kVolumetricCloudShadowCacheDepth);
+
+        // 第三処理は別の定数バッファで解決分岐を選び、全方向を半球積分する。
+        cl.SetComputePipeline(
+            *m_NoiseFilterResources->shadow_sun_pipeline);
+        cl.SetConstantBuffer(
+            0,*m_NoiseFilterResources->shadow_density_snapshot_cb);
+        cl.SetConstantBuffer(
+            1,*m_NoiseFilterResources->shadow_resolve_dispatch_cb);
+        cl.SetTexture(0, *m_ShapeTex);
+        cl.SetTexture(1, *m_NoiseFilterResources->filtered_texture);
+        cl.SetTexture(2, *m_WeatherTex);
+        cl.SetTexture(3, *m_DetailTex);
+        cl.SetTexture(4, *m_CurlTex);
+        cl.SetTexture(
+            5,*m_NoiseFilterResources->shadow_ambient_directional_texture);
+        cl.BindUav(0, *m_CloudTex);
+        cl.BindUav(1, *m_CloudDepth);
+        cl.BindUav(2, *m_NoiseFilterResources->shadow_build_texture);
+        cl.BindUav(3, *m_NoiseFilterResources->shadow_density_texture);
+        cl.Dispatch(
+            kVolumetricCloudShadowCacheWidth,1u,
+            kVolumetricCloudShadowCacheDepth);
+        if (replacePublishedShadowCacheThisFrame) {
+            // 現在の媒質と適合する完成テクスチャだけを、表示座標・曲面原点・太陽・
+            // 媒質世代と一括公開する。交換後に生成用となる旧表示の対応情報も同時に
+            // 戻し、二つのテクスチャと二つの世代情報を常に一致させる。
+            const FVec2 previousPublishedGridMinimum =
+                recorded.shadow_grid_minimum_material_xz;
+            const FVec2 previousPublishedGridCenter =
+                recorded.shadow_grid_center_material_xz;
+            const FVec3 previousPublishedWorldOrigin =
+                recorded.shadow_published_world_origin;
+            const FVec3 previousPublishedSunDirection =
+                recorded.shadow_published_sun_direction;
+            const FShadowMediumSignature previousPublishedMedium =
+                recorded.shadow_published_medium;
+            recorded.shadow_grid_minimum_material_xz =
+                recorded.shadow_build_grid_minimum_material_xz;
+            recorded.shadow_grid_center_material_xz =
+                recorded.shadow_build_grid_center_material_xz;
+            recorded.shadow_published_world_origin =
+                recorded.shadow_build_world_origin;
+            recorded.shadow_published_sun_direction =
+                recorded.shadow_build_sun_direction;
+            recorded.shadow_published_medium =
+                recorded.shadow_build_medium;
+            recorded.shadow_build_grid_minimum_material_xz =
+                previousPublishedGridMinimum;
+            recorded.shadow_build_grid_center_material_xz =
+                previousPublishedGridCenter;
+            recorded.shadow_build_world_origin =
+                previousPublishedWorldOrigin;
+            recorded.shadow_build_sun_direction =
+                previousPublishedSunDirection;
+            recorded.shadow_build_medium = previousPublishedMedium;
+            recorded.shadow_grid_initialized = true;
+        }
+        recorded.shadow_cache_dispatch_count +=
+            kVolumetricCloudShadowBuildStageCount;
         recorded.shadow_cache_warmup_mask =
             shadowWarmupMaskAfterUpdate;
         recorded.shadow_cache_valid = shadowCacheReadyAfterUpdate;
-        ++recorded.shadow_cache_dispatch_count;
+        recorded.shadow_cache_publish =
+            replacePublishedShadowCacheThisFrame;
     }
     if (rebuildWorldShadowThisFrame) {
         cl.SetComputePipeline(*m_WorldShadowPipe);
@@ -11974,8 +13947,9 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
         recorded.world_shadow_valid = worldShadowReadyAfterUpdate;
         ++recorded.world_shadow_dispatch_count;
     }
-    // 影キャッシュが未完成でも雲本体は止めない。shadowState.x が正確な
-    // 直接積分へ戻し、完成した四位相だけを次のdispatchから採取する。
+    // 雲本体は同じ命令一覧で三処理を完了した生成用、または既に公開済みの完成世代を
+    // 読む。提出失敗時は画面も交換も確定しないため、未完成世代は次回へ漏れない。
+    // 影機能を利用できない構成ではshadowState.xが採取を止め、無遮蔽へ縮退する。
     cl.SetComputePipeline(*m_CloudPipe);
     cl.SetConstantBuffer(0, *m_Cb);
     if (m_ShapeTex) cl.SetTexture(0, *m_ShapeTex);   // shape noise SRV (UAV→SRV は Dispatch の TRANSITION commit)
@@ -11984,7 +13958,13 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     if (m_WeatherTex) cl.SetTexture(2, *m_WeatherTex);
     if (m_DetailTex) cl.SetTexture(3, *m_DetailTex);
     if (m_CurlTex) cl.SetTexture(4, *m_CurlTex);
-    if (m_ShadowTex && shadowCacheReadyAfterUpdate) {
+    if (m_NoiseFilterResources &&
+        m_NoiseFilterResources->shadow_build_texture &&
+        shadowPublicationDecision.sample_completed_this_frame) {
+        cl.SetTexture(
+            5,*m_NoiseFilterResources->shadow_build_texture);
+    } else if (m_ShadowTex &&
+               shadowPublicationDecision.sample_published_this_frame) {
         cl.SetTexture(5, *m_ShadowTex);
     } else if (m_ShapeTex) {
         // 同じ3次元資源次元を持つ代替テクスチャ。shadowState.xが採取を止めるため、
@@ -12021,6 +14001,8 @@ void CVolumetricClouds::RenderComputeCameraRelative(IRhiCommandList& cl, const F
     ++recorded.frame_index;
     recorded.temporal_phase =
         (recorded.temporal_phase + 1u) & 15u;
+    recorded.shadow_generation_transition_frames_remaining =
+        shadowGenerationTransitionDecision.frames_remaining_after_submit;
     recorded.history_valid = true;
     recorded.previous_camera_relative_view_projection =
         cameraRelativeViewProj;
@@ -12199,7 +14181,23 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         m_PrevWindSpeed, 0.0f, -20.0f, 20.0f);
     const f32 wind_offset = ResolveVolumetricCloudAdvectionDistance(
         safe_time, safe_wind);
-    const FVec3 world_origin = RebaseVolumetricCloudWorldOrigin(m_PrevCamPos);
+    const FVec3 rebased_world_origin =
+        RebaseVolumetricCloudWorldOrigin(m_PrevCamPos);
+    const bool environment_shadow_cache_valid = m_ShadowCacheValid &&
+        render_internal::
+            VolumetricCloudAmbientCacheWorldOriginIsFinite_Internal(
+                m_NoiseFilterResources->shadow_published_world_origin);
+    const auto world_origin_decision = render_internal::
+        ResolveVolumetricCloudAmbientCacheWorldOrigin_Internal(
+            environment_shadow_cache_valid,false,
+            m_NoiseFilterResources->shadow_published_world_origin,
+            rebased_world_origin);
+    if (!world_origin_decision.valid) {
+        return Err<TUniquePtr<IRhiTexture>>(
+            ACS_ERR(Render, 732,
+                    "cloud environment world origin is invalid"));
+    }
+    const FVec3 world_origin = world_origin_decision.world_origin;
     const FVolumetricCloudDensityFrameTerms density_terms =
         ResolveVolumetricCloudDensityFrameTerms(m_Layer, wind_offset);
     const FVolumetricCloudEvolutionFrameTerms evolution_terms =
@@ -12234,19 +14232,26 @@ CVolumetricClouds::BuildEnvironmentCubemap(
     // 画面と環境光で同じ密度形状と物理消散を使う。
     const FCloudSamplingTerms samplingTerms =
         ResolveVolumetricCloudSamplingTerms_Internal(
-            safe_coverage,m_Layer.horizontal_noise_scale,m_UpperLayer);
+            safe_coverage,m_Layer.horizontal_noise_scale,
+            density_terms.inverse_layer_height,m_UpperLayer);
     cb.worldOrigin = FVec4{
         world_origin.x, world_origin.y, world_origin.z, 0.0f};
     const f32 inverse_shadow_extent =
         1.0f / kVolumetricCloudShadowCacheExtent;
     // 通常描画と環境cubemapで同じ外周写像を使い、照明更新だけ別の格子へ変えない。
-    const render_internal::FVolumetricCloudAmbientCacheMapTerms ambient_cache_map_terms = render_internal::ResolveVolumetricCloudAmbientCacheMapTerms_Internal(m_Range.MaxDistance);
+    const f32 ambient_directional_horizontal_travel = render_internal::
+        ResolveVolumetricCloudAmbientMaximumHorizontalTravel_Internal(
+            m_Layer,m_UpperLayer);
+    const render_internal::FVolumetricCloudAmbientCacheMapTerms ambient_cache_map_terms = render_internal::ResolveVolumetricCloudAmbientCacheMapTerms_Internal(
+        m_Range.MaxDistance,ambient_directional_horizontal_travel);
     cb.shadowGrid = FVec4{
         m_ShadowGridMinQ.x, m_ShadowGridMinQ.y,
         inverse_shadow_extent, inverse_shadow_extent};
     cb.shadowState = FVec4{
-        m_ShadowCacheValid ? 1.0f : 0.0f,
-        kSkyPhysicalSunAngularRadiusRadians,
+        environment_shadow_cache_valid ? 1.0f : 0.0f,
+        safe_sun.y > kVolumetricCloudWorldShadowMinimumSunY
+            ? kSkyPhysicalSunAngularRadiusRadians
+            : -kSkyPhysicalSunAngularRadiusRadians,
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheWidth),
         ambient_cache_map_terms.guard_coefficient};
     const FVolumetricCloudGroundHorizon ground_horizon =
@@ -12281,7 +14286,19 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         1.0f / kVolumetricCloudWorldShadowMapExtent,
         m_WorldShadowReferenceHeight};
     cb.cloudWorldShadowUpdate = FVec4{0.0f, 0.0f, 1.0f, 1.0f};
-    cb.cloudLightingHistory = FVec4{1.0f, 0.0f, 0.0f, 0.0f};
+    cb.cloudLightingHistory = FVec4{
+        1.0f,
+        m_NoiseFilterResources->shadow_published_sun_direction.x,
+        m_NoiseFilterResources->shadow_published_sun_direction.y,
+        m_NoiseFilterResources->shadow_published_sun_direction.z};
+    const FVec3 environmentShadowWorldOrigin =
+        environment_shadow_cache_valid
+            ? m_NoiseFilterResources->shadow_published_world_origin
+            : world_origin;
+    cb.shadowWorldOrigin = FVec4{
+        environmentShadowWorldOrigin.x,
+        environmentShadowWorldOrigin.y,
+        environmentShadowWorldOrigin.z, 0.0f};
     cb.cloudLightTangent = FVec4{
         light_basis.tangent.x,
         light_basis.tangent.y,
@@ -12404,7 +14421,7 @@ CVolumetricClouds::BuildEnvironmentCubemap(
         cl.SetTexture(2, *m_WeatherTex);
         cl.SetTexture(3, *m_DetailTex);
         cl.SetTexture(4, *m_CurlTex);
-        if (m_ShadowTex && m_ShadowCacheValid) {
+        if (m_ShadowTex && environment_shadow_cache_valid) {
             cl.SetTexture(5, *m_ShadowTex);
         } else {
             cl.SetTexture(5, *m_ShapeTex);

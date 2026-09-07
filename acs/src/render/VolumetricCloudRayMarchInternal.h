@@ -44,7 +44,7 @@ struct FVolumetricCloudRayMarchPlanInternal {
     /** 全区間へ割り当てた細密セル数の合計。 */
     u32 total_fine_cell_count = 0u;
 
-    /** 一視線に許可した反復数。 */
+    /** 一視線に許可した密度採取数。セル数は完全な4点求積へ切り下げて求める。 */
     u32 maximum_samples = kVolumetricCloudMaxViewMarchSamples;
 
     /** 打ち切り距離内に積分可能な区間があるか。 */
@@ -71,7 +71,7 @@ struct FVolumetricCloudShellIntervalSetInternal {
  * @param has_upper_layer 上層を交差対象へ含めるか。
  * @param range 描画距離、境界減衰、遠距離刻み拡大。
  * @param world_origin 曲面雲層の基準原点。
- * @param maximum_samples 一視線の反復上限。0はrangeまたは通常既定値を使う。
+ * @param maximum_samples 一視線の密度採取上限。0はrangeまたは通常既定値を使う。
  * @return 距離順の区間と、上限内へ整数で割り当てた細密セル。
  */
 FVolumetricCloudRayMarchPlanInternal PlanVolumetricCloudRayMarch_Internal(
@@ -151,13 +151,13 @@ f32 ResolveVolumetricCloudShellOverlapLength_Internal(
     f32 segment_start, f32 segment_end) noexcept;
 
 /**
- * 有効な上下雲帯へ、最低探索量を含む物理帯域別の標本予算を予約する。
+ * 密度採取上限を完全な4点求積セルへ変換し、有効な上下雲帯へ予約する。
  * @param lower_layer 下層設定。
  * @param upper_layer 上層設定。
  * @param has_upper_layer 上層を予算へ含めるか。
- * @param maximum_samples 全帯域で共有する標本上限。
- * @param lower_budget 下層へ予約した標本数の書き込み先。
- * @param upper_budget 上層へ予約した標本数の書き込み先。
+ * @param maximum_samples 全帯域で共有する密度採取上限。
+ * @param lower_budget 下層へ予約した求積セル数の書き込み先。
+ * @param upper_budget 上層へ予約した求積セル数の書き込み先。
  */
 void ResolveVolumetricCloudPhysicalBandBudgets_Internal(
     const FVolumetricCloudLayer& lower_layer,

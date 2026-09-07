@@ -486,6 +486,17 @@ public:
     const FScene3DClouds& Clouds() const noexcept { return m_CloudParams; }
 
     /**
+     * 直近に記録した雲処理の仕事量とGPU提出結果を読む。
+     *
+     * @details 内部の雲描画器を公開せず、通常C++製品と検証処理が同じ提出結果を観測する。
+     * 次の雲記録または提出結果の確定で内容が変わるため、参照は保持しない。
+     * @return このシーンが直近に記録した雲処理の診断値。
+     */
+    const FVolumetricCloudFrameWorkload& CloudWorkload() const noexcept {
+        return m_Clouds.LastFrameWorkload();
+    }
+
+    /**
      * 大気の設定を触る (地面の色、散乱の細かさ)。
      *
      * @details

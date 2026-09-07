@@ -2881,7 +2881,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             clouds.SetUpperLayer(environment_upper_layer);
 
             u64 next_cloud_submission_id = 1u;
-            const auto record_cloud = [&](u64 submission_id) {
+            const auto record_cloud_medium = [&clouds,&cloud_command,
+                                               &cloud_camera](
+                u64 submission_id, f32 coverage, f32 density,
+                f32 time) {
                 clouds.RenderCompute(
                     *cloud_command,
                     Inverse(cloud_camera.ViewProjection()),
@@ -2889,8 +2892,13 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
                     FVec3{0.3f, 0.9f, 0.2f},
                     FVec3{5.0f, 4.5f, 4.0f},
                     FVec3{0.2f, 0.3f, 0.5f},
-                    0.55f, 1.6f, 1.0f, 12.0f,
+                    coverage, density, 1.0f, time,
                     submission_id);
+            };
+            const auto record_cloud = [&record_cloud_medium](
+                u64 submission_id) {
+                record_cloud_medium(
+                    submission_id,0.55f,1.6f,12.0f);
             };
 
             // 命令を記録しただけでは段階を進めない。同じ一覧での二重呼び出しも
@@ -3038,38 +3046,45 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             EXPECT_FALSE(clouds.WorldShadowValid());
             device.WaitIdle();
 
-            // 影キャッシュ未完成の三提出でも雲本体は正確な直接積分で描き続ける。
-            for (u32 shadow_phase = 0u; shadow_phase < 3u; ++shadow_phase) {
-                const u64 shadow_submission_id =
-                    next_cloud_submission_id++;
-                cloud_command->Begin();
-                record_cloud(shadow_submission_id);
-                const FVolumetricCloudFrameWorkload& workload =
-                    clouds.LastFrameWorkload();
-                EXPECT_FALSE(workload.submitted);
-                EXPECT_TRUE(clouds.RecordedCloudFramePending());
-                EXPECT_EQ(workload.steady_dispatches, 2u);
-                EXPECT_EQ(workload.shadow_cache_dispatches, 1u);
-                EXPECT_FALSE(clouds.ShadowCacheValid());
-                EXPECT_EQ(
-                    clouds.RecordedFrameSubmissionId(),
-                    shadow_submission_id);
-                cloud_command->End();
-                const bool submitted = cloud_command->Submit();
-                EXPECT_TRUE(submitted);
-                EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
-                    shadow_submission_id, submitted));
-                EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
-                device.WaitIdle();
-            }
+            // 履歴無効後は同じ固定媒質から密度、方向別光路、半球解決を一提出で
+            // 完了し、その提出が成功した場合だけ完成影として公開する。
+            const u64 shadow_submission_id =
+                next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(shadow_submission_id);
+            const FVolumetricCloudFrameWorkload& shadow_workload =
+                clouds.LastFrameWorkload();
+            EXPECT_FALSE(shadow_workload.submitted);
+            EXPECT_TRUE(clouds.RecordedCloudFramePending());
+            EXPECT_EQ(shadow_workload.steady_dispatches, 2u);
+            EXPECT_EQ(
+                shadow_workload.shadow_cache_dispatches,
+                kVolumetricCloudShadowBuildStageCount);
+            EXPECT_FALSE(clouds.ShadowCacheValid());
+            EXPECT_EQ(
+                clouds.RecordedFrameSubmissionId(),
+                shadow_submission_id);
+            cloud_command->End();
+            const bool shadow_submitted = cloud_command->Submit();
+            EXPECT_TRUE(shadow_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                shadow_submission_id, shadow_submitted));
+            EXPECT_TRUE(clouds.LastFrameWorkload().submitted);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
+            device.WaitIdle();
 
-            // 最後の影位相も提出成功までは公開せず、確定後に初めて利用可能にする。
+            // 完成済み世代が現在の対流変位を支持する通常フレームでは、三処理を
+            // 再実行せず同じ表示用テクスチャと対応情報を保持する。
             const u64 final_shadow_submission_id =
                 next_cloud_submission_id++;
             cloud_command->Begin();
-            record_cloud(final_shadow_submission_id);
+            record_cloud_medium(
+                final_shadow_submission_id,0.55f,1.6f,12.016f);
             EXPECT_FALSE(clouds.LastFrameWorkload().submitted);
-            EXPECT_FALSE(clouds.ShadowCacheValid());
+            EXPECT_EQ(
+                clouds.LastFrameWorkload().shadow_cache_dispatches,
+                0u);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
             EXPECT_TRUE(
                 clouds.WorldShadowMap(*cloud_command).transmittance != nullptr);
             EXPECT_TRUE(clouds.WorldShadowMap().transmittance != nullptr);
@@ -3126,6 +3141,71 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             }
             cloud_command->End();
             EXPECT_TRUE(cloud_command->Submit());
+            device.WaitIdle();
+
+            // 記録後の参照描画切替は記録済み判断を変えず、完成済み自己影を
+            // 無関係に再生成しない。次に参照描画として記録するフレームだけが
+            // 同じ時刻の密度・光路・半球解決を比較基準として更新する。
+            const u64 history_only_submission_id =
+                next_cloud_submission_id++;
+            const u64 shadow_dispatches_before_history_change =
+                clouds.ShadowCacheDispatchCount();
+            cloud_command->Begin();
+            record_cloud(history_only_submission_id);
+            clouds.SetReferenceMode(true);
+            cloud_command->End();
+            const bool history_only_submitted = cloud_command->Submit();
+            EXPECT_TRUE(history_only_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                history_only_submission_id, history_only_submitted));
+            EXPECT_EQ(
+                clouds.ShadowCacheDispatchCount(),
+                shadow_dispatches_before_history_change);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
+            EXPECT_TRUE(clouds.LastFrameWorkload().history_invalidated);
+            EXPECT_EQ(clouds.LastFrameWorkload().submission_index, 0u);
+
+            const u64 reference_shadow_submission_id =
+                next_cloud_submission_id++;
+            cloud_command->Begin();
+            record_cloud(reference_shadow_submission_id);
+            EXPECT_EQ(
+                clouds.LastFrameWorkload().shadow_cache_dispatches,
+                kVolumetricCloudShadowBuildStageCount);
+            cloud_command->End();
+            const bool reference_shadow_submitted = cloud_command->Submit();
+            EXPECT_TRUE(reference_shadow_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                reference_shadow_submission_id,
+                reference_shadow_submitted));
+            EXPECT_EQ(
+                clouds.ShadowCacheDispatchCount(),
+                shadow_dispatches_before_history_change +
+                    kVolumetricCloudShadowBuildStageCount);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
+            clouds.SetReferenceMode(false);
+            device.WaitIdle();
+
+            // 完成影とは異なる雲量・密度を記録した時点で、命令一覧は旧影を採取せず、
+            // 新しい内容世代の三処理を同じ提出で完了してから一括公開する。
+            const u64 changed_medium_submission_id =
+                next_cloud_submission_id++;
+            const u64 shadow_dispatches_before_medium_change =
+                clouds.ShadowCacheDispatchCount();
+            cloud_command->Begin();
+            record_cloud_medium(
+                changed_medium_submission_id,0.72f,2.1f,12.0f);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
+            cloud_command->End();
+            const bool changed_medium_submitted = cloud_command->Submit();
+            EXPECT_TRUE(changed_medium_submitted);
+            EXPECT_TRUE(clouds.ResolveRecordedFrameSubmission(
+                changed_medium_submission_id,changed_medium_submitted));
+            EXPECT_EQ(
+                clouds.ShadowCacheDispatchCount(),
+                shadow_dispatches_before_medium_change +
+                    kVolumetricCloudShadowBuildStageCount);
+            EXPECT_TRUE(clouds.ShadowCacheValid());
             device.WaitIdle();
         }
     }

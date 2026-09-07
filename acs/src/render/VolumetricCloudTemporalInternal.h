@@ -20,6 +20,39 @@ static_assert(kCloudShadowTemporalPhaseCount == 4u);
 inline constexpr u8 kCloudShadowTemporalCompleteMask =
     static_cast<u8>((1u << kCloudShadowTemporalPhaseCount) - 1u);
 
+/** 4x4時間再構成で、一つの画素ブロックが今回採取する位置。 */
+struct FVolumetricCloudTemporalPhaseOffset4Internal {
+    /** ブロック内のX座標。 */
+    u32 x = 0u;
+    /** ブロック内のY座標。 */
+    u32 y = 0u;
+};
+
+/** HLSLと同じ32 bit演算で、ブロックごとの16位相回転を返す。 */
+inline u32 VolumetricCloudTemporalBlockPhase4_Internal(
+    u32 block_x, u32 block_y, u32 phase_index) noexcept {
+    u32 blockHash = block_x * 0x8da6b343u ^ block_y * 0xd8163841u;
+    blockHash ^= blockHash >> 16u;
+    blockHash *= 0x7feb352du;
+    blockHash ^= blockHash >> 15u;
+    return (phase_index + (blockHash & 15u)) & 15u;
+}
+
+/** 任意の開始位相から使える、ブロック内の実採取位置を返す。 */
+inline FVolumetricCloudTemporalPhaseOffset4Internal
+ResolveVolumetricCloudTemporalPhaseOffset4_Internal(
+    u32 block_x, u32 block_y, u32 phase_index) noexcept {
+    constexpr u8 offsetsX[16] = {
+        0u,2u,2u,0u,1u,3u,3u,1u,1u,3u,3u,1u,0u,2u,2u,0u};
+    constexpr u8 offsetsY[16] = {
+        0u,2u,0u,2u,1u,3u,1u,3u,0u,2u,0u,2u,1u,3u,1u,3u};
+    const u32 phase = VolumetricCloudTemporalBlockPhase4_Internal(
+        block_x,block_y,phase_index);
+    return FVolumetricCloudTemporalPhaseOffset4Internal{
+        static_cast<u32>(offsetsX[phase]),
+        static_cast<u32>(offsetsY[phase])};
+}
+
 /**
  * 一回の影更新で完成した偶奇位置を記録する。
  *
@@ -55,6 +88,42 @@ struct FVolumetricCloudShadowTemporalDecision {
 inline bool CloudTemporalValueIsFinite_Internal(f32 value) noexcept {
     constexpr f32 maximumFiniteValue = 3.402823466e+38F;
     return value == value && value >= -maximumFiniteValue && value <= maximumFiniteValue;
+}
+
+/**
+ * 時間解決の画素と視線の対応が前回から一成分も変わっていないか判定する。
+ * 差の二乗や逆行列の再計算を使わず、GPUへ渡す逆射影とカメラ位置を直接比較する。
+ */
+inline bool VolumetricCloudTemporalPixelMappingUnchanged_Internal(
+    const FMat4& current_inverse_view_projection,
+    FVec3 current_camera_position,
+    const FMat4& previous_inverse_view_projection,
+    FVec3 previous_camera_position) noexcept
+{
+    if (current_camera_position.x != previous_camera_position.x ||
+        current_camera_position.y != previous_camera_position.y ||
+        current_camera_position.z != previous_camera_position.z)
+        return false;
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            if (current_inverse_view_projection.m[row][column] !=
+                previous_inverse_view_projection.m[row][column])
+                return false;
+        }
+    }
+    return true;
+}
+
+/** 移流と対流の全成分が不変の場合だけ同一画素の保持を許可し、非有限値は拒否する。 */
+inline bool VolumetricCloudTemporalMaterialUnchanged_Internal(f32 current_wind, const FVolumetricCloudEvolutionFrameTerms& current_evolution, f32 previous_wind, const FVolumetricCloudEvolutionFrameTerms& previous_evolution) noexcept
+{
+    // 再投影へ渡す実際の5成分を比べ、微小変位を差の二乗でゼロへ丸めない。
+    const f32 current[5] = {current_wind, current_evolution.shape_phase.x, current_evolution.shape_phase.y, current_evolution.fine_phase.x, current_evolution.fine_phase.y};
+    const f32 previous[5] = {previous_wind, previous_evolution.shape_phase.x, previous_evolution.shape_phase.y, previous_evolution.fine_phase.x, previous_evolution.fine_phase.y};
+    for (u32 index = 0u; index < 5u; ++index) {
+        if (!CloudTemporalValueIsFinite_Internal(current[index]) || current[index] != previous[index]) return false;
+    }
+    return true;
 }
 
 /** 有限な差分の絶対値を返し、非有限値は失敗としてfalseを返す。 */

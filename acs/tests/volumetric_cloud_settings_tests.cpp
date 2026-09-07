@@ -553,6 +553,12 @@ ACS_TEST(VolumetricCloudSettings,
     EXPECT_TRUE(!ibl_source.empty());
 
     const auto signature = SliceBetween(sky_source, "u32 CVolumetricClouds::EnvironmentLightingSignature(", "u32 CVolumetricClouds::EnvironmentLightingUpdateSignature(");
+    EXPECT_TRUE(Contains(
+        signature,
+        "ResolveVolumetricCloudLightBasis(m_PrevSunDir).direction"));
+    EXPECT_TRUE(Contains(signature, "signatureSunDirection.x"));
+    EXPECT_TRUE(Contains(signature, "signatureSunDirection.y"));
+    EXPECT_TRUE(Contains(signature, "signatureSunDirection.z"));
     EXPECT_TRUE(Contains(signature, "m_PrevSunColor.x"));
     EXPECT_TRUE(Contains(signature, "m_PrevSkyColor.x"));
     EXPECT_TRUE(Contains(signature, "m_Lighting.SunTransmittance.x"));
@@ -644,6 +650,11 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     /** 上層 setter の実装範囲。 */
     const std::string setUpper = SliceBetween(source, "void CVolumetricClouds::SetUpperLayer(",
                                               "EShaderStatus CVolumetricClouds::FCompiledShaders::Status(");
+    /** 画面履歴と影内容の世代を分離する無効化処理。 */
+    const std::string invalidation = SliceBetween(
+        source,
+        "void CVolumetricClouds::InvalidateCloudHistory_Internal(",
+        "void CVolumetricClouds::SetLayer(");
     /** 最終被覆から追加採取無しで求める低 LOD 横断面密度の実装範囲。 */
     const std::string lowLodDensity = SliceBetween(
         source,
@@ -669,13 +680,20 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(setRange, "InvalidateCloudHistory_Internal(true);"));
     EXPECT_TRUE(Contains(header, "InvalidateCloudHistory_Internal(false);"));
     EXPECT_TRUE(Contains(
-        source,
+        invalidation,
+        "++m_NoiseFilterResources->settings_revision;"));
+    EXPECT_TRUE(Contains(
+        invalidation,
         "if (density_field_changed) {\n"
-        "        m_ShadowCacheValid = false;\n"
-        "        m_WorldShadowValid = false;\n"
-        "        SetShadowCacheWarmupMask_Internal(0u);\n"
-        "        SetWorldShadowWarmupMask_Internal(0u);\n"
-        "    }"));
+        "            ++m_NoiseFilterResources->shadow_content_revision;\n"
+        "        }"));
+    EXPECT_TRUE(Contains(
+        invalidation,
+        "m_ShadowCacheValid = false;\n"
+        "        m_WorldShadowValid = false;"));
+    EXPECT_TRUE(Contains(
+        invalidation,
+        "m_NoiseFilterResources->shadow_build_medium = {};"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudCondensationCommonPotential("));
     EXPECT_TRUE(Contains(lowLodDensity, "macro.heightProfile,weatherMask"));
     EXPECT_TRUE(Contains(lowLodDensity, "cloudBandLimitedCondensationDistribution("));
@@ -738,44 +756,128 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(lowLodDensity, "SampleLevel"));
 
     EXPECT_TRUE(Contains(source, "void sampleCloudSunTransmittance("));
-    EXPECT_TRUE(Contains(source, "firstVisibility=saturate(cachedFirst);"));
-    EXPECT_TRUE(Contains(source, "secondVisibility=saturate(cachedSecond);"));
-    EXPECT_TRUE(Contains(source, "thirdVisibility=saturate(cachedThird);"));
+    EXPECT_TRUE(Contains(source, "firstVisibility=saturate(resolvedFirst);"));
+    EXPECT_TRUE(Contains(source, "secondVisibility=saturate(resolvedSecond);"));
+    EXPECT_TRUE(Contains(source, "thirdVisibility=saturate(resolvedThird);"));
     EXPECT_TRUE(Contains(source, "float4 cloudSunTransmittanceFromDepth("));
-    EXPECT_TRUE(Contains(source, "float4 cloudApplySunOpticalDepthResidual("));
-    EXPECT_TRUE(Contains(source, "float cloudR16TransmittanceHalfUlp("));
+    EXPECT_FALSE(Contains(source, "float4 cloudApplySunOpticalDepthResidual("));
+    EXPECT_FALSE(Contains(source, "float cloudR16TransmittanceHalfUlp("));
     EXPECT_TRUE(Contains(source, "float cloudInflatePositiveFloatUpper("));
     EXPECT_TRUE(Contains(source, "bool cloudR16ValueRangeKeepsCode("));
     EXPECT_TRUE(Contains(source, "bool cloudR32PositiveRangeKeepsCode("));
-    EXPECT_TRUE(Contains(source, "float cloudAmplifiedR16VisibilityReliability("));
-    EXPECT_TRUE(Contains(source, "float cloudSunDepthResidualCacheReliability("));
-    EXPECT_TRUE(Contains(source, "float4 firstDetailOpticalDepthResiduals=0.0.xxxx;"));
-    EXPECT_TRUE(Contains(source, "float4 secondDetailOpticalDepthResiduals=0.0.xxxx;"));
-    EXPECT_TRUE(Contains(source, "float4 thirdDetailOpticalDepthResiduals=0.0.xxxx;"));
-    EXPECT_TRUE(Contains(source, "float3 residualSunDirection=cloudSunDiskDirection("));
-    EXPECT_FALSE(Contains(source, "detailOpticalDepthResiduals=cloudNearLightOpticalDepthResiduals("));
-    EXPECT_TRUE(Contains(source, "const float subnormalHalfUlp=0.0000000298023223876953125;"));
+    EXPECT_FALSE(Contains(source, "float cloudAmplifiedR16VisibilityReliability("));
+    EXPECT_FALSE(Contains(source, "float cloudSunDepthResidualCacheReliability("));
+    EXPECT_TRUE(Contains(source, "float3 cloudFixedStateMixtureOpticalDepthByOrder("));
+    EXPECT_FALSE(Contains(source, "float3 cloudStationaryPathOpticalDepthByOrder("));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudFiniteNonnegative4(requestedDensityDistribution)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "dot(firstAbsorption,CLOUD_UNRESOLVED_QUADRATURE_WEIGHTS)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "return cloudOpticalDepthFromAbsorption3(expectedAbsorption);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "CloudFourStateTransportLanes packedOrderState="));
+    EXPECT_TRUE(Contains(
+        source,
+        "distribution.x*packedExtinction"));
+    EXPECT_TRUE(Contains(
+        source,
+        "1.0,correlationLengths,segmentLengths,packedOrderState);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "resolvedCorrelationLength.xxxx*activeOrderMask"));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudInitializeFourStateTransportPhaseLanes("));
+    EXPECT_TRUE(Contains(
+        source,
+        "requestedSegmentLength.xxxx*activeOrderMask"));
+    EXPECT_TRUE(Contains(
+        source,
+        "float3 cloudPackedFourStateOpticalDepthByOrder("));
+    EXPECT_TRUE(Contains(
+        source,
+        "CloudFourStateOpticalTransportResultLanes packedTransport;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "packedTransport.absorptions=0.0.xxxx;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudFourStateOpticalTransportLanes("));
+    EXPECT_TRUE(Contains(
+        source,
+        "float4 invalidExtinctionMask=float4("));
+    EXPECT_TRUE(Contains(
+        source,
+        "packedOrderState,invalidExtinctionMask);"));
+    EXPECT_TRUE(Contains(
+        source,
+        "float3 validResultMask=validExtinctionMask*validAbsorptionMask;"));
+    EXPECT_FALSE(Contains(source, "cloudBandLimitedSunIntervalOpticalDepthByOrder("));
+    EXPECT_FALSE(Contains(source, "cloudBandLimitedSunFallbackOpticalDepthByOrder("));
+    EXPECT_FALSE(Contains(
+        source,
+        "[loop] for(int intervalIndex=0;intervalIndex<4;++intervalIndex)"));
+    EXPECT_FALSE(Contains(source, "float4 firstDetailOpticalDepthResiduals=0.0.xxxx;"));
+    EXPECT_FALSE(Contains(source, "float4 secondDetailOpticalDepthResiduals=0.0.xxxx;"));
+    EXPECT_FALSE(Contains(source, "float4 thirdDetailOpticalDepthResiduals=0.0.xxxx;"));
+    EXPECT_FALSE(Contains(source, "cloudDetailLightOpticalDepthClosure("));
+    EXPECT_FALSE(Contains(source, "cloudNearLightOpticalDepthResiduals("));
+    EXPECT_FALSE(Contains(source, "residualDirectionIndex<CLOUD_SUN_DISK_DIRECTION_COUNT"));
     EXPECT_FALSE(Contains(source, "if(detailDepthResidual>=0.0) return 1.0;"));
-    EXPECT_TRUE(Contains(source, "if(cacheBlendWeight>0.0){"));
-    EXPECT_TRUE(Contains(source, "if(cacheBlendWeight<1.0){"));
-    EXPECT_TRUE(Contains(source, "cacheBlendWeight*=cacheReliability;"));
+    EXPECT_FALSE(Contains(source, "if(cacheBlendWeight>0.0){"));
+    EXPECT_FALSE(Contains(source, "if(cacheBlendWeight<1.0){"));
+    EXPECT_FALSE(Contains(source, "cacheBlendWeight*=cacheReliability;"));
     EXPECT_FALSE(Contains(
         source, "if(!cloudSunDepthResidualUsesReliableCache("));
-    EXPECT_TRUE(Contains(source, "float3 exactScatteringSum=0.0.xxx;"));
-    EXPECT_TRUE(Contains(source, "exactScatteringSum+=exactVisibility*float3("));
-    EXPECT_TRUE(Contains(source, "float directionalPhase=sunDirectionIndex==0u"));
-    EXPECT_TRUE(Contains(source, "directionalPhase,directionalPhaseMulti,directionalPhaseMulti"));
-    EXPECT_TRUE(Contains(source, "exactAverageScattering=exactScatteringSum"));
-    EXPECT_TRUE(Contains(source, "float4 correctedCachedFirst=cloudApplySunOpticalDepthResidual("));
-    EXPECT_TRUE(Contains(source, "float3 correctedCachedAverageScattering=float3("));
+    EXPECT_FALSE(Contains(source, "traceCloudMainLightDiskDepths("));
+    EXPECT_FALSE(Contains(source, "float3 fallbackDepth0"));
+    EXPECT_FALSE(Contains(source, "float3 cacheExtinctionByOrder"));
+    EXPECT_FALSE(Contains(source, "cloudAnalyticSunOpticalDepth("));
+    EXPECT_FALSE(Contains(source, "float firstPhaseAverage="));
+    EXPECT_FALSE(Contains(source, "float higherPhaseAverage="));
+    EXPECT_TRUE(Contains(
+        source,
+        "float3 fallbackAverageScattering=float3("));
+    EXPECT_TRUE(Contains(source, "dot(1.0.xxxx,firstDiskPhase)"));
+    EXPECT_TRUE(Contains(source, "dot(1.0.xxxx,higherDiskPhase)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "float2 uvwXz=cloudAmbientCacheTexturePosition(q);"));
+    EXPECT_TRUE(Contains(source, "if(CLOUD_MAIN_SHADOW_CACHE_ENABLED){"));
+    EXPECT_FALSE(Contains(
+        source,
+        "CLOUD_MAIN_SHADOW_CACHE_ENABLED&&cloudLightingAmbient.w<0.5"));
+    EXPECT_FALSE(Contains(source, "correctedCachedFirst"));
+    EXPECT_TRUE(Contains(source, "float3 cachedAverageScattering=float3("));
+    EXPECT_TRUE(Contains(source, "dot(cachedFirstVisibility,firstDiskPhase)"));
     EXPECT_TRUE(Contains(source, "float3 lightScatteringByOrder=lerp("));
     EXPECT_FALSE(Contains(source, "float4 correctedDepths=max("));
     EXPECT_FALSE(Contains(source, "lightDepths=lerp("));
-    EXPECT_TRUE(Contains(source, "if(lightDepths.z>18.0) break;"));
+    EXPECT_TRUE(Contains(source, "if(cloudAllActiveLightOrdersOpaque("));
+    EXPECT_TRUE(Contains(source, "lightDepths,extinctionByOrder)){"));
+    EXPECT_TRUE(Contains(
+        source,
+        "CLOUD_LIGHT_OPAQUE_OPTICAL_DEPTH=17.32868003845215;"));
+    EXPECT_FALSE(Contains(source, "if(lightDepths.z>18.0)"));
+    const std::string adaptiveSampleTerms = SliceBetween(
+        source,
+        "bool cloudAdaptiveLightSampleTerms(",
+        "float3 cloudBeerAbsorptionFraction3(");
+    EXPECT_TRUE(!adaptiveSampleTerms.empty());
+    EXPECT_TRUE(Contains(adaptiveSampleTerms, "&&sampleSpacing>0.0;"));
+    EXPECT_FALSE(Contains(adaptiveSampleTerms, "&&sampleSpacing>1e-4;"));
     EXPECT_FALSE(Contains(source, "cloudForwardPhaseWeight"));
     EXPECT_TRUE(Contains(source, "float cloudReducedIntervalScatteringWeight("));
     EXPECT_TRUE(Contains(source, "float cloudBeerAbsorptionFraction("));
     EXPECT_TRUE(Contains(source, "float4 cloudStrictGreaterMask4("));
+    EXPECT_TRUE(Contains(
+        source,
+        "?max(requestedOpticalDepth.x,0.0):80.0"));
     EXPECT_TRUE(Contains(
         source,
         "cloudStrictGreaterMask4(opticalDepth0,0.125)"));
@@ -817,9 +919,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(lightingSource, "1.0,inScatterDepth,"));
     EXPECT_TRUE(Contains(source, "float thirdContribution=multiContribution*multiContribution;"));
     EXPECT_TRUE(Contains(source, "float thirdOcclusion=multiOcclusion*multiOcclusion;"));
-    EXPECT_TRUE(Contains(lightingSource, "dot(correctedCachedSecond,higherDiskPhase)"));
-    EXPECT_TRUE(Contains(lightingSource, "dot(correctedCachedThird,higherDiskPhase)"));
-    EXPECT_TRUE(Contains(lightingSource, "float3 correctedCachedAverageScattering=float3("));
+    EXPECT_TRUE(Contains(lightingSource, "dot(cachedSecondVisibility,higherDiskPhase)"));
+    EXPECT_TRUE(Contains(lightingSource, "dot(cachedThirdVisibility,higherDiskPhase)"));
+    EXPECT_TRUE(Contains(lightingSource, "float3 cachedAverageScattering=float3("));
     EXPECT_TRUE(Contains(lightingSource, "float3 lightScatteringByOrder=lerp("));
     EXPECT_TRUE(Contains(source, "lightingContext.directionalScatteringScale="));
     EXPECT_TRUE(Contains(source, "cloudLightingExtinction.z*cloudLightingGround.w;"));
@@ -835,7 +937,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_TRUE(Contains(lightingSource, "cloudLightingSourceAtPoint("));
     EXPECT_TRUE(Contains(
         lightingSource,
-        "currentP,currentMacro,lightingContext,lowLodDensity"));
+        "currentP,currentMacro,lightingContext,lowLodDistribution"));
     EXPECT_TRUE(Contains(source, "float opticalDensityScale=densityScale*currentDistanceFade;"));
     EXPECT_TRUE(Contains(source, "detailedDistribution=cloudScaleDensityDistribution("));
     EXPECT_TRUE(Contains(source, "sample.densityStates=detailedDistribution;"));
@@ -847,12 +949,17 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
         "        componentStartT,componentEndT,sampleFraction);"));
     EXPECT_TRUE(Contains(source, "float3 pixelDirectionSpan=max("));
     EXPECT_TRUE(Contains(source, "CloudPhysicalSubrayDirections subrayDirections;"));
+    EXPECT_TRUE(Contains(source, "bool referenceAreaQuadrature=cloudLightingAmbient.w>0.5;"));
+    EXPECT_TRUE(Contains(source, "static const int CLOUD_REFERENCE_AREA_SUBRAY_COUNT=4;"));
+    EXPECT_TRUE(Contains(source, "int physicalLaneCount=referenceAreaQuadrature"));
+    EXPECT_TRUE(Contains(source, "?CLOUD_REFERENCE_AREA_SUBRAY_COUNT:1;"));
+    EXPECT_TRUE(Contains(source, "?CLOUD_SUBRAY_AREA_WEIGHTS:float4(1.0,0.0,0.0,0.0);"));
     EXPECT_TRUE(Contains(
         lightingSource,
         "float3 currentP=camPos.xyz+rayDirection*currentSampleT;"));
     EXPECT_TRUE(Contains(
         viewIntegration,
-        "[loop] for(int physicalLaneIndex=0;physicalLaneIndex<4;"));
+        "physicalLaneIndex<physicalLaneCount;"));
     EXPECT_TRUE(Contains(
         viewIntegration,
         "sampleCloudPhysicalLaneDensityLightingAtFraction("));
@@ -864,9 +971,9 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(viewIntegration, "cloudTwoStateTransportLanes("));
     EXPECT_TRUE(Contains(viewIntegration, "firstTransport.centroidDistances"));
     EXPECT_TRUE(Contains(viewIntegration, "cloudLinearLightingSourceAtFraction("));
-    EXPECT_TRUE(Contains(viewIntegration, "float firstSampleWeight=0.25*firstLaneTransmit"));
-    EXPECT_TRUE(Contains(viewIntegration, "float secondSampleWeight=0.25*secondLaneTransmit"));
-    EXPECT_TRUE(Contains(viewIntegration, "float thirdSampleWeight=0.25*thirdLaneTransmit"));
+    EXPECT_TRUE(Contains(viewIntegration, "float firstSampleWeight=physicalLaneAreaWeight*firstLaneTransmit"));
+    EXPECT_TRUE(Contains(viewIntegration, "float secondSampleWeight=physicalLaneAreaWeight*secondLaneTransmit"));
+    EXPECT_TRUE(Contains(viewIntegration, "float thirdSampleWeight=physicalLaneAreaWeight*thirdLaneTransmit"));
     EXPECT_TRUE(Contains(viewIntegration, "float leftFraction=leftLightingSample.physicalFraction;"));
     EXPECT_TRUE(Contains(viewIntegration, "scatter+=firstSampleWeight*firstOrderSource"));
     EXPECT_TRUE(Contains(
@@ -916,7 +1023,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
     EXPECT_FALSE(Contains(source, "hg(cosA,cloudLightingPhase.x)*phaseBlend"));
     EXPECT_FALSE(Contains(source, "density*4.2"));
 }
-ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutDoubleAttenuation)
+ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedFourStateTransmissionWithoutDoubleAttenuation)
 {
     /** GPU シェーダーを含む雲描画の実装。 */
     const std::string source = ReadRenderFile("Sky.cpp");
@@ -928,14 +1035,20 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     EXPECT_TRUE(!ambientBlock.empty());
     EXPECT_TRUE(Contains(
         ambientBlock,
-        "macro,lowLodDensity.xxxx,context.density,ambientExtinction"));
+        "macro,lowLodDensityDistribution,"));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "context.density,ambientExtinction"));
     EXPECT_FALSE(Contains(ambientBlock, "distanceFade"));
     EXPECT_TRUE(Contains(
         ambientBlock,
         "float ambientExtinction=max(cloudLightingExtinction.y,0.0);"));
     EXPECT_TRUE(Contains(
         ambientBlock,
-        "float4 fallbackAmbientVisibility=cloudHemisphericVisibility("));
+        "float2 fallbackAmbientVisibility="));
+    EXPECT_TRUE(Contains(
+        ambientBlock,
+        "cloudAmbientFallbackVisibility("));
     EXPECT_TRUE(Contains(
         ambientBlock,
         "float3 cachedAmbientVisibility="));
@@ -973,8 +1086,17 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
     EXPECT_TRUE(Contains(
         source,
         "cloudHemisphericVisibility("));
-    EXPECT_TRUE(Contains(source, "cloudDensityLaneOpticalDepth("));
-    EXPECT_TRUE(Contains(source, "cloudHemisphericVisibility(pathDepth)"));
+    EXPECT_TRUE(Contains(source, "cloudDensityLaneTransmittance("));
+    EXPECT_FALSE(Contains(
+        ambientBlock,
+        "cloudDensityDistributionMean(lowLodDensityDistribution)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudAmbientCorrelatedSegmentOpticalDepth("));
+    EXPECT_TRUE(Contains(
+        source,
+        "cloudResolveAmbientDirectionalCache("));
+    EXPECT_FALSE(Contains(source, "cloudHemisphericVisibility(pathDepth)"));
     EXPECT_FALSE(Contains(source, "pathDepth*ambientExtinction"));
     EXPECT_FALSE(Contains(
         source,
@@ -997,13 +1119,22 @@ ACS_TEST(VolumetricCloudSettings, AmbientVisibilityUsesCachedColumnDepthWithoutD
         "all(cached<=1.001)"));
     EXPECT_TRUE(Contains(
         source,
-        "all(cachedFirst>=0.0)&&all(cachedFirst<=1.001)"));
+        "all(resolvedFirst>=0.0)"));
     EXPECT_TRUE(Contains(
         source,
-        "all(cachedSecond>=0.0)&&all(cachedSecond<=1.001)"));
+        "all(resolvedFirst<=1.001)"));
     EXPECT_TRUE(Contains(
         source,
-        "all(cachedThird>=0.0)&&all(cachedThird<=1.001)"));
+        "all(resolvedSecond>=0.0)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "all(resolvedSecond<=1.001)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "all(resolvedThird>=0.0)"));
+    EXPECT_TRUE(Contains(
+        source,
+        "all(resolvedThird<=1.001)"));
 
     /** シェーダーと同じ4点半球積分。 */
     const auto hemisphericVisibility = [](f32 opticalDepth) noexcept {
