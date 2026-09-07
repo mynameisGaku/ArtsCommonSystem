@@ -1,5 +1,11 @@
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
+# 雲の実描画を固定入力で比較する。高価な初期化を通常ビルド・単体試験へ混ぜない。
+add_executable(acs_cloud_render_probe EXCLUDE_FROM_ALL CloudRenderProbe.cpp)
+acs_apply_compiler_options(acs_cloud_render_probe)
+target_link_libraries(acs_cloud_render_probe PRIVATE ACS::Render)
+set_target_properties(acs_cloud_render_probe PROPERTIES FOLDER "Engine/Tests")
+
 if(WIN32)
     find_program(ACS_PROJECT_OPERATIONS_POWERSHELL NAMES powershell.exe powershell)
     if(ACS_PROJECT_OPERATIONS_POWERSHELL)

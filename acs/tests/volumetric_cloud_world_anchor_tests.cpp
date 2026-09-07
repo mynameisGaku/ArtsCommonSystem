@@ -3504,6 +3504,34 @@ ACS_TEST(VolumetricClouds,
             kLeftFraction, kRightFraction, 0.0f, 1.0f) >= 0.0f);
 }
 
+ACS_TEST(VolumetricClouds, LightingSourceOuterSegmentsKeepEndpointsAndReflection) {
+    // 最後の二つの採取点。密な雲の影側では1から0へ下がる組も有効な照明である。
+    constexpr f32 left = 0.6699905218f;
+    constexpr f32 right = 0.9305681558f;
+    const f32 sources[][2] = {{1.0f, 0.0f}, {0.0f, 1.0f}, {2.0f, 0.1f}, {0.1f, 2.0f}, {0.2f, 0.4f}};
+    for (const auto& pair : sources) {
+        const auto evaluate = [&](f32 position) noexcept {
+            return render_internal::ResolveVolumetricCloudLinearSourcePair_Internal(pair[0], pair[1], true, true, left, right, position, 1.0f);
+        };
+        const f32 upper = Max(1.0f, Max(pair[0], pair[1]));
+        // 採取点自身と両側の隣接浮動小数点で、外挿への切替えによる飛びを検査する。
+        EXPECT_NEAR(evaluate(left), pair[0], 0.000001f);
+        EXPECT_NEAR(evaluate(right), pair[1], 0.000001f);
+        EXPECT_NEAR(evaluate(::nextafterf(right, 1.0f)), pair[1], 0.00001f);
+        EXPECT_NEAR(evaluate(::nextafterf(right, 0.0f)), pair[1], 0.00001f);
+        for (u32 step = 0u; step <= 64u; ++step) {
+            const f32 position = static_cast<f32>(step) / 64.0f;
+            const f32 actual = evaluate(position);
+            // 区間を反転しても同じ光になるはずで、実装式のコピーを期待値に使わない。
+            const f32 reflected = render_internal::ResolveVolumetricCloudLinearSourcePair_Internal(pair[1], pair[0], true, true, 1.0f - right, 1.0f - left, 1.0f - position, 1.0f);
+            EXPECT_TRUE(actual >= 0.0f && actual <= upper + 0.000001f);
+            EXPECT_NEAR(actual, reflected, 0.00001f);
+        }
+    }
+    EXPECT_EQ(render_internal::ResolveVolumetricCloudLinearSourcePair_Internal(1.0f, 0.0f, true, true, left, right, 1.0f, 1.0f), 0.0f);
+    EXPECT_EQ(render_internal::ResolveVolumetricCloudLinearSourcePair_Internal(0.0f, 1.0f, true, true, left, right, 1.0f, 1.0f), 1.0f);
+}
+
 ACS_TEST(VolumetricClouds,
          BeerCentroidUsesStableSeriesAcrossThinOpticalDepths) {
     constexpr f32 kOpticalDepth = 0.001002f;
@@ -5489,6 +5517,18 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     float3 oldEnd=oldStart+100.0*pathDirections[0];
     float oldIncrement=dot(float3(oldEnd.x-oldStart.x,cloudAltitude(oldEnd)-cloudAltitude(oldStart),oldEnd.z-oldStart.z),pathDirections[0]);
     cloudOut[uint2(61,0)]=float4(oldIncrement,cloudCorrelatedTransportPathCoordinate(oldStart+float3(0,0,1000),pathDirections[0]),0,0);
+    // 製品の散乱源補間をGPUで実行する。右端の暗い採取点の直後で光を復活させない。
+    const float leftLightingFraction=0.6699905218;
+    const float rightLightingFraction=0.9305681558;
+    const float lightingPositions[4]={rightLightingFraction-0.000001,rightLightingFraction,rightLightingFraction+0.000001,1.0};
+    [unroll] for(uint lightingIndex=0u;lightingIndex<4u;++lightingIndex){
+        float position=lightingPositions[lightingIndex];
+        cloudOut[uint2(62u+lightingIndex,0)]=float4(
+            cloudLinearLightingSourceComponentAtFraction(position,leftLightingFraction,rightLightingFraction,1,0,1,1,1),
+            cloudLinearLightingSourceComponentAtFraction(position,leftLightingFraction,rightLightingFraction,0,1,1,1,1),
+            cloudLinearLightingSourceComponentAtFraction(1.0-position,1.0-rightLightingFraction,1.0-leftLightingFraction,0,1,1,1,1),
+            cloudLinearLightingSourceComponentAtFraction(position,leftLightingFraction,rightLightingFraction,leftLightingFraction,rightLightingFraction,1,1,1));
+    }
 }
 )";
 
@@ -5523,7 +5563,7 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(pipelineResult.IsOk());
     if (pipelineResult.IsErr()) return;
 
-    constexpr u32 kProbeTexelCount = 62u;
+    constexpr u32 kProbeTexelCount = 66u;
     FTextureDesc textureDescription{};
     textureDescription.width = kProbeTexelCount;
     textureDescription.height = 1u;
@@ -5589,6 +5629,15 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(gpuValue(61u, 0u) - 100.0f > 1.0f);
     EXPECT_NEAR(gpuValue(61u, 1u), gpuValue(55u, 0u), 0.0f);
     test::RecordInfo(FSourceLoc::Current(), "cloud_transport_metric_gpu_readback completed paths=3 distance=100m");
+    // 有効な零値を使い、陰へ向かう外挿、上限、反転対称性、線形場を確認する。
+    const f32 lightingPositions[4] = {0.9305681558f - 0.000001f, 0.9305681558f, 0.9305681558f + 0.000001f, 1.0f};
+    for (u32 index = 0u; index < 4u; ++index) {
+        EXPECT_NEAR(gpuValue(62u + index, 0u), 0.0f, 0.00001f);
+        EXPECT_NEAR(gpuValue(62u + index, 1u), 1.0f, 0.00001f);
+        EXPECT_NEAR(gpuValue(62u + index, 2u), gpuValue(62u + index, 0u), 0.00001f);
+        EXPECT_NEAR(gpuValue(62u + index, 3u), lightingPositions[index], 0.000001f);
+    }
+    test::RecordInfo(FSourceLoc::Current(), "cloud_lighting_endpoint_gpu_readback completed positions=4");
 
     struct FCombinedTransportForTest {
         // 二区間を合わせた透過率。

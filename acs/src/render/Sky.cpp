@@ -6915,7 +6915,11 @@ float cloudLinearLightingSourceComponentAtFraction(
             sourceSlope=clamp(
                 sourceSlope,minimumNegativeSlope,maximumPositiveSlope);
         }
-        source=leftSource+sourceSlope*(normalizedDistance-leftFraction);
+        // 制限した傾きは、制限を求めた側の採取点を通す。右端で左点へ戻すと
+        // 右点の暗さを失い、外挿へ入った瞬間に光が復活する。
+        source=normalizedDistance>rightFraction
+            ?rightSource+sourceSlope*(normalizedDistance-rightFraction)
+            :leftSource+sourceSlope*(normalizedDistance-leftFraction);
     }
     else if(leftComponentValid)
         source=leftSource;

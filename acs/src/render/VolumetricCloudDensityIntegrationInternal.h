@@ -1572,8 +1572,10 @@ inline f32 ResolveVolumetricCloudLinearSourcePair_Internal(
             if (sourceSlope > maximumPositiveSlope)
                 sourceSlope = maximumPositiveSlope;
         }
-        source = left_source + sourceSlope *
-            (normalized_distance - left_fraction);
+        // 制限した傾きの基準点を固定し、右の採取点を越えても散乱源を連続にする。
+        source = normalized_distance > right_fraction
+            ? right_source + sourceSlope * (normalized_distance - right_fraction)
+            : left_source + sourceSlope * (normalized_distance - left_fraction);
     }
     else if (left_valid)
     {
