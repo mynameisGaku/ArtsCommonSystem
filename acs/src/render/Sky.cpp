@@ -3102,6 +3102,73 @@ float cloudDensityDistributionMean(float4 requestedDistribution){
     return dot(
         safeDistribution,CLOUD_UNRESOLVED_QUADRATURE_WEIGHTS);
 }
+// 正の正規数を2の冪で縮小する。最大項1以上の和から、丸め幅より極小の項だけを除く。
+float cloudCompletedDensityScaleBits(uint bits,int exponentShift){
+    int exponent=int(bits>>23u)+exponentShift;
+    if(exponent<=0) return 0.0;
+    return asfloat((bits&0x007fffffu)|(uint(exponent)<<23u));
+}
+// 八つの完成密度を体積集約する。出力は平均・離散入力最小・離散入力最大。
+// 全体積0、不正値、有効入力の非正規数、0を含む極小平均は失敗し、空領域として公開しない。
+bool cloudTryAggregateCompletedDensity(float4 densitiesA,float4 densitiesB,float4 volumesA,float4 volumesB,out float3 summary){
+    summary=0.0.xxx;
+    // 成分の選択も整数で行う。floatの成分選択へ特殊値の算術を混ぜない。
+    uint4 densityBitsA=asuint(densitiesA);
+    uint4 densityBitsB=asuint(densitiesB);
+    uint4 volumeBitsA=asuint(volumesA);
+    uint4 volumeBitsB=asuint(volumesB);
+    // 体積和と密度量の和の尺度は別に選ぶ。密度と体積を先に極小化しない。
+    int largestVolumeExponent=0;
+    int largestMassExponent=0;
+    uint smallestDensityBits=0x7f7fffffu;
+    uint largestDensityBits=0u;
+    [unroll] for(int child=0;child<8;++child){
+        // 算術の前に記憶表現を調べ、GPUが非正規数を0へ落とす前に拒否する。
+        uint volume=child<4?volumeBitsA[child&3]:volumeBitsB[child&3];
+        if((volume&0x7fffffffu)==0u) continue;
+        if(volume<0x00800000u||volume>=0x7f800000u) return false;
+        // 体積0の子は、未定義でよい密度を検証しない。
+        uint rawDensity=child<4?densityBitsA[child&3]:densityBitsB[child&3];
+        uint density=(rawDensity&0x7fffffffu)==0u?0u:rawDensity;
+        if(density!=0u&&(density<0x00800000u||density>=0x7f800000u)) return false;
+        smallestDensityBits=min(smallestDensityBits,density);
+        largestDensityBits=max(largestDensityBits,density);
+        int volumeExponent=int(volume>>23u);
+        int massExponent=volumeExponent+int(density>>23u);
+        largestVolumeExponent=max(largestVolumeExponent,volumeExponent);
+        if(density!=0u) largestMassExponent=max(largestMassExponent,massExponent);
+    }
+    if(largestVolumeExponent==0) return false;
+    if(largestDensityBits==0u) return true;
+    // 0との混在では下限2^-125を確保する。指数偏り127、最小指数-126、体積和<16、余裕1段から6。
+    const int minimumMixedExponentGap=127-126+4+1;
+    if(smallestDensityBits==0u&&largestMassExponent-largestVolumeExponent<minimumMixedExponentGap) return false;
+    // 最大項は1以上。各総和を16未満・32以下に保ち、除算も通常の範囲で行う。
+    float scaledVolumeSum=0.0;
+    float scaledMassSum=0.0;
+    [unroll] for(int aggregateChild=0;aggregateChild<8;++aggregateChild){
+        uint volume=aggregateChild<4?volumeBitsA[aggregateChild&3]:volumeBitsB[aggregateChild&3];
+        if((volume&0x7fffffffu)==0u) continue;
+        int volumeExponent=int(volume>>23u);
+        uint volumeMantissaBits=(volume&0x007fffffu)|0x3f800000u;
+        scaledVolumeSum+=cloudCompletedDensityScaleBits(volumeMantissaBits,volumeExponent-largestVolumeExponent);
+        uint density=aggregateChild<4?densityBitsA[aggregateChild&3]:densityBitsB[aggregateChild&3];
+        if((density&0x7fffffffu)==0u) continue;
+        int massExponent=volumeExponent+int(density>>23u);
+        float massMantissa=asfloat(volumeMantissaBits)*asfloat((density&0x007fffffu)|0x3f800000u);
+        scaledMassSum+=cloudCompletedDensityScaleBits(asuint(massMantissa),massExponent-largestMassExponent);
+    }
+    // 仮数の割算後に指数を戻すので、巨大な値の逆数を途中に作らない。
+    uint quotientBits=asuint(scaledMassSum/scaledVolumeSum);
+    int resultExponent=int(quotientBits>>23u)+largestMassExponent-largestVolumeExponent-127;
+    if(resultExponent<=0&&smallestDensityBits==0u) return false;
+    // 厳密な加重平均の値域で、端点の丸めだけを閉じる。
+    // 全正密度なら下限も正規数。指数判定より先に下側の丸めを入力最小へ戻す。
+    uint resultBits=resultExponent<=0?smallestDensityBits:resultExponent>=255?largestDensityBits:(quotientBits&0x007fffffu)|(uint(resultExponent)<<23u);
+    resultBits=clamp(resultBits,smallestDensityBits,largestDensityBits);
+    summary=float3(asfloat(resultBits),asfloat(smallestDensityBits),asfloat(largestDensityBits));
+    return true;
+}
 float4 cloudScaleDensityDistribution(
     float4 densityDistribution,float densityScale){
     float4 result=0.0.xxxx;

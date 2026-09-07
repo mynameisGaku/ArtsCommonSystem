@@ -4,6 +4,7 @@
 
 #include "foundation/Types.h"
 #include "math/Math.h"
+#include "memory/Memory.h"
 
 namespace acs::render_internal {
 
@@ -280,6 +281,110 @@ inline bool CloudDensityIntegrationValueIsFinite_Internal(f32 value) noexcept
     constexpr f32 maximumFiniteValue = 3.402823466e+38F;
     return value == value && value >= -maximumFiniteValue &&
            value <= maximumFiniteValue;
+}
+
+/** 単精度値の記憶表現を取り出す。型を別名参照せず、非正規数も算術で消さない。 */
+inline u32 CloudCompletedDensityBits_Internal(f32 value) noexcept
+{
+    // GPUのasuintと同じ32ビットの記憶表現。
+    u32 bits = 0u;
+    static_assert(sizeof(bits) == sizeof(value));
+    MemCopy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+/** 単精度の記憶表現を値へ戻す。指数調整は呼び出し側で検証済みとする。 */
+inline f32 CloudCompletedDensityFromBits_Internal(u32 bits) noexcept
+{
+    // 整数からの数値変換ではなく、同じ記憶表現を復元する。
+    f32 value = 0.0f;
+    MemCopy(&value, &bits, sizeof(value));
+    return value;
+}
+
+/** 正の正規数を2の冪で縮小する。和の最大項に比べて非正規数になる微小項だけを除く。 */
+inline f32 CloudCompletedDensityScaleBits_Internal(u32 bits, i32 exponent_shift) noexcept
+{
+    // 正規化した和では最大項が1以上なので、除く項は単精度の丸め幅より十分小さい。
+    const i32 exponent = static_cast<i32>(bits >> 23u) + exponent_shift;
+    if (exponent <= 0) return 0.0f;
+    return CloudCompletedDensityFromBits_Internal((bits & 0x007fffffu) | (static_cast<u32>(exponent) << 23u));
+}
+
+/**
+ * 八つの完成密度を相対体積で集約する。全体積0、不正値、有効入力の非正規数は失敗する。
+ * 非正規数は単精度の正規表現より小さい値。0を含む極小平均も、整数指数の保守的範囲検査で失敗する。
+ * 成功時は平均と子密度の最小・最大を返す。失敗時の出力0を、有効な空領域と混同しないこと。
+ * 子は重複せず親を分割する入力とし、最小・最大を未採取の連続場の保守的上限とは扱わない。
+ */
+inline bool TryAggregateVolumetricCloudCompletedDensity_Internal(const f32 (&densities)[8], const f32 (&relative_volumes)[8], f32& mean_density, f32& minimum_density, f32& maximum_density) noexcept
+{
+    mean_density = 0.0f;
+    minimum_density = 0.0f;
+    maximum_density = 0.0f;
+    // 同じ親内で体積和と密度量の和を別々の指数へ揃える。
+    i32 largestVolumeExponent = 0;
+    i32 largestMassExponent = 0;
+    // 非負の単精度値は、符号を除いたビット列でも大小順が一致する。
+    u32 smallestDensityBits = 0x7f7fffffu;
+    u32 largestDensityBits = 0u;
+    // 検証済みの子だけを第二走査へ渡す。
+    u32 volumeBits[8]{};
+    u32 densityBits[8]{};
+    for (u32 child = 0u; child < 8u; ++child) {
+        // ±0の体積は、未定義でもよい子密度を読む前に除く。
+        const u32 volume = CloudCompletedDensityBits_Internal(relative_volumes[child]);
+        if ((volume & 0x7fffffffu) == 0u) continue;
+        if (volume < 0x00800000u || volume >= 0x7f800000u) return false;
+        volumeBits[child] = volume;
+        // 負の0だけは有効な0へ統一し、負値・非有限値・非正規数を拒否する。
+        const u32 rawDensity = CloudCompletedDensityBits_Internal(densities[child]);
+        const u32 density = (rawDensity & 0x7fffffffu) == 0u ? 0u : rawDensity;
+        if (density != 0u && (density < 0x00800000u || density >= 0x7f800000u)) return false;
+        densityBits[child] = density;
+        if (density < smallestDensityBits) smallestDensityBits = density;
+        if (density > largestDensityBits) largestDensityBits = density;
+        // バイアス付き指数を整数のまま保持し、巨大な逆数を作らない。
+        const i32 volumeExponent = static_cast<i32>(volume >> 23u);
+        const i32 massExponent = volumeExponent + static_cast<i32>(density >> 23u);
+        if (volumeExponent > largestVolumeExponent) largestVolumeExponent = volumeExponent;
+        if (density != 0u && massExponent > largestMassExponent) largestMassExponent = massExponent;
+    }
+    if (largestVolumeExponent == 0) return false;
+    if (largestDensityBits == 0u) return true;
+    // 0を含む場合は平均の下限を2^-125より大きく保ち、丸めで成功判定が変わる境界を避ける。
+    // 指数の偏り127、最小正規指数-126、体積和<16の4段、丸めへの余裕1段から6を得る。
+    constexpr i32 minimumMixedExponentGap = 127 - 126 + 4 + 1;
+    if (smallestDensityBits == 0u && largestMassExponent - largestVolumeExponent < minimumMixedExponentGap) return false;
+    // 最大項が1以上、総和がそれぞれ16未満・32以下の範囲へ収まる。
+    f32 scaledVolumeSum = 0.0f;
+    f32 scaledMassSum = 0.0f;
+    for (u32 child = 0u; child < 8u; ++child) {
+        if (volumeBits[child] == 0u) continue;
+        // 体積和は体積自身の最大指数を使う。
+        const i32 volumeExponent = static_cast<i32>(volumeBits[child] >> 23u);
+        const u32 volumeMantissaBits = (volumeBits[child] & 0x007fffffu) | 0x3f800000u;
+        scaledVolumeSum += CloudCompletedDensityScaleBits_Internal(volumeMantissaBits, volumeExponent - largestVolumeExponent);
+        if (densityBits[child] == 0u) continue;
+        // 密度と体積を別々に極小化せず、仮数の積を密度量の指数へ合わせる。
+        const i32 massExponent = volumeExponent + static_cast<i32>(densityBits[child] >> 23u);
+        const f32 densityMantissa = CloudCompletedDensityFromBits_Internal((densityBits[child] & 0x007fffffu) | 0x3f800000u);
+        const f32 massMantissa = CloudCompletedDensityFromBits_Internal(volumeMantissaBits) * densityMantissa;
+        scaledMassSum += CloudCompletedDensityScaleBits_Internal(CloudCompletedDensityBits_Internal(massMantissa), massExponent - largestMassExponent);
+    }
+    // 除算の分母を通常の範囲へ保ち、最後だけ指数を元の単位へ戻す。
+    const u32 quotientBits = CloudCompletedDensityBits_Internal(scaledMassSum / scaledVolumeSum);
+    const i32 resultExponent = static_cast<i32>(quotientBits >> 23u) + largestMassExponent - largestVolumeExponent - 127;
+    if (resultExponent <= 0 && smallestDensityBits == 0u) return false;
+    // 加重平均は子の値域内にある。上端の丸めによる無限大だけを入力上限へ戻す。
+    // 全入力が正なら下限も正規数なので、除算が下へ丸まっても共通の出力確定まで進む。
+    u32 resultBits = resultExponent <= 0 ? smallestDensityBits : resultExponent >= 255 ? largestDensityBits : (quotientBits & 0x007fffffu) | (static_cast<u32>(resultExponent) << 23u);
+    if (resultBits < smallestDensityBits) resultBits = smallestDensityBits;
+    if (resultBits > largestDensityBits) resultBits = largestDensityBits;
+    mean_density = CloudCompletedDensityFromBits_Internal(resultBits);
+    minimum_density = CloudCompletedDensityFromBits_Internal(smallestDensityBits);
+    maximum_density = CloudCompletedDensityFromBits_Internal(largestDensityBits);
+    return true;
 }
 
 /**

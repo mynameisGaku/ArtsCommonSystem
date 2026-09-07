@@ -5149,6 +5149,177 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(std::exp(-twoPointMean), 1.0, 1.0e-15);
 }
 
+ACS_TEST(VolumetricClouds, CompletedDensityAggregatePreservesVolumeAndRejectsMissingRegions) {
+    using namespace render_internal;
+    // 八つの等体積領域で空と完成した雲が半分ずつ混在する。
+    const f32 mixedDensities[8] = {0.155f, 0.0f, 0.155f, 0.0f, 0.155f, 0.0f, 0.155f, 0.0f};
+    // 単位体積を共通の尺度とする。
+    const f32 equalVolumes[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    // 集約に成功したときだけ利用できる平均・最小・最大。
+    f32 meanDensity = -1.0f;
+    f32 minimumDensity = -1.0f;
+    f32 maximumDensity = -1.0f;
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(mixedDensities, equalVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity, 0.0775, 0.000001);
+    EXPECT_EQ(minimumDensity, 0.0f);
+    EXPECT_NEAR(maximumDensity, 0.155, 0.000001);
+    // 体積が異なる場合の厳密な密度量は168、体積は36。
+    const f32 densities[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    const f32 volumes[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(densities, volumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity, 14.0 / 3.0, 0.000002);
+    EXPECT_EQ(minimumDensity, 0.0f);
+    EXPECT_EQ(maximumDensity, 7.0f);
+    // 合計体積が単精度上限を超えても、相対体積の尺度変更で平均を変えない。
+    f32 largeVolumes[8]{};
+    // 入力密度の合計があふれる場合でも、平均は有限な範囲内にある。
+    f32 largeDensities[8]{};
+    for (u32 child = 0u; child < 8u; ++child) {
+        largeVolumes[child] = volumes[child] * 4.0e37f;
+        largeDensities[child] = densities[child] * 4.0e37f;
+    }
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(densities, largeVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity, 14.0 / 3.0, 0.000002);
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(largeDensities, volumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity / 4.0e37f, 14.0 / 3.0, 0.000002);
+    // 体積を持つ空の領域は有効だが、領域そのものが無い場合は失敗する。
+    const f32 zeros[8]{};
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(zeros, equalVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0.0f);
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(densities, zeros, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0.0f);
+    EXPECT_EQ(minimumDensity, 0.0f);
+    EXPECT_EQ(maximumDensity, 0.0f);
+    // 不正密度は失敗し、負密度を0へ丸めて雲量を捏造しない。
+    const f32 invalidDensity[8] = {-1, 1, 2, 3, 4, 5, 6, 7};
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(invalidDensity, equalVolumes, meanDensity, minimumDensity, maximumDensity));
+    // 体積0の子は領域に含まれないので、その未定義密度を参照しない。
+    const f32 absentFirstVolume[8] = {0, 1, 1, 1, 1, 1, 1, 1};
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(invalidDensity, absentFirstVolume, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity, 4.0, 0.000001);
+    EXPECT_EQ(minimumDensity, 1.0f);
+    EXPECT_EQ(maximumDensity, 7.0f);
+}
+
+ACS_TEST(VolumetricClouds, CompletedDensityAggregateKeepsSmallWeightedMass) {
+    using namespace render_internal;
+    // 極端な相対尺度でも、完成密度量の2と1を失わず平均3へ集約する。
+    const f32 densities[8] = {0x1p127f, 0x1p64f, 0, 0, 0, 0, 0, 0};
+    const f32 volumes[8] = {0x1p-126f, 0x1p-64f, 1, 0, 0, 0, 0, 0};
+    // 成功時だけ使える集約値。
+    f32 meanDensity = -1.0f;
+    f32 minimumDensity = -1.0f;
+    f32 maximumDensity = -1.0f;
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(densities, volumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity, 3.0, 0.000002);
+    // 比を先に丸めると0へ落ちるが、完成密度量は2で失ってはならない。
+    const f32 thinDensities[8] = {0x1p127f, 0, 0, 0, 0, 0, 0, 0};
+    const f32 thinVolumes[8] = {0x1p-126f, 0x1p24f, 0, 0, 0, 0, 0, 0};
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(thinDensities, thinVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(meanDensity / 0x1p-23f, 1.0, 0.000002);
+    // GPUで非正規数が0になるため、最終平均がその範囲なら成功と偽らない。
+    const f32 subnormalResultDensities[8] = {0x1p-126f, 0, 0, 0, 0, 0, 0, 0};
+    const f32 twoVolumes[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(subnormalResultDensities, twoVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0.0f);
+    EXPECT_EQ(minimumDensity, 0.0f);
+    EXPECT_EQ(maximumDensity, 0.0f);
+    // 非正規数の入力も、CPUとGPUで違う空領域へ読み替えず失敗する。
+    const f32 subnormalInputDensities[8] = {0x1p-127f, 1, 0, 0, 0, 0, 0, 0};
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(subnormalInputDensities, twoVolumes, meanDensity, minimumDensity, maximumDensity));
+    // 小さい体積の加算が消えても、空と最小正規密度の混在を有効な最小値へ丸めない。
+    const f32 boundaryVolumes[8] = {1, 0x1p-24f, 0x1p-24f, 0, 0, 0, 0, 0};
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(subnormalResultDensities, boundaryVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0.0f);
+    EXPECT_EQ(minimumDensity, 0.0f);
+    EXPECT_EQ(maximumDensity, 0.0f);
+    // 一つの正の密度は、割算の丸めに関係なくその値を保存する。
+    const f32 singleVolume[8] = {1.28125f, 0, 0, 0, 0, 0, 0, 0};
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(subnormalResultDensities, singleVolume, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0x1p-126f);
+    // 真の平均が正規数でも、空との混在下限に余裕がない入力は保守的に拒否する。
+    const f32 unsupportedMixedDensities[8] = {0x1p-122f, 0, 0, 0, 0, 0, 0, 0};
+    const f32 supportedMixedDensities[8] = {0x1p-121f, 0, 0, 0, 0, 0, 0, 0};
+    EXPECT_FALSE(TryAggregateVolumetricCloudCompletedDensity_Internal(unsupportedMixedDensities, twoVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(supportedMixedDensities, twoVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_EQ(meanDensity, 0x1p-122f);
+}
+
+ACS_TEST(VolumetricClouds, CompletedDensityAggregateMatchesIndependentWeightedSum) {
+    using namespace render_internal;
+    // 再現可能な入力列。CPU/GPUの縮尺化算法とは独立した倍精度の積和を参照にする。
+    u32 inputState = 0x628f1ad3u;
+    for (u32 sample = 0u; sample < 256u; ++sample) {
+        // 体積と密度を独立に広い指数範囲へ散らす。
+        f32 densities[8]{};
+        f32 volumes[8]{};
+        f64 referenceMass = 0.0;
+        f64 referenceVolume = 0.0;
+        // 空を含む場合の適用域は、加算順に依存しない入力指数の下限で決める。
+        i32 largestVolumeExponent = -126;
+        i32 largestMassExponent = -252;
+        bool containsZeroDensity = false;
+        for (u32 child = 0u; child < 8u; ++child) {
+            inputState = inputState * 1664525u + 1013904223u;
+            // 基準仮数は1以上2未満、指数は-120以上120以下。
+            const f32 densityMantissa = 1.0f + static_cast<f32>(inputState & 1023u) / 1024.0f;
+            const i32 densityExponent = static_cast<i32>((inputState >> 10u) % 241u) - 120;
+            densities[child] = (inputState & 0x80000000u) != 0u ? ::ldexpf(densityMantissa, densityExponent) : 0.0f;
+            inputState = inputState * 1664525u + 1013904223u;
+            const f32 volumeMantissa = 1.0f + static_cast<f32>(inputState & 1023u) / 1024.0f;
+            const i32 volumeExponent = static_cast<i32>((inputState >> 10u) % 241u) - 120;
+            volumes[child] = ::ldexpf(volumeMantissa, volumeExponent);
+            if (volumeExponent > largestVolumeExponent) largestVolumeExponent = volumeExponent;
+            if (densities[child] == 0.0f) containsZeroDensity = true;
+            else if (densityExponent + volumeExponent > largestMassExponent) largestMassExponent = densityExponent + volumeExponent;
+            referenceMass += static_cast<f64>(densities[child]) * static_cast<f64>(volumes[child]);
+            referenceVolume += static_cast<f64>(volumes[child]);
+        }
+        // 有限な単精度入力の積と8項の和は倍精度ではあふれない。
+        const f64 referenceMean = referenceMass / referenceVolume;
+        f32 meanDensity = -1.0f;
+        f32 minimumDensity = -1.0f;
+        f32 maximumDensity = -1.0f;
+        const bool valid = TryAggregateVolumetricCloudCompletedDensity_Internal(densities, volumes, meanDensity, minimumDensity, maximumDensity);
+        // 体積和の上限16と最小正規数への余裕2から、平均の下限2^-125を確保する。
+        const bool unsupportedMixedRange = referenceMean > 0.0 && containsZeroDensity && largestMassExponent - largestVolumeExponent < -121;
+        if (unsupportedMixedRange) {
+            EXPECT_FALSE(valid);
+            EXPECT_EQ(meanDensity, 0.0f);
+        } else {
+            EXPECT_TRUE(valid);
+            if (referenceMean > 0.0) EXPECT_NEAR(static_cast<f64>(meanDensity) / referenceMean, 1.0, 0.000002);
+            else EXPECT_EQ(meanDensity, 0.0f);
+            EXPECT_TRUE(meanDensity >= minimumDensity && meanDensity <= maximumDensity);
+        }
+    }
+    // 不等体積の64子を8親経由で集約しても、直接の密度積分と一致する。
+    f32 parentDensities[8]{};
+    f32 parentVolumes[8]{};
+    f64 totalMass = 0.0;
+    f64 totalVolume = 0.0;
+    for (u32 parent = 0u; parent < 8u; ++parent) {
+        f32 densities[8]{};
+        f32 volumes[8]{};
+        f32 minimumDensity = 0.0f;
+        f32 maximumDensity = 0.0f;
+        for (u32 child = 0u; child < 8u; ++child) {
+            densities[child] = static_cast<f32>((parent * 8u + child) % 11u);
+            volumes[child] = static_cast<f32>((parent + child) % 5u + 1u);
+            parentVolumes[parent] += volumes[child];
+            totalVolume += volumes[child];
+            totalMass += static_cast<f64>(densities[child]) * volumes[child];
+        }
+        EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(densities, volumes, parentDensities[parent], minimumDensity, maximumDensity));
+    }
+    // 子の点密度を親平均へ変換した後は、親の総体積を重みとして渡す。
+    f32 meanDensity = 0.0f;
+    f32 minimumDensity = 0.0f;
+    f32 maximumDensity = 0.0f;
+    EXPECT_TRUE(TryAggregateVolumetricCloudCompletedDensity_Internal(parentDensities, parentVolumes, meanDensity, minimumDensity, maximumDensity));
+    EXPECT_NEAR(static_cast<f64>(meanDensity) / (totalMass / totalVolume), 1.0, 0.000002);
+}
+
 ACS_TEST(VolumetricClouds, CoordinatePhasePreservesPendingBoundaryAndReentry) {
     using namespace render_internal;
     // 低密度側と高密度側がそれぞれ半分の定常分布。独立した指数平均と照合する。
@@ -5229,6 +5400,29 @@ float CloudProbeViewTransport(float4 distribution,float extinction,float correla
 float CloudProbeStateDifference(CloudFourStateTransportLanes left,CloudFourStateTransportLanes right){
     float4 difference=abs(left.state0-right.state0)+abs(left.state1-right.state1)+abs(left.state2-right.state2)+abs(left.state3-right.state3)+abs(left.boundaryDistances-right.boundaryDistances)+abs(left.cellLengths-right.cellLengths)+abs(left.boundaryPending-right.boundaryPending)+abs(left.active-right.active);
     return dot(difference,1.0.xxxx);
+}
+// 同じ二つの詳細入力から房と侵食を作る。相関を壊す独立な雑音へ置き換えない。
+float CloudProbeDetailDensity(float potential,float2 detailA,float2 detailB,float3 visibility){
+    // 実行時に渡す1を使い、製品式全体がコンパイル時の定数計算になるのを防ぐ。
+    potential*=cloudCoverageReciprocals.w;
+    detailA*=cloudCoverageReciprocals.w;
+    detailB*=cloudCoverageReciprocals.w;
+    float2 billow=cloudBillowPotentialStates(detailA,detailB,1.0);
+    float erosion=cloudErosionPotentialOffset(detailA,detailB,1.0);
+    return cloudDetailFilteredCondensationDistribution(potential.xxxx,float4(0,0,1,0),0.0,billow,visibility.x,visibility.y,erosion,visibility.z).x;
+}
+// 集約の有効性を第四成分へ出し、空密度と無効な領域を読戻しで区別する。
+float4 CloudProbeAggregate(float4 densityA,float4 densityB,float4 volumeA,float4 volumeB){
+    // 密度と体積を実行時入力へ依存させ、実GPUでの縮尺化を検査する。
+    // 算術で入力の非正規数を消さないよう、実行時に0となる整数マスクで渡す。
+    uint inputMask=asuint(cloudCoverageReciprocals.w)^0x3f800000u;
+    densityA=asfloat(asuint(densityA)^inputMask);
+    densityB=asfloat(asuint(densityB)^inputMask);
+    volumeA=asfloat(asuint(volumeA)^inputMask);
+    volumeB=asfloat(asuint(volumeB)^inputMask);
+    float3 summary;
+    bool valid=cloudTryAggregateCompletedDensity(densityA,densityB,volumeA,volumeB,summary);
+    return float4(summary,valid?1.0:0.0);
 }
 [numthreads(1,1,1)]
 void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
@@ -5665,6 +5859,75 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     // 同じ極小相関でも、継続xと新入口yでは精度限界の扱いを分ける。
     float4 smallMixedCorrelations=cloudPrepareFourStateTransportPhaseLanes(smallView,float4(1,1,0,0),50,0.0000005);
     cloudOut[uint2(81,0)]=float4(smallMixedCorrelations.xy,smallView.boundaryDistances.x,smallView.cellLengths.x);
+    // 完成密度を平均する正しい順序と、細部を除く現行経路の差を実関数で観測する。
+    // 人工的な対称二標本であり、実生成体積の出現頻度を仮定した統計ではない。
+    [unroll] for(uint densityCase=0u;densityCase<3u;++densityCase){
+        float potential=densityCase==0u?0.0:(densityCase==1u?0.03:0.05);
+        float high=densityCase==2u?0.52:0.75;
+        float low=densityCase==2u?0.48:0.25;
+        float positive=CloudProbeDetailDensity(potential,high.xx,low.xx,1.0.xxx);
+        float negative=CloudProbeDetailDensity(potential,low.xx,high.xx,1.0.xxx);
+        float coarsePositive=CloudProbeDetailDensity(potential,high.xx,low.xx,0.0.xxx);
+        float coarseNegative=CloudProbeDetailDensity(potential,low.xx,high.xx,0.0.xxx);
+        cloudOut[uint2(82u+densityCase,0)]=float4(0.5*(positive+negative),0.5*(coarsePositive+coarseNegative),positive,negative);
+    }
+    // 粗い房の差は0のまま、中間帯域だけを省いたときの密度消失を分離する。
+    float2 middleA=float2(0.5,0.725);
+    float2 middleB=float2(0.5,0.275);
+    float middlePositive=CloudProbeDetailDensity(0.0,middleA,middleB,float3(1,1,0));
+    float middleNegative=CloudProbeDetailDensity(0.0,middleB,middleA,float3(1,1,0));
+    float middleCoarse=CloudProbeDetailDensity(0.0,middleA,middleB,float3(1,0,0));
+    cloudOut[uint2(85,0)]=float4(0.5*(middlePositive+middleNegative),middleCoarse,middlePositive,middleNegative);
+    // 全標本が線形な正領域にある場合と、全域が空の場合を対照にする。
+    float positiveMean=0.5*(CloudProbeDetailDensity(0.3,0.75.xx,0.25.xx,1.0.xxx)+CloudProbeDetailDensity(0.3,0.25.xx,0.75.xx,1.0.xxx));
+    float emptyMean=0.5*(CloudProbeDetailDensity(-0.3,0.75.xx,0.25.xx,1.0.xxx)+CloudProbeDetailDensity(-0.3,0.25.xx,0.75.xx,1.0.xxx));
+    cloudOut[uint2(86,0)]=float4(positiveMean,CloudProbeDetailDensity(0.3,0.75.xx,0.25.xx,0.0.xxx),emptyMean,CloudProbeDetailDensity(-0.3,0.75.xx,0.25.xx,0.0.xxx));
+    // 密度平均だけを保存しても、空と雲が混在した光路の透過率は保存できない。
+    float coveredDensity=CloudProbeDetailDensity(0.03,0.75.xx,0.25.xx,1.0.xxx);
+    float clearDensity=CloudProbeDetailDensity(0.03,0.25.xx,0.75.xx,1.0.xxx);
+    float completedMean=0.5*(coveredDensity+clearDensity);
+    float coarseDensity=CloudProbeDetailDensity(0.03,0.75.xx,0.25.xx,0.0.xxx);
+    cloudOut[uint2(87,0)]=float4(0.5*(exp(-10.0*coveredDensity)+exp(-10.0*clearDensity)),exp(-10.0*completedMean),exp(-10.0*coarseDensity),completedMean);
+    // 同じ完成密度から親セルを作る正規経路。子体積の尺度と値域に依存しない。
+    float4 childDensities=float4(coveredDensity,clearDensity,coveredDensity,clearDensity);
+    cloudOut[uint2(88,0)]=CloudProbeAggregate(childDensities,childDensities,1.0.xxxx,1.0.xxxx);
+    float4 childA=float4(0,1,2,3);
+    float4 childB=float4(4,5,6,7);
+    float4 volumeA=float4(1,2,3,4);
+    float4 volumeB=float4(5,6,7,8);
+    cloudOut[uint2(89,0)]=CloudProbeAggregate(childA,childB,volumeA,volumeB);
+    cloudOut[uint2(90,0)]=CloudProbeAggregate(childA,childB,volumeA*4e37,volumeB*4e37);
+    cloudOut[uint2(91,0)]=CloudProbeAggregate(childA*4e37,childB*4e37,volumeA,volumeB);
+    cloudOut[uint2(92,0)]=CloudProbeAggregate(0.0.xxxx,0.0.xxxx,1.0.xxxx,1.0.xxxx);
+    cloudOut[uint2(93,0)]=CloudProbeAggregate(childA,childB,0.0.xxxx,0.0.xxxx);
+    // 体積0の未定義密度は無視するが、有効領域のNaNと不正体積は失敗する。
+    float invalidDensity=cloudCoverageReciprocals.x;
+    cloudOut[uint2(94,0)]=CloudProbeAggregate(float4(invalidDensity,2,2,2),2.0.xxxx,float4(0,1,1,1),1.0.xxxx);
+    cloudOut[uint2(95,0)]=CloudProbeAggregate(float4(invalidDensity,2,2,2),2.0.xxxx,1.0.xxxx,1.0.xxxx);
+    cloudOut[uint2(96,0)]=CloudProbeAggregate(childA,childB,float4(-1,1,1,1),1.0.xxxx);
+    cloudOut[uint2(97,0)]=CloudProbeAggregate(childA,childB,float4(asfloat(0x7f800000u),1,1,1),1.0.xxxx);
+    // 2の整数乗で、密度量が消える箇所を独立した厳密値へ照合する。
+    float power127=asfloat(254u<<23u);
+    float power126=asfloat(253u<<23u);
+    float power64=asfloat(191u<<23u);
+    float powerMinus64=asfloat(63u<<23u);
+    float minimumNormal=asfloat(1u<<23u);
+    cloudOut[uint2(98,0)]=CloudProbeAggregate(float4(power127,power64,0,0),0.0.xxxx,float4(minimumNormal,powerMinus64,1,0),0.0.xxxx);
+    cloudOut[uint2(99,0)]=CloudProbeAggregate(float4(power127,0,0,0),0.0.xxxx,float4(minimumNormal,16777216,0,0),0.0.xxxx);
+    cloudOut[uint2(100,0)]=CloudProbeAggregate(float4(power127,0,0,0),0.0.xxxx,float4(minimumNormal,2,0,0),0.0.xxxx);
+    cloudOut[uint2(101,0)]=CloudProbeAggregate(float4(1,3,0,0),0.0.xxxx,float4(power126,power127,0,0),0.0.xxxx);
+    cloudOut[uint2(102,0)]=CloudProbeAggregate(float4(power126,power127,0,0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
+    cloudOut[uint2(103,0)]=CloudProbeAggregate(float4(minimumNormal,0,0,0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
+    cloudOut[uint2(104,0)]=CloudProbeAggregate(float4(1,3,asfloat(0x7f7fffffu),0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
+    cloudOut[uint2(105,0)]=CloudProbeAggregate(float4(cloudCoverageReciprocals.y,1,0,0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
+    // 特殊値をコンパイラーの定数計算へ任せず、CPUから届いた記憶表現を独立に確認する。
+    cloudOut[uint2(106,0)]=float4(float(asuint(cloudCoverageReciprocals.x)),float(asuint(cloudCoverageReciprocals.y)),float(asuint(cloudCoverageReciprocals.w)^0x3f800000u),0);
+    // 最小正規数付近の有効性を、丸めと子の列挙順に依存させない。
+    cloudOut[uint2(107,0)]=CloudProbeAggregate(float4(minimumNormal,0,0,0),0.0.xxxx,float4(1,0.000000059604644775390625,0.000000059604644775390625,0),0.0.xxxx);
+    cloudOut[uint2(108,0)]=CloudProbeAggregate(float4(minimumNormal,0,0,0),0.0.xxxx,float4(1.28125,0,0,0),0.0.xxxx);
+    cloudOut[uint2(109,0)]=CloudProbeAggregate(float4(0,0,minimumNormal,0),0.0.xxxx,float4(0.000000059604644775390625,0.000000059604644775390625,1,0),0.0.xxxx);
+    cloudOut[uint2(110,0)]=CloudProbeAggregate(float4(asfloat(5u<<23u),0,0,0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
+    cloudOut[uint2(111,0)]=CloudProbeAggregate(float4(asfloat(6u<<23u),0,0,0),0.0.xxxx,float4(1,1,0,0),0.0.xxxx);
 }
 )";
 
@@ -5699,7 +5962,7 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(pipelineResult.IsOk());
     if (pipelineResult.IsErr()) return;
 
-    constexpr u32 kProbeTexelCount = 82u;
+    constexpr u32 kProbeTexelCount = 112u;
     FTextureDesc textureDescription{};
     textureDescription.width = kProbeTexelCount;
     textureDescription.height = 1u;
@@ -5717,6 +5980,13 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     FVec4 transportConstants[48]{};
     transportConstants[17].y = 700.0f;
     transportConstants[21] = FVec4{300.0f, -200.0f, 0.0f, 0.0f};
+    // 集約・凝結の定数畳み込みを防ぐためだけに、未使用成分へ実行時の1を渡す。
+    transportConstants[25].w = 1.0f;
+    // 特殊値は実行時バッファから渡し、定数構築中に0や別のNaNへ変わる可能性を除く。
+    const u32 invalidDensityBits = 0x7fc00000u;
+    const u32 subnormalDensityBits = 0x00400000u;
+    MemCopy(&transportConstants[25].x, &invalidDensityBits, sizeof(invalidDensityBits));
+    MemCopy(&transportConstants[25].y, &subnormalDensityBits, sizeof(subnormalDensityBits));
     FBufferDesc transportBufferDescription{};
     transportBufferDescription.size = sizeof(transportConstants);
     transportBufferDescription.usage = EBufferUsage::Uniform;
@@ -5834,6 +6104,97 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_EQ(gpuValue(81u, 2u), 50.0f);
     EXPECT_EQ(gpuValue(81u, 3u), 100.0f);
     test::RecordInfo(FSourceLoc::Current(), "cloud_phase_routes_gpu_readback completed routes=3 output_texels=16");
+
+    // 未修正の差を測る対照試験。これらの差は合格仕様ではなく、製品置換時に解消すべき値である。
+    // 完成密度は二標本の解析値から求め、現行の粗い値を正しい参照として使用しない。
+    const f32 completedMeans[3] = {0.0625f, 0.0775f, 0.0477777778f};
+    // 現行処理が返す値を固定し、問題を再現できることと解決したことを区別する。
+    const f32 currentCoarseMeans[3] = {0.0f, 0.0225f, 0.0486111111f};
+    // 凝結境界・非線形遷移内・遷移端を跨ぐ三つの人工入力。
+    for (u32 densityCase = 0u; densityCase < 3u; ++densityCase) {
+        EXPECT_NEAR(gpuValue(82u + densityCase, 0u), completedMeans[densityCase], 0.000001);
+        EXPECT_NEAR(gpuValue(82u + densityCase, 1u), currentCoarseMeans[densityCase], 0.000001);
+    }
+    EXPECT_NEAR(gpuValue(83u, 2u), 0.155f, 0.000001);
+    EXPECT_EQ(gpuValue(83u, 3u), 0.0f);
+    EXPECT_TRUE(gpuValue(82u, 0u) > gpuValue(82u, 1u));
+    EXPECT_TRUE(gpuValue(84u, 0u) < gpuValue(84u, 1u));
+    EXPECT_NEAR(gpuValue(85u, 0u), 0.0312f, 0.000001);
+    EXPECT_EQ(gpuValue(85u, 1u), 0.0f);
+    EXPECT_NEAR(gpuValue(85u, 2u), 0.0624f, 0.000001);
+    EXPECT_EQ(gpuValue(85u, 3u), 0.0f);
+    EXPECT_NEAR(gpuValue(86u, 0u), 0.3f, 0.000001);
+    EXPECT_NEAR(gpuValue(86u, 1u), 0.3f, 0.000001);
+    EXPECT_EQ(gpuValue(86u, 2u), 0.0f);
+    EXPECT_EQ(gpuValue(86u, 3u), 0.0f);
+    EXPECT_NEAR(gpuValue(87u, 0u), 0.5 * (1.0 + ::exp(-1.55)), 0.000001);
+    EXPECT_NEAR(gpuValue(87u, 1u), ::exp(-0.775), 0.000001);
+    EXPECT_NEAR(gpuValue(87u, 2u), ::exp(-0.225), 0.000001);
+    EXPECT_NEAR(gpuValue(87u, 3u), 0.0775, 0.000001);
+    test::RecordInfo(FSourceLoc::Current(), "cloud_completed_density_lod_gpu_readback cases=6 status=known_defect_reproduced quality_accepted=false");
+
+    // 失敗時も平均だけでなく範囲と有効性を残し、不正入力の扱いを追跡できるようにする。
+    EXPECT_EQ(gpuValue(106u, 0u), static_cast<f32>(invalidDensityBits));
+    EXPECT_EQ(gpuValue(106u, 1u), static_cast<f32>(subnormalDensityBits));
+    EXPECT_EQ(gpuValue(106u, 2u), 0.0f);
+    for (u32 texel = 88u; texel < 106u; ++texel) {
+        test::RecordInfo(FSourceLoc::Current(), "cloud_density_aggregate_case=%u mean=%.9g minimum=%.9g maximum=%.9g valid=%.9g", texel - 88u, gpuValue(texel, 0u), gpuValue(texel, 1u), gpuValue(texel, 2u), gpuValue(texel, 3u));
+    }
+    // 新しい集約経路は完成密度の平均を保存し、既知不具合の値ではなく解析値へ一致させる。
+    EXPECT_NEAR(gpuValue(88u, 0u), 0.0775, 0.000001);
+    EXPECT_EQ(gpuValue(88u, 1u), 0.0f);
+    EXPECT_NEAR(gpuValue(88u, 2u), 0.155, 0.000001);
+    EXPECT_EQ(gpuValue(88u, 3u), 1.0f);
+    // 通常値・大きな相対体積のどちらも168/36へ一致する。
+    for (u32 texel = 89u; texel <= 90u; ++texel) {
+        EXPECT_NEAR(gpuValue(texel, 0u), 14.0 / 3.0, 0.000002);
+        EXPECT_EQ(gpuValue(texel, 1u), 0.0f);
+        EXPECT_EQ(gpuValue(texel, 2u), 7.0f);
+        EXPECT_EQ(gpuValue(texel, 3u), 1.0f);
+    }
+    EXPECT_NEAR(gpuValue(91u, 0u) / 4.0e37f, 14.0 / 3.0, 0.000002);
+    EXPECT_EQ(gpuValue(91u, 1u), 0.0f);
+    EXPECT_NEAR(gpuValue(91u, 2u) / 4.0e37f, 7.0, 0.000002);
+    EXPECT_EQ(gpuValue(91u, 3u), 1.0f);
+    EXPECT_EQ(gpuValue(92u, 0u), 0.0f);
+    EXPECT_EQ(gpuValue(92u, 3u), 1.0f);
+    EXPECT_NEAR(gpuValue(94u, 0u), 2.0, 0.000001);
+    EXPECT_EQ(gpuValue(94u, 1u), 2.0f);
+    EXPECT_EQ(gpuValue(94u, 2u), 2.0f);
+    EXPECT_EQ(gpuValue(94u, 3u), 1.0f);
+    // 失敗結果は密度3成分も0へ閉じ、部分的な集約値を公開しない。
+    const u32 invalidAggregateTexels[4] = {93u, 95u, 96u, 97u};
+    for (u32 texel : invalidAggregateTexels) {
+        for (u32 component = 0u; component < 4u; ++component) EXPECT_EQ(gpuValue(texel, component), 0.0f);
+    }
+    EXPECT_NEAR(gpuValue(98u, 0u), 3.0, 0.000002);
+    EXPECT_NEAR(gpuValue(99u, 0u) / 0x1p-23f, 1.0, 0.000002);
+    EXPECT_NEAR(gpuValue(100u, 0u), 1.0, 0.000002);
+    EXPECT_NEAR(gpuValue(101u, 0u), 7.0 / 3.0, 0.000002);
+    EXPECT_NEAR(gpuValue(102u, 0u) / 0x1p125f, 3.0, 0.000002);
+    EXPECT_NEAR(gpuValue(104u, 0u), 2.0, 0.000002);
+    EXPECT_EQ(gpuValue(104u, 1u), 1.0f);
+    EXPECT_EQ(gpuValue(104u, 2u), 3.0f);
+    // 対応範囲外は、完成密度0で成功した結果と区別する。
+    for (u32 component = 0u; component < 4u; ++component) {
+        EXPECT_EQ(gpuValue(103u, component), 0.0f);
+        EXPECT_EQ(gpuValue(105u, component), 0.0f);
+    }
+    for (u32 texel = 98u; texel <= 104u; ++texel) {
+        if (texel != 103u) EXPECT_EQ(gpuValue(texel, 3u), 1.0f);
+    }
+    for (u32 component = 0u; component < 4u; ++component) {
+        EXPECT_EQ(gpuValue(107u, component), 0.0f);
+        EXPECT_EQ(gpuValue(109u, component), 0.0f);
+        EXPECT_EQ(gpuValue(110u, component), 0.0f);
+    }
+    EXPECT_EQ(gpuValue(108u, 0u), 0x1p-126f);
+    EXPECT_EQ(gpuValue(108u, 1u), 0x1p-126f);
+    EXPECT_EQ(gpuValue(108u, 2u), 0x1p-126f);
+    EXPECT_EQ(gpuValue(108u, 3u), 1.0f);
+    EXPECT_EQ(gpuValue(111u, 0u), 0x1p-122f);
+    EXPECT_EQ(gpuValue(111u, 3u), 1.0f);
+    test::RecordInfo(FSourceLoc::Current(), "cloud_completed_density_aggregate_gpu_readback cases=23 runtime_inputs=true");
 
     struct FCombinedTransportForTest {
         // 二区間を合わせた透過率。
