@@ -3618,6 +3618,41 @@ struct CloudFourStateChunkLanes {
     float4 absorptions;
     float4 absorptionMoments;
 };
+// 輸送するレーンの入口だけを物質座標へ固定する。セル境界で次の幅を待つ状態は
+// 有効な継続であり、ここで再初期化しない。使わないレーンの生存確率は変更しない。
+float4 cloudPrepareFourStateTransportPhaseLanes(
+    inout CloudFourStateTransportLanes state,float4 activeLaneMask,
+    float pathCoordinate,float correlationLength){
+    float4 correlations=float4(
+        activeLaneMask.x>0.5?correlationLength:0.0,
+        activeLaneMask.y>0.5?correlationLength:0.0,
+        activeLaneMask.z>0.5?correlationLength:0.0,
+        activeLaneMask.w>0.5?correlationLength:0.0);
+    if(!cloudValueIsFinite(correlationLength)||correlationLength<0.0)
+        return correlations;
+    // 相関0だけが即時の均質化を指す。極小でも正なら既存セルを最後まで継続する。
+    if(correlationLength<=0.0) return 0.0.xxxx;
+    float4 validDistance=cloudPositiveMask4(state.boundaryDistances)
+        *cloudPositiveMask4(state.cellLengths)
+        *step(state.boundaryDistances,state.cellLengths);
+    float4 validContinuation=step(0.5.xxxx,state.active)
+        *max(validDistance,step(0.5.xxxx,state.boundaryPending));
+    float4 initializeMask=activeLaneMask*(1.0.xxxx-validContinuation);
+    if(!any(initializeMask>0.5.xxxx)) return correlations;
+    CloudFourStateTransportLanes initial;
+    bool initialized=cloudInitializeFourStateTransportPhaseLanes(
+        initial,pathCoordinate,correlationLength);
+    state.state0=lerp(state.state0,initial.state0,initializeMask);
+    state.state1=lerp(state.state1,initial.state1,initializeMask);
+    state.state2=lerp(state.state2,initial.state2,initializeMask);
+    state.state3=lerp(state.state3,initial.state3,initializeMask);
+    state.boundaryDistances=lerp(state.boundaryDistances,initial.boundaryDistances,initializeMask);
+    state.cellLengths=lerp(state.cellLengths,initial.cellLengths,initializeMask);
+    state.boundaryPending=lerp(state.boundaryPending,initial.boundaryPending,initializeMask);
+    state.active=lerp(state.active,initial.active,initializeMask);
+    // 表せない入口だけ均質極限へ移し、継続中の別次数は相関状態を保持する。
+    return initialized?correlations:lerp(correlations,0.0.xxxx,initializeMask);
+}
 // 一相関セルを跨がない区間では、四状態それぞれをBeer-Lambert積分する。
 // 平均・分散への縮約を行わないため、濃い光路でも指数平均を失わない。
 CloudFourStateChunkLanes cloudFourStateChunkLanes(
@@ -5129,54 +5164,10 @@ float3 cloudPackedFourStateOpticalDepthByOrder(
             extinctionByOrder.x>0.0?1.0:0.0,
             extinctionByOrder.y>0.0?1.0:0.0,
             extinctionByOrder.z>0.0?1.0:0.0,0.0);
-        float resolvedCorrelationLength=requestedCorrelationLength;
-        if(resolvedCorrelationLength>1e-6&&
-           any(activeOrderMask.xyz>0.5.xxx)){
-            float4 finiteBoundaryMask=float4(
-                cloudValueIsFinite(
-                    packedOrderState.boundaryDistances.x)
-                    &&cloudValueIsFinite(
-                        packedOrderState.cellLengths.x)?1.0:0.0,
-                cloudValueIsFinite(
-                    packedOrderState.boundaryDistances.y)
-                    &&cloudValueIsFinite(
-                        packedOrderState.cellLengths.y)?1.0:0.0,
-                cloudValueIsFinite(
-                    packedOrderState.boundaryDistances.z)
-                    &&cloudValueIsFinite(
-                        packedOrderState.cellLengths.z)?1.0:0.0,0.0);
-            float4 validBoundaryMask=finiteBoundaryMask
-                *step(0.5.xxxx,packedOrderState.active)
-                *(1.0.xxxx-step(
-                    0.5.xxxx,packedOrderState.boundaryPending))
-                *cloudPositiveMask4(
-                    packedOrderState.boundaryDistances)
-                *cloudPositiveMask4(packedOrderState.cellLengths)
-                *step(
-                    packedOrderState.boundaryDistances,
-                    packedOrderState.cellLengths);
-            float4 missingBoundaryMask=activeOrderMask
-                *(1.0.xxxx-saturate(validBoundaryMask));
-            if(any(missingBoundaryMask.xyz>0.5.xxx)){
-                bool initialized=
-                    cloudInitializeFourStateTransportPhaseLanes(
-                        packedOrderState,requestedPathCoordinate,
-                        resolvedCorrelationLength);
-                if(!initialized) resolvedCorrelationLength=0.0;
-                // 初期化関数は四レーンを揃えるため、使わない次数だけを再び停止する。
-                float4 inactiveOrderMask=1.0.xxxx-activeOrderMask;
-                cloudResetFourStateTransportLanes(
-                    packedOrderState,inactiveOrderMask);
-                packedOrderState.active=lerp(
-                    packedOrderState.active,0.0.xxxx,
-                    inactiveOrderMask);
-            }
-        }
-        if(resolvedCorrelationLength<=1e-6)
-            resolvedCorrelationLength=0.0;
         float4 packedExtinction=float4(extinctionByOrder,0.0);
-        float4 correlationLengths=
-            resolvedCorrelationLength.xxxx*activeOrderMask;
+        float4 correlationLengths=cloudPrepareFourStateTransportPhaseLanes(
+            packedOrderState,activeOrderMask,requestedPathCoordinate,
+            requestedCorrelationLength);
         float4 segmentLengths=requestedSegmentLength.xxxx*activeOrderMask;
         CloudFourStateOpticalTransportResultLanes packedTransport;
         packedTransport.absorptions=0.0.xxxx;
@@ -5858,24 +5849,13 @@ float cloudAmbientCorrelatedSegmentOpticalDepth(
         return 80.0;
     }
     if(segmentLength<=0.0||extinction<=0.0) return 0.0;
-    float resolvedCorrelation=correlationLength;
-    bool validBoundaryState=transportState.active.x>0.5
-        &&transportState.boundaryPending.x<0.5
-        &&cloudValueIsFinite(transportState.boundaryDistances.x)
-        &&transportState.boundaryDistances.x>0.0
-        &&cloudValueIsFinite(transportState.cellLengths.x)
-        &&transportState.cellLengths.x>0.0
-        &&transportState.boundaryDistances.x<=transportState.cellLengths.x;
-    if(resolvedCorrelation>1e-6&&!validBoundaryState
-       &&!cloudInitializeFourStateTransportPhaseLanes(
-           transportState,pathCoordinate,resolvedCorrelation))
-        resolvedCorrelation=0.0;
-    if(resolvedCorrelation<=1e-6) resolvedCorrelation=0.0;
+    float4 resolvedCorrelation=cloudPrepareFourStateTransportPhaseLanes(
+        transportState,1.0.xxxx,pathCoordinate,correlationLength);
     CloudFourStateOpticalTransportResultLanes interval=
         cloudFourStateOpticalTransportLanes(
             distribution.xxxx,distribution.yyyy,
             distribution.zzzz,distribution.wwww,
-            extinction,resolvedCorrelation.xxxx,
+            extinction,resolvedCorrelation,
             segmentLength.xxxx,transportState);
     float depth=cloudOpticalDepthFromAbsorption(interval.absorptions.x);
     return cloudValueIsFinite(depth)?clamp(depth,0.0,80.0):80.0;
@@ -7658,6 +7638,20 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     *max(lightingContext.multiOcclusion,0.0);
                 float thirdOrderExtinction=firstOrderExtinction
                     *max(lightingContext.thirdOcclusion,0.0);
+                // 同じ物質空間の始点から、視線と影の相関セル位相を決める。
+                // 継続中のレーンや他の副光線を初期化せず、零消散・零長さも進めない。
+                float pathCoordinate=cloudCorrelatedTransportPathCoordinate(
+                    camPos.xyz+physicalRayDirection*segmentRayStart,physicalRayDirection);
+                float4 phaseLaneMask=segmentRayLength>0.0?physicalLaneSelector:0.0.xxxx;
+                float4 firstCorrelations=cloudPrepareFourStateTransportPhaseLanes(
+                    firstOrderTransportState,firstOrderExtinction>0.0?phaseLaneMask:0.0.xxxx,
+                    pathCoordinate,densityLightingSample.correlationLength);
+                float4 secondCorrelations=cloudPrepareFourStateTransportPhaseLanes(
+                    secondOrderTransportState,secondOrderExtinction>0.0?phaseLaneMask:0.0.xxxx,
+                    pathCoordinate,densityLightingSample.correlationLength);
+                float4 thirdCorrelations=cloudPrepareFourStateTransportPhaseLanes(
+                    thirdOrderTransportState,thirdOrderExtinction>0.0?phaseLaneMask:0.0.xxxx,
+                    pathCoordinate,densityLightingSample.correlationLength);
                 CloudFourStateTransportResultLanes firstTransport=
                     cloudFourStateTransportLanes(
                         densityLightingSample.densityStates.xxxx,
@@ -7665,7 +7659,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         densityLightingSample.densityStates.zzzz,
                         densityLightingSample.densityStates.wwww,
                         firstOrderExtinction,
-                        densityLightingSample.correlationLength.xxxx,
+                        firstCorrelations,
                         laneSegmentLengths,firstOrderTransportState);
                 CloudFourStateTransportResultLanes secondTransport=
                     cloudFourStateTransportLanes(
@@ -7674,7 +7668,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         densityLightingSample.densityStates.zzzz,
                         densityLightingSample.densityStates.wwww,
                         secondOrderExtinction,
-                        densityLightingSample.correlationLength.xxxx,
+                        secondCorrelations,
                         laneSegmentLengths,secondOrderTransportState);
                 CloudFourStateTransportResultLanes thirdTransport=
                     cloudFourStateTransportLanes(
@@ -7683,7 +7677,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                         densityLightingSample.densityStates.zzzz,
                         densityLightingSample.densityStates.wwww,
                         thirdOrderExtinction,
-                        densityLightingSample.correlationLength.xxxx,
+                        thirdCorrelations,
                         laneSegmentLengths,thirdOrderTransportState);
                 float firstIntervalAbsorption=dot(
                     physicalLaneSelector,firstTransport.absorptions);

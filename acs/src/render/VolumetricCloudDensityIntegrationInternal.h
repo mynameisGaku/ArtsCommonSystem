@@ -1143,6 +1143,21 @@ inline bool InitializeVolumetricCloudFourStateTransportPhase_Internal(
     return true;
 }
 
+/**
+ * 新しい光路の入口だけを物質座標へ合わせ、継続中のセルと次の幅を待つ境界を保つ。
+ * 無効な相関長は輸送側へ渡し、表現できない入口位相は均質極限の0を返す。
+ */
+inline f32 PrepareVolumetricCloudFourStateTransportPhase_Internal(FVolumetricCloudFourStateTransportStateInternal& state, f32 path_coordinate, f32 correlation_length) noexcept
+{
+    if (!CloudDensityIntegrationValueIsFinite_Internal(correlation_length) || correlation_length < 0.0f) return correlation_length;
+    // 初期化の精度限界を、既に進行中の正の相関へ適用しない。
+    if (correlation_length <= 0.0f) return 0.0f;
+    // 境界距離0でも、到達済みで次の幅を待つ状態は正しい継続である。
+    const bool validDistance = CloudDensityIntegrationValueIsFinite_Internal(state.remaining_boundary_distance) && CloudDensityIntegrationValueIsFinite_Internal(state.correlation_cell_length) && state.remaining_boundary_distance > 0.0f && state.correlation_cell_length > 0.0f && state.remaining_boundary_distance <= state.correlation_cell_length;
+    if (state.initialized && (state.awaiting_next_cell_length || validDistance)) return correlation_length;
+    return InitializeVolumetricCloudFourStateTransportPhase_Internal(state, path_coordinate, correlation_length) ? correlation_length : 0.0f;
+}
+
 /** 一つの相関セル内で四状態を更新した結果。 */
 struct FVolumetricCloudFourStateChunkInternal
 {

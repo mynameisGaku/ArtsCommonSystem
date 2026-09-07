@@ -789,7 +789,7 @@ ACS_TEST(VolumetricCloudSettings, EffectiveChangesInvalidateOnlyDependentCaches)
         "1.0,correlationLengths,segmentLengths,packedOrderState);"));
     EXPECT_TRUE(Contains(
         source,
-        "resolvedCorrelationLength.xxxx*activeOrderMask"));
+        "cloudPrepareFourStateTransportPhaseLanes("));
     EXPECT_TRUE(Contains(
         source,
         "cloudInitializeFourStateTransportPhaseLanes("));

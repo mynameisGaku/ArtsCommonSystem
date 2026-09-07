@@ -5149,6 +5149,56 @@ ACS_TEST(VolumetricClouds,
     EXPECT_NEAR(std::exp(-twoPointMean), 1.0, 1.0e-15);
 }
 
+ACS_TEST(VolumetricClouds, CoordinatePhasePreservesPendingBoundaryAndReentry) {
+    using namespace render_internal;
+    // 低密度側と高密度側がそれぞれ半分の定常分布。独立した指数平均と照合する。
+    const FVolumetricCloudDensityDistributionInternal distribution{{0.0f, 0.0f, 0.02f, 0.02f}};
+    // 同じ光路のセル位置と条件付き生存確率。
+    FVolumetricCloudFourStateTransportStateInternal state{};
+    // 開始座標0へ初期化した後に輸送へ渡す相関長。
+    const f32 firstCorrelation = PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 0.0f, 50.0f);
+    EXPECT_EQ(state.remaining_boundary_distance, 100.0f);
+    // 最初の100mを一つの相関セルとして通った結果。
+    const auto first = ResolveVolumetricCloudFourStateTransportInterval_Internal(distribution, 1.0f, firstCorrelation, 100.0f, state);
+    // 空の光路と消散0.02/mの光路を半分ずつ平均した厳密値。
+    const f64 exactHundred = 0.5 * (1.0 + ::exp(-2.0));
+    EXPECT_NEAR(first.transmittance, exactHundred, 0.000001);
+    EXPECT_TRUE(state.awaiting_next_cell_length);
+    // 次の相関長へ変わっても、境界待ちは座標100のセル位相へ置き直さない。
+    const f32 nextCorrelation = PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 100.0f, 80.0f);
+    EXPECT_TRUE(state.awaiting_next_cell_length);
+    // 幅160mの次セルへ100m進んだ結果。
+    const auto next = ResolveVolumetricCloudFourStateTransportInterval_Internal(distribution, 1.0f, nextCorrelation, 100.0f, state);
+    EXPECT_NEAR(first.transmittance * next.transmittance, exactHundred * exactHundred, 0.000001);
+    EXPECT_EQ(state.remaining_boundary_distance, 60.0f);
+    EXPECT_EQ(state.correlation_cell_length, 160.0f);
+    // セル内部では新しい相関長を与えても残距離と条件付き確率を維持する。
+    const f32 savedProbability = state.conditional_survival[0];
+    EXPECT_EQ(PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 200.0f, 120.0f), 120.0f);
+    EXPECT_EQ(state.remaining_boundary_distance, 60.0f);
+    EXPECT_EQ(state.conditional_survival[0], savedProbability);
+    // 明示した空隙後は、新しい実入口から定常分布へ戻す。
+    state.initialized = false;
+    EXPECT_EQ(PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 240.0f, 50.0f), 50.0f);
+    EXPECT_EQ(state.remaining_boundary_distance, 60.0f);
+    EXPECT_EQ(state.conditional_survival[0], kVolumetricCloudUnresolvedCoarseOuterWeight);
+    // 位相を表せない新入口は均質極限へ移し、恣意的な半セル位相を作らない。
+    state.initialized = false;
+    EXPECT_EQ(PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 1000000000.0f, 50.0f), 0.0f);
+    // 初期化の精度限界以下の正相関へ変わっても、既存セルは途中で捨てない。
+    EXPECT_EQ(PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 0.0f, 50.0f), 50.0f);
+    // 幅100mのセルの最初の25m。
+    const auto beforeSmall = ResolveVolumetricCloudFourStateTransportInterval_Internal(distribution, 1.0f, 50.0f, 25.0f, state);
+    // 次セルに使う相関が極小でも、現在のセル内でさらに25m進む。
+    const f32 smallCorrelation = PrepareVolumetricCloudFourStateTransportPhase_Internal(state, 25.0f, 0.0000005f);
+    EXPECT_EQ(smallCorrelation, 0.0000005f);
+    // 継続の結果を、同じ状態が50m続く独立した指数平均と照合する。
+    const auto afterSmall = ResolveVolumetricCloudFourStateTransportInterval_Internal(distribution, 1.0f, smallCorrelation, 25.0f, state);
+    EXPECT_NEAR(beforeSmall.transmittance * afterSmall.transmittance, 0.5 * (1.0 + ::exp(-1.0)), 0.000002);
+    EXPECT_EQ(state.remaining_boundary_distance, 50.0f);
+    EXPECT_EQ(state.correlation_cell_length, 100.0f);
+}
+
 ACS_TEST(VolumetricClouds,
          FourStateTransportGpuMatchesCpuReferenceWhenAvailable) {
     using namespace render_internal;
@@ -5168,6 +5218,18 @@ ACS_TEST(VolumetricClouds,
         compactShader,
         "step(absorption,0.125.xxxx)"));
     shaderSource += R"(
+// 製品の入口準備と吸収重心付き輸送を、実際のビューと同じ順序で一レーンへ適用する。
+float CloudProbeViewTransport(float4 distribution,float extinction,float correlation,float distance,float coordinate,inout CloudFourStateTransportLanes state){
+    float4 selected=extinction>0.0&&distance>0.0?float4(1,0,0,0):0.0.xxxx;
+    float4 prepared=cloudPrepareFourStateTransportPhaseLanes(state,selected,coordinate,correlation);
+    CloudFourStateTransportResultLanes result=cloudFourStateTransportLanes(distribution.xxxx,distribution.yyyy,distribution.zzzz,distribution.wwww,extinction,prepared,float4(distance,0,0,0),state);
+    return result.transmittances.x;
+}
+// 状態全成分の絶対差を合計し、長さ0と消散0で状態が変わらないことを検査する。
+float CloudProbeStateDifference(CloudFourStateTransportLanes left,CloudFourStateTransportLanes right){
+    float4 difference=abs(left.state0-right.state0)+abs(left.state1-right.state1)+abs(left.state2-right.state2)+abs(left.state3-right.state3)+abs(left.boundaryDistances-right.boundaryDistances)+abs(left.cellLengths-right.cellLengths)+abs(left.boundaryPending-right.boundaryPending)+abs(left.active-right.active);
+    return dot(difference,1.0.xxxx);
+}
 [numthreads(1,1,1)]
 void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     if(any(threadId!=uint3(0,0,0))) return;
@@ -5529,6 +5591,80 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
             cloudLinearLightingSourceComponentAtFraction(1.0-position,1.0-rightLightingFraction,1.0-leftLightingFraction,0,1,1,1,1),
             cloudLinearLightingSourceComponentAtFraction(position,leftLightingFraction,rightLightingFraction,leftLightingFraction,rightLightingFraction,1,1,1));
     }
+    // 同じ密度・相関長・実座標をビュー、太陽影、環境光へ渡し、旧半セルを負の対照にする。
+    float4 phaseDistribution=float4(0,0,0.02,0.02);
+    CloudFourStateTransportLanes phaseView=cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportLanes phaseSun=cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportLanes phaseAmbient=cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportLanes oldHalfCell=cloudInitialFourStateTransportLanes();
+    float firstView=CloudProbeViewTransport(phaseDistribution,1,50,100,0,phaseView);
+    float3 firstSun=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,float3(1,0.5,0),50,100,0,phaseSun);
+    float firstAmbient=cloudAmbientCorrelatedSegmentOpticalDepth(phaseDistribution,1,50,100,0,phaseAmbient);
+    CloudFourStateTransportResultLanes oldResult=cloudFourStateTransportLanes(0.0.xxxx,0.0.xxxx,0.02.xxxx,0.02.xxxx,1,50.0.xxxx,float4(100,0,0,0),oldHalfCell);
+    cloudOut[uint2(66,0)]=float4(firstView,exp(-firstSun.x),exp(-firstAmbient),oldResult.transmittances.x);
+    // 境界へ到達した次の区間だけ相関長を変更する。新しい一セル160mの先頭100mを通る。
+    float nextView=CloudProbeViewTransport(phaseDistribution,1,80,100,100,phaseView);
+    float3 nextSun=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,float3(1,0.5,0),80,100,100,phaseSun);
+    float nextAmbient=cloudAmbientCorrelatedSegmentOpticalDepth(phaseDistribution,1,80,100,100,phaseAmbient);
+    cloudOut[uint2(67,0)]=float4(firstView*nextView,exp(-firstSun.x-nextSun.x),exp(-firstAmbient-nextAmbient),phaseView.boundaryDistances.x);
+    // xは途中、yだけ新入口、zは境界待ち、wは対象外。別レーンを巻き込む再初期化を検出する。
+    CloudFourStateTransportLanes mixed=cloudInitialFourStateTransportLanes();
+    CloudProbeViewTransport(phaseDistribution,1,50,60,0,mixed);
+    mixed.active.z=1;
+    mixed.boundaryPending.z=1;
+    mixed.state0.w=0.1; mixed.state1.w=0.2; mixed.state2.w=0.3; mixed.state3.w=0.4;
+    mixed.boundaryDistances.w=47; mixed.cellLengths.w=80; mixed.active.w=1;
+    float4 mixedCorrelations=cloudPrepareFourStateTransportPhaseLanes(mixed,float4(1,1,1,0),60,100);
+    cloudOut[uint2(68,0)]=mixed.boundaryDistances;
+    cloudOut[uint2(69,0)]=mixed.cellLengths;
+    cloudOut[uint2(70,0)]=mixed.boundaryPending;
+    cloudOut[uint2(71,0)]=mixed.state0;
+    cloudOut[uint2(72,0)]=mixed.active;
+    // 表現不能な入口xだけ均質へ移す。既に有効なyは同じ呼び出しでも継続する。
+    mixed.active.x=0;
+    cloudOut[uint2(73,0)]=cloudPrepareFourStateTransportPhaseLanes(mixed,float4(1,1,0,0),1000000000,50);
+    cloudOut[uint2(74,0)]=mixed.boundaryDistances;
+    CloudFourStateTransportLanes reentry=cloudInitialFourStateTransportLanes();
+    CloudProbeViewTransport(phaseDistribution,1,50,20,0,reentry);
+    reentry.active.x=0;
+    float reentryT=CloudProbeViewTransport(phaseDistribution,1,50,10,240,reentry);
+    cloudOut[uint2(75,0)]=float4(reentryT,reentry.boundaryDistances.x,reentry.cellLengths.x,reentry.boundaryPending.x);
+    // 相関長0の後はactiveだけを信じず、相関領域へ入る実座標から初期化する。
+    CloudFourStateTransportLanes homogeneous=cloudInitialFourStateTransportLanes();
+    float homogeneousT=CloudProbeViewTransport(phaseDistribution,1,0,20,0,homogeneous);
+    float correlatedT=CloudProbeViewTransport(phaseDistribution,1,50,30,20,homogeneous);
+    cloudOut[uint2(76,0)]=float4(homogeneousT,correlatedT,homogeneous.boundaryDistances.x,homogeneous.cellLengths.x);
+    // 一時的に停止した二次だけを再開しても、一次と三次の条件付き状態は維持する。
+    CloudFourStateTransportLanes orders=cloudInitialFourStateTransportLanes();
+    float3 ordersDepth=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,float3(1,0,1),50,20,0,orders);
+    ordersDepth+=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,1.0.xxx,50,20,20,orders);
+    cloudOut[uint2(77,0)]=float4(exp(-ordersDepth),orders.boundaryDistances.x);
+    CloudFourStateTransportLanes unchanged=orders;
+    float zeroExtinction=CloudProbeViewTransport(phaseDistribution,0,50,20,900,orders);
+    float zeroExtinctionDifference=CloudProbeStateDifference(orders,unchanged);
+    float zeroDistance=CloudProbeViewTransport(phaseDistribution,1,50,0,900,orders);
+    cloudOut[uint2(78,0)]=float4(zeroExtinction,zeroExtinctionDifference,zeroDistance,CloudProbeStateDifference(orders,unchanged));
+    // 四密度が等しいだけでは相関を消さない。前後の均一密度でも位相と条件付き確率を保つ。
+    CloudFourStateTransportLanes equalStates=cloudInitialFourStateTransportLanes();
+    float equalT=CloudProbeViewTransport(0.01.xxxx,1,50,25,0,equalStates);
+    equalT*=CloudProbeViewTransport(phaseDistribution,1,50,25,25,equalStates);
+    float savedState0=equalStates.state0.x;
+    equalT*=CloudProbeViewTransport(0.01.xxxx,1,50,25,50,equalStates);
+    cloudOut[uint2(79,0)]=float4(equalT,equalStates.boundaryDistances.x,abs(savedState0-equalStates.state0.x),equalStates.boundaryPending.x);
+    // 初期化できない極小正相関でも、既存セル内の25mを均質平均へ置き換えない。
+    CloudFourStateTransportLanes smallView=cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportLanes smallSun=cloudInitialFourStateTransportLanes();
+    CloudFourStateTransportLanes smallAmbient=cloudInitialFourStateTransportLanes();
+    float smallViewT=CloudProbeViewTransport(phaseDistribution,1,50,25,0,smallView);
+    float3 smallSunDepth=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,1.0.xxx,50,25,0,smallSun);
+    float smallAmbientDepth=cloudAmbientCorrelatedSegmentOpticalDepth(phaseDistribution,1,50,25,0,smallAmbient);
+    smallViewT*=CloudProbeViewTransport(phaseDistribution,1,0.0000005,25,25,smallView);
+    smallSunDepth+=cloudPackedFourStateOpticalDepthByOrder(phaseDistribution,1.0.xxx,0.0000005,25,25,smallSun);
+    smallAmbientDepth+=cloudAmbientCorrelatedSegmentOpticalDepth(phaseDistribution,1,0.0000005,25,25,smallAmbient);
+    cloudOut[uint2(80,0)]=float4(smallViewT,exp(-smallSunDepth.x),exp(-smallAmbientDepth),smallView.boundaryDistances.x);
+    // 同じ極小相関でも、継続xと新入口yでは精度限界の扱いを分ける。
+    float4 smallMixedCorrelations=cloudPrepareFourStateTransportPhaseLanes(smallView,float4(1,1,0,0),50,0.0000005);
+    cloudOut[uint2(81,0)]=float4(smallMixedCorrelations.xy,smallView.boundaryDistances.x,smallView.cellLengths.x);
 }
 )";
 
@@ -5563,7 +5699,7 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
     EXPECT_TRUE(pipelineResult.IsOk());
     if (pipelineResult.IsErr()) return;
 
-    constexpr u32 kProbeTexelCount = 66u;
+    constexpr u32 kProbeTexelCount = 82u;
     FTextureDesc textureDescription{};
     textureDescription.width = kProbeTexelCount;
     textureDescription.height = 1u;
@@ -5638,6 +5774,66 @@ void CSCloudTransportProbe(uint3 threadId : SV_DispatchThreadID){
         EXPECT_NEAR(gpuValue(62u + index, 3u), lightingPositions[index], 0.000001f);
     }
     test::RecordInfo(FSourceLoc::Current(), "cloud_lighting_endpoint_gpu_readback completed positions=4");
+    // 分割された各相関セルの指数平均を、GPU関数を使わず倍精度で求める。
+    const f64 hundredMean = 0.5 * (1.0 + ::exp(-2.0));
+    // 視線、太陽影、環境光の順に同じ厳密値と照合する。
+    for (u32 route = 0u; route < 3u; ++route) {
+        EXPECT_NEAR(gpuValue(66u, route), hundredMean, 0.000002);
+        EXPECT_NEAR(gpuValue(67u, route), hundredMean * hundredMean, 0.000002);
+    }
+    EXPECT_NEAR(gpuValue(66u, 3u), 0.25 * (1.0 + ::exp(-1.0)) * (1.0 + ::exp(-1.0)), 0.000002);
+    EXPECT_TRUE(gpuValue(66u, 0u) - gpuValue(66u, 3u) > 0.09f);
+    EXPECT_EQ(gpuValue(67u, 3u), 60.0f);
+    // 継続、新入口、境界待ち、対象外の各レーンで期待する残り距離。
+    const f32 expectedBoundaries[4] = {40.0f, 140.0f, 0.0f, 47.0f};
+    // 継続中の幅を保ち、新入口だけ現在の相関長の二倍を使う。
+    const f32 expectedCells[4] = {100.0f, 200.0f, 0.0f, 80.0f};
+    // 他レーンを巻き込む初期化と、境界待ちの消失を検出する。
+    for (u32 lane = 0u; lane < 4u; ++lane) {
+        EXPECT_EQ(gpuValue(68u, lane), expectedBoundaries[lane]);
+        EXPECT_EQ(gpuValue(69u, lane), expectedCells[lane]);
+        EXPECT_EQ(gpuValue(70u, lane), lane == 2u ? 1.0f : 0.0f);
+        EXPECT_EQ(gpuValue(72u, lane), 1.0f);
+    }
+    EXPECT_NEAR(gpuValue(71u, 0u), kVolumetricCloudUnresolvedCoarseOuterWeight / (0.5 * (1.0 + ::exp(-1.2))), 0.000002);
+    EXPECT_NEAR(gpuValue(71u, 1u), kVolumetricCloudUnresolvedCoarseOuterWeight, 0.000001);
+    EXPECT_NEAR(gpuValue(71u, 2u), kVolumetricCloudUnresolvedCoarseOuterWeight, 0.000001);
+    EXPECT_EQ(gpuValue(71u, 3u), 0.1f);
+    EXPECT_EQ(gpuValue(73u, 0u), 0.0f);
+    EXPECT_EQ(gpuValue(73u, 1u), 50.0f);
+    EXPECT_EQ(gpuValue(74u, 0u), 0.0f);
+    EXPECT_EQ(gpuValue(74u, 1u), 140.0f);
+    EXPECT_EQ(gpuValue(74u, 3u), 47.0f);
+    EXPECT_NEAR(gpuValue(75u, 0u), 0.5 * (1.0 + ::exp(-0.2)), 0.000002);
+    EXPECT_EQ(gpuValue(75u, 1u), 50.0f);
+    EXPECT_EQ(gpuValue(75u, 2u), 100.0f);
+    EXPECT_EQ(gpuValue(75u, 3u), 0.0f);
+    EXPECT_NEAR(gpuValue(76u, 0u), ::exp(-0.2), 0.000002);
+    EXPECT_NEAR(gpuValue(76u, 1u), 0.5 * (1.0 + ::exp(-0.6)), 0.000002);
+    EXPECT_EQ(gpuValue(76u, 2u), 50.0f);
+    EXPECT_EQ(gpuValue(76u, 3u), 100.0f);
+    EXPECT_NEAR(gpuValue(77u, 0u), 0.5 * (1.0 + ::exp(-0.8)), 0.000002);
+    EXPECT_NEAR(gpuValue(77u, 1u), 0.5 * (1.0 + ::exp(-0.4)), 0.000002);
+    EXPECT_NEAR(gpuValue(77u, 2u), gpuValue(77u, 0u), 0.000001);
+    EXPECT_EQ(gpuValue(77u, 3u), 60.0f);
+    EXPECT_EQ(gpuValue(78u, 0u), 1.0f);
+    EXPECT_EQ(gpuValue(78u, 1u), 0.0f);
+    EXPECT_EQ(gpuValue(78u, 2u), 1.0f);
+    EXPECT_EQ(gpuValue(78u, 3u), 0.0f);
+    EXPECT_NEAR(gpuValue(79u, 0u), ::exp(-0.5) * 0.5 * (1.0 + ::exp(-0.5)), 0.000002);
+    EXPECT_EQ(gpuValue(79u, 1u), 25.0f);
+    EXPECT_NEAR(gpuValue(79u, 2u), 0.0f, 0.000001);
+    EXPECT_EQ(gpuValue(79u, 3u), 0.0f);
+    // 正相関が小さくなっただけでは同じセルの指数平均を失わない。
+    for (u32 route = 0u; route < 3u; ++route) {
+        EXPECT_NEAR(gpuValue(80u, route), 0.5 * (1.0 + ::exp(-1.0)), 0.000002);
+    }
+    EXPECT_EQ(gpuValue(80u, 3u), 50.0f);
+    EXPECT_EQ(gpuValue(81u, 0u), 0.0000005f);
+    EXPECT_EQ(gpuValue(81u, 1u), 0.0f);
+    EXPECT_EQ(gpuValue(81u, 2u), 50.0f);
+    EXPECT_EQ(gpuValue(81u, 3u), 100.0f);
+    test::RecordInfo(FSourceLoc::Current(), "cloud_phase_routes_gpu_readback completed routes=3 output_texels=16");
 
     struct FCombinedTransportForTest {
         // 二区間を合わせた透過率。
@@ -10665,12 +10861,9 @@ ACS_TEST(VolumetricClouds, LightMarchUsesMacroVariationIntervalsAndMidpoints) {
             "distribution.x*packedExtinction"));
         EXPECT_TRUE(Contains(
             packedTransport,
-            "cloudInitializeFourStateTransportPhaseLanes("
-            "packedOrderState,requestedPathCoordinate,"
-            "resolvedCorrelationLength)"));
-        EXPECT_TRUE(Contains(
-            packedTransport,
-            "resolvedCorrelationLength.xxxx*activeOrderMask"));
+            "cloudPrepareFourStateTransportPhaseLanes("
+            "packedOrderState,activeOrderMask,requestedPathCoordinate,"
+            "requestedCorrelationLength)"));
         EXPECT_TRUE(Contains(
             packedTransport,
             "requestedSegmentLength.xxxx*activeOrderMask"));
@@ -10890,7 +11083,7 @@ ACS_TEST(VolumetricClouds, LightDensityAndPhysicalOpticalScaleStayCorrectAcrossE
         "cloudFourStateTransportLanes("));
     EXPECT_TRUE(Contains(
         shader,
-        "densityLightingSample.correlationLength.xxxx,"
+        "firstCorrelations,"
         "laneSegmentLengths,firstOrderTransportState);"));
     EXPECT_FALSE(Contains(shader, "densityStatePathLengths"));
     EXPECT_FALSE(Contains(shader, "densityCentroidFraction"));
@@ -13889,7 +14082,7 @@ ACS_TEST(VolumetricClouds,
         "densityLightingSample.densityStates.zzzz,"
         "densityLightingSample.densityStates.wwww,"
         "firstOrderExtinction,"
-        "densityLightingSample.correlationLength.xxxx,"
+        "firstCorrelations,"
         "laneSegmentLengths,firstOrderTransportState);"));
     EXPECT_TRUE(Contains(
         shader,
@@ -16123,8 +16316,8 @@ ACS_TEST(VolumetricClouds,
             ambientTransportEnd - ambientTransportBegin);
         EXPECT_TRUE(Contains(
             ambientTransport,
-            "cloudInitializeFourStateTransportPhaseLanes("
-            "transportState,pathCoordinate,resolvedCorrelation)"));
+            "cloudPrepareFourStateTransportPhaseLanes("
+            "transportState,1.0.xxxx,pathCoordinate,correlationLength)"));
         EXPECT_TRUE(Contains(
             ambientTransport,
             "cloudFourStateOpticalTransportLanes("
