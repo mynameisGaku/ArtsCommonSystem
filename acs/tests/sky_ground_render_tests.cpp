@@ -7,6 +7,8 @@
 #include "math/Camera.h"
 #include "foundation/Move.h"
 #include "platform/FileSystem.h"
+#include "platform/Time.h"
+#include "container/Array.h"
 #include "container/String.h"
 #include <cstring>
 #include <cmath>
@@ -102,26 +104,30 @@ static FString ReadAtmosphereCommonShader_Internal()
     }
 }
 
-// kmで与えた鉛直光路を倍精度の中点則で積む。段数の再現と積分精度の合格は区別する。
-static f64 ReferenceVerticalTransmittance_Internal(f64 startKm, f64 distanceKm, u32 steps, u32 channel)
+// 鉛直光路のオゾン積分を、三角形の面積から求める。入力はkm。
+static f64 ReferenceOzonePrimitive_Internal(f64 height)
 {
-    // RGBの分子散乱係数とオゾン吸収係数。単位はkmの逆数。
-    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
-    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
-    // 積分区間の幅と、累積した無次元の光学的厚さ。
-    const f64 width = distanceKm / steps;
-    f64 depth = 0.0;
-    for (u32 index = 0u; index < steps; ++index) {
-        // 地表からの高度と、10〜40kmで三角形をなすオゾン密度。
-        const f64 altitude = startKm + (index + 0.5) * width;
-        const f64 ozoneDensity = 1.0 - ::fabs(altitude - 25.0) / 15.0;
-        depth += (rayleigh[channel] * ::exp(-altitude / 8.0) + 0.0044 * ::exp(-altitude / 1.2) + ozone[channel] * (ozoneDensity > 0.0 ? ozoneDensity : 0.0)) * width;
-    }
-    return ::exp(-depth);
+    if (height <= 10.0) return 0.0;
+    if (height <= 25.0) return (height-10.0)*(height-10.0)/30.0;
+    if (height <= 40.0) return 15.0-(40.0-height)*(40.0-height)/30.0;
+    return 15.0;
 }
 
-// 通常C++の太陽透過率にも、GPUと同じ消散係数を適用する。積分段数24は変更しない。
-ACS_TEST(Atmosphere, CpuSunTransmittanceUsesSharedMieExtinction)
+// 鉛直上向きの指数密度とオゾンを解析積分する。固定した中点則の再現値を正解にしない。
+static f64 ReferenceVerticalExactTransmittance_Internal(f64 height, f64 distance, u32 channel)
+{
+    // 地表での散乱・吸収。単位はkmの逆数。
+    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
+    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
+    // 短区間では指数関数同士の差を作らない。
+    const f64 rayleighLength = -8.0*::exp(-height/8.0)*::expm1(-distance/8.0);
+    const f64 mieLength = -1.2*::exp(-height/1.2)*::expm1(-distance/1.2);
+    const f64 ozoneLength = ReferenceOzonePrimitive_Internal(height+distance)-ReferenceOzonePrimitive_Internal(height);
+    return ::exp(-rayleigh[channel]*rayleighLength-0.0044*mieLength-ozone[channel]*ozoneLength);
+}
+
+// 通常C++の太陽透過率を解析解と比較し、濃い低高度を標本が見落とす回帰を防ぐ。
+ACS_TEST(Atmosphere, CpuSunTransmittanceMatchesVerticalAnalyticIntegral)
 {
     // 高度はm。地表、雲層、分子とオゾンが優勢な高度を含める。
     constexpr f32 altitudes[6] = {0.0f,1200.0f,8000.0f,10000.0f,25000.0f,40000.0f};
@@ -131,12 +137,313 @@ ACS_TEST(Atmosphere, CpuSunTransmittanceUsesSharedMieExtinction)
         // RGBを同じ参照計算へ渡す。
         const f32 channels[3] = {actual.x,actual.y,actual.z};
         for (u32 channel = 0u; channel < 3u; ++channel) {
-            // mからkmへ換算し、製品と同じ24点の中点積分と比べる。
-            const f64 expected = ReferenceVerticalTransmittance_Internal(altitudes[index] * 0.001,100.0 - altitudes[index] * 0.001,24u,channel);
+            // mからkmへ換算し、独立した解析解と比べる。
+            const f64 expected = ReferenceVerticalExactTransmittance_Internal(altitudes[index]*0.001,100.0-altitudes[index]*0.001,channel);
             EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
             EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
             test::RecordInfo(FSourceLoc::Current(),"mie_cpu altitude_m=%g channel=%u actual=%.9g expected=%.9g",altitudes[index],channel,channels[channel],expected);
             EXPECT_NEAR(channels[channel],expected,2.0e-5);
+        }
+    }
+}
+
+// 直線上の位置から球面高度を直接計算し、製品とは異なる細かい中点則で消散を積む。
+static f64 ReferenceCurvedTransmittance_Internal(f64 height, f64 horizontal, f64 vertical, f64 distance, u32 channel, u32 steps)
+{
+    // kmの逆数で表した係数。
+    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
+    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
+    // 密度の積分をそのまま光学的厚さへ集約する。
+    const f64 width = distance/steps;
+    f64 depth = 0.0;
+    for (u32 sample = 0u; sample < steps; ++sample) {
+        // 大きい地球中心座標を倍精度で評価する。製品の変数変換は使わない。
+        const f64 t = (sample+0.5)*width;
+        const f64 x = horizontal*t;
+        const f64 y = 6360.0+height+vertical*t;
+        const f64 altitude = ::sqrt(x*x+y*y)-6360.0;
+        const f64 ozoneDensity = 1.0-::fabs(altitude-25.0)/15.0;
+        depth += (rayleigh[channel]*::exp(-altitude/8.0)+0.0044*::exp(-altitude/1.2)+ozone[channel]*(ozoneDensity>0.0?ozoneDensity:0.0))*width*::sqrt(horizontal*horizontal+vertical*vertical);
+    }
+    return ::exp(-depth);
+}
+
+// 公開C++経路を水平・低い太陽・高高度の下向き光路で検査する。既存の遮蔽判定は別課題。
+ACS_TEST(Atmosphere, CpuSunTransmittanceMatchesCurvedReference)
+{
+    // 高度kmと太陽方向の鉛直成分。全て地球に遮られず大気上端へ達する。
+    constexpr FVec2 cases[] = {{0.0f,0.0f},{0.0f,0.02f},{1.2f,0.01f},{20.0f,-0.03f},{70.0f,-0.14f},{99.0f,-0.17f}};
+    for (u32 sample = 0u; sample < sizeof(cases)/sizeof(cases[0]); ++sample) {
+        // 入力自体を単精度で作り、参照にはその入力の方向を正規化して渡す。
+        const FVec3 direction{static_cast<f32>(::sqrt(1.0-cases[sample].y*cases[sample].y)),cases[sample].y,0.0f};
+        // 参照に使う単位方向。単精度入力の長さの誤差を正規化する。
+        const f64 norm = ::sqrt(static_cast<f64>(direction.x)*direction.x+static_cast<f64>(direction.y)*direction.y);
+        const f64 dx = direction.x/norm;
+        const f64 dy = direction.y/norm;
+        // 大気上端への交点を独立した倍精度の球面式から求める。
+        const f64 radius = 6360.0+cases[sample].x;
+        const f64 projection = radius*dy;
+        const f64 distance = -projection+::sqrt(projection*projection+(6460.0-radius)*(6460.0+radius));
+        // 公開APIの結果をRGBの配列として参照値と比較する。
+        const FVec3 actual = SunTransmittanceAtAltitude(cases[sample].x*1000.0f,direction);
+        const f32 channels[3] = {actual.x,actual.y,actual.z};
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            // 参照自身の収束を、評価点を倍にして確認する。
+            const f64 expected = ReferenceCurvedTransmittance_Internal(cases[sample].x,dx,dy,distance,channel,32768u);
+            const f64 refined = ReferenceCurvedTransmittance_Internal(cases[sample].x,dx,dy,distance,channel,65536u);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
+            EXPECT_TRUE(::fabs(expected-refined) <= 1.0e-7);
+            test::RecordInfo(FSourceLoc::Current(),"cpu_curved_path case=%u channel=%u actual=%.9g expected=%.9g",sample,channel,channels[channel],expected);
+            EXPECT_TRUE(::fabs(static_cast<f64>(channels[channel])-expected) <= 2.0e-4);
+        }
+    }
+}
+
+// 同一の実GPU条件で旧積分と現積分を交互に実行する。時間は診断値であり速度の合格基準ではない。
+ACS_TEST(Atmosphere, OpticalPathGpuCostDiagnostic)
+{
+    // 旧8点則は計算量の比較専用。数値の正解としては使わない。
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> costOutput : register(u0);
+float3 HistoricalMidpointCost(float3 origin, float3 direction, float distance) {
+    // 旧式と現式で共通の地表遮蔽判定。
+    float ground = PhysicalRaySphereNear(origin,direction,kPhysicalGroundRadiusKm);
+    if (ground >= 0.0 && ground < distance) return 0.0;
+    // 旧式の区間幅と光学的厚さ。
+    float3 opticalDepth = 0.0;
+    float width = distance/8.0;
+    [loop]
+    for (int index = 0; index < 8; ++index) {
+        // 光路の中点で評価する球面高度と各媒質の出力。
+        float altitude = PhysicalAltitude(origin+direction*((float(index)+0.5)*width));
+        float3 rayleigh;
+        float mie;
+        float3 extinction;
+        SamplePhysicalMedium(altitude,rayleigh,mie,extinction);
+        opticalDepth += extinction*width;
+    }
+    return exp(-opticalDepth);
+}
+[numthreads(8,8,1)]
+void CSCostProbe(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= 640 || id.y >= 360) return;
+    // 画素ごとに高度と太陽方向を変え、定数の1光路だけへ最適化されることを防ぐ。
+    float3 origin = float3(0.0,40.0*(float(id.y)+0.5)/360.0,0.0);
+    // 地平線から天頂へ走査する方向と、大気上端への距離。
+    float mu = (float(id.x)+0.5)/640.0;
+    float3 direction = float3(sqrt(1.0-mu*mu),mu,0.0);
+    float distance = PhysicalRaySphereOuter(origin,direction,kPhysicalTopRadiusKm);
+    // 実行時に選んだ積分法の結果。
+    float3 result;
+    if (cloud_params1.x < 0.5) result = HistoricalMidpointCost(origin,direction,distance);
+    else result = PhysicalTransmittance(origin,direction,distance);
+    costOutput[id.xy] = float4(result,1.0);
+}
+)");
+    // 現在の検証環境で実GPUを作成する。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 製品HLSLと旧式比較を含む検査用の計算シェーダー。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSCostProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 製品の定数バッファと、比較用画像を結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "costOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 同一解像度・形式で旧式と現式を計算する出力先。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 640u;
+    textureDescription.height = 360u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 行12の先頭だけで旧式と現式を切り替える。コンパイルと読戻しは計測区間外。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 各実行の記録と提出を行う命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 先に各2回動かした後、順番も交互にして各12回の最短・平均時間を記録する。
+    f64 elapsed[2]{};
+    f64 minimum[2] = {1.0e30,1.0e30};
+    for (u32 round = 0u; round < 14u; ++round) {
+        for (u32 entry = 0u; entry < 2u; ++entry) {
+            // 各対の実行順を反転し、片方だけが常に先になる偏りを減らす。
+            const u32 variant = entry^((round+1u)&1u);
+            constants[12].x = static_cast<f32>(variant);
+            buffer.Value()->Update(constants,sizeof(constants));
+            command.Value()->Begin();
+            command.Value()->SetComputePipeline(*pipeline.Value());
+            command.Value()->SetConstantBuffer(0u,*buffer.Value());
+            command.Value()->BindUav(0u,*texture.Value());
+            command.Value()->Dispatch(80u,45u,1u);
+            command.Value()->End();
+            // CPUでの提出開始から、GPU完了待ちの復帰までを計る。
+            const f64 begin = CClock::SecondsSinceStartup();
+            const bool submitted = command.Value()->Submit();
+            EXPECT_TRUE(submitted);
+            if (!submitted) return;
+            device.Value()->WaitIdle();
+            // 準備・読戻しを除いた今回の経過時間。
+            const f64 milliseconds = (CClock::SecondsSinceStartup()-begin)*1000.0;
+            if (round >= 2u) {
+                elapsed[variant] += milliseconds;
+                if (milliseconds < minimum[variant]) minimum[variant] = milliseconds;
+            }
+        }
+    }
+    // 最後に生成した画像の全画素が有限か検査する。NaNを性能値だけで見逃さない。
+    TArray<f32> values;
+    values.SetNum(640u*360u*4u);
+    // 読戻し失敗を未初期化の画素値で検査しない。
+    const bool read = device.Value()->ReadTexture(*texture.Value(),values.GetData(),values.Num()*sizeof(f32));
+    EXPECT_TRUE(read);
+    if (!read) return;
+    for (usize index = 0u; index < values.Num(); ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+    test::RecordInfo(FSourceLoc::Current(),"optical_cost backend=%s adapter=%s pixels=230400 measured=12 cpu_submit_wait_ms old_mean=%.6f new_mean=%.6f old_min=%.6f new_min=%.6f",device.Value()->BackendName(),device.Value()->AdapterName(),elapsed[0]/12.0,elapsed[1]/12.0,minimum[0],minimum[1]);
+}
+
+// 実製品の光路積分を鉛直解析解・球面参照・反転・区間分割と照合する。
+ACS_TEST(Atmosphere, PhysicalTransmittanceMatchesIndependentOpticalPaths)
+{
+    // 現在の製品HLSLへ、結果だけを書き出す入口を追加する。
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> opticalProbeOutput : register(u0);
+[numthreads(1,1,1)]
+void CSOpticalProbe(uint3 id : SV_DispatchThreadID) {
+    // 入力は全て実行時。方向の単精度丸めも出力して参照計算へ渡す。
+    float3 origin = float3(0.0,physical_params.y,0.0);
+    float3 direction = float3(sqrt(saturate(1.0-cloud_params0.y*cloud_params0.y)),cloud_params0.y,0.0);
+    float distance = cloud_params0.x;
+    opticalProbeOutput[uint2(0,0)] = float4(PhysicalTransmittance(origin,direction,distance),1.0);
+    opticalProbeOutput[uint2(1,0)] = float4(PhysicalTransmittance(origin,direction,distance*0.5)*PhysicalTransmittance(origin+direction*(distance*0.5),direction,distance*0.5),1.0);
+    opticalProbeOutput[uint2(2,0)] = float4(PhysicalTransmittance(origin+direction*distance,-direction,distance),1.0);
+    opticalProbeOutput[uint2(3,0)] = float4(direction,distance);
+}
+)");
+    // GPUが使えない場合は未検証として失敗する。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 共通関数を含む実HLSLをSM5.1へコンパイルする。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSOpticalProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 製品の定数バッファと検査用出力だけを結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "opticalProbeOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 全体、二分割、反転、実方向の4画素を丸めずに記録する。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 4u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 行13が高度、行11が光路長と鉛直方向成分。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 同期してから次の入力へ進む命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 高度、鉛直方向、光路長。全てkm。添字14だけ地表へ入り、末尾は高度差が丸まる短い接線光路。
+    constexpr FVec3 cases[] = {{0.0f,1.0f,100.0f},{0.0f,1.0f,0.001f},{0.0f,1.0f,1.2f},{1.2f,1.0f,98.8f},{10.0f,1.0f,15.0f},{25.0f,1.0f,15.0f},{40.0f,1.0f,60.0f},{100.0f,-1.0f,100.0f},{0.0f,0.02f,1000.0f},{0.0f,0.0f,1000.0f},{70.0f,-0.14f,1800.0f},{20.0f,-0.03f,400.0f},{0.0001f,-1.0f,0.0001f},{0.0f,1.0f,0.0f},{0.0f,-1.0f,10.0f},{25.0f,0.0f,0.11f},{25.0f,0.0f,0.1104f},{25.0f,0.0f,0.22f},{20.0f,0.0f,0.1f},{0.0f,0.0f,1.0e-15f}};
+    for (u32 sample = 0u; sample < sizeof(cases)/sizeof(cases[0]); ++sample) {
+        constants[13].y = cases[sample].x;
+        constants[11] = FVec4{cases[sample].z,cases[sample].y,0.0f,0.0f};
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(1u,1u,1u);
+        command.Value()->End();
+        // 提出失敗は数値0として比較しない。
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        f32 values[16]{};
+        const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        for (u32 index = 0u; index < 16u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            // 全体を通過する条件と、地表に遮られる条件を混ぜない。
+            f64 expected = 0.0;
+            if (sample != 14u) {
+                if (values[12] == 0.0f) {
+                    // 下向きの鉛直区間は低高度側からの解析積分へ反転する。
+                    const f64 lowHeight = cases[sample].x+(values[13]<0.0f?-cases[sample].z:0.0f);
+                    expected = ReferenceVerticalExactTransmittance_Internal(lowHeight,cases[sample].z,channel);
+                } else {
+                    expected = ReferenceCurvedTransmittance_Internal(cases[sample].x,values[12],values[13],cases[sample].z,channel,16384u);
+                    // 参照の段数を倍にし、参照自身の未収束を見逃さない。
+                    const f64 refined = ReferenceCurvedTransmittance_Internal(cases[sample].x,values[12],values[13],cases[sample].z,channel,32768u);
+                    EXPECT_TRUE(::fabs(expected-refined) <= 1.0e-7);
+                }
+            }
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
+            test::RecordInfo(FSourceLoc::Current(),"optical_path case=%u channel=%u actual=%.9g expected=%.9g split=%.9g reverse=%.9g",sample,channel,values[channel],expected,values[4u+channel],values[8u+channel]);
+            // 曲がった高度変化を含む許容誤差は、1近傍の半精度の半ULPより小さくする。
+            EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 2.0e-4);
+            if (sample != 14u) {
+                EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-values[4u+channel]) <= 2.0e-4);
+                EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-values[8u+channel]) <= 2.0e-4);
+            }
+            // 鉛直では近似する必要がないため、より厳しく解析解へ照合する。
+            if (values[12] == 0.0f) EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 2.0e-6);
         }
     }
 }
@@ -149,14 +456,12 @@ ACS_TEST(Atmosphere, CpuSingleScatterUsesSharedMieExtinction)
     parameters.sun_dir = FVec3{0.0f,1.0f,0.0f};
     parameters.sun_intensity = FVec3{1.0f,0.8f,0.6f};
     parameters.ray_steps = 50u;
-    parameters.sun_steps = 20u;
-    // 地表から大気上端までの実製品の単散乱値。
-    const FVec3 actual = CAtmosphere::EvaluateSkyRadiance(0.0f,FVec3{0.0f,1.0f,0.0f},parameters);
     // 比較する各成分の係数と入射光。積分経路の単位はkm。
     constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
     constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
     constexpr f64 incident[3] = {1.0,0.8,0.6};
-    const f32 channels[3] = {actual.x,actual.y,actual.z};
+    // 評価点数とは独立した、各色の鉛直単散乱の期待値。
+    f64 expected[3]{};
     // 前方散乱の位相値を、それぞれの正規化式から評価する。
     constexpr f64 pi = 3.14159265358979323846;
     const f64 phaseRayleigh = 3.0 / (8.0 * pi);
@@ -173,17 +478,28 @@ ACS_TEST(Atmosphere, CpuSingleScatterUsesSharedMieExtinction)
             const f64 densityO = 1.0 - ::fabs(altitude - 25.0) / 15.0;
             // 消散係数と2km幅の積。散乱を二重に加算しない。
             const f64 depth = 2.0 * (rayleigh[channel] * densityR + 0.0044 * densityM + ozone[channel] * (densityO > 0.0 ? densityO : 0.0));
-            // 太陽光路だけは既存の20点則を独立計算し、視線側の係数契約を分離する。
-            const f64 sun = ReferenceVerticalTransmittance_Internal(altitude,100.0-altitude,20u,channel);
+            // 太陽光路は解析解、視線側は既存50区間とし、今回変更する範囲を分離する。
+            const f64 sun = ReferenceVerticalExactTransmittance_Internal(altitude,100.0-altitude,channel);
             const f64 source = rayleigh[channel] * densityR * phaseRayleigh + 0.003996 * densityM * phaseMie;
             // 区間内のBeer-Lambert積分を桁落ちしない倍精度の式で計算する。
             radiance += transmission * sun * source * 2.0 * (-::expm1(-depth) / depth);
             transmission *= ::exp(-depth);
         }
-        test::RecordInfo(FSourceLoc::Current(),"mie_cpu_scatter channel=%u actual=%.9g expected=%.9g",channel,channels[channel],radiance*incident[channel]);
-        EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
-        EXPECT_TRUE(IsFiniteProbeValue_Internal(radiance*incident[channel]));
-        EXPECT_NEAR(channels[channel],radiance*incident[channel],2.0e-6);
+        expected[channel] = radiance*incident[channel];
+    }
+    // 0の補正、各求積則と複数区間への分割を通す。鉛直の期待値は全て同じ解析解。
+    constexpr u32 budgets[] = {0u,1u,2u,3u,4u,8u,20u,24u};
+    for (u32 budget : budgets) {
+        parameters.sun_steps = budget;
+        // 地表から大気上端までの実製品の単散乱値。
+        const FVec3 actual = CAtmosphere::EvaluateSkyRadiance(0.0f,FVec3{0.0f,1.0f,0.0f},parameters);
+        const f32 channels[3] = {actual.x,actual.y,actual.z};
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            test::RecordInfo(FSourceLoc::Current(),"mie_cpu_scatter budget=%u channel=%u actual=%.9g expected=%.9g",budget,channel,channels[channel],expected[channel]);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected[channel]));
+            EXPECT_TRUE(::fabs(static_cast<f64>(channels[channel])-expected[channel]) <= 2.0e-6);
+        }
     }
 }
 
@@ -295,7 +611,7 @@ void CSMediumProbe(uint3 id : SV_DispatchThreadID) {
                 // 消散は散乱を含むので、0.0044へ散乱係数をもう一度足してはいけない。
                 const f64 expected = rayleigh[channel] * densityR + 0.0044 * densityM + ozone[channel] * (densityO > 0.0 ? densityO : 0.0);
                 // 参照側も有限値を要求し、NaN同士が近似比較を通ることを防ぐ。
-                const f64 referenceTransmittance = ReferenceVerticalTransmittance_Internal(heights[height],distances[distance],8u,channel);
+                const f64 referenceTransmittance = ReferenceVerticalExactTransmittance_Internal(heights[height],distances[distance],channel);
                 EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
                 EXPECT_TRUE(IsFiniteProbeValue_Internal(referenceTransmittance));
                 EXPECT_TRUE(IsFiniteProbeValue_Internal(densityR));

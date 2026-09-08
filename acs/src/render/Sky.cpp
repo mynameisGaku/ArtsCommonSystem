@@ -289,6 +289,10 @@ float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
     // 地表上の内向き視線は距離0で終わり、地中の散乱を積分しない。
     precise float c = PhysicalSphereOffset(origin, radius);
     if (c <= 0.0) return 0.0;
+    // 北極上の鉛直光路は線形に解ける。球の二次式の丸めで、地表終端を地中と判定しない。
+    if (radius == kPhysicalGroundRadiusKm && origin.y >= 0.0 && origin.x == 0.0 && origin.z == 0.0 && direction.x == 0.0 && direction.z == 0.0) {
+        return origin.y/(-direction.y);
+    }
     // 小さい根を差で作らず、根の積から求める。
     precise float discriminant = b * b - a * c;
     // 公開描画の視点は北極上。判別式の符号を許容差で変更せず、下位桁から再計算する。
@@ -310,27 +314,124 @@ void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
         + kPhysicalOzoneAbsorption * ozone;
 }
 
-float3 PhysicalTransmittance(float3 origin, float3 direction,
-                             float distance) {
+// 短区間の指数減衰差にも、後段と同じ桁落ちしない平均透過率を使う。
+float PhysicalSegmentTransfer(float optical_depth);
+
+// -log(1-w)を求める。小さいwでは対数へ渡す前の減算で有効桁を失わない。
+float PhysicalDensityLog(float w) {
+    if (w <= 0.125) {
+        // logを逆双曲線正接の奇数級数へ変換する。ここでは|q|<=1/15。
+        float q = w / (2.0-w);
+        float q2 = q*q;
+        return 2.0*q*(1.0+q2*(1.0/3.0+q2*(1.0/5.0+q2/7.0)));
+    }
+    return -log(1.0-w);
+}
+
+// 低高度端から外向きに進む区間の半径増加。平方根同士の差を作らない。
+float PhysicalRadialRise(float radius, float nearest_distance, float distance) {
+    float offset = distance*(2.0*nearest_distance+distance);
+    return offset/(sqrt(radius*radius+offset)+radius);
+}
+
+// 指定した半径増加までの距離。接線上のゼロ区間も0として返す。
+float PhysicalDistanceToRise(float radius, float nearest_distance, float rise) {
+    if (rise <= 0.0) return 0.0;
+    float offset = rise*(2.0*radius+rise);
+    return offset/(sqrt(nearest_distance*nearest_distance+offset)+nearest_distance);
+}
+
+// 指数密度に追従する座標へ変換し、地表密度で規格化した積分長をkmで返す。
+float PhysicalExponentialColumn(float height, float nearest_distance, float distance, float scale_height) {
+    if (distance <= 0.0) return 0.0;
+    // 最低高度を基準にし、地下にある仮想接点の巨大な密度を計算しない。
+    float radius = kPhysicalGroundRadiusKm+height;
+    // 終点の半径増加と、密度高さで規格化した変化量。
+    float rise = PhysicalRadialRise(radius,nearest_distance,distance);
+    float scaled_rise = rise/scale_height;
+    // 地表密度を掛ける前の指数密度の累積量。
+    float density_mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
+    // 半径変化が表現限界より小さい場合は、変化しない局所密度の極限を使う。
+    if (density_mass <= 0.0) return exp(-height/scale_height)*distance;
+    // uの上端。小さい密度質量でも平方根の差を避ける。
+    float offset = 2.0*radius*scale_height*density_mass;
+    float upper = offset/(sqrt(nearest_distance*nearest_distance+offset)+nearest_distance);
+    // [-1,1]上の8点Gauss-Legendre則。重みは定数調整でなく多項式の求積条件で決まる。
+    const float nodes[8] = {-0.9602898565,-0.7966664774,-0.5255324099,-0.1834346425,0.1834346425,0.5255324099,0.7966664774,0.9602898565};
+    // 各標本の重み。[-1,1]の区間長2へ合計される。
+    const float weights[8] = {0.1012285363,0.2223810345,0.3137066459,0.3626837834,0.3626837834,0.3137066459,0.2223810345,0.1012285363};
+    // 最低高度の密度と区間幅を掛ける前の加重和。
+    float sum = 0.0;
+    [unroll]
+    for (int index = 0; index < 8; ++index) {
+        // 指数密度の累積量と、元の半径増加を求める。
+        float u = upper*(0.5+0.5*nodes[index]);
+        float w = u*(u+2.0*nearest_distance)/(2.0*radius*scale_height);
+        float radial_rise = scale_height*PhysicalDensityLog(w);
+        // 球中心への最接近点から標本までの距離。
+        float ray_distance = sqrt(nearest_distance*nearest_distance+radial_rise*(2.0*radius+radial_rise));
+        // 接線の端点自体は標本にせず、有限な極限へ近づく式を積分する。
+        float jacobian = ray_distance > 0.0 ? (nearest_distance+u)*(1.0+radial_rise/radius)/ray_distance : 1.0;
+        sum += weights[index]*jacobian;
+    }
+    return exp(-height/scale_height)*(0.5*upper)*sum;
+}
+
+// オゾンの線形な密度帯だけを積分する。指数密度用の標本を流用しない。
+float PhysicalOzoneBandColumn(float height, float nearest_distance, float distance, float bottom, float top, bool rising) {
+    if (distance <= 0.0 || height >= top) return 0.0;
+    // 光路の低高度端における球中心からの半径。
+    float radius = kPhysicalGroundRadiusKm+height;
+    // 高度差が丸まっても光路の端は変えない。密度帯の交点だけを求め、元の距離内へ収める。
+    float begin = min(distance,PhysicalDistanceToRise(radius,nearest_distance,bottom-height));
+    float end = min(distance,PhysicalDistanceToRise(radius,nearest_distance,top-height));
+    if (end <= begin) return 0.0;
+    // 密度帯に重なる光路の半幅と中点。
+    float half_width = 0.5*(end-begin);
+    float middle = 0.5*(end+begin);
+    // 2点Gauss則の各標本における高度の増加。
+    float rise0 = PhysicalRadialRise(radius,nearest_distance,middle-half_width*0.5773502692);
+    float rise1 = PhysicalRadialRise(radius,nearest_distance,middle+half_width*0.5773502692);
+    // 大きい高度同士を後で引かず、密度帯の端からの差として密度を評価する。
+    float sum = rising ? (2.0*(height-bottom)+rise0+rise1)/(top-bottom) : (2.0*(top-height)-rise0-rise1)/(top-bottom);
+    return half_width*sum;
+}
+
+// 半径が単調増加する一区間の光学的厚さ。入力距離と高度はkm、出力は無次元。
+float3 PhysicalMonotonicOpticalDepth(float height, float nearest_distance, float distance) {
+    if (distance <= 0.0) return float3(0.0,0.0,0.0);
+    // 分子、微粒子、オゾンごとの、地表密度で規格化した積分長。
+    float rayleigh = PhysicalExponentialColumn(height,nearest_distance,distance,kPhysicalRayleighScaleHeightKm);
+    float mie = PhysicalExponentialColumn(height,nearest_distance,distance,kPhysicalMieScaleHeightKm);
+    float ozone = PhysicalOzoneBandColumn(height,nearest_distance,distance,10.0,25.0,true)+PhysicalOzoneBandColumn(height,nearest_distance,distance,25.0,40.0,false);
+    return kPhysicalRayleighBeta*rayleigh+kPhysicalMieExtinction*mie+kPhysicalOzoneAbsorption*ozone;
+}
+
+float3 PhysicalTransmittance(float3 origin, float3 direction, float distance) {
     if (distance <= 0.0) return float3(1.0, 1.0, 1.0);
     // 太陽光線が地表球へ入る場合は、地球の内部を透過させず遮蔽する。
     float ground_distance = PhysicalRaySphereNear(
         origin, direction, kPhysicalGroundRadiusKm);
     if (ground_distance >= 0.0 && ground_distance < distance)
         return float3(0.0, 0.0, 0.0);
-    const int kTransmittanceSteps = 8;
-    float step_length = distance / float(kTransmittanceSteps);
-    float3 optical_depth = float3(0.0, 0.0, 0.0);
-    [loop]
-    for (int i = 0; i < kTransmittanceSteps; ++i) {
-        float3 sample_position = origin + direction *
-            (step_length * (float(i) + 0.5));
-        float altitude = PhysicalAltitude(sample_position);
-        float3 rayleigh_density;
-        float mie_density;
-        float3 extinction;
-        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
-        optical_depth += extinction * step_length;
+    // 最接近点の位置を光路上で求める。単位長の丸めも距離へ反映する。
+    float direction_length = length(direction);
+    if (direction_length <= 0.0) return float3(1.0,1.0,1.0);
+    // 正規化方向と、終点を保存する補正後の距離。
+    float3 unit_direction = direction/direction_length;
+    float path_length = distance*direction_length;
+    // 球中心からの射影と、光路内に収めた最接近位置。
+    float projection = dot(origin,unit_direction)+kPhysicalGroundRadiusKm*unit_direction.y;
+    float closest = clamp(-projection,0.0,path_length);
+    // 実際の最低高度点。球半径の加減算で微小高度を失わない。
+    float3 lowest = origin+unit_direction*closest;
+    float height = max(PhysicalAltitude(lowest),0.0);
+    // 最低高度点から球中心への垂線の足までの光路に沿った距離。
+    float nearest_distance = abs(projection+closest);
+    // 区間内に最接近点があれば二分し、両側とも最低高度から外向きに積む。
+    float3 optical_depth = PhysicalMonotonicOpticalDepth(height,nearest_distance,closest);
+    if (closest < path_length) {
+        optical_depth += PhysicalMonotonicOpticalDepth(height,nearest_distance,path_length-closest);
     }
     return exp(-optical_depth);
 }
