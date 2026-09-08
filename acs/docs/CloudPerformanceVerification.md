@@ -3593,4 +3593,5 @@ CPU視線側だけ誤りを戻す変異試験でも、狙った単散乱試験�
 数式と試験を分けた独立監査も完了した。共通近似比較のNaN見逃しには新試験で有限値検査を加えた。
 根拠、ログ、許容差、残る誤差は[AtmosphereMediumConsistency.md](AtmosphereMediumConsistency.md)に記録する。
 次は鉛直解析解と球面の独立参照を使う光路積分のTDDへ進む。
+文献の反例、変数変換の候補、次の受入条件は[AtmosphereOpticalPathResearch.md](AtmosphereOpticalPathResearch.md)に整理した。
 係数整合の合格は、積分精度・空全体・雲の画質・商用品質の合格を意味しない。
