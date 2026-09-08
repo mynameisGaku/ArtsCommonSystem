@@ -50,11 +50,11 @@ inline FVec3 RayleighBeta() noexcept {
 inline f32  MieBeta() noexcept       { return 3.996e-6f; }
 
 /**
- * Mie 吸収係数 (m⁻¹) を返す。
+ * ミー散乱による消散係数（散乱と吸収の合計、m⁻¹）を返す。
  *
- * @return Mie 吸収係数 4.4 ×10⁻⁶ m⁻¹。
+ * @return GPU大気表と同じ 4.4 ×10⁻⁶ m⁻¹。散乱係数を追加で足さない。
  */
-inline f32  MieAbsorption() noexcept { return 4.4e-6f; }
+inline f32 MieExtinction_Internal() noexcept { return 4.4e-6f; }
 
 /**
  * Mie 位相関数の非対称パラメータ g を返す。
@@ -183,7 +183,8 @@ FVec3 Transmittance(FVec3 P_earth_centered, FVec3 dir, f32 t_max, u32 steps) noe
         optical_depth_o += DensityOzone(alt)    * step_len;
     }
     const FVec3 beta_r = RayleighBeta();
-    const f32  beta_m_ext = MieBeta() + MieAbsorption();
+    // 消散は散乱を含むため、吸収だけと取り違えて二重加算しない。
+    const f32 beta_m_ext = MieExtinction_Internal();
     const FVec3 beta_o = OzoneAbsorption();
     const FVec3 tau{
         beta_r.x * optical_depth_r + beta_m_ext * optical_depth_m + beta_o.x * optical_depth_o,
@@ -250,7 +251,8 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
 
         // view side 透過率は現在の区間へ入る前の値を使う。区間内の散乱は
         // Beer-Lambertの解析積分で後段へまとめ、GPU経路と同じ順序にする。
-        const f32 beta_m_ext = beta_m + MieAbsorption();
+        // 視線側にも太陽側と同じ散乱・吸収の合計を使う。
+        const f32 beta_m_ext = MieExtinction_Internal();
         const FVec3 tau_view{
             beta_r.x * view_od_r + beta_m_ext * view_od_m + beta_o.x * view_od_o,
             beta_r.y * view_od_r + beta_m_ext * view_od_m + beta_o.y * view_od_o,
@@ -539,6 +541,7 @@ constexpr u32 kApXYRes = kSkyAtmosphereFroxelXyResolution;
 constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 
 // 共通 HLSL (km 単位、地球規模の大気パラメータ)。各 CS に inline する。
+// kMieEは散乱を含む消散係数。吸収だけなら (4.4-3.996)*0.001 km⁻¹ になる。
 #define ATMO_COMMON_HLSL \
 "static const float PI = 3.14159265;\n" \
 "static const float kBottom = 6360.0;\n" \

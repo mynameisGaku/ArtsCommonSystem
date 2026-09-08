@@ -2,6 +2,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "render/Sky.h"
+#include "render/Atmosphere.h"
 #include "render/IRhiDevice.h"
 #include "math/Camera.h"
 #include "foundation/Move.h"
@@ -12,8 +13,17 @@
 
 using namespace acs;
 
-// 製品HLSLを直接読み、検査入口だけを追加する。読取り不能や宣言欠落なら空文字列を返す。
-static FString ReadPhysicalSkyShader_Internal()
+// 倍精度値の指数が全て1ならNaNまたは無限大。近似比較がNaNを見逃すことを防ぐ。
+static bool IsFiniteProbeValue_Internal(f64 value)
+{
+    // 数値変換せずIEEE 754の指数部分を調べる。
+    u64 bits = 0u;
+    ::memcpy(&bits,&value,sizeof(bits));
+    return (bits & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+}
+
+// 検査と同じソースツリーから指定したrender実装を読む。読取り不能なら空文字列を返す。
+static FString ReadRenderSource_Internal(const wchar_t* suffix)
 {
     // コンパイル元のファイル名から検査対象のソースだけを解決する。
     constexpr wchar_t compiledPath[] = L"" __FILE__;
@@ -22,17 +32,28 @@ static FString ReadPhysicalSkyShader_Internal()
     for (usize index = 0u; compiledPath[index] != L'\0'; ++index) {
         if (compiledPath[index] == L'/' || compiledPath[index] == L'\\') directoryLength = index + 1u;
     }
-    // testsからrenderの実装への固定した相対経路。
-    constexpr wchar_t suffix[] = L"../src/render/Sky.cpp";
-    // 入力パスと固定接尾辞を切り詰めずに収める。
-    wchar_t sourcePath[sizeof(compiledPath) / sizeof(wchar_t) + sizeof(suffix) / sizeof(wchar_t)]{};
+    // ソースパスの追加領域。容量を超える接尾辞は切り詰めず拒否する。
+    wchar_t sourcePath[sizeof(compiledPath) / sizeof(wchar_t) + 128u]{};
+    // 接尾辞の終端までの文字数。
+    usize suffixLength = 0u;
+    while (suffix[suffixLength] != L'\0') ++suffixLength;
+    if (directoryLength + suffixLength >= sizeof(sourcePath) / sizeof(wchar_t)) return {};
     for (usize index = 0u; index < directoryLength; ++index) sourcePath[index] = compiledPath[index];
-    for (usize index = 0u; index < sizeof(suffix) / sizeof(wchar_t); ++index) sourcePath[directoryLength + index] = suffix[index];
+    for (usize index = 0u; index <= suffixLength; ++index) sourcePath[directoryLength + index] = suffix[index];
     // 本体は既存のファイル読み取りと配列を使う。
     auto source = CFileSystem::ReadAllText(sourcePath);
     if (source.IsErr()) return {};
+    return FString(source.Value().GetData());
+}
+
+// 製品HLSLを直接読み、検査入口だけを追加する。読取り不能や宣言欠落なら空文字列を返す。
+static FString ReadPhysicalSkyShader_Internal()
+{
+    // 本体の生文字列を含む現在の実装。
+    const FString source = ReadRenderSource_Internal(L"../src/render/Sky.cpp");
+    if (source.Size() == 0u) return {};
     // 宣言名と生文字列の境界を検査し、別シェーダーを誤抽出しない。
-    const char* declaration = ::strstr(source.Value().GetData(), "const char* kSkyHLSL");
+    const char* declaration = ::strstr(source.Data(), "const char* kSkyHLSL");
     if (!declaration) return {};
     // HLSLの開始位置。
     const char* begin = ::strstr(declaration, "R\"(");
@@ -42,6 +63,258 @@ static FString ReadPhysicalSkyShader_Internal()
     const char* end = ::strstr(begin, ")\";");
     if (!end) return {};
     return FString(FStringView(begin, static_cast<usize>(end - begin)));
+}
+
+// 製品の共通HLSLマクロだけを復元する。未対応のエスケープや宣言形式なら失敗する。
+static FString ReadAtmosphereCommonShader_Internal()
+{
+    // 同じソースツリーにある大気表の実装。
+    const FString source = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    if (source.Size() == 0u) return {};
+    // マクロ宣言後の最初の文字列から、行継続が途切れるまでを読む。
+    const char* cursor = ::strstr(source.Data(), "#define ATMO_COMMON_HLSL");
+    if (!cursor) return {};
+    cursor = ::strchr(cursor, '\n');
+    if (!cursor) return {};
+    ++cursor;
+    // 引用符と改行のエスケープを戻したHLSL本体。
+    FString result;
+    for (;;) {
+        while (*cursor == ' ' || *cursor == '\t') ++cursor;
+        if (*cursor++ != '"') return {};
+        while (*cursor && *cursor != '"') {
+            // 現在の1文字。C++文字列の改行などだけを復元する。
+            char value = *cursor++;
+            if (value == '\\') {
+                value = *cursor++;
+                if (value == 'n') value = '\n';
+                else if (value == 't') value = '\t';
+                else if (value != '\\' && value != '"') return {};
+            }
+            result.Append(value);
+        }
+        if (*cursor++ != '"') return {};
+        while (*cursor == ' ' || *cursor == '\t') ++cursor;
+        if (*cursor != '\\') return result;
+        ++cursor;
+        if (*cursor == '\r') ++cursor;
+        if (*cursor++ != '\n') return {};
+    }
+}
+
+// kmで与えた鉛直光路を倍精度の中点則で積む。段数の再現と積分精度の合格は区別する。
+static f64 ReferenceVerticalTransmittance_Internal(f64 startKm, f64 distanceKm, u32 steps, u32 channel)
+{
+    // RGBの分子散乱係数とオゾン吸収係数。単位はkmの逆数。
+    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
+    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
+    // 積分区間の幅と、累積した無次元の光学的厚さ。
+    const f64 width = distanceKm / steps;
+    f64 depth = 0.0;
+    for (u32 index = 0u; index < steps; ++index) {
+        // 地表からの高度と、10〜40kmで三角形をなすオゾン密度。
+        const f64 altitude = startKm + (index + 0.5) * width;
+        const f64 ozoneDensity = 1.0 - ::fabs(altitude - 25.0) / 15.0;
+        depth += (rayleigh[channel] * ::exp(-altitude / 8.0) + 0.0044 * ::exp(-altitude / 1.2) + ozone[channel] * (ozoneDensity > 0.0 ? ozoneDensity : 0.0)) * width;
+    }
+    return ::exp(-depth);
+}
+
+// 通常C++の太陽透過率にも、GPUと同じ消散係数を適用する。積分段数24は変更しない。
+ACS_TEST(Atmosphere, CpuSunTransmittanceUsesSharedMieExtinction)
+{
+    // 高度はm。地表、雲層、分子とオゾンが優勢な高度を含める。
+    constexpr f32 altitudes[6] = {0.0f,1200.0f,8000.0f,10000.0f,25000.0f,40000.0f};
+    for (u32 index = 0u; index < 6u; ++index) {
+        // 公開APIから得る実製品の透過率。
+        const FVec3 actual = SunTransmittanceAtAltitude(altitudes[index],FVec3{0.0f,1.0f,0.0f});
+        // RGBを同じ参照計算へ渡す。
+        const f32 channels[3] = {actual.x,actual.y,actual.z};
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            // mからkmへ換算し、製品と同じ24点の中点積分と比べる。
+            const f64 expected = ReferenceVerticalTransmittance_Internal(altitudes[index] * 0.001,100.0 - altitudes[index] * 0.001,24u,channel);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
+            test::RecordInfo(FSourceLoc::Current(),"mie_cpu altitude_m=%g channel=%u actual=%.9g expected=%.9g",altitudes[index],channel,channels[channel],expected);
+            EXPECT_NEAR(channels[channel],expected,2.0e-5);
+        }
+    }
+}
+
+// CPUの視線側も検査し、太陽透過率だけ直して単散乱内の二重加算を残す回帰を防ぐ。
+ACS_TEST(Atmosphere, CpuSingleScatterUsesSharedMieExtinction)
+{
+    // 鉛直上向き同士の散乱を、地表遮蔽や地平線の交差誤差から切り離す。
+    FAtmosphereParams parameters{};
+    parameters.sun_dir = FVec3{0.0f,1.0f,0.0f};
+    parameters.sun_intensity = FVec3{1.0f,0.8f,0.6f};
+    parameters.ray_steps = 50u;
+    parameters.sun_steps = 20u;
+    // 地表から大気上端までの実製品の単散乱値。
+    const FVec3 actual = CAtmosphere::EvaluateSkyRadiance(0.0f,FVec3{0.0f,1.0f,0.0f},parameters);
+    // 比較する各成分の係数と入射光。積分経路の単位はkm。
+    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
+    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
+    constexpr f64 incident[3] = {1.0,0.8,0.6};
+    const f32 channels[3] = {actual.x,actual.y,actual.z};
+    // 前方散乱の位相値を、それぞれの正規化式から評価する。
+    constexpr f64 pi = 3.14159265358979323846;
+    const f64 phaseRayleigh = 3.0 / (8.0 * pi);
+    const f64 phaseMie = 1.8 / (4.0 * pi * 0.2 * 0.2);
+    for (u32 channel = 0u; channel < 3u; ++channel) {
+        // 区間入口の透過率と、それまでに届いた散乱光。
+        f64 transmission = 1.0;
+        f64 radiance = 0.0;
+        for (u32 segment = 0u; segment < 50u; ++segment) {
+            // 2km幅の中点で媒質を一定とする。段数を増やす精度改善ではない。
+            const f64 altitude = 2.0 * segment + 1.0;
+            const f64 densityR = ::exp(-altitude / 8.0);
+            const f64 densityM = ::exp(-altitude / 1.2);
+            const f64 densityO = 1.0 - ::fabs(altitude - 25.0) / 15.0;
+            // 消散係数と2km幅の積。散乱を二重に加算しない。
+            const f64 depth = 2.0 * (rayleigh[channel] * densityR + 0.0044 * densityM + ozone[channel] * (densityO > 0.0 ? densityO : 0.0));
+            // 太陽光路だけは既存の20点則を独立計算し、視線側の係数契約を分離する。
+            const f64 sun = ReferenceVerticalTransmittance_Internal(altitude,100.0-altitude,20u,channel);
+            const f64 source = rayleigh[channel] * densityR * phaseRayleigh + 0.003996 * densityM * phaseMie;
+            // 区間内のBeer-Lambert積分を桁落ちしない倍精度の式で計算する。
+            radiance += transmission * sun * source * 2.0 * (-::expm1(-depth) / depth);
+            transmission *= ::exp(-depth);
+        }
+        test::RecordInfo(FSourceLoc::Current(),"mie_cpu_scatter channel=%u actual=%.9g expected=%.9g",channel,channels[channel],radiance*incident[channel]);
+        EXPECT_TRUE(IsFiniteProbeValue_Internal(channels[channel]));
+        EXPECT_TRUE(IsFiniteProbeValue_Internal(radiance*incident[channel]));
+        EXPECT_NEAR(channels[channel],radiance*incident[channel],2.0e-6);
+    }
+}
+
+// 二つの実製品HLSLを同じ実行時高度で計算し、密度と散乱係数の違いも換算して比較する。
+ACS_TEST(Atmosphere, ActualGpuMediumPathsUseSharedMieExtinction)
+{
+    // 空本体と大気表の共通部分を、複製せず現在のソースから取り出す。
+    FString source = ReadPhysicalSkyShader_Internal();
+    const FString common = ReadAtmosphereCommonShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u && common.Size() > 0u);
+    if (source.Size() == 0u || common.Size() == 0u) return;
+    source.Append(common.View());
+    source.Append(R"(
+RWTexture2D<float4> mediumProbeOutput : register(u0);
+[numthreads(1,1,1)]
+void CSMediumProbe(uint3 id : SV_DispatchThreadID) {
+    // 密度だけを返す空本体の関数と、係数まで掛ける大気表の関数を同じ単位へそろえる。
+    float3 densityR; float densityM; float3 skyExtinction;
+    SamplePhysicalMedium(physical_params.y,densityR,densityM,skyExtinction);
+    float3 scatteringR; float scatteringM; float3 tableExtinction;
+    SampleMedium(physical_params.y,scatteringR,scatteringM,tableExtinction);
+    mediumProbeOutput[uint2(0,0)] = float4(skyExtinction,1.0);
+    mediumProbeOutput[uint2(1,0)] = float4(tableExtinction,1.0);
+    mediumProbeOutput[uint2(2,0)] = float4(kPhysicalRayleighBeta*densityR,kPhysicalMieBeta*densityM);
+    mediumProbeOutput[uint2(3,0)] = float4(scatteringR,scatteringM);
+    // 高度だけでなく光路長も定数バッファから与え、0長と微小区間を含めて評価する。
+    mediumProbeOutput[uint2(4,0)] = float4(PhysicalTransmittance(float3(0.0,physical_params.y,0.0),float3(0.0,1.0,0.0),cloud_params0.x),1.0);
+}
+)");
+    // 実GPUがない場合は黙って合格させない。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 製品関数を呼ぶ検査入口。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSMediumProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 入力は製品の定数配置を維持し、検査用出力だけを追加する。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "mediumProbeOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 散乱・消散の2経路と空本体の透過率を保持する5画素。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 5u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 製品定数の行13が高度、行11が検査用光路長。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 各入力で提出と完了を確認する命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // スケール高度、オゾンの折れ目と、大気上端。単位はkm。
+    constexpr f32 heights[7] = {0.0f,1.2f,8.0f,10.0f,25.0f,40.0f,100.0f};
+    // 光路長を全高度で変更し、関数全体の定数計算を避ける。
+    constexpr f32 distances[3] = {0.0f,0.001f,1.2f};
+    // 経路間比較とは独立した、kmの逆数で表す散乱と吸収の基準。
+    constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
+    constexpr f64 ozone[3] = {0.000650,0.001881,0.000085};
+    for (u32 height = 0u; height < 7u; ++height) {
+        for (u32 distance = 0u; distance < 3u; ++distance) {
+            constants[13].y = heights[height];
+            constants[11].x = distances[distance];
+            buffer.Value()->Update(constants,sizeof(constants));
+            command.Value()->Begin();
+            command.Value()->SetComputePipeline(*pipeline.Value());
+            command.Value()->SetConstantBuffer(0u,*buffer.Value());
+            command.Value()->BindUav(0u,*texture.Value());
+            command.Value()->Dispatch(1u,1u,1u);
+            command.Value()->End();
+            // 実行失敗や読戻し失敗を数値0と取り違えない。
+            const bool submitted = command.Value()->Submit();
+            EXPECT_TRUE(submitted);
+            if (!submitted) return;
+            device.Value()->WaitIdle();
+            f32 values[20]{};
+            const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+            EXPECT_TRUE(read);
+            if (!read) return;
+            for (u32 index = 0u; index < 20u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+            // 指定高度における独立した密度の参照値。
+            const f64 densityR = ::exp(-heights[height] / 8.0);
+            const f64 densityM = ::exp(-heights[height] / 1.2);
+            const f64 densityO = 1.0 - ::fabs(heights[height] - 25.0) / 15.0;
+            for (u32 channel = 0u; channel < 3u; ++channel) {
+                // 消散は散乱を含むので、0.0044へ散乱係数をもう一度足してはいけない。
+                const f64 expected = rayleigh[channel] * densityR + 0.0044 * densityM + ozone[channel] * (densityO > 0.0 ? densityO : 0.0);
+                // 参照側も有限値を要求し、NaN同士が近似比較を通ることを防ぐ。
+                const f64 referenceTransmittance = ReferenceVerticalTransmittance_Internal(heights[height],distances[distance],8u,channel);
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(referenceTransmittance));
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(densityR));
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(densityM));
+                EXPECT_NEAR(values[channel],expected,2.0e-8);
+                EXPECT_NEAR(values[4u+channel],expected,2.0e-8);
+                EXPECT_NEAR(values[channel],values[4u+channel],2.0e-8);
+                EXPECT_NEAR(values[8u+channel],rayleigh[channel]*densityR,2.0e-8);
+                EXPECT_NEAR(values[8u+channel],values[12u+channel],2.0e-8);
+                EXPECT_NEAR(values[16u+channel],referenceTransmittance,2.0e-6);
+            }
+            EXPECT_NEAR(values[11],0.003996*densityM,2.0e-9);
+            EXPECT_NEAR(values[15],0.003996*densityM,2.0e-9);
+            EXPECT_EQ(values[3],1.0f);
+            EXPECT_EQ(values[7],1.0f);
+            EXPECT_EQ(values[19],1.0f);
+            if (distance == 0u) test::RecordInfo(FSourceLoc::Current(),"mie_gpu altitude_km=%g sky_R=%.9g table_R=%.9g",heights[height],values[0],values[4]);
+        }
+    }
 }
 
 // カメラ復元と交差判定をGPUから取り出し、CPUの正規化との差を交点の不具合と混同しない。

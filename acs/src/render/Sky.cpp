@@ -165,7 +165,8 @@ static const float kPhysicalGroundRadiusKm = 6360.0;
 static const float kPhysicalTopRadiusKm = 6460.0;
 static const float3 kPhysicalRayleighBeta = float3(5.802, 13.558, 33.1) * 0.001;
 static const float kPhysicalMieBeta = 3.996 * 0.001;
-static const float kPhysicalMieAbsorption = 4.4 * 0.001;
+// 大気表と同じ消散係数（散乱と吸収の合計、kmの逆数）。散乱を再加算しない。
+static const float kPhysicalMieExtinction = 4.4 * 0.001;
 static const float3 kPhysicalOzoneAbsorption = float3(0.650, 1.881, 0.085) * 0.001;
 static const float kPhysicalRayleighScaleHeightKm = 8.0;
 static const float kPhysicalMieScaleHeightKm = 1.2;
@@ -305,7 +306,7 @@ void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
     mie_density = exp(-safe_altitude / kPhysicalMieScaleHeightKm);
     float ozone = saturate(1.0 - abs(safe_altitude - 25.0) / 15.0);
     extinction = kPhysicalRayleighBeta * rayleigh_density
-        + (kPhysicalMieBeta + kPhysicalMieAbsorption) * mie_density
+        + kPhysicalMieExtinction * mie_density
         + kPhysicalOzoneAbsorption * ozone;
 }
 
