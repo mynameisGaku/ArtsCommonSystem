@@ -1575,7 +1575,7 @@ ACS_TEST(Atmosphere, RawSkyScatteringRejectsGroundOccludedSunPath) {
         shader,
         "PhysicalRaySphereNear(\n"
         "        origin, direction, kPhysicalGroundRadiusKm)"));
-    EXPECT_TRUE(Contains(shader, "ground_distance > 0.0 && ground_distance < distance"));
+    EXPECT_TRUE(Contains(shader, "ground_distance >= 0.0 && ground_distance < distance"));
     EXPECT_TRUE(Contains(shader, "return float3(0.0, 0.0, 0.0);"));
     EXPECT_TRUE(Contains(editorSource, "h.sky3d.RenderPhysicalAtmosphere("));
 }

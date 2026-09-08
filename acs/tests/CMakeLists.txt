@@ -6,6 +6,14 @@ acs_apply_compiler_options(acs_cloud_render_probe)
 target_link_libraries(acs_cloud_render_probe PRIVATE ACS::Render)
 set_target_properties(acs_cloud_render_probe PROPERTIES FOLDER "Engine/Tests")
 
+# 地表境界の製品GPU試験を単独実行し、全雲試験の完走を待たずにTDDを反復する。
+add_executable(acs_sky_ground_tests main.cpp sky_ground_render_tests.cpp)
+acs_apply_compiler_options(acs_sky_ground_tests)
+target_link_libraries(acs_sky_ground_tests PRIVATE ACS::Render ACS::Test ACS::Memory)
+set_target_properties(acs_sky_ground_tests PROPERTIES FOLDER "Engine/Tests" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sky_ground/$<CONFIG>/bin")
+add_test(NAME ACS.SkyGroundGpu COMMAND acs_sky_ground_tests)
+set_tests_properties(ACS.SkyGroundGpu PROPERTIES LABELS "Render;Gpu" RUN_SERIAL TRUE TIMEOUT 60)
+
 if(WIN32)
     find_program(ACS_PROJECT_OPERATIONS_POWERSHELL NAMES powershell.exe powershell)
     if(ACS_PROJECT_OPERATIONS_POWERSHELL)
@@ -208,6 +216,7 @@ add_executable(acs_unit_tests
     foundation_optimization_wave_m_tests.cpp
     volumetric_cloud_world_anchor_tests.cpp
     atmosphere_composite_tests.cpp
+    sky_ground_render_tests.cpp
     shadow_map_cb_safety_tests.cpp
     assetpack_lifetime_tests.cpp
     assetpack_manifest_safety_tests.cpp

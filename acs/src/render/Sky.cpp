@@ -183,21 +183,119 @@ float PhysicalMiePhase(float cos_theta) {
         (4.0 * 3.14159265 * pow(denominator, 1.5));
 }
 
-float PhysicalRaySphereOuter(float3 origin, float3 direction, float radius) {
-    float b = dot(origin, direction);
-    float c = dot(origin, origin) - radius * radius;
-    float discriminant = b * b - c;
-    return discriminant >= 0.0
-        ? -b + sqrt(discriminant) : -1.0;
+// 北極の地表を原点とする。半径へ微小高度を足してから引く桁落ちを避ける。
+float PhysicalSphereOffset(float3 origin, float radius) {
+    // |origin + (0,R,0)|^2 - radius^2 を、高度を保持した形で展開する。
+    precise float offset = dot(origin, origin) + 2.0 * kPhysicalGroundRadiusKm * origin.y
+        + (kPhysicalGroundRadiusKm - radius) * (kPhysicalGroundRadiusKm + radius);
+    return offset;
 }
 
-float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
-    float b = dot(origin, direction);
-    float c = dot(origin, origin) - radius * radius;
-    float discriminant = b * b - c;
+// 地表相対位置から高度kmを求める。半径同士の直接減算を使わない。
+float PhysicalAltitude(float3 position) {
+    // 分子の平方差を、和で割る形へ有理化する。
+    float offset = PhysicalSphereOffset(position, kPhysicalGroundRadiusKm);
+    // 分母だけなら、半径に対する微小高度の丸めは結果の相対誤差に留まる。
+    float radial_length = length(position + float3(0.0, kPhysicalGroundRadiusKm, 0.0));
+    return offset / (radial_length + kPhysicalGroundRadiusKm);
+}
+
+// 球内または球面上から遠い側の交点を求める。交差しなければ負値を返す。
+float PhysicalRaySphereOuter(float3 origin, float3 direction, float radius) {
+    // 正規化後にも残る単精度の長さ誤差を、二次式の係数へ含める。
+    precise float a = dot(direction, direction);
+    // 地表相対座標を、惑星中心からの内積へ展開する。
+    precise float b = dot(origin, direction) + kPhysicalGroundRadiusKm * direction.y;
+    // 半径の大きな二乗同士を引かずに定数項を計算する。
+    precise float c = PhysicalSphereOffset(origin, radius);
+    // 接線を負の値から推測せず、計算した二次式の判別式を用いる。
+    precise float discriminant = b * b - a * c;
     if (discriminant < 0.0) return -1.0;
-    float distance = -b - sqrt(discriminant);
-    return distance > 0.0 ? distance : -1.0;
+    // 上端球面の接線では分数形が0/0になるため、重根を直接返す。
+    if (discriminant == 0.0) return -b / a;
+    return b >= 0.0 ? -c / (b + sqrt(discriminant)) : (-b + sqrt(discriminant)) / a;
+}
+
+// 通常範囲の単精度の和を、丸めた主値と失われた下位桁へ分ける。
+precise float2 PhysicalCompensatedSum(float left, float right) {
+    // 和として格納できる主値。
+    precise float value = left + right;
+    // 加算によって主値へ含まれた右項。
+    precise float right_part = value - left;
+    // 主値へ含まれなかった左右の成分を回収する。
+    precise float remainder = (left - (value - right_part)) + (right - right_part);
+    return float2(value, remainder);
+}
+
+// 単精度の積を上下位へ分ける。最小値未満の丸め・範囲超過は対象外。
+precise float2 PhysicalCompensatedProduct(float left, float right) {
+    // 仮数の下位12bitを落とし、暗黙の先頭bitを含む上位12bitを得る。
+    precise float left_high = asfloat(asuint(left) & 0xfffff000u);
+    // 左項の下位側。
+    precise float left_low = left - left_high;
+    // 右項も符号・指数を保ったまま、仮数だけを同じ幅で分ける。
+    precise float right_high = asfloat(asuint(right) & 0xfffff000u);
+    // 右項の下位側。
+    precise float right_low = right - right_high;
+    // 積の主値。暗黙の積和融合を使わず、下位桁を別に回収する。
+    precise float value = left * right;
+    // 分割した積から主値の丸め誤差を引き戻す。
+    precise float remainder = left_low * right_low - (((value - left_high * right_high) - left_low * right_high) - left_high * right_low);
+    return float2(value, remainder);
+}
+
+// 上下位で保持した値を加算する。下位桁の加算にも単精度の丸めは残る。
+precise float2 PhysicalCompensatedPairSum(float2 left, float2 right) {
+    // 上位同士の和と、その丸め誤差。
+    precise float2 principal = PhysicalCompensatedSum(left.x, right.x);
+    // 上位の誤差と、入力が保持していた下位成分。
+    precise float remainder = principal.y + (left.y + right.y);
+    // 大きい主値へ下位桁を戻す再正規化を挟まず、二項の和として保持する。
+    return float2(principal.x, remainder);
+}
+
+// 上下位で保持した値を乗算する。下位同士の積は二次の丸め誤差として省略する。
+precise float2 PhysicalCompensatedPairProduct(float2 left, float2 right) {
+    // 上位同士の積と、その丸め誤差。
+    precise float2 principal = PhysicalCompensatedProduct(left.x, right.x);
+    // 一次の下位寄与を加える。完全な倍精度演算とは同一視しない。
+    precise float remainder = principal.y + (left.x * right.y + left.y * right.x);
+    // 後の差で相殺するまで、主値と下位桁を別々に保持する。
+    return float2(principal.x, remainder);
+}
+
+// 北極上の視点に限定し、地平線近傍の判別式を係数生成から補償する。
+precise float PhysicalPolarDiscriminant(float altitude, float3 direction, float radius) {
+    // 視点の球面からの二乗差を、高度を半径へ足す前の値で保持する。
+    precise float2 offset = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(altitude, altitude), PhysicalCompensatedProduct(2.0 * kPhysicalGroundRadiusKm, altitude));
+    offset = PhysicalCompensatedPairSum(offset, PhysicalCompensatedProduct(kPhysicalGroundRadiusKm - radius, kPhysicalGroundRadiusKm + radius));
+    // 水平成分の長さの二乗。方向が厳密に単位長という仮定を使わない。
+    precise float2 horizontal_squared = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(direction.x, direction.x), PhysicalCompensatedProduct(direction.z, direction.z));
+    // 球半径と鉛直成分の積を、二乗する前から上下位で保持する。
+    precise float2 radial_vertical = PhysicalCompensatedProduct(radius, direction.y);
+    // D = radius^2 * dy^2 - c * (dx^2 + dz^2)。最後の相殺まで下位桁を保持する。
+    precise float2 discriminant = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(radial_vertical, radial_vertical), -PhysicalCompensatedPairProduct(offset, horizontal_squared));
+    return discriminant.x + discriminant.y;
+}
+
+// 球外または球面上から内向きに入る交点を求める。接触だけの外向き視線は遮らない。
+float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
+    // 視線の単位長を仮定せず、球方程式の二次係数を保持する。
+    precise float a = dot(direction, direction);
+    // 内向きかどうかを、惑星中心からの内積の符号で判定する。
+    precise float b = dot(origin, direction) + kPhysicalGroundRadiusKm * direction.y;
+    if (b >= 0.0) return -1.0;
+    // 地表上の内向き視線は距離0で終わり、地中の散乱を積分しない。
+    precise float c = PhysicalSphereOffset(origin, radius);
+    if (c <= 0.0) return 0.0;
+    // 小さい根を差で作らず、根の積から求める。
+    precise float discriminant = b * b - a * c;
+    // 公開描画の視点は北極上。判別式の符号を許容差で変更せず、下位桁から再計算する。
+    if (origin.x == 0.0 && origin.z == 0.0) {
+        discriminant = PhysicalPolarDiscriminant(origin.y, direction, radius);
+    }
+    if (discriminant < 0.0) return -1.0;
+    return c / (-b + sqrt(discriminant));
 }
 
 void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
@@ -217,7 +315,7 @@ float3 PhysicalTransmittance(float3 origin, float3 direction,
     // 太陽光線が地表球へ入る場合は、地球の内部を透過させず遮蔽する。
     float ground_distance = PhysicalRaySphereNear(
         origin, direction, kPhysicalGroundRadiusKm);
-    if (ground_distance > 0.0 && ground_distance < distance)
+    if (ground_distance >= 0.0 && ground_distance < distance)
         return float3(0.0, 0.0, 0.0);
     const int kTransmittanceSteps = 8;
     float step_length = distance / float(kTransmittanceSteps);
@@ -226,7 +324,7 @@ float3 PhysicalTransmittance(float3 origin, float3 direction,
     for (int i = 0; i < kTransmittanceSteps; ++i) {
         float3 sample_position = origin + direction *
             (step_length * (float(i) + 0.5));
-        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        float altitude = PhysicalAltitude(sample_position);
         float3 rayleigh_density;
         float mie_density;
         float3 extinction;
@@ -236,17 +334,28 @@ float3 PhysicalTransmittance(float3 origin, float3 direction,
     return exp(-optical_depth);
 }
 
+// 一区間の平均透過率を求める。薄い媒質では差の桁落ちと分母の置換を避ける。
+float PhysicalSegmentTransfer(float optical_depth) {
+    // 1/8以下なら4次級数の剰余はx^5/720以下（4.24e-8未満）で、この値域の単精度1ULP未満になる。
+    // expとの差を早く使うとその誤差を小さい分母で増幅するため、この範囲を級数で評価する。
+    if (optical_depth <= 0.125) {
+        return 1.0 + optical_depth * (-0.5 + optical_depth * (1.0 / 6.0 + optical_depth * (-1.0 / 24.0 + optical_depth / 120.0)));
+    }
+    return (1.0 - exp(-optical_depth)) / optical_depth;
+}
+
 float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
                            float3 sun_intensity, float altitude_km,
                            float3 ground_albedo) {
-    float3 origin = float3(0.0, kPhysicalGroundRadiusKm + max(altitude_km, 0.0), 0.0);
+    // 地表相対の高度を保持し、0.1mなどを惑星半径への加算で失わない。
+    float3 origin = float3(0.0, max(altitude_km, 0.0), 0.0);
     float top_distance = PhysicalRaySphereOuter(
         origin, view_direction, kPhysicalTopRadiusKm);
     if (top_distance <= 0.0) return float3(0.0, 0.0, 0.0);
 
     float ground_distance = PhysicalRaySphereNear(
         origin, view_direction, kPhysicalGroundRadiusKm);
-    bool hits_ground = ground_distance > 0.0 && ground_distance < top_distance;
+    bool hits_ground = ground_distance >= 0.0 && ground_distance < top_distance;
     float ray_distance = hits_ground ? ground_distance : top_distance;
     const int kViewSteps = 16;
     float step_length = ray_distance / float(kViewSteps);
@@ -257,10 +366,10 @@ float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
     float mie_phase = PhysicalMiePhase(cos_view_sun);
 
     [loop]
-    for (int i = 0; i < kViewSteps; ++i) {
+    for (int i = 0; i < kViewSteps && ray_distance > 0.0; ++i) {
         float3 sample_position = origin + view_direction *
             (step_length * (float(i) + 0.5));
-        float altitude = length(sample_position) - kPhysicalGroundRadiusKm;
+        float altitude = PhysicalAltitude(sample_position);
         if (altitude < 0.0) continue;
 
         float3 rayleigh_density;
@@ -275,22 +384,22 @@ float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
             kPhysicalRayleighBeta * rayleigh_density * rayleigh_phase
             + kPhysicalMieBeta * mie_density * mie_phase);
         float3 segment_tau = extinction * step_length;
-        float3 segment_transfer = (1.0 - exp(-segment_tau)) /
-            max(segment_tau, 1.0e-6);
+        // 光学的深さ0の極限も1になり、微小距離で散乱が二次的に潰れない。
+        float3 segment_transfer = float3(PhysicalSegmentTransfer(segment_tau.x), PhysicalSegmentTransfer(segment_tau.y), PhysicalSegmentTransfer(segment_tau.z));
         radiance += view_transmittance * source * step_length * segment_transfer;
         view_transmittance *= exp(-segment_tau);
     }
 
     if (hits_ground) {
         float3 ground_position = origin + view_direction * ground_distance;
-        float3 ground_normal = normalize(ground_position);
+        float3 ground_normal = normalize(ground_position + float3(0.0, kPhysicalGroundRadiusKm, 0.0));
         float sun_cosine = max(dot(ground_normal, sun_direction), 0.0);
-        float sun_distance = PhysicalRaySphereOuter(
-            ground_position + ground_normal * 0.001,
-            sun_direction, kPhysicalTopRadiusKm);
-        float3 sun_transmittance = PhysicalTransmittance(
-            ground_position + ground_normal * 0.001,
-            sun_direction, sun_distance);
+        // 球対称な大気を地表原点へ回転し、地表を1m持ち上げる回避処理を不要にする。
+        float3 surface_sun_direction = float3(sqrt(max(1.0 - sun_cosine * sun_cosine, 0.0)), sun_cosine, 0.0);
+        // 地表から上端までの光路長。太陽が地平線下なら反射の余弦項が0になる。
+        float sun_distance = PhysicalRaySphereOuter(float3(0.0, 0.0, 0.0), surface_sun_direction, kPhysicalTopRadiusKm);
+        // 地表の反射へ掛ける透過率は視線とは別の太陽光路で積分する。
+        float3 sun_transmittance = PhysicalTransmittance(float3(0.0, 0.0, 0.0), surface_sun_direction, sun_distance);
         float3 ground_radiance = max(ground_albedo, 0.0)
             * sun_intensity * sun_transmittance
             * (sun_cosine / 3.14159265);
