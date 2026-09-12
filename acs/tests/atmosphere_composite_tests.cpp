@@ -458,9 +458,8 @@ ACS_TEST(Atmosphere,
     const std::string source = ReadAtmosphereSource();
     EXPECT_TRUE(!source.empty());
 
-    // Legacy FXC does not reliably propagate values through early returns in
-    // inlined helpers.  Each intersection now starts from the miss sentinel,
-    // writes the hit path, and publishes through exactly one return.
+    // 旧FXCの早期returnに起因する回帰を防ぐ。交差なしの初期値から成立時だけ更新し、
+    // 一つのreturnで返す構造を維持する。境界の数値結果は実GPU試験でも照合する。
     EXPECT_TRUE(Contains(
         source,
         "if(disc>=0.0){ result=-b+sqrt(disc); } return result;"));
@@ -470,7 +469,7 @@ ACS_TEST(Atmosphere,
     EXPECT_TRUE(Contains(
         source,
         "if(disc>=0.0){ float nearT=-b-sqrt(disc); "
-        "if(nearT>=0.0) result=nearT; } return result;"));
+        "if(nearT>0.0 || (nearT==0.0 && b<0.0)) result=nearT; } return result;"));
     EXPECT_EQ(
         CountOccurrences(source, "float result=-1.0;"),
         static_cast<std::size_t>(2u));
@@ -917,6 +916,9 @@ ACS_TEST(Atmosphere, GpuTransmittanceLutRejectsGroundOccludedSunPaths) {
     EXPECT_FALSE(Contains(
         shader,
         "tTop<=0){ transOut[id.xy]=float4(1,1,1,1); return;"));
+    // 交差不成立と距離0を同一視しない。数値上の成立は別の製品GPU境界試験で確認する。
+    EXPECT_TRUE(Contains(shader, "if(tTop<0 || (tGround>=0.0 && tGround<tTop))"));
+    EXPECT_TRUE(Contains(shader, "if(tTop==0){ transOut[id.xy]=float4(1,1,1,1); return; }"));
 }
 
 ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {

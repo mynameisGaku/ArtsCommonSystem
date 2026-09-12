@@ -91,41 +91,194 @@ static FString ReadPhysicalSkyShader_Internal()
     return FString(FStringView(begin, static_cast<usize>(end - begin)));
 }
 
-// 製品の共通HLSLマクロだけを復元する。未対応のエスケープや宣言形式なら失敗する。
+// C++の字句を一つ読む。コメントは除き、改行は残す。引用符・コメントの未終端は失敗する。
+static bool ReadAtmosphereSourceToken_Internal(const char*& cursor, FStringView& token)
+{
+    for (;;) {
+        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\v' || *cursor == '\f') ++cursor;
+        if (cursor[0] == '/' && cursor[1] == '/') {
+            while (*cursor && *cursor != '\n') ++cursor;
+        } else if (cursor[0] == '/' && cursor[1] == '*') {
+            // 文字列内のコメント記号はこの分岐へ入れない。
+            const char* end = ::strstr(cursor + 2u, "*/");
+            if (!end) return false;
+            cursor = end + 2u;
+        } else break;
+    }
+    // 元ソースの借用範囲。空範囲は正常な終端を表す。
+    const char* begin = cursor;
+    if (cursor[0] == 'R' && cursor[1] == '"') {
+        // 別シェーダーの生文字列内にある偽宣言も読み飛ばす。復元対象には生文字列を許可しない。
+        const char* delimiter = cursor + 2u;
+        cursor = delimiter;
+        while (*cursor && *cursor != '(') {
+            if (cursor - delimiter >= 16 || *cursor <= ' ' || *cursor == ')' || *cursor == '\\') return false;
+            ++cursor;
+        }
+        if (*cursor != '(') return false;
+        // 生文字列の終了記号は開始時と同じ区切り文字を持つ。
+        FString closing(")");
+        closing.Append(FStringView(delimiter, static_cast<usize>(cursor - delimiter)));
+        closing.Append('"');
+        // 引用符だけを探してHLSL内へ走査が漏れることを防ぐ。
+        const char* end = ::strstr(cursor + 1u, closing.Data());
+        if (!end) return false;
+        cursor = end + closing.Size();
+    } else if (*cursor == '"' || *cursor == '\'') {
+        // 通常文字列と文字リテラルは、一字句として宣言探索から除く。
+        const char quote = *cursor++;
+        while (*cursor && *cursor != quote) {
+            if (*cursor == '\n' || *cursor == '\r') return false;
+            if (*cursor++ == '\\') {
+                if (!*cursor || *cursor == '\n' || *cursor == '\r') return false;
+                ++cursor;
+            }
+        }
+        if (*cursor != quote) return false;
+        ++cursor;
+    } else if ((*cursor >= 'a' && *cursor <= 'z') || (*cursor >= 'A' && *cursor <= 'Z') || *cursor == '_') {
+        do {
+            ++cursor;
+        } while ((*cursor >= 'a' && *cursor <= 'z') || (*cursor >= 'A' && *cursor <= 'Z') || (*cursor >= '0' && *cursor <= '9') || *cursor == '_');
+    } else if (*cursor) ++cursor;
+    token = FStringView(begin, static_cast<usize>(cursor - begin));
+    return true;
+}
+
+// 通常の狭い文字列だけを連結する。数値・Unicode・NULなど未対応のエスケープは推測せず拒否する。
+static bool AppendAtmosphereLiteral_Internal(FStringView token, FString& result)
+{
+    if (token.Size() < 2u || token[0] != '"' || token[token.Size() - 1u] != '"') return false;
+    // 引用符の内側だけを一度復号し、HLSL側のコメントやバックスラッシュは保持する。
+    for (usize index = 1u; index + 1u < token.Size(); ++index) {
+        // 連結先へ追加する一文字。
+        char value = token[index];
+        if (value == '\\') {
+            if (++index + 1u >= token.Size()) return false;
+            value = token[index];
+            if (value == 'n') value = '\n';
+            else if (value == 'r') value = '\r';
+            else if (value == 't') value = '\t';
+            else if (value != '\\' && value != '"') return false;
+        }
+        result.Append(value);
+    }
+    return true;
+}
+
+// 共通マクロまたはkTransCSの連結リテラルを厳密に復元する。再定義・条件分岐・別の式は拒否する。
+static FString RestoreAtmosphereShaderSource_Internal(const FString& original, bool transmittance)
+{
+    // C++と同じくコメント判定より先にLF/CRLFの行継続を除く。
+    FString source;
+    for (usize index = 0u; index < original.Size(); ++index) {
+        if (original[index] == '\\' && index + 1u < original.Size()) {
+            if (original[index + 1u] == '\n') { ++index; continue; }
+            if (original[index + 1u] == '\r' && index + 2u < original.Size() && original[index + 2u] == '\n') { index += 2u; continue; }
+        }
+        source.Append(original[index]);
+    }
+    // 同じ読み取りスナップショットから取り出す共通部。
+    FString common;
+    // 共通マクロの使用に続く入口本体。
+    FString body;
+    // ソース上の現在位置。
+    const char* cursor = source.Data();
+    // 直前まで一致した宣言の長さ。
+    usize matched = 0u;
+    // 空白・改行・コメントを挟める宣言。名前が似ただけの別変数を対象にしない。
+    constexpr const char* declaration[] = {"const", "char", "*", "kTransCS", "="};
+    // マクロの開始を認める行頭か。
+    bool lineStart = true;
+    // 共通部より前の使用と二重定義を拒否するための記録。
+    bool foundCommon = false;
+    // kTransCSの二重定義を拒否するための記録。
+    bool foundBody = false;
+    // 現在の一字句。元文字列が生存している間だけ参照する。
+    FStringView token;
+    while (ReadAtmosphereSourceToken_Internal(cursor, token)) {
+        if (token.IsEmpty()) return foundCommon && (!transmittance || foundBody) ? (transmittance ? body : common) : FString{};
+        if (token == FStringView("\n")) { lineStart = true; continue; }
+        if (token == FStringView("#") && lineStart) {
+            matched = 0u;
+            if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+            // 条件付きの有効領域を評価しないため、その形式が入ったら抽出自体を失敗させる。
+            if (token == FStringView("if") || token == FStringView("ifdef") || token == FStringView("ifndef") || token == FStringView("elif") || token == FStringView("else") || token == FStringView("endif")) return {};
+            // 定義・解除の名前まで検査して、旧共通部を使い続けない。
+            const bool definition = token == FStringView("define");
+            // 共通マクロの解除は復元できる形式の外として拒否する。
+            const bool undefinition = token == FStringView("undef");
+            if ((definition || undefinition) && !ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+            if ((definition || undefinition) && token == FStringView("ATMO_COMMON_HLSL")) {
+                if (undefinition || foundCommon) return {};
+                foundCommon = true;
+                for (;;) {
+                    if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+                    if (token == FStringView("\n") || token.IsEmpty()) break;
+                    if (!AppendAtmosphereLiteral_Internal(token, common)) return {};
+                }
+                if (common.Size() == 0u) return {};
+            } else {
+                // 他のマクロやinclude内の字句をC++変数の宣言として採用しない。
+                while (token != FStringView("\n") && !token.IsEmpty()) {
+                    if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+                }
+            }
+            lineStart = true;
+            continue;
+        }
+        lineStart = false;
+        if (!transmittance) continue;
+        matched = token == FStringView(declaration[matched]) ? matched + 1u : (token == FStringView(declaration[0]) ? 1u : 0u);
+        if (matched != sizeof(declaration) / sizeof(declaration[0])) continue;
+        if (!foundCommon || foundBody) return {};
+        foundBody = true;
+        matched = 0u;
+        do {
+            if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+        } while (token == FStringView("\n"));
+        if (token != FStringView("ATMO_COMMON_HLSL")) return {};
+        for (;;) {
+            if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
+            if (token == FStringView(";")) break;
+            if (token == FStringView("\n")) continue;
+            if (!AppendAtmosphereLiteral_Internal(token, body)) return {};
+        }
+        if (body.Size() == 0u) return {};
+    }
+    return {};
+}
+
+// 指定した読み取りスナップショットから共通HLSLだけを復元する。形式変更や欠落は空文字列で返す。
+static FString ReadAtmosphereCommonShader_Internal(const FString& source)
+{
+    return RestoreAtmosphereShaderSource_Internal(source, false);
+}
+
+// 既存の共通媒質試験も同じ厳密な復元処理を使う。製品ファイルは読み取りだけを行う。
 static FString ReadAtmosphereCommonShader_Internal()
 {
-    // 同じソースツリーにある大気表の実装。
-    const FString source = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
-    if (source.Size() == 0u) return {};
-    // マクロ宣言後の最初の文字列から、行継続が途切れるまでを読む。
-    const char* cursor = ::strstr(source.Data(), "#define ATMO_COMMON_HLSL");
-    if (!cursor) return {};
-    cursor = ::strchr(cursor, '\n');
-    if (!cursor) return {};
-    ++cursor;
-    // 引用符と改行のエスケープを戻したHLSL本体。
-    FString result;
-    for (;;) {
-        while (*cursor == ' ' || *cursor == '\t') ++cursor;
-        if (*cursor++ != '"') return {};
-        while (*cursor && *cursor != '"') {
-            // 現在の1文字。C++文字列の改行などだけを復元する。
-            char value = *cursor++;
-            if (value == '\\') {
-                value = *cursor++;
-                if (value == 'n') value = '\n';
-                else if (value == 't') value = '\t';
-                else if (value != '\\' && value != '"') return {};
-            }
-            result.Append(value);
-        }
-        if (*cursor++ != '"') return {};
-        while (*cursor == ' ' || *cursor == '\t') ++cursor;
-        if (*cursor != '\\') return result;
-        ++cursor;
-        if (*cursor == '\r') ++cursor;
-        if (*cursor++ != '\n') return {};
-    }
+    return ReadAtmosphereCommonShader_Internal(ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp"));
+}
+
+// 製品CSTransの入力生成2行だけをテクスチャ読みに替える。一致が一つでなければ失敗する。
+static FString BuildAtmosphereTransmittanceProbe_Internal(const FString& source)
+{
+    // 一度読んだ製品ソースを共有し、途中の変更で共通部と入口を混在させない。
+    FString result = ReadAtmosphereCommonShader_Internal(source);
+    // 共通部に続く製品入口の全体。
+    const FString body = RestoreAtmosphereShaderSource_Internal(source, true);
+    if (result.Size() == 0u || body.Size() == 0u) return {};
+    // 境界や積分には触れず、製品入口のUV生成とr,muへの変換だけを置換する。
+    constexpr const char* input = "  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n  float r,mu; TransUvToParams(uv,r,mu);\n";
+    // 唯一の入力生成位置。欠落と重複は追従せず試験失敗にする。
+    const char* begin = ::strstr(body.Data(), input);
+    if (!begin || ::strstr(begin + ::strlen(input), input)) return {};
+    result.Append("// 試験で指定する半径kmと天頂角の余弦。画素ごとに製品の光路を評価する。\nTexture2D<float4> transProbeInput : register(t0);\n");
+    result.Append(FStringView(body.Data(), static_cast<usize>(begin - body.Data())));
+    result.Append("  float2 uv=transProbeInput.Load(int3(id.xy,0)).xy;\n  float r=uv.x,mu=uv.y;\n");
+    result.Append(begin + ::strlen(input));
+    return result;
 }
 
 // 鉛直光路のオゾン積分を、三角形の面積から求める。入力はkm。
@@ -148,6 +301,246 @@ static f64 ReferenceVerticalExactTransmittance_Internal(f64 height, f64 distance
     const f64 mieLength = -1.2*::exp(-height/1.2)*::expm1(-distance/1.2);
     const f64 ozoneLength = ReferenceOzonePrimitive_Internal(height+distance)-ReferenceOzonePrimitive_Internal(height);
     return ::exp(-rayleigh[channel]*rayleighLength-0.0044*mieLength-ozone[channel]*ozoneLength);
+}
+
+// 復元処理がコメント内の偽宣言や途中まで読めた式を採用しないことを、GPU試験とは別に検査する。
+ACS_TEST(Atmosphere, TransmittanceShaderRecoveryRequiresCompleteLiterals)
+{
+    // CRLFの行継続、連結間コメント、文字列内のコメント記号と引用符を含む有効な定義。
+    const FString source("/* const char* kTransCS = BAD; */\n#define ATMO_COMMON_HLSL \\\r\n\"common\\n\" /* gap */ \\\r\n\"// kept\\n\"\r\nconst /* gap */ char * kTransCS = ATMO_COMMON_HLSL\n\"body\\t\\r\\\\\\\"\" // gap\n\"tail\";\n");
+    EXPECT_TRUE(ReadAtmosphereCommonShader_Internal(source) == FStringView("common\n// kept\n"));
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(source, true) == FStringView("body\t\r\\\"tail"));
+    // 別の生文字列内にある条件分岐や偽定義は、有効な製品宣言へ影響させない。
+    FString withOtherShader(source);
+    withOtherShader.Append("const char* other = R\"tag(\n#if 0\n#define ATMO_COMMON_HLSL BAD\nconst char* kTransCS = BAD;\n#endif\n)tag\";\n");
+    EXPECT_TRUE(ReadAtmosphereCommonShader_Internal(withOtherShader) == FStringView("common\n// kept\n"));
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(withOtherShader, true) == FStringView("body\t\r\\\"tail"));
+    // 各不正な入口には同じ有効な共通部を付ける。未終端、式、別マクロ、接頭辞、重複を拒否する。
+    constexpr const char* invalidBodies[] = {"const char* kTransCS = ATMO_COMMON_HLSL \"body\"", "const char* kTransCS = ATMO_COMMON_HLSL \"body\" + \"tail\";", "const char* kTransCS = OTHER_MACRO \"body\";", "const char* kTransCS = ATMO_COMMON_HLSL \"body\" OTHER_MACRO;", "const char* kTransCS = ATMO_COMMON_HLSL \"\\x41\";", "const char* kTransCS = ATMO_COMMON_HLSL \"\\0\";", "const char* kTransCS = ATMO_COMMON_HLSL \"\\q\";", "const char* kTransCS = ATMO_COMMON_HLSL L\"body\";", "const char* kTransCS = ATMO_COMMON_HLSL R\"(body)\";", "const char* kTransCS = ATMO_COMMON_HLSL \"body\" /* missing", "const char* kTransCS = ATMO_COMMON_HLSL \"missing;", "const char* kTransCS = ATMO_COMMON_HLSL \"body\"; const char* kTransCS = ATMO_COMMON_HLSL \"other\";", "/* const char* kTransCS = ATMO_COMMON_HLSL \"body\"; */", "const char* other = R\"tag(const char* kTransCS = ATMO_COMMON_HLSL \"body\";)tag\";", "#if 0\nconst char* kTransCS = ATMO_COMMON_HLSL \"body\";\n#endif\n"};
+    // 拒否すべき入力番号を記録し、復元の失敗とGPU上の数値失敗を区別する。
+    for (u32 sample = 0u; sample < sizeof(invalidBodies) / sizeof(invalidBodies[0]); ++sample) {
+        // ファイルを生成せず、メモリ上で復元対象だけを組み立てる。
+        FString invalid("#define ATMO_COMMON_HLSL \"common\\n\"\n");
+        invalid.Append(invalidBodies[sample]);
+        test::RecordInfo(FSourceLoc::Current(), "trans_literal_invalid case=%u", sample);
+        EXPECT_EQ(RestoreAtmosphereShaderSource_Internal(invalid, true).Size(), 0u);
+    }
+    EXPECT_EQ(ReadAtmosphereCommonShader_Internal(FString("#define ATMO_COMMON_HLSL \"common\" + \"other\"\n")).Size(), 0u);
+    EXPECT_EQ(ReadAtmosphereCommonShader_Internal(FString("#define ATMO_COMMON_HLSL \"\\u0041\"\n")).Size(), 0u);
+    EXPECT_EQ(ReadAtmosphereCommonShader_Internal(FString("#define ATMO_COMMON_HLSL \"a\"\n#define ATMO_COMMON_HLSL \"b\"\n")).Size(), 0u);
+    EXPECT_EQ(ReadAtmosphereCommonShader_Internal(FString("#define ATMO_COMMON_HLSL \"a\"\n#undef ATMO_COMMON_HLSL\n")).Size(), 0u);
+    // 行末コメントの継続先はC++でもコメント内なので、見かけ上の宣言を採用しない。
+    EXPECT_EQ(RestoreAtmosphereShaderSource_Internal(FString("#define ATMO_COMMON_HLSL \"a\"\n// hidden \\\nconst char* kTransCS = ATMO_COMMON_HLSL \"b\";\n"), true).Size(), 0u);
+}
+
+// 現在の製品ファイルでも共通媒質試験とCSTrans試験の両方が復元できることをCPUだけで確認する。
+ACS_TEST(Atmosphere, TransmittanceShaderRecoveryReadsCurrentProduct)
+{
+    // 製品の同一スナップショット。GPUも一時ファイルも使わない。
+    const FString source = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    // 既存媒質試験と同じ共通部。
+    const FString common = ReadAtmosphereCommonShader_Internal(source);
+    // 完全な入口本体。
+    const FString body = RestoreAtmosphereShaderSource_Internal(source, true);
+    // 入力2行が一意に存在するときだけ生成できる実行用シェーダー。
+    const FString probe = BuildAtmosphereTransmittanceProbe_Internal(source);
+    EXPECT_TRUE(source.Size() > 0u);
+    EXPECT_TRUE(common.Size() > 0u);
+    EXPECT_TRUE(body.Size() > 0u);
+    EXPECT_TRUE(probe.Size() > common.Size());
+    if (probe.Size() > common.Size()) EXPECT_EQ(::memcmp(probe.Data(), common.Data(), common.Size()), 0);
+    test::RecordInfo(FSourceLoc::Current(), "trans_literal_current source_bytes=%zu common_bytes=%zu body_bytes=%zu probe_bytes=%zu", source.Size(), common.Size(), body.Size(), probe.Size());
+}
+
+// 製品の交差・遮蔽・40点積分を実行する。GPU未利用、未書込、全画素の境界違反を失敗にする。
+ACS_TEST(Atmosphere, ActualTransmittanceLutGpuKeepsBoundaryAndVerticalIntegral)
+{
+    // 一回の読み取りから製品の共通部とCSTransを復元する。
+    const FString product = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    // 製品の入力生成2行だけを差し替えた実行用ソース。
+    const FString source = BuildAtmosphereTransmittanceProbe_Internal(product);
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    // 境界で要求する値の種類。製品の交差式や中点積分を期待値へ複製しない。
+    enum class ETransmissionExpectation {
+        // 空気へ入らない上端の光路は厳密に1。
+        Unit,
+        // 地表に遮られない有限の接線光路は、消散を受けて0より大きく1より小さい。
+        Positive,
+        // 惑星内部を通る光路は厳密に0。
+        Zero,
+        // 鉛直の指数密度とオゾンを独立解析積分で照合する。
+        Vertical,
+        // 上端直下の最短光路は1の近傍。
+        NearUnit
+    };
+    // 一画素へ与える物理入力と、その入力から独立に決まる判定方法。
+    struct FTransmissionCase {
+        // 失敗した境界を特定する記録名。
+        const char* name;
+        // 惑星中心からの半径km。
+        f32 radius;
+        // 外向き鉛直方向に対する余弦。
+        f32 cosine;
+        // 比較すべき物理的な値の種類。
+        ETransmissionExpectation expectation;
+    };
+    // 隣接floatの差は2^-11 km。ground+ULPでも局所水平(mu=0)の正の透過を保つ。
+    const FTransmissionCase cases[] = {{"top_up", 6460.0f, 1.0f, ETransmissionExpectation::Unit}, {"top_half", 6460.0f, 0.5f, ETransmissionExpectation::Unit}, {"top_tangent", 6460.0f, 0.0f, ETransmissionExpectation::Unit}, {"ground_tangent", 6360.0f, 0.0f, ETransmissionExpectation::Positive}, {"ground_up_epsilon", 6360.0f, 1.0e-4f, ETransmissionExpectation::Positive}, {"ground_plus_ulp_tangent", ProbeFloatFromBits_Internal(0x45c6c001u), 0.0f, ETransmissionExpectation::Positive}, {"ground_down", 6360.0f, -1.0f, ETransmissionExpectation::Zero}, {"ground_down_epsilon", 6360.0f, -1.0e-4f, ETransmissionExpectation::Zero}, {"top_down", 6460.0f, -1.0f, ETransmissionExpectation::Zero}, {"vertical_0km", 6360.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_25km", 6385.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_50km", 6410.0f, 1.0f, ETransmissionExpectation::Vertical}, {"top_minus_ulp_up", ProbeFloatFromBits_Internal(0x45c9dfffu), 1.0f, ETransmissionExpectation::NearUnit}};
+    // 製品の入口寸法とスレッド寸法を維持し、13条件を各行に繰り返す。
+    constexpr u32 width = 256u;
+    // 製品と同じ出力行数。
+    constexpr u32 height = 64u;
+    // 一行内で繰り返す境界条件数。
+    constexpr u32 caseCount = sizeof(cases) / sizeof(cases[0]);
+    // 全画素のRGBA成分数。
+    constexpr u32 componentCount = width * height * 4u;
+    // 初期転送と読戻しに必要なバイト数。
+    constexpr u32 byteCount = componentCount * sizeof(f32);
+    // 全画素へ対応する実行時入力。定数畳み込みで境界計算が消えることを防ぐ。
+    TArray<FVec4> inputs;
+    inputs.SetNum(width * height);
+    // 出力資源とCPU読戻し先の両方へ入れる未書込の印。
+    const f32 nan = ProbeFloatFromBits_Internal(0x7fc00000u);
+    // 各形式へ同じ未書込の印を渡す初期画像。
+    TArray<f32> unwritten;
+    unwritten.SetNum(componentCount);
+    // SM6の照合が終わるまで保持するSM5.1の全画素。
+    TArray<f32> defaultValues;
+    defaultValues.SetNum(componentCount);
+    // 積分の期待値は各条件・色につき一度だけ独立に計算する。
+    f64 expected[caseCount][3]{};
+    for (u32 sample = 0u; sample < caseCount; ++sample) {
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            expected[sample][channel] = cases[sample].expectation == ETransmissionExpectation::Unit || cases[sample].expectation == ETransmissionExpectation::NearUnit ? 1.0 : (cases[sample].expectation == ETransmissionExpectation::Vertical ? ReferenceVerticalExactTransmittance_Internal(static_cast<f64>(cases[sample].radius) - 6360.0, 6460.0 - static_cast<f64>(cases[sample].radius), channel) : 0.0);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected[sample][channel]));
+        }
+    }
+    for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+        // 横方向だけで条件を割り当て、全行が同じ境界群を通る。
+        const FTransmissionCase& input = cases[(pixel % width) % caseCount];
+        inputs[pixel] = FVec4{input.radius, input.cosine, 0.0f, 0.0f};
+    }
+    for (u32 component = 0u; component < componentCount; ++component) unwritten[component] = nan;
+    // GPUが利用できない環境を未実行の成功にはしない。
+    FDeviceConfig configuration{};
+    // 試験のGPU資源を所有するデバイスの作成結果。
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    test::RecordInfo(FSourceLoc::Current(), "trans_lut_gpu backend=%s adapter=%s dimensions=%ux%u cases=%u", device.Value()->BackendName(), device.Value()->AdapterName(), width, height, caseCount);
+    // 整数座標のLoadで入力の丸め・補間を増やさない32ビット画像。
+    FTextureDesc inputDescription{};
+    inputDescription.width = width;
+    inputDescription.height = height;
+    inputDescription.format = EFormat::R32G32B32A32_Float;
+    inputDescription.initial_data = inputs.GetData();
+    inputDescription.initial_data_size = inputs.Num() * sizeof(FVec4);
+    // 境界入力を全形式で共有する画像。
+    auto inputTexture = CreateRhiTexture(*device.Value(), inputDescription);
+    EXPECT_TRUE(inputTexture.IsOk());
+    if (inputTexture.IsErr()) return;
+    // 各形式を直列に提出し、読戻しまで資源を生存させる命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+#if !WITH_RENDER_DILIGENT
+    // RawDX12では製品既定のSM5.1に加え、同じケースをSM6でも実行する。
+    constexpr u32 variantCount = 2u;
+#else
+    // Diligentは製品と同じ既定SM5.1を必須とする。
+    constexpr u32 variantCount = 1u;
+#endif
+    for (u32 variant = 0u; variant < variantCount; ++variant) {
+        // 先頭はtargetを未指定のままにし、製品kTransCSと同じ既定SM5.1の経路を使う。
+        FShaderDesc shaderDescription{};
+        shaderDescription.stage = EShaderStage::Compute;
+        shaderDescription.hlsl_source = source.Data();
+        shaderDescription.entry_point = "CSTrans";
+        shaderDescription.debug_name = "Atmo.TransBoundaryProbe";
+        if (variant != 0u) shaderDescription.target = "cs_6_0";
+        // 記録には未指定の意味も明記する。
+        const char* targetName = variant == 0u ? "default_cs_5_1" : "cs_6_0";
+        test::RecordInfo(FSourceLoc::Current(), "trans_lut_compile target=%s", targetName);
+        // コンパイル失敗も境界試験の失敗として記録する。
+        auto shader = CreateRhiShader(*device.Value(), shaderDescription);
+        EXPECT_TRUE(shader.IsOk());
+        if (shader.IsErr()) return;
+        // 製品の出力u0を維持し、試験入力t0だけを追加する。
+        FComputePipelineDesc pipelineDescription{};
+        pipelineDescription.cs = shader.Value().Get();
+        pipelineDescription.srv_slots = 1u;
+        pipelineDescription.srv_names[0] = "transProbeInput";
+        pipelineDescription.uav_slots = 1u;
+        pipelineDescription.uav_names[0] = "transOut";
+        // 名前による結合も使い、既存の両描画基盤で同じ入出力を指定する。
+        auto pipeline = CreateRhiComputePipeline(*device.Value(), pipelineDescription);
+        EXPECT_TRUE(pipeline.IsOk());
+        if (pipeline.IsErr()) return;
+        // 形式ごとに新しいNaN画像を作り、前の実行結果で未書込を隠さない。
+        FTextureDesc outputDescription{};
+        outputDescription.width = width;
+        outputDescription.height = height;
+        outputDescription.format = EFormat::R32G32B32A32_Float;
+        outputDescription.is_uav = true;
+        outputDescription.initial_data = unwritten.GetData();
+        outputDescription.initial_data_size = byteCount;
+        // この形式だけが書き込む新しい出力先。
+        auto outputTexture = CreateRhiTexture(*device.Value(), outputDescription);
+        EXPECT_TRUE(outputTexture.IsOk());
+        if (outputTexture.IsErr()) return;
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetTexture(0u, *inputTexture.Value());
+        command.Value()->BindUav(0u, *outputTexture.Value());
+        command.Value()->Dispatch(width / 8u, height / 8u, 1u);
+        command.Value()->End();
+        // 提出と完了を経ない出力を数値判定へ渡さない。
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        // 読戻しが一部しか書かなかった場合にもNaNが残る。
+        TArray<f32> values;
+        values.SetNum(componentCount);
+        ::memcpy(values.GetData(), unwritten.GetData(), byteCount);
+        // GPU完了後の全画素を取得できたか。
+        const bool read = device.Value()->ReadTexture(*outputTexture.Value(), values.GetData(), byteCount);
+        EXPECT_TRUE(read);
+        if (!read) return;
+        // 全画素を判定し、失敗件数は条件ごとにまとめてRed時の記録量を抑える。
+        u32 failures[caseCount]{};
+        for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+            // この画素の入力条件。
+            const u32 sample = (pixel % width) % caseCount;
+            // この画素のRGBAの先頭。
+            const u32 offset = pixel * 4u;
+            // 上位bitは形式間比較、下位bitは有限性・アルファ・物理的な期待値の違反。
+            u32 violations = !IsFiniteProbeValue_Internal(values[offset + 3u]) || values[offset + 3u] != 1.0f ? 1u : 0u;
+            for (u32 channel = 0u; channel < 3u; ++channel) {
+                // RGBの有限性と[0,1]は、全条件で例外なく要求する。
+                const f64 value = values[offset + channel];
+                // 基本的な値域と、条件ごとの物理比較の両方を満たすか。
+                bool valid = IsFiniteProbeValue_Internal(value) && value >= 0.0 && value <= 1.0;
+                switch (cases[sample].expectation) {
+                case ETransmissionExpectation::Positive: valid = valid && value > 0.0 && value < 1.0; break;
+                case ETransmissionExpectation::Vertical: valid = valid && ::fabs(value - expected[sample][channel]) <= 0.003; break;
+                case ETransmissionExpectation::NearUnit: valid = valid && ::fabs(value - 1.0) <= 1.0e-6; break;
+                default: valid = valid && value == expected[sample][channel]; break;
+                }
+                if (!valid) violations |= 2u << channel;
+                // 独立期待値への合否に加え、形式変更だけによる差も全画素で検査する。
+                if (variant != 0u && !(IsFiniteProbeValue_Internal(defaultValues[offset + channel]) && ::fabs(value - defaultValues[offset + channel]) <= 1.0e-5)) violations |= 16u << channel;
+            }
+            if (pixel < caseCount || (violations != 0u && failures[sample] == 0u)) test::RecordInfo(FSourceLoc::Current(), "trans_lut_pixel target=%s case=%u name=%s xy=(%u,%u) r=%.9g mu=%.9g rgba=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g) violations=%u", targetName, sample, cases[sample].name, pixel % width, pixel / width, cases[sample].radius, cases[sample].cosine, values[offset], values[offset + 1u], values[offset + 2u], values[offset + 3u], expected[sample][0], expected[sample][1], expected[sample][2], violations);
+            if (violations != 0u) ++failures[sample];
+        }
+        for (u32 sample = 0u; sample < caseCount; ++sample) {
+            test::RecordInfo(FSourceLoc::Current(), "trans_lut_result target=%s case=%u name=%s failed_pixels=%u", targetName, sample, cases[sample].name, failures[sample]);
+            EXPECT_EQ(failures[sample], 0u);
+        }
+        if (variant == 0u) ::memcpy(defaultValues.GetData(), values.GetData(), byteCount);
+    }
 }
 
 // 太陽と視線が同じ鉛直方向の場合の単散乱を解析積分する。入射量1、距離km、円盤と地表反射なし。
