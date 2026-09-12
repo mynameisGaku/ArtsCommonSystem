@@ -1566,17 +1566,14 @@ ACS_TEST(Atmosphere, SkyScatteringDoesNotIlluminateThroughTheGround) {
     EXPECT_NEAR(ground.z, 0.0f, 0.0f);
 }
 
-ACS_TEST(Atmosphere, RawSkyScatteringRejectsGroundOccludedSunPath) {
+// 共有判定への接続だけを検査する。数値の遮蔽はsky_ground_render_testsの実GPU試験で確認する。
+ACS_TEST(Atmosphere, RawSkyScatteringBindsSharedFiniteGroundVisibility) {
     const std::string source = ReadSkySource();
     const std::string shader = ExtractRawShader(source, "const char* kSkyHLSL");
     const std::string editorSource = ReadEditorAbiSource();
     EXPECT_TRUE(!shader.empty());
-    EXPECT_TRUE(Contains(
-        shader,
-        "PhysicalRaySphereNear(\n"
-        "        origin, direction, kPhysicalGroundRadiusKm)"));
-    EXPECT_TRUE(Contains(shader, "ground_distance >= 0.0 && ground_distance < distance"));
-    EXPECT_TRUE(Contains(shader, "return float3(0.0, 0.0, 0.0);"));
+    EXPECT_TRUE(Contains(shader, "if (PhysicalGroundBlocksSegment(origin,direction,distance))"));
+    EXPECT_TRUE(Contains(shader, "PhysicalGroundBlocksSegment(origin,view_direction,top_distance)"));
     EXPECT_TRUE(Contains(editorSource, "h.sky3d.RenderPhysicalAtmosphere("));
 }
 

@@ -245,13 +245,13 @@ precise float2 PhysicalCompensatedProduct(float left, float right) {
     return float2(value, remainder);
 }
 
-// 上下位で保持した値を加算する。下位桁の加算にも単精度の丸めは残る。
+// 上下位の和を近似する。符号の厳密保証には使わず、丸め誤差が残ることを前提にする。
 precise float2 PhysicalCompensatedPairSum(float2 left, float2 right) {
     // 上位同士の和と、その丸め誤差。
     precise float2 principal = PhysicalCompensatedSum(left.x, right.x);
     // 上位の誤差と、入力が保持していた下位成分。
     precise float remainder = principal.y + (left.y + right.y);
-    // 大きい主値へ下位桁を戻す再正規化を挟まず、二項の和として保持する。
+    // 再正規化時の残差を捨てる演算を増やさず、二項として保持する。
     return float2(principal.x, remainder);
 }
 
@@ -279,10 +279,231 @@ precise float PhysicalPolarDiscriminant(float altitude, float3 direction, float 
     return discriminant.x + discriminant.y;
 }
 
-// 球外または球面上から内向きに入る交点を求める。接触だけの外向き視線は遮らない。
-float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
-    // 視線の単位長を仮定せず、球方程式の二次係数を保持する。
-    precise float a = dot(direction, direction);
+// 積を作る段階から下位桁を保持した3成分の内積。相殺後は主値と残りを再正規化する。
+precise float2 PhysicalCompensatedDot(float3 left, float3 right) {
+    // 各成分の積における丸めも保持する。
+    precise float2 result = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(left.x,right.x),PhysicalCompensatedProduct(left.y,right.y));
+    result = PhysicalCompensatedPairSum(result,PhysicalCompensatedProduct(left.z,right.z));
+    // 最終の再正規化も、順序を保持する値へ明示的に格納する。
+    precise float2 normalized = PhysicalCompensatedSum(result.x,result.y);
+    return normalized;
+}
+
+// 一般位置の球面二次式を、微小高度を惑星半径へ加算する前の成分から生成する。
+void PhysicalCompensatedRayCoefficients(float3 origin, float3 direction, float radius, out precise float2 a, out precise float2 b, out precise float2 c) {
+    // 方向の二乗長。厳密な単位長は要求しない。
+    a = PhysicalCompensatedDot(direction,direction);
+    // 地球中心への射影を、地表相対位置と惑星半径の寄与に分ける。
+    b = PhysicalCompensatedPairSum(PhysicalCompensatedDot(origin,direction),PhysicalCompensatedProduct(kPhysicalGroundRadiusKm,direction.y));
+    b = PhysicalCompensatedSum(b.x,b.y);
+    // 球面からの二乗差。差の小さい結果へ丸め済みのdotを再利用しない。
+    c = PhysicalCompensatedPairSum(PhysicalCompensatedDot(origin,origin),PhysicalCompensatedProduct(2.0*kPhysicalGroundRadiusKm,origin.y));
+    c = PhysicalCompensatedPairSum(c,PhysicalCompensatedProduct(kPhysicalGroundRadiusKm-radius,kPhysicalGroundRadiusKm+radius));
+    c = PhysicalCompensatedSum(c.x,c.y);
+}
+
+// 補償済みの係数から判別式を求める。相殺後の小さい主値も下位側だけへ置き去りにしない。
+precise float PhysicalCompensatedDiscriminant(float2 a, float2 b, float2 c) {
+    // 最後の差まで、係数の積で失われる桁を保持する。
+    precise float2 result = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(b,b),-PhysicalCompensatedPairProduct(a,c));
+    return result.x+result.y;
+}
+
+// 32bit同士の積を上下位へ分ける。Shader Model 5で64bit整数型を要求しない。
+uint2 PhysicalWideUnsignedProduct(uint left, uint right) {
+    // 16bit積なら最大値同士でもuintへ収まる。
+    uint low_product = (left & 65535u)*(right & 65535u);
+    uint middle = (left >> 16u)*(right & 65535u)+(low_product >> 16u);
+    uint high_product = (left >> 16u)*(right >> 16u)+(middle >> 16u);
+    middle = (left & 65535u)*(right >> 16u)+(middle & 65535u);
+    return uint2((middle << 16u)|(low_product & 65535u),high_product+(middle >> 16u));
+}
+
+// 地表二次式の指定量を整数で厳密に評価する。0:c、1:b、2:D、3:F(L)、4:aL+b。
+float2 PhysicalExactGroundPolynomial(float3 origin, float3 direction, float distance, uint quantity) {
+    // float成分の動的選択が内積へ変換されると非正規数を失うため、選択前に元のbitへ移す。
+    uint3 origin_bits = asuint(origin);
+    uint3 direction_bits = asuint(direction);
+    uint distance_bits = asuint(distance);
+    uint radius_bits = asuint(kPhysicalGroundRadiusKm);
+    uint one_bits = asuint(1.0);
+    // 四つの有限floatの積を最大22項足しても符号込み1114bit以内。2^-596を単位とする1120bit。
+    uint accumulator[35];
+    [unroll]
+    for (uint initial_index = 0u; initial_index < 35u; ++initial_index) accumulator[initial_index] = 0u;
+    // 項を順に渡して同じ整数乗算器を共有し、シェーダーの命令列を項数倍に複製しない。
+    uint count = quantity == 2u ? 14u : (quantity == 3u ? 11u : (quantity == 4u ? 7u : 4u));
+    [loop]
+    [fastopt]
+    for (uint term = 0u; term < count; ++term) {
+        uint4 bits = uint4(one_bits,one_bits,one_bits,one_bits);
+        bool negative = false;
+        uint twice = 0u;
+        if (quantity == 2u) {
+            // Dは係数を丸めて掛けず、相殺済みの14単項式へ直接展開する。
+            if (term == 0u) bits = uint4(radius_bits,radius_bits,direction_bits.y,direction_bits.y);
+            else if (term <= 6u) {
+                uint axis = (term-1u)/2u;
+                uint other = (axis+1u+(term-1u)%2u)%3u;
+                bits = uint4(origin_bits[axis],origin_bits[axis],direction_bits[other],direction_bits[other]);
+                negative = true;
+            } else if (term <= 9u) {
+                uint axis = term == 9u ? 1u : 0u;
+                uint other = term == 7u ? 1u : 2u;
+                bits = uint4(origin_bits[axis],origin_bits[other],direction_bits[axis],direction_bits[other]);
+                twice = 1u;
+            } else {
+                uint axis = (term & 1u) == 0u ? 0u : 2u;
+                negative = term < 12u;
+                bits = negative ? uint4(radius_bits,origin_bits.y,direction_bits[axis],direction_bits[axis]) : uint4(radius_bits,origin_bits[axis],direction_bits[axis],direction_bits.y);
+                twice = 1u;
+            }
+        } else if (quantity == 0u || quantity == 3u) {
+            if (term < 3u) bits = uint4(origin_bits[term],origin_bits[term],one_bits,one_bits);
+            else if (term == 3u) {
+                bits = uint4(radius_bits,origin_bits.y,one_bits,one_bits);
+                twice = 1u;
+            } else if (term < 7u) {
+                bits = uint4(origin_bits[term-4u],direction_bits[term-4u],distance_bits,one_bits);
+                twice = 1u;
+            } else if (term == 7u) {
+                bits = uint4(radius_bits,direction_bits.y,distance_bits,one_bits);
+                twice = 1u;
+            } else bits = uint4(direction_bits[term-8u],direction_bits[term-8u],distance_bits,distance_bits);
+        } else {
+            if (term < 3u) bits = uint4(origin_bits[term],direction_bits[term],one_bits,one_bits);
+            else if (term == 3u) bits = uint4(radius_bits,direction_bits.y,one_bits,one_bits);
+            else bits = uint4(direction_bits[term-4u],direction_bits[term-4u],distance_bits,one_bits);
+        }
+        // 配列をinout関数へ渡すとFXCが一時配列を複製するため、この所有場所で積と加算を完結する。
+        uint4 magnitudes = bits & 0x7fffffffu;
+        if (any(magnitudes == 0u)) continue;
+        // 最大96bitの仮数積。数値演算前の指数を読むため、非正規数も失わない。
+        uint4 product = uint4(1u,0u,0u,0u);
+        int power = 596+(int)twice;
+        [unroll]
+        for (uint factor = 0u; factor < 4u; ++factor) {
+            uint exponent = magnitudes[factor] >> 23u;
+            uint significand = (magnitudes[factor] & 0x7fffffu)|(exponent != 0u ? 0x800000u : 0u);
+            power += exponent != 0u ? (int)exponent-150 : -149;
+            negative = negative != ((bits[factor] & 0x80000000u) != 0u);
+            // 一因子を掛ける間だけ保持する繰上がり。
+            uint carry = 0u;
+            [unroll]
+            for (uint product_limb = 0u; product_limb < 4u; ++product_limb) {
+                uint2 multiplied = PhysicalWideUnsignedProduct(product[product_limb],significand);
+                uint low_value = multiplied.x+carry;
+                carry = multiplied.y+(low_value < multiplied.x ? 1u : 0u);
+                product[product_limb] = low_value;
+            }
+        }
+        // 共通の指数へ桁を合わせる。最後の5番目はシフトではみ出した桁だけを扱う。
+        uint word_index = (uint)power >> 5u;
+        uint shift = (uint)power & 31u;
+        uint pending = 0u;
+        [unroll]
+        for (uint shifted_limb = 0u; shifted_limb < 5u; ++shifted_limb) {
+            uint value = pending;
+            if (shifted_limb < 4u) {
+                value |= product[shifted_limb] << shift;
+                pending = shift == 0u ? 0u : product[shifted_limb] >> (32u-shift);
+            }
+            // 項の上端を越える繰上がり・借りも、消えるまで伝える。
+            [loop]
+            [fastopt]
+            for (uint destination = word_index+shifted_limb; destination < 35u; ++destination) {
+                if (value == 0u) break;
+                uint previous = accumulator[destination];
+                uint updated = negative ? previous-value : previous+value;
+                accumulator[destination] = updated;
+                value = negative ? (previous < value ? 1u : 0u) : (updated < previous ? 1u : 0u);
+            }
+        }
+    }
+    // 配列を別関数へ複製せず、厳密な符号と位置計算用の近似値をこの所有場所で返す。
+    bool negative = (accumulator[34] & 0x80000000u) != 0u;
+    // 負数だけ二の補数を戻す。最上位の非零桁と、その直下を保存する。
+    uint carry = negative ? 1u : 0u;
+    uint highest = 0u;
+    uint highest_word = 0u;
+    uint next_word = 0u;
+    uint previous_word = 0u;
+    [loop]
+    [fastopt]
+    for (uint result_index = 0u; result_index < 35u; ++result_index) {
+        uint word = negative ? ~accumulator[result_index] : accumulator[result_index];
+        uint magnitude = word+carry;
+        carry = magnitude < word ? 1u : 0u;
+        if (magnitude != 0u) {
+            highest = result_index;
+            highest_word = magnitude;
+            next_word = previous_word;
+        }
+        previous_word = magnitude;
+    }
+    if (highest_word == 0u) return float2(0.0,0.0);
+    // 指数だけを掛けて途中で極小値へ丸めないよう、仮数を1以上2以下へ整える。
+    int leading = firstbithigh(highest_word);
+    int exponent = (int)highest*32-596+leading;
+    float significand = ((float)highest_word+(float)next_word*(1.0/4294967296.0))*asfloat((uint)(127-leading) << 23u);
+    float magnitude_value = exponent < -126 ? 0.0 : (exponent > 127 ? asfloat(0x7f800000u) : significand*asfloat((uint)(exponent+127) << 23u));
+    return float2(negative ? -magnitude_value : magnitude_value,negative ? -1.0 : 1.0);
+}
+
+// 軽い判定は零または2^-16以上2^16以下の入力に限定し、途中の範囲超過・極小値を避ける。
+bool PhysicalFastPredicateInput(float value) {
+    uint magnitude = asuint(value) & 0x7fffffffu;
+    return magnitude == 0u || (magnitude >= 0x37800000u && magnitude <= 0x47800000u);
+}
+
+// 非有限の位置・方向・距離を、整数多項式へ渡す前に拒否する。
+bool PhysicalFiniteRayInput(float3 origin, float3 direction, float distance) {
+    return all((asuint(origin) & 0x7f800000u) != 0x7f800000u) && all((asuint(direction) & 0x7f800000u) != 0x7f800000u) && (asuint(distance) & 0x7f800000u) != 0x7f800000u;
+}
+
+// 非正規数も正の長さとして残す。float比較で極小値を0へ落とさない。
+bool PhysicalPositiveRayLength(float distance) {
+    uint bits = asuint(distance);
+    return (bits & 0x80000000u) == 0u && (bits & 0x7fffffffu) != 0u;
+}
+
+// 丸め誤差で符号が変わり得る場合だけ厳密計算へ進む。誤差帯を接触扱いするしきい値ではない。
+float2 PhysicalGroundPolynomial(float3 origin, float3 direction, float distance, uint quantity) {
+    bool fast_input = PhysicalFastPredicateInput(distance);
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis) fast_input = fast_input && PhysicalFastPredicateInput(origin[axis]) && PhysicalFastPredicateInput(direction[axis]);
+    [branch]
+    if (fast_input) {
+        precise float a = dot(direction,direction);
+        precise float b = dot(origin,direction)+kPhysicalGroundRadiusKm*direction.y;
+        precise float c = dot(origin,origin)+2.0*kPhysicalGroundRadiusKm*origin.y;
+        // 係数自体の相殺も含めた、入力単項式の絶対値の和。
+        precise float a_magnitude = dot(abs(direction),abs(direction));
+        precise float b_magnitude = dot(abs(origin),abs(direction))+kPhysicalGroundRadiusKm*abs(direction.y);
+        precise float c_magnitude = dot(origin,origin)+2.0*kPhysicalGroundRadiusKm*abs(origin.y);
+        precise float value = quantity == 0u ? c : b;
+        precise float magnitude = quantity == 0u ? c_magnitude : b_magnitude;
+        if (quantity == 2u) {
+            value = b*b-a*c;
+            magnitude = b_magnitude*b_magnitude+a_magnitude*c_magnitude;
+        } else if (quantity == 3u) {
+            value = (a*distance+2.0*b)*distance+c;
+            magnitude = (a_magnitude*abs(distance)+2.0*b_magnitude)*abs(distance)+c_magnitude;
+        } else if (quantity == 4u) {
+            value = a*distance+b;
+            magnitude = a_magnitude*abs(distance)+b_magnitude;
+        }
+        // 演算列と絶対値和の丸めを含めて余裕を取るγ64。物理量の調整係数ではない。
+        const float roundoff = 1.0/16777216.0;
+        const float error_factor = (64.0*roundoff)/(1.0-64.0*roundoff);
+        precise float error_bound = magnitude*error_factor;
+        if (abs(value) > error_bound) return float2(value,value < 0.0 ? -1.0 : 1.0);
+    }
+    return PhysicalExactGroundPolynomial(origin,direction,distance,quantity);
+}
+
+// 北極上の視点からの近交点。既存の安定した専用式を維持する。
+float PhysicalPolarRaySphereNear(float3 origin, float3 direction, float radius) {
     // 内向きかどうかを、惑星中心からの内積の符号で判定する。
     precise float b = dot(origin, direction) + kPhysicalGroundRadiusKm * direction.y;
     if (b >= 0.0) return -1.0;
@@ -294,13 +515,59 @@ float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
         return origin.y/(-direction.y);
     }
     // 小さい根を差で作らず、根の積から求める。
-    precise float discriminant = b * b - a * c;
-    // 公開描画の視点は北極上。判別式の符号を許容差で変更せず、下位桁から再計算する。
-    if (origin.x == 0.0 && origin.z == 0.0) {
-        discriminant = PhysicalPolarDiscriminant(origin.y, direction, radius);
-    }
+    precise float discriminant = PhysicalPolarDiscriminant(origin.y,direction,radius);
     if (discriminant < 0.0) return -1.0;
     return c / (-b + sqrt(discriminant));
+}
+
+// 球外または球面上から内向きに入る交点を求める。接触だけの外向き視線は遮らない。
+float PhysicalRaySphereNear(float3 origin, float3 direction, float radius) {
+    if (!PhysicalFiniteRayInput(origin,direction,radius)) return -1.0;
+    if (origin.x == 0.0 && origin.z == 0.0) return PhysicalPolarRaySphereNear(origin,direction,radius);
+    if (radius == kPhysicalGroundRadiusKm) {
+        // 地表の符号は厳密判定を共有する。floatへ丸めた近交点を遮蔽判断には再利用しない。
+        float2 projection = PhysicalGroundPolynomial(origin,direction,1.0,1u);
+        if (projection.y >= 0.0) return -1.0;
+        float2 offset = PhysicalGroundPolynomial(origin,direction,1.0,0u);
+        if (offset.y <= 0.0) return 0.0;
+        float2 discriminant = PhysicalGroundPolynomial(origin,direction,1.0,2u);
+        if (discriminant.y < 0.0) return -1.0;
+        return offset.x/(-projection.x+sqrt(max(discriminant.x,0.0)));
+    }
+    // 一般位置では早期判定も、補償した係数の符号で行う。
+    precise float2 a;
+    precise float2 b;
+    precise float2 c;
+    PhysicalCompensatedRayCoefficients(origin,direction,radius,a,b,c);
+    // 交点位置に使う通常精度の係数。符号は補償した和を反映する。
+    precise float projection = b.x+b.y;
+    precise float offset = c.x+c.y;
+    if (projection >= 0.0) return -1.0;
+    if (offset <= 0.0) return 0.0;
+    // 近い根を平方根同士の減算で作らない。
+    precise float discriminant = PhysicalCompensatedDiscriminant(a,b,c);
+    if (discriminant < 0.0) return -1.0;
+    return offset/(-projection+sqrt(discriminant));
+}
+
+// 有限光路が地中を正の長さで通る場合だけ遮蔽する。点接触と近交点ちょうどの終端は遮らない。
+bool PhysicalGroundBlocksSegment(float3 origin, float3 direction, float distance) {
+    // 不正入力は非遮蔽とみなさず、透過の入口と同じ拒否規約にする。
+    if (!PhysicalFiniteRayInput(origin,direction,distance)) return true;
+    if (!PhysicalPositiveRayLength(distance)) return false;
+    // 方向の二乗が極小値へ丸まっても、零方向と混同しない。
+    if (all((asuint(direction) & 0x7fffffffu) == 0u)) return false;
+    // 北極地表の規約は符号bitだけで厳密に判定できる。
+    if (all((asuint(origin) & 0x7fffffffu) == 0u)) return (asuint(direction.y) & 0x80000000u) != 0u && (asuint(direction.y) & 0x7fffffffu) != 0u;
+    float offset_sign = PhysicalGroundPolynomial(origin,direction,distance,0u).y;
+    if (offset_sign < 0.0) return true;
+    float projection_sign = PhysicalGroundPolynomial(origin,direction,distance,1u).y;
+    if (offset_sign == 0.0) return projection_sign < 0.0;
+    if (projection_sign >= 0.0) return false;
+    if (PhysicalGroundPolynomial(origin,direction,distance,2u).y <= 0.0) return false;
+    // 最接近点を越えれば内部区間を通過済み。それより前は終点が地中にあるかで判定する。
+    if (PhysicalGroundPolynomial(origin,direction,distance,4u).y > 0.0) return true;
+    return PhysicalGroundPolynomial(origin,direction,distance,3u).y < 0.0;
 }
 
 void SamplePhysicalMedium(float altitude_km, out float3 rayleigh_density,
@@ -408,11 +675,11 @@ float3 PhysicalMonotonicOpticalDepth(float height, float nearest_distance, float
 }
 
 float3 PhysicalTransmittance(float3 origin, float3 direction, float distance) {
-    if (distance <= 0.0) return float3(1.0, 1.0, 1.0);
+    // 無限大やNaNは透過率0で拒否する。有限な零長・負長の恒等透過は維持する。
+    if (!PhysicalFiniteRayInput(origin,direction,distance)) return float3(0.0,0.0,0.0);
+    if (!PhysicalPositiveRayLength(distance)) return float3(1.0, 1.0, 1.0);
     // 太陽光線が地表球へ入る場合は、地球の内部を透過させず遮蔽する。
-    float ground_distance = PhysicalRaySphereNear(
-        origin, direction, kPhysicalGroundRadiusKm);
-    if (ground_distance >= 0.0 && ground_distance < distance)
+    if (PhysicalGroundBlocksSegment(origin,direction,distance))
         return float3(0.0, 0.0, 0.0);
     // 最接近点の位置を光路上で求める。単位長の丸めも距離へ反映する。
     float direction_length = length(direction);
@@ -457,7 +724,8 @@ float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
 
     float ground_distance = PhysicalRaySphereNear(
         origin, view_direction, kPhysicalGroundRadiusKm);
-    bool hits_ground = ground_distance >= 0.0 && ground_distance < top_distance;
+    // 視線も太陽光路と同じ規約で判定し、接点での分割だけで遮蔽が変わらないようにする。
+    bool hits_ground = ground_distance >= 0.0 && PhysicalGroundBlocksSegment(origin,view_direction,top_distance);
     float ray_distance = hits_ground ? ground_distance : top_distance;
     const int kViewSteps = 16;
     float step_length = ray_distance / float(kViewSteps);

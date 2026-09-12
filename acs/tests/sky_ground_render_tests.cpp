@@ -24,6 +24,15 @@ static bool IsFiniteProbeValue_Internal(f64 value)
     return (bits & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
 }
 
+// 検査用の極小値・無限大・NaNを、数値計算による丸めを挟まず構成する。
+static f32 ProbeFloatFromBits_Internal(u32 bits)
+{
+    // IEEE 754の表現をそのまま転記する。
+    f32 value = 0.0f;
+    ::memcpy(&value,&bits,sizeof(bits));
+    return value;
+}
+
 // 検査と同じソースツリーから指定したrender実装を読む。読取り不能なら空文字列を返す。
 static FString ReadRenderSource_Internal(const wchar_t* suffix)
 {
@@ -148,7 +157,7 @@ ACS_TEST(Atmosphere, CpuSunTransmittanceMatchesVerticalAnalyticIntegral)
 }
 
 // 直線上の位置から球面高度を直接計算し、製品とは異なる細かい中点則で消散を積む。
-static f64 ReferenceCurvedTransmittance_Internal(f64 height, f64 horizontal, f64 vertical, f64 distance, u32 channel, u32 steps)
+static f64 ReferenceCurvedTransmittance_Internal(f64 height, f64 horizontal, f64 vertical, f64 distance, u32 channel, u32 steps, f64 horizontalOrigin = 0.0, f64 forwardOrigin = 0.0, f64 forward = 0.0)
 {
     // kmの逆数で表した係数。
     constexpr f64 rayleigh[3] = {0.005802,0.013558,0.0331};
@@ -159,11 +168,12 @@ static f64 ReferenceCurvedTransmittance_Internal(f64 height, f64 horizontal, f64
     for (u32 sample = 0u; sample < steps; ++sample) {
         // 大きい地球中心座標を倍精度で評価する。製品の変数変換は使わない。
         const f64 t = (sample+0.5)*width;
-        const f64 x = horizontal*t;
+        const f64 x = horizontalOrigin+horizontal*t;
         const f64 y = 6360.0+height+vertical*t;
-        const f64 altitude = ::sqrt(x*x+y*y)-6360.0;
+        const f64 z = forwardOrigin+forward*t;
+        const f64 altitude = ::sqrt(x*x+y*y+z*z)-6360.0;
         const f64 ozoneDensity = 1.0-::fabs(altitude-25.0)/15.0;
-        depth += (rayleigh[channel]*::exp(-altitude/8.0)+0.0044*::exp(-altitude/1.2)+ozone[channel]*(ozoneDensity>0.0?ozoneDensity:0.0))*width*::sqrt(horizontal*horizontal+vertical*vertical);
+        depth += (rayleigh[channel]*::exp(-altitude/8.0)+0.0044*::exp(-altitude/1.2)+ozone[channel]*(ozoneDensity>0.0?ozoneDensity:0.0))*width*::sqrt(horizontal*horizontal+vertical*vertical+forward*forward);
     }
     return ::exp(-depth);
 }
@@ -232,7 +242,7 @@ float3 HistoricalMidpointCost(float3 origin, float3 direction, float distance) {
 void CSCostProbe(uint3 id : SV_DispatchThreadID) {
     if (id.x >= 640 || id.y >= 360) return;
     // 画素ごとに高度と太陽方向を変え、定数の1光路だけへ最適化されることを防ぐ。
-    float3 origin = float3(0.0,40.0*(float(id.y)+0.5)/360.0,0.0);
+    float3 origin = float3(1600.0*((float(id.x)+0.5)/640.0-0.5),40.0*(float(id.y)+0.5)/360.0,0.0);
     // 地平線から天頂へ走査する方向と、大気上端への距離。
     float mu = (float(id.x)+0.5)/640.0;
     float3 direction = float3(sqrt(1.0-mu*mu),mu,0.0);
@@ -444,6 +454,229 @@ void CSOpticalProbe(uint3 id : SV_DispatchThreadID) {
             }
             // 鉛直では近似する必要がないため、より厳しく解析解へ照合する。
             if (values[12] == 0.0f) EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 2.0e-6);
+        }
+    }
+}
+
+// 外側から地表への入口を倍精度で求める。外向きは負値、内向きの地表・地中始点は0。
+static f64 ReferenceGroundEntry_Internal(FVec3 origin, FVec3 direction)
+{
+    // 単精度の入力を、演算する前に倍精度へ広げる。
+    const f64 x = origin.x;
+    const f64 y = origin.y;
+    const f64 z = origin.z;
+    const f64 dx = direction.x;
+    const f64 dy = direction.y;
+    const f64 dz = direction.z;
+    // 独立参照の球面二次式。製品の上下位ペア演算は使わない。
+    const f64 a = dx*dx+dy*dy+dz*dz;
+    const f64 b = x*dx+(6360.0+y)*dy+z*dz;
+    const f64 c = x*x+z*z+y*(12720.0+y);
+    if (a <= 0.0) return -1.0;
+    if (b >= 0.0) return -1.0;
+    if (c <= 0.0) return 0.0;
+    // 光路を単位方向と仮定しない判別式と近い根。
+    const f64 discriminant = b*b-a*c;
+    if (discriminant < 0.0) return -1.0;
+    return c/(-b+::sqrt(discriminant));
+}
+
+// 有限区間の二次式の最小値から地中への侵入を調べる。点接触だけなら内部長が0なので遮蔽しない。
+static bool ReferenceGroundBlocks_Internal(FVec3 origin, FVec3 direction, f64 distance)
+{
+    // 原点と方向を先に倍精度化する。
+    const f64 x = origin.x;
+    const f64 y = origin.y;
+    const f64 z = origin.z;
+    const f64 dx = direction.x;
+    const f64 dy = direction.y;
+    const f64 dz = direction.z;
+    // 球方程式の三係数。実装の符号分岐を複製せず、最小点を直接評価する。
+    const f64 a = dx*dx+dy*dy+dz*dz;
+    const f64 b = x*dx+(6360.0+y)*dy+z*dz;
+    const f64 c = x*x+z*z+y*(12720.0+y);
+    if (a <= 0.0 || distance <= 0.0) return false;
+    // 放物線の頂点を有限光路内へ収めた距離。
+    const f64 vertex = -b/a;
+    const f64 closest = vertex < 0.0 ? 0.0 : (vertex > distance ? distance : vertex);
+    return (a*closest+2.0*b)*closest+c < 0.0;
+}
+
+// 一般位置の±1mmと球面終点±1ULPを、実GPUの交点・有限光路・反転で検査する。
+ACS_TEST(Atmosphere, PhysicalFiniteGroundPathsKeepEndpointAndTangency)
+{
+    // 任意の原点、方向、距離を実行時に渡し、製品関数そのものを呼ぶ。
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> finiteGroundOutput : register(u0);
+[numthreads(1,1,1)]
+void CSFiniteGroundProbe(uint3 id : SV_DispatchThreadID) {
+    // 地表相対kmの原点・方向・距離。方向長1を前提にしない。
+    float3 origin = cloud_params0.xyz;
+    float3 direction = cloud_params1.xyz;
+    float distance = cloud_params0.w;
+    // GPU演算で実際に渡す中点と終点。
+    float3 middle = origin+direction*(0.5*distance);
+    float3 end = origin+direction*distance;
+    // 四つの光路を独立スレッドへ渡し、製品の一画素と同じ一回の光路評価を実行する。
+    float3 path_origin = id.x == 2u ? middle : (id.x == 3u ? end : origin);
+    float3 path_direction = id.x == 3u ? -direction : direction;
+    float path_distance = id.x == 1u || id.x == 2u ? 0.5*distance : distance;
+    finiteGroundOutput[uint2(id.x,0)] = float4(PhysicalTransmittance(path_origin,path_direction,path_distance),PhysicalRaySphereNear(path_origin,path_direction,kPhysicalGroundRadiusKm));
+    if (id.x == 0u) {
+        finiteGroundOutput[uint2(4,0)] = float4(origin,distance);
+        finiteGroundOutput[uint2(5,0)] = float4(direction,0.0);
+        finiteGroundOutput[uint2(6,0)] = float4(end,0.0);
+        // 未正規化方向の極小値は、交点距離の近似と分離して有限区間の符号だけを調べる。
+        finiteGroundOutput[uint2(7,0)] = float4(PhysicalGroundBlocksSegment(origin,direction,distance)?1.0:0.0,0.0,0.0,0.0);
+    }
+}
+)");
+    // GPUが使えない場合も失敗として記録する。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 現製品のHLSLを含む検査用入口。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSFiniteGroundProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 四光路の結果、実入力、独立した遮蔽判定を8画素へ結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "finiteGroundOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 合成結果と実入力を丸めずに読み戻す出力先。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 8u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 検査入力は既存定数配置の行11・12へ格納する。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 1条件ごとに完了待ちして読み戻す命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 一つの有限光路と、解析的に固定した遮蔽の有無。
+    struct FGroundPathCase {
+        // 北極地表を原点とする位置km。
+        FVec3 origin;
+        // 正規化を要求しない進行方向。
+        FVec3 direction;
+        // 方向を掛ける有限区間の上端。
+        f32 distance;
+        // 元の光路が地表内部へ入るか。
+        bool blocked;
+    };
+    // 先頭5条件は1mmの通過／遮蔽と方向長の変更、後半は厳密球面終点とその前後。
+    constexpr FGroundPathCase cases[] = {{{1000.0f,1.0e-6f,0.0f},{-1.0f,0.0f,0.0f},2000.0f,false},{{1000.0f,-1.0e-6f,0.0f},{-1.0f,0.0f,0.0f},2000.0f,true},{{1000.0f,-1.0e-6f,0.0f},{-1.0f,0.0f,0.0f},999.9f,true},{{1000.0f,1.0e-6f,0.0f},{-2.0f,0.0f,0.0f},1000.0f,false},{{1000.0f,1.0e-6f,0.0f},{-0.125f,0.0f,0.0f},16000.0f,false},{{3816.0f,-1270.34375f,0.0f},{0.0f,-1.0f,0.0f},1.65625f,false},{{3816.0f,-1270.34375f,0.0f},{0.0f,-1.0f,0.0f},1.6562498807907104f,false},{{3816.0f,-1270.34375f,0.0f},{0.0f,-1.0f,0.0f},1.6562501192092896f,true},{{0.0f,0.0f,0.0f},{0.0f,-1.0f,0.0f},0.0f,false},{{0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f},1.0f,false},{{1000.0f,0.0f,0.0f},{-1.0f,0.0f,0.0f},2000.0f,false},{{0.0f,1.0e-6f,1000.0f},{0.0f,0.0f,-1.0f},2000.0f,false},{{0.0f,-1.0e-6f,1000.0f},{0.0f,0.0f,-1.0f},999.9f,true},{{1000.0f,1.0e-6f,0.0f},{-16.0f,0.0f,0.0f},125.0f,false},{{3816.0f,-1272.0f,0.0f},{4.0f,-3.0f,0.0f},10.0f,false}};
+    // 係数の大きい項が相殺する前に下位桁を失う、非北極の厳密接線。
+    constexpr FGroundPathCase cancellationCases[] = {{{3815.5048828125f,-1271.628662109375f,0.0f},{4.0f,-3.0f,0.0f},0.24755859375f,false},{{3815.99951171875f,-1271.9996337890625f,0.0f},{4.0f,-3.0f,0.0f},0.000244140625f,false}};
+    // 正の最小値も正長の光路。無限大とNaNは不正入力として光を通さない規約で検査する。
+    const FGroundPathCase exceptionalCases[] = {{{0.0f,-1.0f,0.0f},{0.0f,1.0f,0.0f},ProbeFloatFromBits_Internal(1u),true},{{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f},ProbeFloatFromBits_Internal(0x7f800000u),true},{{0.0f,0.0f,0.0f},{0.0f,ProbeFloatFromBits_Internal(0x7fc00000u),0.0f},1.0f,true},{{ProbeFloatFromBits_Internal(0xff800000u),0.0f,0.0f},{1.0f,0.0f,0.0f},1.0f,true}};
+    // −2^-127の方向と大きな長さの積は約1km。地表直前／接触／通過を元のbitで固定する。
+    const FGroundPathCase tinyDirectionCases[] = {{{0.0f,1.0f,0.0f},{0.0f,ProbeFloatFromBits_Internal(0x80400000u),0.0f},ProbeFloatFromBits_Internal(0x7effffffu),false},{{0.0f,1.0f,0.0f},{0.0f,ProbeFloatFromBits_Internal(0x80400000u),0.0f},ProbeFloatFromBits_Internal(0x7f000000u),false},{{0.0f,1.0f,0.0f},{0.0f,ProbeFloatFromBits_Internal(0x80400000u),0.0f},ProbeFloatFromBits_Internal(0x7f000001u),true}};
+    // 境界条件と残差消失条件を続けて同じ検査へ渡す。
+    constexpr u32 baseCount = sizeof(cases)/sizeof(cases[0]);
+    constexpr u32 cancellationCount = sizeof(cancellationCases)/sizeof(cancellationCases[0]);
+    constexpr u32 exceptionalCount = sizeof(exceptionalCases)/sizeof(exceptionalCases[0]);
+    constexpr u32 ordinaryCount = baseCount+cancellationCount+exceptionalCount;
+    constexpr u32 tinyDirectionCount = sizeof(tinyDirectionCases)/sizeof(tinyDirectionCases[0]);
+    for (u32 sample = 0u; sample < ordinaryCount+tinyDirectionCount; ++sample) {
+        // 今回の入力。種類によって検査の許容差は変えない。
+        const FGroundPathCase& input = sample < baseCount ? cases[sample] : (sample < baseCount+cancellationCount ? cancellationCases[sample-baseCount] : (sample < ordinaryCount ? exceptionalCases[sample-baseCount-cancellationCount] : tinyDirectionCases[sample-ordinaryCount]));
+        constants[11] = FVec4{input.origin.x,input.origin.y,input.origin.z,input.distance};
+        constants[12] = FVec4{input.direction.x,input.direction.y,input.direction.z,0.0f};
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(4u,1u,1u);
+        command.Value()->End();
+        // 提出失敗を数値検査へ混ぜない。
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        // 実GPUから読み戻した透過率・交点と入力。
+        f32 values[32]{};
+        const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        EXPECT_EQ(values[28],input.blocked?1.0f:0.0f);
+        if (sample >= ordinaryCount) {
+            // この契約は球面多項式の符号。極端な倍率での交点距離・密度積分の精度とは区別する。
+            test::RecordInfo(FSourceLoc::Current(),"tiny_direction case=%u blocked=%.9g expected=%u whole=%.9g",sample-ordinaryCount,values[28],input.blocked?1u:0u,values[0]);
+            if (input.blocked) {
+                for (u32 channel = 0u; channel < 3u; ++channel) EXPECT_EQ(values[channel],0.0f);
+            }
+            continue;
+        }
+        // 入力自体が非有限の場合は参照積分せず、全体光路の拒否だけを調べる。
+        const bool finiteInput = IsFiniteProbeValue_Internal(input.origin.x) && IsFiniteProbeValue_Internal(input.origin.y) && IsFiniteProbeValue_Internal(input.origin.z) && IsFiniteProbeValue_Internal(input.direction.x) && IsFiniteProbeValue_Internal(input.direction.y) && IsFiniteProbeValue_Internal(input.direction.z) && IsFiniteProbeValue_Internal(input.distance);
+        if (!finiteInput) {
+            for (u32 channel = 0u; channel < 3u; ++channel) EXPECT_EQ(values[channel],0.0f);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(values[3]));
+            continue;
+        }
+        for (u32 index = 0u; index < 28u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+        // 反転ではGPU演算で丸まった終点を原点に使う。理想的な反転と取り違えない。
+        const FVec3 origins[2] = {{values[16],values[17],values[18]},{values[24],values[25],values[26]}};
+        const FVec3 directions[2] = {{values[20],values[21],values[22]},{-values[20],-values[21],-values[22]}};
+        for (u32 orientation = 0u; orientation < 2u; ++orientation) {
+            // 参照側の入口と、有限区間内での遮蔽。
+            const f64 entry = ReferenceGroundEntry_Internal(origins[orientation],directions[orientation]);
+            const bool blocked = ReferenceGroundBlocks_Internal(origins[orientation],directions[orientation],values[19]);
+            if (orientation == 0u) EXPECT_EQ(blocked,input.blocked);
+            // 実際の入口距離も調べ、Tの0だけで誤った入口を見逃さない。
+            const u32 offset = orientation*12u;
+            if (entry < 0.0) EXPECT_TRUE(values[offset+3u] < 0.0f);
+            else {
+                // 方向の倍率を変えても、交点誤差は物理的な距離kmで同じ上限にする。
+                const f64 directionLength = ::sqrt(static_cast<f64>(directions[orientation].x)*directions[orientation].x+static_cast<f64>(directions[orientation].y)*directions[orientation].y+static_cast<f64>(directions[orientation].z)*directions[orientation].z);
+                EXPECT_TRUE(::fabs(static_cast<f64>(values[offset+3u])-entry)*directionLength <= 2.0e-4);
+            }
+            for (u32 channel = 0u; channel < 3u; ++channel) {
+                // 製品とは独立した細分光路積分。遮蔽時は厳密0を要求する。
+                const f64 expected = blocked ? 0.0 : ReferenceCurvedTransmittance_Internal(origins[orientation].y,directions[orientation].x,directions[orientation].y,values[19],channel,32768u,origins[orientation].x,origins[orientation].z,directions[orientation].z);
+                const f64 refined = blocked ? 0.0 : ReferenceCurvedTransmittance_Internal(origins[orientation].y,directions[orientation].x,directions[orientation].y,values[19],channel,65536u,origins[orientation].x,origins[orientation].z,directions[orientation].z);
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(expected));
+                EXPECT_TRUE(::fabs(expected-refined) <= 1.0e-7);
+                const f64 split = static_cast<f64>(values[4u+channel])*values[8u+channel];
+                test::RecordInfo(FSourceLoc::Current(),"finite_ground case=%u reverse=%u channel=%u entry=%.12g gpu_entry=%.12g blocked=%u actual=%.9g expected=%.9g split=%.9g",sample,orientation,channel,entry,values[offset+3u],blocked?1u:0u,values[offset+channel],expected,split);
+                if (blocked) EXPECT_EQ(values[offset+channel],0.0f);
+                else {
+                    EXPECT_TRUE(values[offset+channel] > 0.0f);
+                    EXPECT_TRUE(values[offset+channel] <= 1.0f);
+                    EXPECT_TRUE(::fabs(static_cast<f64>(values[offset+channel])-expected) <= 2.0e-4);
+                    // 最小の正値の半分はfloatで0になるため、その場合だけ分割は別の光路になる。
+                    if (orientation == 0u && input.distance >= ProbeFloatFromBits_Internal(0x00800000u)) EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-split) <= 2.0e-4);
+                }
+            }
         }
     }
 }
