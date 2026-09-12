@@ -821,24 +821,20 @@ ACS_TEST(Atmosphere, CpuEnvironmentBakeUsesObserverAltitude) {
         "kBottom+max(groundAlbedo.w,0.0)"));
 }
 
-ACS_TEST(Atmosphere, CpuSingleScatterIntegratesViewTransferBeforeCurrentSegment) {
+// 同じ標本位置での光路積分へ接続することだけを確認し、精度は実CPU/GPUの解析解試験で調べる。
+ACS_TEST(Atmosphere, CpuSingleScatterBindsPointwisePathTransmittance) {
     const std::string source = ReadAtmosphereSource();
-    const std::size_t begin = source.find("FVec3 SingleScatter(");
-    const std::size_t end = source.find("/** 指定方向を正規化", begin);
+    const std::size_t begin = source.find("FVec3 ViewDensityScattering_Internal(");
+    const std::size_t end = source.find("FVec3 SingleScatter(", begin);
     EXPECT_TRUE(begin != std::string::npos);
     EXPECT_TRUE(end != std::string::npos);
     if (begin == std::string::npos || end == std::string::npos || begin >= end)
         return;
 
     const std::string function = source.substr(begin, end - begin);
-    const std::size_t currentSegment = function.find("const FVec3 segment_tau{");
-    const std::size_t scatter = function.find("inscatter_r = inscatter_r +", currentSegment);
-    const std::size_t accumulate = function.find("view_od_r += d_r;", scatter);
-    EXPECT_TRUE(currentSegment != std::string::npos);
-    EXPECT_TRUE(scatter != std::string::npos);
-    EXPECT_TRUE(accumulate != std::string::npos);
-    EXPECT_TRUE(currentSegment < scatter);
-    EXPECT_TRUE(scatter < accumulate);
+    EXPECT_TRUE(Contains(function, "AtmospherePathTransmittance_Internal(origin,direction,view_distance,sun_steps)"));
+    EXPECT_TRUE(Contains(function, "AtmospherePathTransmittance_Internal(sample_position,sun_direction,sun_distance,sun_steps)"));
+    EXPECT_TRUE(Contains(function, "weight*static_cast<f64>(view_t.x)*sun_t.x"));
 }
 
 ACS_TEST(Atmosphere, MultiScatteringUsesUniformSolidAngleDirections) {

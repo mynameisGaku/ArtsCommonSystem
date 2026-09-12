@@ -156,13 +156,14 @@ ACS_TEST(SkyAtmosphere, RawFallbackUsesPhysicalScatteringInsteadOfFixedGradient)
     CSky sky;
     EXPECT_NEAR(sky.SunRadius(), kSkySolarDiscRadiusOneMinusCosine, 1.0e-8f);
 
-    /** raw DX12 fallbackの画面方向積分が物理散乱部品を持つことを固定する。 */
+    /** 画面方向積分への接続だけを確認する。数値精度は実CPU/GPUの独立参照試験で検査する。 */
     const std::string skySource = ReadRenderSource("Sky.cpp");
     EXPECT_TRUE(Contains(skySource, "EvaluatePhysicalSky"));
     EXPECT_TRUE(Contains(skySource, "PhysicalRayleighPhase"));
     EXPECT_TRUE(Contains(skySource, "PhysicalMiePhase"));
     EXPECT_TRUE(Contains(skySource, "PhysicalTransmittance"));
-    EXPECT_TRUE(Contains(skySource, "segment_transfer"));
+    EXPECT_TRUE(Contains(skySource, "PhysicalUnoccludedTransmittance"));
+    EXPECT_TRUE(Contains(skySource, "sun_t*view_t*weight"));
     EXPECT_TRUE(Contains(skySource, "kPhysicalGroundRadiusKm = 6360.0"));
     EXPECT_TRUE(Contains(skySource, "kPhysicalTopRadiusKm = 6460.0"));
     const std::string adapterSource = ReadRenderSource("../gameframework/LegacyScene3DAdapter.cpp");

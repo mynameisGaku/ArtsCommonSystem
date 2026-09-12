@@ -620,6 +620,8 @@ float PhysicalExponentialColumn(float height, float nearest_distance, float dist
     float density_mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
     // 半径変化が表現限界より小さい場合は、変化しない局所密度の極限を使う。
     if (density_mass <= 0.0) return exp(-height/scale_height)*distance;
+    // 鉛直方向は同じ積分の解析形を用いる。
+    if (nearest_distance == radius) return exp(-height/scale_height)*scale_height*density_mass;
     // uの上端。小さい密度質量でも平方根の差を避ける。
     float offset = 2.0*radius*scale_height*density_mass;
     float upper = offset/(sqrt(nearest_distance*nearest_distance+offset)+nearest_distance);
@@ -627,19 +629,23 @@ float PhysicalExponentialColumn(float height, float nearest_distance, float dist
     const float nodes[8] = {-0.9602898565,-0.7966664774,-0.5255324099,-0.1834346425,0.1834346425,0.5255324099,0.7966664774,0.9602898565};
     // 各標本の重み。[-1,1]の区間長2へ合計される。
     const float weights[8] = {0.1012285363,0.2223810345,0.3137066459,0.3626837834,0.3626837834,0.3137066459,0.2223810345,0.1012285363};
-    // 最低高度の密度と区間幅を掛ける前の加重和。
-    float sum = 0.0;
+    // Jの既知一次成分1+u/rは解析積分し、残差だけを求積する。最後にU/2を掛ける表現。
+    float sum = 2.0+upper/radius;
     [unroll]
     for (int index = 0; index < 8; ++index) {
-        // 指数密度の累積量と、元の半径増加を求める。
-        float u = upper*(0.5+0.5*nodes[index]);
+        // 高高度端の急変をu=U*v*(2-v)で緩める。2U(1-v)の微分を重みへ掛ける。
+        float v = 0.5+0.5*nodes[index];
+        float u = upper*v*(2.0-v);
+        float upper_remainder = upper*(1.0-v)*(1.0-v);
         float w = u*(u+2.0*nearest_distance)/(2.0*radius*scale_height);
-        float radial_rise = scale_height*PhysicalDensityLog(w);
+        // 1-wを減算で作らず、指数尾部とU-uの積から保持する。
+        float complement = exp(-scaled_rise)+upper_remainder*(upper+u+2.0*nearest_distance)/(2.0*radius*scale_height);
+        float radial_rise = scale_height*(w <= 0.125 ? PhysicalDensityLog(w) : -log(complement));
         // 球中心への最接近点から標本までの距離。
         float ray_distance = sqrt(nearest_distance*nearest_distance+radial_rise*(2.0*radius+radial_rise));
         // 接線の端点自体は標本にせず、有限な極限へ近づく式を積分する。
         float jacobian = ray_distance > 0.0 ? (nearest_distance+u)*(1.0+radial_rise/radius)/ray_distance : 1.0;
-        sum += weights[index]*jacobian;
+        sum += weights[index]*(jacobian-(1.0+u/radius))*(2.0*(1.0-v));
     }
     return exp(-height/scale_height)*(0.5*upper)*sum;
 }
@@ -674,13 +680,9 @@ float3 PhysicalMonotonicOpticalDepth(float height, float nearest_distance, float
     return kPhysicalRayleighBeta*rayleigh+kPhysicalMieExtinction*mie+kPhysicalOzoneAbsorption*ozone;
 }
 
-float3 PhysicalTransmittance(float3 origin, float3 direction, float distance) {
-    // 無限大やNaNは透過率0で拒否する。有限な零長・負長の恒等透過は維持する。
-    if (!PhysicalFiniteRayInput(origin,direction,distance)) return float3(0.0,0.0,0.0);
-    if (!PhysicalPositiveRayLength(distance)) return float3(1.0, 1.0, 1.0);
-    // 太陽光線が地表球へ入る場合は、地球の内部を透過させず遮蔽する。
-    if (PhysicalGroundBlocksSegment(origin,direction,distance))
-        return float3(0.0, 0.0, 0.0);
+// 地表で遮られないと確定した有限光路の透過率。視線標本では地表判定を繰り返さない。
+float3 PhysicalUnoccludedTransmittance(float3 origin, float3 direction, float distance) {
+    if (!PhysicalPositiveRayLength(distance)) return float3(1.0,1.0,1.0);
     // 最接近点の位置を光路上で求める。単位長の丸めも距離へ反映する。
     float direction_length = length(direction);
     if (direction_length <= 0.0) return float3(1.0,1.0,1.0);
@@ -703,6 +705,14 @@ float3 PhysicalTransmittance(float3 origin, float3 direction, float distance) {
     return exp(-optical_depth);
 }
 
+// 一般の太陽光路は入力と有限区間の地表遮蔽を検査してから、共通の光路積分へ渡す。
+float3 PhysicalTransmittance(float3 origin, float3 direction, float distance) {
+    if (!PhysicalFiniteRayInput(origin,direction,distance)) return float3(0.0,0.0,0.0);
+    if (!PhysicalPositiveRayLength(distance)) return float3(1.0,1.0,1.0);
+    if (PhysicalGroundBlocksSegment(origin,direction,distance)) return float3(0.0,0.0,0.0);
+    return PhysicalUnoccludedTransmittance(origin,direction,distance);
+}
+
 // 一区間の平均透過率を求める。薄い媒質では差の桁落ちと分母の置換を避ける。
 float PhysicalSegmentTransfer(float optical_depth) {
     // 1/8以下なら4次級数の剰余はx^5/720以下（4.24e-8未満）で、この値域の単精度1ULP未満になる。
@@ -713,9 +723,189 @@ float PhysicalSegmentTransfer(float optical_depth) {
     return (1.0 - exp(-optical_depth)) / optical_depth;
 }
 
-float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
-                           float3 sun_intensity, float altitude_km,
-                           float3 ground_albedo) {
+// 地表直上の視点から、地表外の有限視線に重なる地球の影を求める。距離はkm、影なしは幅0の分割位置。
+float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, float distance) {
+    // 平行光の影は太陽軸の円柱と、その背面の半空間の共通部分。
+    // 外積の差を単精度へ丸めてから補償しても失った桁は戻らない。成分の積から上下位を保持する。
+    precise float2 cross_x = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(direction.y,sun.z),-PhysicalCompensatedProduct(direction.z,sun.y));
+    precise float2 cross_y = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(direction.z,sun.x),-PhysicalCompensatedProduct(direction.x,sun.z));
+    precise float2 cross_z = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(direction.x,sun.y),-PhysicalCompensatedProduct(direction.y,sun.x));
+    cross_x = PhysicalCompensatedSum(cross_x.x,cross_x.y);
+    cross_y = PhysicalCompensatedSum(cross_y.x,cross_y.y);
+    cross_z = PhysicalCompensatedSum(cross_z.x,cross_z.y);
+    // 相殺した成分も再正規化してから二乗する。下位同士の積だけに全量を残さない。
+    precise float2 horizontal = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(cross_x,cross_x),PhysicalCompensatedPairProduct(cross_z,cross_z));
+    precise float2 vertical = PhysicalCompensatedPairProduct(cross_y,cross_y);
+    precise float2 a_pair = PhysicalCompensatedPairSum(horizontal,vertical);
+    precise float2 b_pair = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(float2(sun.z,0.0),cross_x),-PhysicalCompensatedPairProduct(float2(sun.x,0.0),cross_z));
+    b_pair = PhysicalCompensatedPairProduct(PhysicalCompensatedSum(kPhysicalGroundRadiusKm,height),b_pair);
+    float a = a_pair.x+a_pair.y;
+    float b = b_pair.x+b_pair.y;
+    // 球への太陽光路の判別式は、円柱二次式の定数項と符号だけ異なる。
+    float2 sphere_discriminant = PhysicalGroundPolynomial(float3(0.0,height,0.0),sun,0.0,2u);
+    float c = -sphere_discriminant.x;
+    // 最接近位置は先に有限区間へ収める。無限遠の頂点と幅を足して相殺させない。
+    float split = a > 0.0 ? clamp(-b/a,0.0,distance) : 0.0;
+    float empty_split = distance;
+    // 影なしを返す全分岐で、昼夜の平面と円柱から同じ分割規則を使う。
+    float plane_origin = height*sun.y+kPhysicalGroundRadiusKm*sun.y;
+    float plane_direction = dot(direction,sun);
+    float begin = 0.0;
+    float end = distance;
+    if (a > 0.0) {
+        // D/|sun|^2 = R^2*(cross.x^2+cross.z^2)-h*(2R+h)*cross.y^2。
+        // 大きい半径の二乗同士を引かず、入力高度を保った補償演算で計算する。
+        precise float2 radius_squared = PhysicalCompensatedProduct(kPhysicalGroundRadiusKm,kPhysicalGroundRadiusKm);
+        precise float2 height_squared = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(height,height),PhysicalCompensatedProduct(2.0*kPhysicalGroundRadiusKm,height));
+        precise float2 difference = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(radius_squared,horizontal),-PhysicalCompensatedPairProduct(height_squared,vertical));
+        float discriminant = dot(sun,sun)*(difference.x+difference.y);
+        // 実際の影が接触して生まれる場合は隔たり0、平行で影がない場合は端点へ収束する。
+        float cylinder_gap = max(b >= 0.0 ? c : -discriminant/a,0.0);
+        float plane_gap = max(plane_origin+plane_direction*split,0.0);
+        float gap = cylinder_gap+plane_gap*plane_gap;
+        float remaining = distance-split;
+        empty_split = gap <= 0.0 ? split : (gap >= a*remaining*remaining ? distance : split+sqrt(gap/a));
+        // 事前比較後の平方根・加算も丸まるため、最後の結果を有限光路へもう一度収める。
+        empty_split = min(empty_split,distance);
+        if (discriminant <= 0.0) return float2(empty_split,empty_split);
+        // 小さい根を-b+sqrt(D)の相殺で失わない。
+        float root = sqrt(discriminant);
+        float q = -b-(b >= 0.0 ? root : -root);
+        float first = q/a;
+        float second = q != 0.0 ? c/q : 0.0;
+        begin = min(first,second);
+        end = max(first,second);
+    } else if (sphere_discriminant.y <= 0.0) {
+        return float2(empty_split,empty_split);
+    }
+    // 太陽へ向く半分を取り除き、元の有限光路へ収める。
+    if (plane_direction > 0.0) end = min(end,-plane_origin/plane_direction);
+    else if (plane_direction < 0.0) begin = max(begin,-plane_origin/plane_direction);
+    else if (plane_origin >= 0.0) return float2(empty_split,empty_split);
+    begin = max(begin,0.0);
+    end = min(end,distance);
+    return end > begin ? float2(begin,end) : float2(empty_split,empty_split);
+}
+
+// 一つの可視区間の透過率を密度重みで平均する。orderは2か4、距離はkm。
+float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, uint order) {
+    // 密度の累積座標の上端。評価点は物理距離の等間隔には置かない。
+    float radius = kPhysicalGroundRadiusKm+height;
+    float rise = PhysicalRadialRise(radius,nearest,distance);
+    float scaled_rise = rise/scale_height;
+    float mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
+    float offset = 2.0*radius*scale_height*mass;
+    float upper = mass > 0.0 ? offset/(sqrt(nearest*nearest+offset)+nearest) : distance;
+    // 2点則と4点則を比較するための、区間[-1,1]上の標本と重み。
+    const float nodes[6] = {-0.5773502692,0.5773502692,-0.8611363116,-0.3399810436,0.3399810436,0.8611363116};
+    const float weights[6] = {1.0,1.0,0.3478548451,0.6521451549,0.6521451549,0.3478548451};
+    uint first = order == 2u ? 0u : 2u;
+    // 極小の基底密度を除いた重みで平均し、分母の0への丸めを防ぐ。
+    float weight_sum = 0.0;
+    float3 transmission_sum = float3(0.0,0.0,0.0);
+    [loop]
+    for (uint index = 0u; index < order; ++index) {
+        // 累積密度座標から標本までの実距離を復元する。
+        // 高高度端で急変する太陽透過率も、二次変換で有限幅へ広げて評価する。
+        float v = 0.5+0.5*nodes[first+index];
+        float u = upper*v*(2.0-v);
+        float w = mass > 0.0 ? u*(u+2.0*nearest)/(2.0*radius*scale_height) : 0.0;
+        float radial_rise = scale_height*PhysicalDensityLog(w);
+        float radial_distance = sqrt(nearest*nearest+radial_rise*(2.0*radius+radial_rise));
+        float local_distance = mass > 0.0 ? PhysicalDistanceToRise(radius,nearest,radial_rise) : u;
+        float jacobian = mass > 0.0 && radial_distance > 0.0 ? (nearest+u)*(1.0+radial_rise/radius)/radial_distance : 1.0;
+        // 太陽側と視線側は同じ位置で評価し、影の媒質も視線減衰へ含める。
+        float view_distance = (view_begin+traversal_sign*local_distance)/direction_length;
+        float3 position = origin+direction*view_distance;
+        float sun_distance = PhysicalRaySphereOuter(position,sun,kPhysicalTopRadiusKm);
+        float3 sun_t = PhysicalTransmittance(position,sun,sun_distance);
+        float3 view_t = PhysicalUnoccludedTransmittance(origin,direction,view_distance);
+        float weight = weights[first+index]*jacobian*(2.0*(1.0-v));
+        weight_sum += weight;
+        transmission_sum += sun_t*view_t*weight;
+    }
+    return weight_sum > 0.0 ? transmission_sum/weight_sum : float3(0.0,0.0,0.0);
+}
+
+// 密度総量を保存しつつ、透過率の変化が大きい部分だけ二分する。推定誤差も返し、上限打切りを合格と偽らない。
+float3 PhysicalViewDensityIntegral(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, out float3 absolute_error) {
+    absolute_error = float3(0.0,0.0,0.0);
+    // 同区間の密度列。相対誤差の配分を、散乱標本の重みの総和に依存させない。
+    float full_column = PhysicalExponentialColumn(height,nearest,distance,scale_height);
+    if (full_column <= 0.0) return float3(0.0,0.0,0.0);
+    float3 initial_estimate = float3(0.0,0.0,0.0);
+    // 独立参照との受入誤差0.1%の1/10を、この求積の推定誤差へ割り当てる。物理係数ではない。
+    const float integration_tolerance = 0.0001;
+    // 最終的な区間数64を上限にする。深さだけで止めず、必要な枝へ同じ最大127回の区間評価を配る。
+    float2 pending[64];
+    pending[0] = float2(0.0,distance);
+    uint count = 1u;
+    uint leaf_count = 1u;
+    uint evaluated = 0u;
+    float3 total = float3(0.0,0.0,0.0);
+    float3 total_error = float3(0.0,0.0,0.0);
+    float radius = kPhysicalGroundRadiusKm+height;
+    [loop]
+    [fastopt]
+    while (count > 0u) {
+        // 保留区間を取り出し、この低高度端から密度座標を作る。
+        --count;
+        float2 interval = pending[count];
+        ++evaluated;
+        float segment_distance = interval.y-interval.x;
+        float segment_height = height+PhysicalRadialRise(radius,nearest,interval.x);
+        float segment_nearest = nearest+interval.x;
+        float segment_begin = view_begin+traversal_sign*interval.x;
+        float column = PhysicalExponentialColumn(segment_height,segment_nearest,segment_distance,scale_height);
+        float3 coarse = float3(0.0,0.0,0.0);
+        float3 fine = float3(0.0,0.0,0.0);
+        // 太陽・視線透過の本体を呼出し箇所ごとに複製させず、一つの呼出しで二つの則を切り替える。
+        [loop]
+        for (uint estimate = 0u; estimate < 2u; ++estimate) {
+            uint order = estimate == 0u ? 2u : 4u;
+            float3 value = PhysicalViewTransmissionMean(origin,direction,sun,direction_length,segment_begin,traversal_sign,segment_height,segment_nearest,segment_distance,scale_height,order)*column;
+            if (estimate == 0u) coarse = value;
+            else fine = value;
+        }
+        if (evaluated == 1u) initial_estimate = fine;
+        float3 error = abs(fine-coarse);
+        // 微小寄与へ無制限に点を費やさず、区間全体の誤差予算を密度列の割合で配る。
+        float3 allowance = initial_estimate*(integration_tolerance*(column/full_column));
+        if (all(error <= allowance) || leaf_count >= 64u) {
+            total += fine;
+            total_error += error;
+            continue;
+        }
+        // 密度座標の中央で分け、濃い低高度だけを距離の二分で取り残さない。
+        float segment_radius = kPhysicalGroundRadiusKm+segment_height;
+        float rise = PhysicalRadialRise(segment_radius,segment_nearest,segment_distance);
+        float scaled_rise = rise/scale_height;
+        float mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
+        float offset = 2.0*segment_radius*scale_height*mass;
+        float upper = mass > 0.0 ? offset/(sqrt(segment_nearest*segment_nearest+offset)+segment_nearest) : segment_distance;
+        // 累積密度座標uの中央で配分する。片側に毎回75%を残して最大区間が細分されないことを避ける。
+        float u = 0.5*upper;
+        float w = mass > 0.0 ? u*(u+2.0*segment_nearest)/(2.0*segment_radius*scale_height) : 0.0;
+        float split_distance = mass > 0.0 ? PhysicalDistanceToRise(segment_radius,segment_nearest,scale_height*PhysicalDensityLog(w)) : 0.5*segment_distance;
+        float middle = interval.x+split_distance;
+        if (middle <= interval.x || middle >= interval.y) {
+            total += fine;
+            total_error += error;
+            continue;
+        }
+        // 分割1回で最終区間数は1だけ増える。保留数は最終区間数以下なので配列を越えない。
+        ++leaf_count;
+        pending[count++] = float2(middle,interval.y);
+        pending[count++] = float2(interval.x,middle);
+    }
+    // 微小な帯の相対値だけで判定せず、呼出し側で散乱係数を掛けた絶対誤差をRGB別に合計する。
+    absolute_error = total_error;
+    return total;
+}
+
+// 空の単散乱と地表反射を評価し、可視区間の求積で残った最大推定誤差を併せて返す。
+float3 EvaluatePhysicalSkyWithIntegrationError(float3 view_direction, float3 sun_direction, float3 sun_intensity, float altitude_km, float3 ground_albedo, out float integration_error) {
+    integration_error = 0.0;
     // 地表相対の高度を保持し、0.1mなどを惑星半径への加算で失わない。
     float3 origin = float3(0.0, max(altitude_km, 0.0), 0.0);
     float top_distance = PhysicalRaySphereOuter(
@@ -727,37 +917,72 @@ float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
     // 視線も太陽光路と同じ規約で判定し、接点での分割だけで遮蔽が変わらないようにする。
     bool hits_ground = ground_distance >= 0.0 && PhysicalGroundBlocksSegment(origin,view_direction,top_distance);
     float ray_distance = hits_ground ? ground_distance : top_distance;
-    const int kViewSteps = 16;
-    float step_length = ray_distance / float(kViewSteps);
-    float3 view_transmittance = float3(1.0, 1.0, 1.0);
+    // 方向長の丸めを実距離にも反映し、半径が増減する境界で光路を分ける。
+    float direction_length = length(view_direction);
+    if (direction_length <= 0.0) return float3(0.0,0.0,0.0);
+    float3 unit_direction = view_direction/direction_length;
+    float path_length = ray_distance*direction_length;
+    float projection = dot(origin,unit_direction)+kPhysicalGroundRadiusKm*unit_direction.y;
+    float closest = clamp(-projection,0.0,path_length);
+    float3 lowest = origin+unit_direction*closest;
+    float lowest_height = max(PhysicalAltitude(lowest),0.0);
+    float lowest_radius = kPhysicalGroundRadiusKm+lowest_height;
+    float nearest_distance = abs(projection+closest);
+    // 太陽の影を積分前に区間として求め、標本ごとの明暗切替を積分境界へ置き換える。
+    float2 shadow_interval = PhysicalViewShadowInterval(origin.y,view_direction,sun_direction,ray_distance);
+    // 二密度・四つの固定帯を保ち、各可視部分の推定誤差から追加求積の必要性を判断する。
     float3 radiance = float3(0.0, 0.0, 0.0);
+    // 異なる帯や密度の誤差を打ち消し合わせず、絶対値のまま積む。
+    float3 radiance_error = float3(0.0,0.0,0.0);
     float cos_view_sun = dot(view_direction, sun_direction);
     float rayleigh_phase = PhysicalRayleighPhase(cos_view_sun);
     float mie_phase = PhysicalMiePhase(cos_view_sun);
 
     [loop]
-    for (int i = 0; i < kViewSteps && ray_distance > 0.0; ++i) {
-        float3 sample_position = origin + view_direction *
-            (step_length * (float(i) + 0.5));
-        float altitude = PhysicalAltitude(sample_position);
-        if (altitude < 0.0) continue;
-
-        float3 rayleigh_density;
-        float mie_density;
-        float3 extinction;
-        SamplePhysicalMedium(altitude, rayleigh_density, mie_density, extinction);
-        float sun_distance = PhysicalRaySphereOuter(
-            sample_position, sun_direction, kPhysicalTopRadiusKm);
-        float3 sun_transmittance = PhysicalTransmittance(
-            sample_position, sun_direction, sun_distance);
-        float3 source = sun_intensity * sun_transmittance * (
-            kPhysicalRayleighBeta * rayleigh_density * rayleigh_phase
-            + kPhysicalMieBeta * mie_density * mie_phase);
-        float3 segment_tau = extinction * step_length;
-        // 光学的深さ0の極限も1になり、微小距離で散乱が二次的に潰れない。
-        float3 segment_transfer = float3(PhysicalSegmentTransfer(segment_tau.x), PhysicalSegmentTransfer(segment_tau.y), PhysicalSegmentTransfer(segment_tau.z));
-        radiance += view_transmittance * source * step_length * segment_transfer;
-        view_transmittance *= exp(-segment_tau);
+    for (uint side = 0u; side < 2u; ++side) {
+        // 両区間とも最低高度から外向きへ積分し、視線上の標本順に依存させない。
+        float distance = side == 0u ? closest : path_length-closest;
+        if (distance <= 0.0) continue;
+        float traversal_sign = side == 0u ? -1.0 : 1.0;
+        // 影の端を最低高度から外向きに測る距離へ移し、左右の可視部分を個別に積む。
+        float2 outward_shadow = traversal_sign*(shadow_interval*direction_length-closest);
+        float shadow_low = min(outward_shadow.x,outward_shadow.y);
+        float shadow_high = max(outward_shadow.x,outward_shadow.y);
+        // オゾン密度の折れ目で区間を分ける。空の帯も位置を残し、他の帯へ点を移し替えない。
+        const float ozone_heights[3] = {10.0,25.0,40.0};
+        float boundaries[5] = {0.0,0.0,0.0,0.0,0.0};
+        [unroll]
+        for (uint ozone_index = 0u; ozone_index < 3u; ++ozone_index) {
+            float boundary = PhysicalDistanceToRise(lowest_radius,nearest_distance,ozone_heights[ozone_index]-lowest_height);
+            boundaries[ozone_index+1u] = min(boundary,distance);
+        }
+        boundaries[4] = distance;
+        const uint band_count = 4u;
+        [loop]
+        for (uint species = 0u; species < 2u; ++species) {
+            // 分子と微粒子は変化する高さが異なるため、同じ点配置を流用しない。
+            float scale_height = species == 0u ? kPhysicalRayleighScaleHeightKm : kPhysicalMieScaleHeightKm;
+            float3 scattering = species == 0u ? kPhysicalRayleighBeta*rayleigh_phase : kPhysicalMieBeta*mie_phase;
+            [loop]
+            for (uint band = 0u; band < band_count; ++band) {
+                [loop]
+                for (uint piece = 0u; piece < 2u; ++piece) {
+                    // 可視部分の端を影に合わせ、密度帯との共通部分だけを評価する。
+                    float begin = piece == 0u ? boundaries[band] : max(boundaries[band],shadow_high);
+                    float end = piece == 0u ? min(boundaries[band+1u],shadow_low) : boundaries[band+1u];
+                    float band_distance = end-begin;
+                    if (band_distance <= 0.0) continue;
+                    float band_height = lowest_height+PhysicalRadialRise(lowest_radius,nearest_distance,begin);
+                    float band_nearest = nearest_distance+begin;
+                    float band_begin = closest+traversal_sign*begin;
+                    // 推定誤差で必要な区間だけを細分し、打切り時もその誤差を上位へ残す。
+                    float3 estimated_error = float3(0.0,0.0,0.0);
+                    float3 integral = PhysicalViewDensityIntegral(origin,view_direction,sun_direction,direction_length,band_begin,traversal_sign,band_height,band_nearest,band_distance,scale_height,estimated_error);
+                    radiance_error += abs(sun_intensity*scattering)*estimated_error;
+                    radiance += sun_intensity*scattering*integral;
+                }
+            }
+        }
     }
 
     if (hits_ground) {
@@ -773,9 +998,24 @@ float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction,
         float3 ground_radiance = max(ground_albedo, 0.0)
             * sun_intensity * sun_transmittance
             * (sun_cosine / 3.14159265);
+        // 地表までの透過も標本の加算順から独立した光路積分で求める。
+        float3 view_transmittance = PhysicalUnoccludedTransmittance(origin,view_direction,ray_distance);
         radiance += view_transmittance * ground_radiance;
     }
+    // 最後にRGBごとの全放射輝度へ換算する。微小な分母への任意の定数追加はしない。
+    float error_r = radiance.x > 0.0 ? radiance_error.x/radiance.x : (radiance_error.x > 0.0 ? 1.0 : 0.0);
+    float error_g = radiance.y > 0.0 ? radiance_error.y/radiance.y : (radiance_error.y > 0.0 ? 1.0 : 0.0);
+    float error_b = radiance.z > 0.0 ? radiance_error.z/radiance.z : (radiance_error.z > 0.0 ? 1.0 : 0.0);
+    integration_error = max(error_r,max(error_g,error_b));
+    // 非有限な値同士の比較が偽となって診断0へ落ちることを防ぐ。
+    if (any((asuint(radiance)&0x7f800000u) == 0x7f800000u) || any((asuint(radiance_error)&0x7f800000u) == 0x7f800000u)) integration_error = 1.0;
     return max(radiance, 0.0);
+}
+
+// 既存の描画入口を保持する。検証では上の推定誤差付き入口を直接呼ぶ。
+float3 EvaluatePhysicalSky(float3 view_direction, float3 sun_direction, float3 sun_intensity, float altitude_km, float3 ground_albedo) {
+    float integration_error = 0.0;
+    return EvaluatePhysicalSkyWithIntegrationError(view_direction,sun_direction,sun_intensity,altitude_km,ground_albedo,integration_error);
 }
 
 // IGN ベースの dither (8-bit 量子化前にバンディングを消す)。

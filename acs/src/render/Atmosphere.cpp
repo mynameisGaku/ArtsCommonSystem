@@ -89,13 +89,14 @@ f32 RaySphereNear(FVec3 ro, FVec3 rd, f32 radius) noexcept {
     const f32 disc = b*b - c;
     if (disc < 0.0f) return -1.0f;
     const f32 t = -b - Sqrt(disc);
-    return t > 0.0f ? t : -1.0f;
+    // 地表上から内向きなら距離0で遮られる。接するだけの地表接線は入口としない。
+    return t > 0.0f || (t == 0.0f && b < 0.0f) ? t : -1.0f;
 }
 
 /** 指定した大気経路が地表球へ入るなら、太陽光は地面に遮られている。 */
 bool IsGroundOccluded(FVec3 ro, FVec3 rd, f32 atmosphere_distance) noexcept {
     const f32 ground_distance = RaySphereNear(ro, rd, kGroundRadius);
-    return ground_distance > 0.0f &&
+    return ground_distance >= 0.0f &&
            ground_distance < atmosphere_distance;
 }
 
@@ -220,6 +221,8 @@ f64 SunExponentialColumn_Internal(f64 height, f64 nearest_distance, f64 distance
     const f64 density_mass = -::expm1(-rise / scale_height);
     // 密度変化が表現可能な最小値を下回った場合だけ、局所密度一定の極限を使う。
     if (density_mass <= 0.0) return ::exp(-height / scale_height) * distance;
+    // 鉛直の光路は密度の原始関数を使い、0/1点指定でも解析的な積分量を保つ。
+    if (nearest_distance == radius) return ::exp(-height/scale_height)*scale_height*density_mass;
     // GPUと同じ変換座標uの上端を求める二乗差。
     const f64 offset = 2.0 * radius * scale_height * density_mass;
     // 変換座標uの上端。平方根同士を減算しない。
@@ -230,8 +233,8 @@ f64 SunExponentialColumn_Internal(f64 height, f64 nearest_distance, f64 distance
     constexpr f64 weights[15] = {2.0, 1.0, 1.0, 0.34785484513745385737, 0.65214515486254614263, 0.65214515486254614263, 0.34785484513745385737, 0.10122853629037625915, 0.22238103445337447054, 0.31370664587788728734, 0.36268378337836198297, 0.36268378337836198297, 0.31370664587788728734, 0.22238103445337447054, 0.10122853629037625915};
     // 指定された総評価数。区間境界を点数比例で決めるため倍精度へ変換する。
     const f64 sample_count = static_cast<f64>(steps);
-    // 変換座標上で積んだ、最低高度の密度を掛ける前の積分長。
-    f64 sum = 0.0;
+    // Jの既知一次成分1+u/rを解析積分する。残差だけを求積し、1点でも鉛直への接続を保つ。
+    f64 sum = upper+upper*upper/(2.0*radius);
     // 既に使った評価数。20点なら8、8、4点の順で進む。
     u32 completed = 0u;
     while (completed < steps) {
@@ -241,23 +244,26 @@ f64 SunExponentialColumn_Internal(f64 height, f64 nearest_distance, f64 distance
         const u32 order = remaining >= 8u ? 8u : (remaining >= 4u ? 4u : (remaining >= 2u ? 2u : 1u));
         // 選んだ求積則の標本と重みの先頭。
         const u32 table_offset = order - 1u;
-        // u区間を点数に比例して分割した半幅。
-        const f64 half_width = 0.5 * upper * static_cast<f64>(order) / sample_count;
+        // v区間[0,1]を点数に比例して分割した半幅。
+        const f64 half_width = 0.5 * static_cast<f64>(order) / sample_count;
         // この部分区間の中点。累積加算で区間境界をずらさない。
-        const f64 middle = upper * (static_cast<f64>(completed) + 0.5 * static_cast<f64>(order)) / sample_count;
+        const f64 middle = (static_cast<f64>(completed) + 0.5 * static_cast<f64>(order)) / sample_count;
         // 選んだ則の標本を順に評価し、指定点数だけ積分する。
         for (u32 index = 0u; index < order; ++index) {
-            // 変換座標uにおける標本位置。
-            const f64 u = middle + half_width * nodes[table_offset + index];
+            // u=U*v*(2-v)で高高度端の急変を緩める。評価点数は変えず、微分も重みへ反映する。
+            const f64 v = middle + half_width * nodes[table_offset + index];
+            const f64 u = upper*v*(2.0-v);
+            const f64 upper_remainder = upper*(1.0-v)*(1.0-v);
             // 指数密度の累積量。GPUと同じuへの変数変換を逆にたどる。
             const f64 w = u * (u + 2.0 * nearest_distance) / (2.0 * radius * scale_height);
-            // logへ渡す前の1-wの減算を避け、元の高度差を復元する。
-            const f64 radial_rise = -scale_height * ::log1p(-w);
+            // 上端へ寄せた標本でwが1へ丸まらないよう、上端との差から補余量を直接求める。
+            const f64 complement = ::exp(-rise/scale_height)+upper_remainder*(upper+u+2.0*nearest_distance)/(2.0*radius*scale_height);
+            const f64 radial_rise = -scale_height*(w <= 0.125 ? ::log1p(-w) : ::log(complement));
             // 球中心への最接近点から標本までの距離。
             const f64 ray_distance = ::sqrt(nearest_distance * nearest_distance + radial_rise * (2.0 * radius + radial_rise));
             // 変数変換による長さの倍率。接点の標本が0へ丸まった場合も極限は1。
             const f64 jacobian = ray_distance > 0.0 ? (nearest_distance + u) * (1.0 + radial_rise / radius) / ray_distance : 1.0;
-            sum += half_width * weights[table_offset + index] * jacobian;
+            sum += half_width * weights[table_offset + index] * (jacobian-(1.0+u/radius))*(2.0*upper*(1.0-v));
         }
         completed += order;
     }
@@ -310,8 +316,8 @@ void SunMonotonicOpticalDepth_Internal(f64 height, f64 nearest_distance, f64 dis
     optical_depth[2] += static_cast<f64>(beta_r.z) * rayleigh + beta_m_ext * mie + static_cast<f64>(beta_o.z) * ozone;
 }
 
-/** 太陽光路の透過率をm単位で積分する。地表遮蔽は呼出し側が判定し、距離0以下・0点・方向長0なら透過率1。 */
-FVec3 SunPathTransmittance_Internal(FVec3 origin, FVec3 direction, f32 distance, u32 steps) noexcept {
+/** 遮られていない光路の透過率をm単位で積分する。地表遮蔽は呼出し側が判定し、距離0以下・0点・方向長0なら透過率1。 */
+FVec3 AtmospherePathTransmittance_Internal(FVec3 origin, FVec3 direction, f32 distance, u32 steps) noexcept {
     if (distance <= 0.0f || steps == 0u) return FVec3{1.0f, 1.0f, 1.0f};
     // 二乗する前に倍精度へ変換し、方向長の丸めを光路長へも反映する。
     const f64 direction_length = ::sqrt(static_cast<f64>(direction.x) * direction.x + static_cast<f64>(direction.y) * direction.y + static_cast<f64>(direction.z) * direction.z);
@@ -353,23 +359,130 @@ FVec3 SunPathTransmittance_Internal(FVec3 origin, FVec3 direction, f32 distance,
     return FVec3{static_cast<f32>(::exp(-optical_depth[0])), static_cast<f32>(::exp(-optical_depth[1])), static_cast<f32>(::exp(-optical_depth[2]))};
 }
 
-/**
- * view ray に沿って太陽からの単散乱を積算し inscatter 輝度を返す。
- *
- * @details
- * view ray r(t) = ro + rd * t に沿って大気上端まで march し、各 sample で太陽方向
- * への透過率と view 側の累積透過率を掛けて Rayleigh / Mie の in-scatter を積算する。
- * @param ro 地球中心を原点とする view ray の始点。
- * @param rd view ray の単位方向。
- * @param sun_dir 太陽方向の単位ベクトル。
- * @param sun_intensity 太陽のピーク輝度 (RGB)。
- * @param ray_steps view ray 沿いのサンプル段数。
- * @param sun_steps 各 sample から太陽への透過率積分の段数。
- * @return view 方向の単散乱輝度 (RGB)。大気と交差しなければ (0,0,0)。
- */
-FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
-                  u32 ray_steps, u32 sun_steps) noexcept {
-    // 大気圏外との交点まで march
+/** 地表外の有限視線と太陽の平行光から、地球の影の区間をmで求める。影がなければ幅0の分割位置を返す。 */
+void ViewShadowInterval_Internal(FVec3 origin, FVec3 direction, FVec3 sun, f64 distance, f64& shadow_begin, f64& shadow_end) noexcept {
+    // 太陽方向へ直交する射影を外積で作り、ほぼ平行な方向の1-cos^2の相殺を避ける。
+    const f64 vx = static_cast<f64>(direction.y)*sun.z-static_cast<f64>(direction.z)*sun.y;
+    const f64 vy = static_cast<f64>(direction.z)*sun.x-static_cast<f64>(direction.x)*sun.z;
+    const f64 vz = static_cast<f64>(direction.x)*sun.y-static_cast<f64>(direction.y)*sun.x;
+    const f64 ox = static_cast<f64>(origin.y)*sun.z-static_cast<f64>(origin.z)*sun.y;
+    const f64 oy = static_cast<f64>(origin.z)*sun.x-static_cast<f64>(origin.x)*sun.z;
+    const f64 oz = static_cast<f64>(origin.x)*sun.y-static_cast<f64>(origin.y)*sun.x;
+    // 影円柱の内部はa*t^2+2*b*t+c<0。単位長への丸めを前提にしない。
+    const f64 a = vx*vx+vy*vy+vz*vz;
+    const f64 b = ox*vx+oy*vy+oz*vz;
+    const f64 sun_squared = static_cast<f64>(sun.x)*sun.x+static_cast<f64>(sun.y)*sun.y+static_cast<f64>(sun.z)*sun.z;
+    const f64 radius = static_cast<f64>(kGroundRadius);
+    const f64 c = ox*ox+oy*oy+oz*oz-radius*radius*sun_squared;
+    // 平行光で影がない極限では分割を区間端へ収束させる。角度の接近経路に依存する頂点を残さない。
+    const f64 vertex = a > 0.0 ? -b/a : 0.0;
+    const f64 split = vertex < 0.0 ? 0.0 : (vertex > distance ? distance : vertex);
+    shadow_begin = distance;
+    shadow_end = distance;
+    // 太陽の背面を分ける平面。影なしを返す全分岐で同じ分割規則を使う。
+    const f64 plane_origin = static_cast<f64>(origin.x)*sun.x+static_cast<f64>(origin.y)*sun.y+static_cast<f64>(origin.z)*sun.z;
+    const f64 plane_direction = static_cast<f64>(direction.x)*sun.x+static_cast<f64>(direction.y)*sun.y+static_cast<f64>(direction.z)*sun.z;
+    f64 begin = 0.0;
+    f64 end = distance;
+    if (a > 0.0) {
+        // 判別式は外積の三重積から求め、遠い円柱中心によるb^2-a*cの相殺を避ける。
+        const f64 triple = static_cast<f64>(origin.x)*vx+static_cast<f64>(origin.y)*vy+static_cast<f64>(origin.z)*vz;
+        const f64 discriminant = sun_squared*(radius*radius*a-triple*triple);
+        // 有限区間へ収めた最接近点で、円柱外側と太陽側の隔たりを求める。
+        const f64 cylinder_gap = b >= 0.0 ? c : -discriminant/a;
+        const f64 plane_value = plane_origin+plane_direction*split;
+        const f64 plane_gap = plane_value > 0.0 ? plane_value : 0.0;
+        const f64 gap = (cylinder_gap > 0.0 ? cylinder_gap : 0.0)+plane_gap*plane_gap;
+        const f64 remaining = distance-split;
+        shadow_begin = gap <= 0.0 ? split : (gap >= a*remaining*remaining ? distance : split+::sqrt(gap/a));
+        // 最後の加算で終点を1ulp越える場合も、有限光路外を返さない。
+        shadow_begin = shadow_begin < distance ? shadow_begin : distance;
+        shadow_end = shadow_begin;
+        if (discriminant <= 0.0) return;
+        const f64 root = ::sqrt(discriminant);
+        const f64 q = -b-(b >= 0.0 ? root : -root);
+        const f64 first = q/a;
+        const f64 second = q != 0.0 ? c/q : 0.0;
+        begin = first < second ? first : second;
+        end = first < second ? second : first;
+    } else if (c >= 0.0) {
+        return;
+    }
+    // 円柱のうち太陽と反対側だけが影。平面上への接触は正の幅を持たない。
+    if (plane_direction > 0.0) {
+        const f64 crossing = -plane_origin/plane_direction;
+        if (crossing < end) end = crossing;
+    } else if (plane_direction < 0.0) {
+        const f64 crossing = -plane_origin/plane_direction;
+        if (crossing > begin) begin = crossing;
+    } else if (plane_origin >= 0.0) {
+        return;
+    }
+    begin = begin < 0.0 ? 0.0 : begin;
+    end = end > distance ? distance : end;
+    if (end <= begin) return;
+    shadow_begin = begin;
+    shadow_end = end;
+}
+
+/** 密度の変化に沿う求積で、同じ散乱点の太陽・視線透過率を積む。距離はm、区間長0以下なら寄与0。 */
+FVec3 ViewDensityScattering_Internal(FVec3 origin, FVec3 direction, FVec3 sun_direction, f64 direction_length, f64 closest, f64 nearest_distance, f64 height, f64 distance, f64 traversal_sign, f64 scale_height, u32 steps, u32 sun_steps) noexcept {
+    if (distance <= 0.0 || steps == 0u) return FVec3{};
+    // 半径が外向きへ増える区間へ変換し、低高度に多い分子・微粒子をそれぞれ積分する。
+    const f64 radius = static_cast<f64>(kGroundRadius)+height;
+    const f64 rise = SunRadialRise_Internal(radius,nearest_distance,distance);
+    const f64 density_mass = -::expm1(-rise/scale_height);
+    const f64 offset = 2.0*radius*scale_height*density_mass;
+    const f64 upper = density_mass > 0.0 ? offset/(::sqrt(nearest_distance*nearest_distance+offset)+nearest_distance) : distance;
+    // 指定点数を1、2、4、8点のGauss-Legendre則へ分ける。物理係数や点数を増やして補正しない。
+    constexpr f64 nodes[15] = {0.0,-0.57735026918962576451,0.57735026918962576451,-0.86113631159405257522,-0.33998104358485626480,0.33998104358485626480,0.86113631159405257522,-0.96028985649753623168,-0.79666647741362673959,-0.52553240991632898582,-0.18343464249564980494,0.18343464249564980494,0.52553240991632898582,0.79666647741362673959,0.96028985649753623168};
+    // 各則の重みは[-1,1]の幅2へ合計される。
+    constexpr f64 weights[15] = {2.0,1.0,1.0,0.34785484513745385737,0.65214515486254614263,0.65214515486254614263,0.34785484513745385737,0.10122853629037625915,0.22238103445337447054,0.31370664587788728734,0.36268378337836198297,0.36268378337836198297,0.31370664587788728734,0.22238103445337447054,0.10122853629037625915};
+    // 最低高度の密度を除いた重みで平均を求め、高高度の分母が0へ消えることを避ける。
+    f64 sum[3]{};
+    f64 weight_sum = 0.0;
+    u32 completed = 0u;
+    while (completed < steps) {
+        // 残り点数に収まる最大の則で、変換後の区間を点数に比例して分ける。
+        const u32 remaining = steps-completed;
+        const u32 order = remaining >= 8u ? 8u : (remaining >= 4u ? 4u : (remaining >= 2u ? 2u : 1u));
+        const u32 table_offset = order-1u;
+        const f64 half_width = 0.5*upper*static_cast<f64>(order)/static_cast<f64>(steps);
+        const f64 middle = upper*(static_cast<f64>(completed)+0.5*static_cast<f64>(order))/static_cast<f64>(steps);
+        for (u32 index = 0u; index < order; ++index) {
+            // 密度の累積座標から、実際の光路位置と変数変換の倍率を復元する。
+            const f64 u = middle+half_width*nodes[table_offset+index];
+            const f64 w = density_mass > 0.0 ? u*(u+2.0*nearest_distance)/(2.0*radius*scale_height) : 0.0;
+            const f64 radial_rise = -scale_height*::log1p(-w);
+            const f64 radial_distance = ::sqrt(nearest_distance*nearest_distance+radial_rise*(2.0*radius+radial_rise));
+            const f64 local_distance = density_mass > 0.0 ? SunDistanceToRise_Internal(radius,nearest_distance,radial_rise) : u;
+            const f64 jacobian = density_mass > 0.0 && radial_distance > 0.0 ? (nearest_distance+u)*(1.0+radial_rise/radius)/radial_distance : 1.0;
+            // 影判定が標本を0へしても分母から密度を除かない。散乱源と媒質の有無を区別する。
+            const f64 weight = half_width*weights[table_offset+index]*jacobian;
+            weight_sum += weight;
+            // 向きを戻して視点からの距離へ変換する。方向長の丸めも距離と同時に補正する。
+            const f32 view_distance = static_cast<f32>((closest+traversal_sign*local_distance)/direction_length);
+            const FVec3 sample_position = origin+direction*view_distance;
+            const f32 sun_distance = RaySphereOuter(sample_position,sun_direction,kAtmosphereRadius);
+            if (sun_distance <= 0.0f || IsGroundOccluded(sample_position,sun_direction,sun_distance)) continue;
+            // 視線透過は影区間を含む全経路を評価する。別の標本からの累積状態には依存しない。
+            const FVec3 view_t = AtmospherePathTransmittance_Internal(origin,direction,view_distance,sun_steps);
+            const FVec3 sun_t = AtmospherePathTransmittance_Internal(sample_position,sun_direction,sun_distance,sun_steps);
+            sum[0] += weight*static_cast<f64>(view_t.x)*sun_t.x;
+            sum[1] += weight*static_cast<f64>(view_t.y)*sun_t.y;
+            sum[2] += weight*static_cast<f64>(view_t.z)*sun_t.z;
+        }
+        completed += order;
+    }
+    // 散乱標本の近似で密度の総量を変えない。透過率が一定なら共有の列積分と同じ値を返す。
+    const f64 column = SunExponentialColumn_Internal(height,nearest_distance,distance,scale_height,sun_steps);
+    const f64 normalization = weight_sum > 0.0 ? column/weight_sum : 0.0;
+    return FVec3{static_cast<f32>(sum[0]*normalization),static_cast<f32>(sum[1]*normalization),static_cast<f32>(sum[2]*normalization)};
+}
+
+/** 地表外の視線で単散乱を積分する。始点・距離はm、方向は正規化済み。大気と交わらなければRGBを0とする。 */
+FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity, u32 ray_steps, u32 sun_steps) noexcept {
+    // 大気上端までの有限距離。
     f32 t_atm = RaySphereOuter(ro, rd, kAtmosphereRadius);
     if (t_atm <= 0) return FVec3{0, 0, 0};
 
@@ -380,80 +493,65 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
     const f32 phase_r = PhaseRayleigh(cos_view_sun);
     const f32 phase_m = PhaseHG(cos_view_sun, MieG());
 
-    const f32 step_len = t_atm / static_cast<f32>(safe_ray_steps);
     const FVec3 beta_r = RayleighBeta();
     const f32  beta_m = MieBeta();
-
-    FVec3 inscatter_r{0, 0, 0};
-    FVec3 inscatter_m{0, 0, 0};
-    // view ray 沿いに伝播した累積光学厚さ (T_view)
-    f32 view_od_r = 0, view_od_m = 0, view_od_o = 0;
-    const FVec3 beta_o = OzoneAbsorption();
-
-    // 注: ベイクは時間平滑化されないため、方向ごとの乱数ジッタを入れず中点を使う。
-    for (u32 i = 0; i < safe_ray_steps; ++i) {
-        const FVec3 sample_pos = ro + rd * (step_len * (static_cast<f32>(i) + 0.5f));
-        const f32 alt = Sqrt(Dot(sample_pos, sample_pos)) - kGroundRadius;
-        if (alt < 0) {
-            // 地面に潜った点、寄与なし
-            continue;
+    // 方向長を倍精度で補正し、半径が増減する境界で光路を二分する。
+    const f64 direction_length = ::sqrt(static_cast<f64>(rd.x)*rd.x+static_cast<f64>(rd.y)*rd.y+static_cast<f64>(rd.z)*rd.z);
+    if (direction_length <= 0.0) return FVec3{};
+    const f64 path_length = static_cast<f64>(t_atm)*direction_length;
+    const f64 projection = (static_cast<f64>(ro.x)*rd.x+static_cast<f64>(ro.y)*rd.y+static_cast<f64>(ro.z)*rd.z)/direction_length;
+    const f64 closest = -projection < 0.0 ? 0.0 : (-projection > path_length ? path_length : -projection);
+    const f64 lowest_x = ro.x+static_cast<f64>(rd.x)*closest/direction_length;
+    const f64 lowest_y = ro.y+static_cast<f64>(rd.y)*closest/direction_length;
+    const f64 lowest_z = ro.z+static_cast<f64>(rd.z)*closest/direction_length;
+    const f64 radius = ::sqrt(lowest_x*lowest_x+lowest_y*lowest_y+lowest_z*lowest_z);
+    const f64 raw_height = radius-static_cast<f64>(kGroundRadius);
+    const f64 height = raw_height > 0.0 ? raw_height : 0.0;
+    const f64 nearest_distance = ::fabs(projection+closest);
+    // 評価点ごとの明暗切替に任せず、有限視線上の影の境界で積分領域を切る。
+    f64 shadow_begin = 0.0;
+    f64 shadow_end = 0.0;
+    ViewShadowInterval_Internal(ro,rd,sun_dir,t_atm,shadow_begin,shadow_end);
+    // 総評価数を二つの密度へ分配する。0/1点指定でも各密度は最低1点を保つ。
+    const u32 rayleigh_steps = safe_ray_steps/2u+safe_ray_steps%2u;
+    const u32 mie_steps = safe_ray_steps/2u > 0u ? safe_ray_steps/2u : 1u;
+    FVec3 inscatter_r{};
+    FVec3 inscatter_m{};
+    for (u32 side = 0u; side < 2u; ++side) {
+        // 各区間は最低高度から外向きに求積し、標本の視線上の順序に依存しない。
+        const f64 distance = side == 0u ? closest : path_length-closest;
+        if (distance <= 0.0) continue;
+        const f64 traversal_sign = side == 0u ? -1.0 : 1.0;
+        // 影の端を、最低高度から外向きに測る距離へ移す。
+        const f64 first_shadow = traversal_sign*(shadow_begin*direction_length-closest);
+        const f64 last_shadow = traversal_sign*(shadow_end*direction_length-closest);
+        const f64 shadow_low = first_shadow < last_shadow ? first_shadow : last_shadow;
+        const f64 shadow_high = first_shadow < last_shadow ? last_shadow : first_shadow;
+        // 帯が消えても他の帯の標本数を変えない。高さをまたぐだけで遠方の散乱光が跳ぶ再配分を避ける。
+        constexpr f64 ozone_heights[3] = {10000.0,25000.0,40000.0};
+        f64 boundaries[5]{};
+        for (u32 boundary_index = 0u; boundary_index < 3u; ++boundary_index) {
+            const f64 boundary = SunDistanceToRise_Internal(radius,nearest_distance,ozone_heights[boundary_index]-height);
+            boundaries[boundary_index+1u] = boundary < distance ? boundary : distance;
         }
-        const f32 d_r = DensityRayleigh(alt) * step_len;
-        const f32 d_m = DensityMie(alt)      * step_len;
-        const f32 d_o = DensityOzone(alt)    * step_len;
-
-        // 太陽光線が sample_pos へ届く透過率
-        const f32 t_sun = RaySphereOuter(sample_pos, sun_dir, kAtmosphereRadius);
-        if (t_sun <= 0 || IsGroundOccluded(sample_pos, sun_dir, t_sun))
-            continue;
-        const FVec3 T_sun = SunPathTransmittance_Internal(sample_pos, sun_dir, t_sun, safe_sun_steps);
-
-        // view side 透過率は現在の区間へ入る前の値を使う。区間内の散乱は
-        // Beer-Lambertの解析積分で後段へまとめ、GPU経路と同じ順序にする。
-        // 視線側にも太陽側と同じ散乱・吸収の合計を使う。
-        const f32 beta_m_ext = MieExtinction_Internal();
-        const FVec3 tau_view{
-            beta_r.x * view_od_r + beta_m_ext * view_od_m + beta_o.x * view_od_o,
-            beta_r.y * view_od_r + beta_m_ext * view_od_m + beta_o.y * view_od_o,
-            beta_r.z * view_od_r + beta_m_ext * view_od_m + beta_o.z * view_od_o,
-        };
-        const FVec3 T_view{Exp(-tau_view.x), Exp(-tau_view.y), Exp(-tau_view.z)};
-
-        const FVec3 segment_tau{
-            beta_r.x * d_r + beta_m_ext * d_m + beta_o.x * d_o,
-            beta_r.y * d_r + beta_m_ext * d_m + beta_o.y * d_o,
-            beta_r.z * d_r + beta_m_ext * d_m + beta_o.z * d_o,
-        };
-        const FVec3 segment_t{
-            Exp(-segment_tau.x), Exp(-segment_tau.y), Exp(-segment_tau.z)};
-        const f32 transfer_r_x = segment_tau.x > 1.0e-7f
-            ? (1.0f - segment_t.x) / segment_tau.x : 1.0f;
-        const f32 transfer_r_y = segment_tau.y > 1.0e-7f
-            ? (1.0f - segment_t.y) / segment_tau.y : 1.0f;
-        const f32 transfer_r_z = segment_tau.z > 1.0e-7f
-            ? (1.0f - segment_t.z) / segment_tau.z : 1.0f;
-        const FVec3 segment_r{
-            T_sun.x * d_r * transfer_r_x,
-            T_sun.y * d_r * transfer_r_y,
-            T_sun.z * d_r * transfer_r_z,
-        };
-        const FVec3 segment_m{
-            T_sun.x * d_m * transfer_r_x,
-            T_sun.y * d_m * transfer_r_y,
-            T_sun.z * d_m * transfer_r_z,
-        };
-        inscatter_r = inscatter_r + FVec3{
-            T_view.x * segment_r.x,
-            T_view.y * segment_r.y,
-            T_view.z * segment_r.z};
-        inscatter_m = inscatter_m + FVec3{
-            T_view.x * segment_m.x,
-            T_view.y * segment_m.y,
-            T_view.z * segment_m.z};
-
-        view_od_r += d_r;
-        view_od_m += d_m;
-        view_od_o += d_o;
+        boundaries[4] = distance;
+        constexpr u32 band_count = 4u;
+        for (u32 band = 0u; band < band_count; ++band) {
+            // 各帯の低高度端を原点にし、余った点は低高度側から一つずつ配る。
+            const u32 rayleigh_budget = rayleigh_steps/band_count+(band < rayleigh_steps%band_count ? 1u : 0u);
+            const u32 mie_budget = mie_steps/band_count+(band < mie_steps%band_count ? 1u : 0u);
+            // 影の手前・奥は常に別区間として扱う。影が幅0へ消える場合も点配置を保つ。
+            for (u32 piece = 0u; piece < 2u; ++piece) {
+                const f64 begin = piece == 0u ? boundaries[band] : (shadow_high > boundaries[band] ? shadow_high : boundaries[band]);
+                const f64 end = piece == 0u && shadow_low < boundaries[band+1u] ? shadow_low : boundaries[band+1u];
+                const f64 band_distance = end-begin;
+                if (band_distance <= 0.0) continue;
+                const f64 band_height = height+SunRadialRise_Internal(radius,nearest_distance,begin);
+                const f64 band_closest = closest+traversal_sign*begin;
+                inscatter_r = inscatter_r+ViewDensityScattering_Internal(ro,rd,sun_dir,direction_length,band_closest,nearest_distance+begin,band_height,band_distance,traversal_sign,kRayleighH,rayleigh_budget > 0u ? rayleigh_budget : 1u,safe_sun_steps);
+                inscatter_m = inscatter_m+ViewDensityScattering_Internal(ro,rd,sun_dir,direction_length,band_closest,nearest_distance+begin,band_height,band_distance,traversal_sign,kMieH,mie_budget > 0u ? mie_budget : 1u,safe_sun_steps);
+            }
+        }
     }
 
     // CPU代替経路ではGPUの多重散乱表を参照できないため、計算していない
@@ -484,7 +582,7 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
                        FVec3 sun_intensity, FVec3 ground_albedo, u32 ray_steps,
                        u32 sun_steps) noexcept {
     const f32 t_ground = RaySphereNear(viewer, view_dir, kGroundRadius);
-    if (t_ground <= 0.0f) {
+    if (t_ground < 0.0f) {
         return SingleScatter(viewer, view_dir, sun_dir, sun_intensity,
                              ray_steps, sun_steps);
     }
@@ -503,7 +601,7 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
         const f32 t_sun =
             RaySphereOuter(surface_origin, sun_dir, kAtmosphereRadius);
         const FVec3 sun_t =
-            SunPathTransmittance_Internal(surface_origin, sun_dir, t_sun, sun_steps);
+            AtmospherePathTransmittance_Internal(surface_origin, sun_dir, t_sun, sun_steps);
         const f32 lambert = n_dot_l / kPi;
         direct = FVec3{
             sun_intensity.x * sun_t.x * lambert,
@@ -555,7 +653,7 @@ FVec3 CAtmosphere::EvaluateSkyRadiance(
     const FVec3 sun = NormalizeAtmosphereDirection(params.sun_dir);
     const u32 ray_steps = params.ray_steps > 0u ? params.ray_steps : 1u;
     const u32 sun_steps = params.sun_steps > 0u ? params.sun_steps : 1u;
-    if (RaySphereNear(viewer, view, kGroundRadius) > 0.0f) {
+    if (RaySphereNear(viewer, view, kGroundRadius) >= 0.0f) {
         return GroundHemisphere(viewer, view, sun, params.sun_intensity,
                                 params.ground_albedo, ray_steps, sun_steps);
     }
@@ -585,12 +683,12 @@ FVec3 SunTransmittanceAtAltitude(f32 altitude, FVec3 sun_dir) noexcept {
     const FVec3 dir{sun_dir.x / length, sun_dir.y / length, sun_dir.z / length};
 
     // 地面に隠れる向きなら光は届かない。
-    if (RaySphereNear(origin, dir, kGroundRadius) > 0.0f) return FVec3{0.0f, 0.0f, 0.0f};
+    if (RaySphereNear(origin, dir, kGroundRadius) >= 0.0f) return FVec3{0.0f, 0.0f, 0.0f};
 
     const f32 distance = RaySphereOuter(origin, dir, kAtmosphereRadius);
     if (distance <= 0.0f) return FVec3{1.0f, 1.0f, 1.0f};
 
-    return SunPathTransmittance_Internal(origin, dir, distance, kSunTransmittanceSteps);
+    return AtmospherePathTransmittance_Internal(origin, dir, distance, kSunTransmittanceSteps);
 }
 
 
