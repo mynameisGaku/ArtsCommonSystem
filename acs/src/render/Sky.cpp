@@ -1106,10 +1106,31 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float forwardGlow = exp(-sunAngle / max(sun_params.y * 0.35, 1.0e-5)) * horizonBand * 0.18;
     if (physical_atmosphere < 0.5) sky += sun_color.xyz * forwardGlow;
 
-    // 3) 太陽円盤は画素微分で輪郭だけを滑らかにし、光彩は太陽色への混合を0.28へ制限する。
-    float3 sun_disc_color = physical_atmosphere >= 0.5
-        ? physical_sun_intensity.xyz : sun_color.xyz;
-    sky = lerp(sky, sun_disc_color, saturate(discWeight + haloWeight));
+    if (physical_atmosphere >= 0.5) {
+        // 半径0は円盤だけを無効にする。照明源まで消して大気の散乱を変えない。
+        float radius = sun_params.x;
+        if (radius > 0.0) {
+            // 後方半球も含め、視線と太陽中心の実際の角度差を使う。
+            float physical_sun_angle = 1.0-clamp(dot(dir,sundn),-1.0,1.0);
+            // 既存の縁幅を保持する。これは光量を保存する画素面積積分ではない。
+            float physical_aa = max(fwidth(physical_sun_angle),1.0e-7);
+            // 円盤の光量校正と縁の面積積分はPhysicalSunDiscResearch.mdの未達項目。
+            float physical_disc_weight = 1.0-smoothstep(max(radius-physical_aa,0.0),radius+physical_aa,physical_sun_angle);
+            if (physical_disc_weight > 0.0) {
+                // 観測点から各画素の方向をたどる。太陽中心方向による一括遮蔽はしない。
+                float3 origin = float3(0.0,physical_params.y,0.0);
+                // 大気上端までの有限な光路長。上端から外へ向く光路は距離0となる。
+                float distance = PhysicalRaySphereOuter(origin,dir,kPhysicalTopRadiusKm);
+                // 地球に遮られる視線は0、真空を外へ向く視線は1、他は波長別の大気透過となる。
+                float3 transmission = distance > 0.0 ? PhysicalTransmittance(origin,dir,distance) : float3(1.0,1.0,1.0);
+                // 散乱を混合で上書きしない。円盤の旧輝度尺度は保存前露出の整合と同時に校正する。
+                sky += physical_sun_intensity.xyz*physical_disc_weight*transmission;
+            }
+        }
+    } else {
+        // 互換描画の太陽色と人工光彩は従来の指定どおりに混合する。
+        sky = lerp(sky, sun_color.xyz, saturate(discWeight + haloWeight));
+    }
 
     // 4) volumetric clouds: 雲スラブ [h0,h1] を視線方向にレイマーチして密度を積分。各サンプルで太陽へ
     //    ライトマーチして自己影 (Beer-Lambert) → 立体的な雲。地平線より上のみ。

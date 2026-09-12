@@ -1960,6 +1960,241 @@ void CSPhysicalGroundProbe(uint3 id : SV_DispatchThreadID) {
     }
 }
 
+/** 公開描画で円盤の地球遮蔽・透過と散乱の保持を検査する。円盤の光量校正は別の未達課題。 */
+ACS_TEST(Atmosphere, PhysicalSunDiscRespectsOcclusionAndTransmission)
+{
+    // 実際のGPUと、通常の製品シェーダーを使う。
+    FDeviceConfig config{};
+    // 検査中の描画資源を所有する実機。
+    auto device = CreateRhiDevice(config);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 条件ごとに描画を提出する命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 保存範囲による切り詰めを持ち込まない描画先の指定。
+    FTextureDesc description{};
+    description.width = 2u;
+    description.height = 2u;
+    description.format = EFormat::R32G32B32A32_Float;
+    description.is_render_target = true;
+    // GPUから各画素を読み戻す対象。
+    auto target = CreateRhiTexture(*device.Value(),description);
+    EXPECT_TRUE(target.IsOk());
+    if (target.IsErr()) return;
+    // 検査用の代替式ではなく、製品の描画器。
+    CSky sky;
+    // 作成失敗を後続の空の描画へ読み替えない。
+    const auto initialized = sky.Init(*device.Value(),description.format);
+    EXPECT_TRUE(initialized.IsOk());
+    if (initialized.IsErr()) return;
+    sky.SetFallbackCloudsEnabled(false);
+    // 正射影で全画素の方向を同じにし、円盤端の画素面積の近似を除外する。
+    CCamera camera;
+    camera.SetOrthographic(2.0f,2.0f,0.1f,10.0f);
+    // 解析参照と照合する面への入射量。
+    const FVec3 incident{1.0f,0.8f,0.6f};
+    // 倍精度の参照計算へ渡すRGBごとの入力。
+    const f64 channels[3]{incident.x,incident.y,incident.z};
+    // 円盤中心の3高度、地表の遮蔽、上空から見える下向き太陽、光彩幅への独立性、半径0。
+    f32 results[8][16]{};
+    for (u32 sample = 0u; sample < 8u; ++sample) {
+        // 地表、2つの高高度、上空から見える下向き太陽を選ぶ。
+        const f32 altitude = sample == 2u ? 24000.0f : sample == 3u ? 100000.0f : sample == 4u || sample == 5u ? 12000.0f : 0.0f;
+        // 円盤中心の検査では太陽と視線の方向を揃える。
+        const FVec3 direction = sample == 0u ? FVec3{0.0f,-1.0f,0.0f} : sample == 4u || sample == 5u ? FVec3{0.9993908f,-0.0348995f,0.0f} : FVec3{0.0f,1.0f,0.0f};
+        sky.SetSunDirection(direction);
+        sky.SetSunRadius(sample == 5u || sample == 7u ? 0.0f : kSkySolarDiscRadiusOneMinusCosine);
+        sky.SetSunGlow(sample == 6u ? 0.1f : kSkyDaySunHaloRadiusOneMinusCosine);
+        camera.SetLookDirection(FVec3{},direction,FVec3{0.0f,0.0f,1.0f});
+        command.Value()->Begin();
+        command.Value()->BeginRenderToTexture(*target.Value(),FClearColor{7.0f,8.0f,9.0f,0.0f});
+        sky.RenderPhysicalAtmosphere(*command.Value(),camera,incident,altitude,FVec3{});
+        command.Value()->EndRenderToTexture(*target.Value());
+        command.Value()->End();
+        // 描画の実行が受け付けられたか。
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        // 旧フレームや消去色を結果として使わないための読戻し成否。
+        const bool read = device.Value()->ReadTexture(*target.Value(),results[sample],sizeof(results[sample]));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        for (u32 pixel = 0u; pixel < 4u; ++pixel) {
+            EXPECT_EQ(results[sample][pixel*4u+3u],1.0f);
+            for (u32 channel = 0u; channel < 3u; ++channel) {
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(results[sample][pixel*4u+channel]) && results[sample][pixel*4u+channel] >= 0.0f);
+                // 正射影の同一方向では全画素が一致する。先頭以外の遮蔽漏れも失敗にする。
+                EXPECT_EQ(results[sample][pixel*4u+channel],results[sample][channel]);
+            }
+        }
+    }
+    // 大気圏外で測った円盤輝度へ独立な透過率を掛ける。照度から輝度への校正の合格とは区別する。
+    for (u32 channel = 0u; channel < 3u; ++channel) {
+        EXPECT_EQ(results[0][channel],0.0f);
+        EXPECT_TRUE(results[3][channel] > 0.0f);
+        // 今回の限定修正が旧尺度まで変えない契約。物理的な照度校正の期待値ではない。
+        EXPECT_NEAR(results[3][channel],channels[channel],1.0e-6);
+        for (u32 sample = 1u; sample <= 2u; ++sample) {
+            // 独立参照へ渡す高度km。
+            const f64 height = sample == 2u ? 24.0 : 0.0;
+            // 真空の実測円盤へ解析透過を掛け、解析散乱を別に加えた参照値。
+            const f64 expected = results[3][channel]*ReferenceVerticalExactTransmittance_Internal(height,100.0-height,channel)+channels[channel]*ReferenceVerticalExactScattering_Internal(height,channel);
+            test::RecordInfo(FSourceLoc::Current(),"sun_disc sample=%u channel=%u actual=%.12g expected=%.12g",sample,channel,results[sample][channel],expected);
+            EXPECT_NEAR(results[sample][channel],expected,2.0e-6);
+        }
+        EXPECT_NEAR(results[6][channel],results[1][channel],1.0e-6f);
+        EXPECT_NEAR(results[7][channel],channels[channel]*ReferenceVerticalExactScattering_Internal(0.0,channel),2.0e-6);
+        // 高度12kmでは下向き2度の太陽も地球に遮られない。yだけで非表示にしてはいけない。
+        EXPECT_TRUE(results[4][channel] > results[5][channel]);
+    }
+    sky.Shutdown();
+}
+
+/** 円盤中心と違う視線の遮蔽、および円盤外の人工光彩の除去を実GPUで検査する。 */
+ACS_TEST(Atmosphere, PhysicalSunDiscUsesViewRayAndNoArtificialHalo)
+{
+    // 通常の公開作成経路を使う実機の設定。
+    FDeviceConfig configuration{};
+    // 検査で使うGPUと資源の所有者。
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 条件ごとに描画を提出する命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 変換による上限切り詰めを持ち込まない32ビットの検査先。
+    FTextureDesc description{};
+    description.width = 2u;
+    description.height = 2u;
+    description.format = EFormat::R32G32B32A32_Float;
+    description.is_render_target = true;
+    // 毎回消去し、必ず読戻しまで完了させる描画先。
+    auto target = CreateRhiTexture(*device.Value(),description);
+    EXPECT_TRUE(target.IsOk());
+    if (target.IsErr()) return;
+    // 未加工の製品シェーダー。
+    CSky sky;
+    // 実装の初期化成否。
+    const auto initialized = sky.Init(*device.Value(),description.format);
+    EXPECT_TRUE(initialized.IsOk());
+    if (initialized.IsErr()) return;
+    sky.SetFallbackCloudsEnabled(false);
+    // 画素面積の近似ではなく、視線自体の遮蔽を検査する正射影。
+    CCamera camera;
+    camera.SetOrthographic(2.0f,2.0f,0.1f,10.0f);
+    // 条件は「視線が下／太陽が上」「視線が上／太陽が下」「円盤外の低い視線」の三組。
+    f32 results[6][16]{};
+    for (u32 sample = 0u; sample < 6u; ++sample) {
+        // 地表の正負0.1度はともに既定の円盤内に入る。
+        const FVec3 view = sample < 2u ? FVec3{0.9999984769f,-0.0017453284f,0.0f} : sample < 4u ? FVec3{0.9999984769f,0.0017453284f,0.0f} : FVec3{0.9998476952f,0.0174524064f,0.0f};
+        // 視線とは反対側の地平線に中心がある有限な太陽。
+        const FVec3 sun = sample < 2u || sample >= 4u ? FVec3{0.9999984769f,0.0017453284f,0.0f} : FVec3{0.9999984769f,-0.0017453284f,0.0f};
+        sky.SetSunDirection(sun);
+        sky.SetSunRadius(sample < 4u && (sample&1u) != 0u ? 0.0f : kSkySolarDiscRadiusOneMinusCosine);
+        sky.SetSunGlow(sample == 5u ? 0.1f : kSkyDaySunHaloRadiusOneMinusCosine);
+        camera.SetLookDirection(FVec3{},view,FVec3{0.0f,0.0f,1.0f});
+        command.Value()->Begin();
+        command.Value()->BeginRenderToTexture(*target.Value(),FClearColor{7.0f,8.0f,9.0f,0.0f});
+        sky.RenderPhysicalAtmosphere(*command.Value(),camera,FVec3{1.0f,0.8f,0.6f},0.0f,FVec3{});
+        command.Value()->EndRenderToTexture(*target.Value());
+        command.Value()->End();
+        // 実行が受け付けられたか。
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        const bool read = device.Value()->ReadTexture(*target.Value(),results[sample],sizeof(results[sample]));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        for (u32 pixel = 0u; pixel < 4u; ++pixel) {
+            EXPECT_EQ(results[sample][pixel*4u+3u],1.0f);
+            for (u32 channel = 0u; channel < 3u; ++channel) {
+                EXPECT_TRUE(IsFiniteProbeValue_Internal(results[sample][pixel*4u+channel]) && results[sample][pixel*4u+channel] >= 0.0f);
+                // 同じ視線の全画素を物理比較の対象にする。
+                EXPECT_EQ(results[sample][pixel*4u+channel],results[sample][channel]);
+            }
+        }
+    }
+    for (u32 channel = 0u; channel < 3u; ++channel) {
+        // 太陽中心は上でも、地面へ向かう円盤の画素は完全に遮られる。
+        EXPECT_EQ(results[0][channel],0.0f);
+        EXPECT_EQ(results[1][channel],0.0f);
+        // 太陽中心は下でも、円盤の上部の直達光を消してはいけない。
+        EXPECT_TRUE(results[2][channel] > results[3][channel]);
+        // 円盤外で光彩幅だけを変えても、物理的な散乱光は変わらない。
+        EXPECT_NEAR(results[4][channel],results[5][channel],1.0e-7);
+    }
+    sky.Shutdown();
+}
+
+/** 通常の16ビットHDR描画先で、既定の日中の太陽が保存上限へ張り付かないことを検査する。 */
+ACS_TEST(Atmosphere, PhysicalSunDiscDefaultHdrRetainsRange)
+{
+    // 通常の公開APIで作成する実機の設定。
+    FDeviceConfig configuration{};
+    // 検査中の描画資源を所有する実機。
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 太陽中心の4画素を提出する命令列。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // Editorと通常C++の後処理が使用する16ビット形式の描画先。
+    FTextureDesc description{};
+    description.width = 2u;
+    description.height = 2u;
+    description.format = EFormat::R16G16B16A16_Float;
+    description.is_render_target = true;
+    // GPUから形式を変換せず読み戻す対象。
+    auto target = CreateRhiTexture(*device.Value(),description);
+    EXPECT_TRUE(target.IsOk());
+    if (target.IsErr()) return;
+    // 製品の太陽と大気シェーダーをそのまま使用する。
+    CSky sky;
+    // 指定した16ビット形式で作成できたか。
+    const auto initialized = sky.Init(*device.Value(),description.format);
+    EXPECT_TRUE(initialized.IsOk());
+    if (initialized.IsErr()) return;
+    sky.SetFallbackCloudsEnabled(false);
+    sky.SetSunDirection(FVec3{0.0f,1.0f,0.0f});
+    sky.SetSunRadius(kSkySolarDiscRadiusOneMinusCosine);
+    // 正射影で円盤中心を固定し、偶然画素の間へ抜けることを防ぐ。
+    CCamera camera;
+    camera.SetOrthographic(2.0f,2.0f,0.1f,10.0f);
+    camera.SetLookDirection(FVec3{},FVec3{0.0f,1.0f,0.0f},FVec3{0.0f,0.0f,1.0f});
+    command.Value()->Begin();
+    command.Value()->BeginRenderToTexture(*target.Value(),FClearColor{0.0f,0.0f,0.0f,0.0f});
+    sky.RenderPhysicalAtmosphere(*command.Value(),camera,FVec3{22.0f,22.0f,22.0f},0.0f,FVec3{});
+    command.Value()->EndRenderToTexture(*target.Value());
+    command.Value()->End();
+    // GPUへの提出成否。
+    const bool submitted = command.Value()->Submit();
+    EXPECT_TRUE(submitted);
+    if (!submitted) return;
+    device.Value()->WaitIdle();
+    // IEEE 754の16ビット表現をそのまま読み、CPUの変換誤差を検査へ持ち込まない。
+    u16 result[16]{};
+    // GPUから形式を変えずに読み戻せたか。
+    const bool read = device.Value()->ReadTexture(*target.Value(),result,sizeof(result));
+    EXPECT_TRUE(read);
+    if (!read) return;
+    for (u32 pixel = 0u; pixel < 4u; ++pixel) {
+        EXPECT_EQ(result[pixel*4u+3u],0x3c00u);
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            test::RecordInfo(FSourceLoc::Current(),"sun_disc_half pixel=%u channel=%u bits=0x%04x",pixel,channel,result[pixel*4u+channel]);
+            EXPECT_TRUE((result[pixel*4u+channel]&0x7c00u) != 0x7c00u);
+            EXPECT_TRUE((result[pixel*4u+channel]&0x8000u) == 0u);
+            EXPECT_TRUE(result[pixel*4u+channel] < 0x7bffu);
+        }
+    }
+    sky.Shutdown();
+}
+
 // 公開描画から地表境界と微小光路を検査する。GPUを利用できなければ試験を失敗させる。
 ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
 {
