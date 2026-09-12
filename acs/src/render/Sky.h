@@ -55,19 +55,18 @@ public:
 
     /**
      * GPU リソース (VS/PS/PSO/定数バッファ) を確保する。
+     * RawDX12ではSM6.0対応GPUと、実行モジュール横の同梱DXC／検証器が必要。
      *
      * @param device リソース生成に使う RHI デバイス。
      * @param rt_format 描画先カラーターゲットのフォーマット。
      * @param depth_format 深度ターゲットのフォーマット (パイプライン作成用)。
      * @return 成功なら空の TResult、確保失敗ならエラー。
      */
-    TResult<void> Init(IRhiDevice& device,
-                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
-                      EFormat depth_format = EFormat::D32_Float) noexcept;
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format = EFormat::B8G8R8A8_UNorm, EFormat depth_format = EFormat::D32_Float) noexcept;
 
     /**
-     * Compile the raw-DX12 HLSL bytecode without touching an RHI device.
-     * Other backends retain the regular owner-thread Init path.
+     * RawDX12のSM6.0命令をデバイスなしで事前作成する。同梱DXCと検証器が必要。
+     * 欠落・作成失敗・検証失敗はエラーを返す。他の描画基盤は通常のInitを使う。
      */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
 

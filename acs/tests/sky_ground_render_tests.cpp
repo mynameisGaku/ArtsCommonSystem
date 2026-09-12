@@ -15,6 +15,14 @@
 
 using namespace acs;
 
+#if !WITH_RENDER_DILIGENT
+/** RawDX12の製品CSkyと同じ作成経路で、共有する物理式を検証する。 */
+static constexpr const char* kPhysicalSkyProbeTarget = "cs_6_0";
+#else
+/** 他の描画基盤へのSM6接続は別途検証する。従来形式をこの試験だけで変更しない。 */
+static constexpr const char* kPhysicalSkyProbeTarget = "cs_5_1";
+#endif
+
 // 倍精度値の指数が全て1ならNaNまたは無限大。近似比較がNaNを見逃すことを防ぐ。
 static bool IsFiniteProbeValue_Internal(f64 value)
 {
@@ -365,7 +373,7 @@ void CSShadowCoefficientsProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSShadowCoefficientsProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -468,7 +476,7 @@ void CSSumProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSSumProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -558,7 +566,7 @@ void CSAdaptivePriorityProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSAdaptivePriorityProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -695,7 +703,7 @@ void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSViewIntegralProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -1202,7 +1210,7 @@ void CSCostProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSCostProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -1309,7 +1317,7 @@ void CSOpticalProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSOpticalProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -1482,7 +1490,7 @@ void CSFiniteGroundProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSFiniteGroundProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -1686,7 +1694,7 @@ void CSMediumProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSMediumProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(),shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;
@@ -1822,7 +1830,7 @@ void CSPhysicalGroundProbe(uint3 id : SV_DispatchThreadID) {
     shaderDescription.stage = EShaderStage::Compute;
     shaderDescription.hlsl_source = source.Data();
     shaderDescription.entry_point = "CSPhysicalGroundProbe";
-    shaderDescription.target = "cs_5_1";
+    shaderDescription.target = kPhysicalSkyProbeTarget;
     auto shader = CreateRhiShader(*device.Value(), shaderDescription);
     EXPECT_TRUE(shader.IsOk());
     if (shader.IsErr()) return;

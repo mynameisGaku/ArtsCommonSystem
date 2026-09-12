@@ -36,6 +36,11 @@ DirectX 12 で、Diligent Engine バックエンドも選択できます。
 - CMake 3.24以上。選択したVisual Studio generatorを認識する新しいCMakeを推奨します。
 - Windows SDK、PowerShell、Git、初回依存取得用のインターネット接続。
 
+Raw DirectX 12の空描画（`CSky`）はShader Model 6.0対応GPUと、実行物に同梱した
+固定版DXCを使用します。手書きC++側の実行物にも配置が必要です。
+配置方法、対応範囲、失敗時の扱いは
+[`DxcRuntime.md`](acs/docs/DxcRuntime.md)を参照してください。
+
 Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しません。Visual Studio 2022を
 選ぶ場合は、generator名とソリューション名をconfigure入力として明示します。認識できない
 generatorまたは不正なソリューション名は生成前に失敗し、理由をconfigure logへ記録します。

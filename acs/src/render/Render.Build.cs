@@ -16,6 +16,11 @@ public sealed class Render : AcsModule
         Preamble = @"# stb (truetype) はフォントのアトラス焼きで使うので Render でも fetch する
 acs_third_party_stb()
 
+# RawDX12で明示SM6を使うcompilerとvalidatorを固定版から取得する。
+if(ACS_RENDER_DX12_RAW)
+    acs_third_party_dxc()
+endif()
+
 # トップレベルの ACS_RENDER_DILIGENT が ON のときだけ Diligent を fetch する。
 if(ACS_RENDER_DILIGENT)
     acs_third_party_diligent()
@@ -27,7 +32,7 @@ endif()";
 
         When("ACS_RENDER_DX12_RAW")
             .SubdirSrc("Dx12")
-            .LinkPrivate("d3d12", "dxgi", "d3dcompiler", "dxguid");
+            .LinkPrivate("d3d12", "dxgi", "d3dcompiler", "dxguid", "acs_third_party::dxc");
 
         When("ACS_RENDER_DILIGENT")
             .SubdirSrc("Diligent")

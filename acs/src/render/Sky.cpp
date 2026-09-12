@@ -1366,7 +1366,7 @@ EShaderStatus CSky::FCompiledShaders::Status() const noexcept {
     return EShaderStatus::Ready;
 }
 
-/** Compile raw-DX12 sky bytecode without accessing the render device. */
+/** RawDX12の空をSM6.0で事前作成する。デバイスは不要だが同梱DXCと検証器は必要。 */
 TResult<CSky::FCompiledShaders> CSky::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
@@ -1374,12 +1374,15 @@ TResult<CSky::FCompiledShaders> CSky::CompileShadersCpu() noexcept {
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "CSky.VS";
+    // 補償演算の実GPU一致と作成費用を検証した形式を、事前作成でも明示する。
+    vs_d.target = "vs_6_0";
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "CSky.PS";
+    ps_d.target = "ps_6_0";
 
     auto vertex = MakeUnique<FDx12Shader>();
     if (!vertex)
@@ -1454,6 +1457,10 @@ TResult<void> CSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "CSky.VS";
+#if !WITH_RENDER_DILIGENT
+    // RawDX12の事前作成と通常初期化で、同じコンパイラー経路を使う。
+    vs_d.target = "vs_6_0";
+#endif
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     FCompiledShaders compiled{};
@@ -1464,6 +1471,9 @@ TResult<void> CSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "CSky.PS";
+#if !WITH_RENDER_DILIGENT
+    ps_d.target = "ps_6_0";
+#endif
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     compiled.pixel = Move(ps_r.Value());

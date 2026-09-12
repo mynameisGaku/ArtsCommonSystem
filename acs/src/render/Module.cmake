@@ -6,6 +6,11 @@
 # stb (truetype) はフォントのアトラス焼きで使うので Render でも fetch する
 acs_third_party_stb()
 
+# RawDX12で明示SM6を使うcompilerとvalidatorを固定版から取得する。
+if(ACS_RENDER_DX12_RAW)
+    acs_third_party_dxc()
+endif()
+
 # トップレベルの ACS_RENDER_DILIGENT が ON のときだけ Diligent を fetch する。
 if(ACS_RENDER_DILIGENT)
     acs_third_party_diligent()
@@ -50,6 +55,7 @@ set(_acsgen_render_sources
 )
 set(_acsgen_render_headers
     Atmosphere.h
+    AtmosphereAdaptiveIntegrationInternal.h
     Blit.h
     BurnEffect.h
     DebugDraw.h
@@ -134,8 +140,10 @@ if(ACS_RENDER_DX12_RAW)
         Dx12/Dx12Buffer.cpp
         Dx12/Dx12CommandList.cpp
         Dx12/Dx12Device.cpp
+        Dx12/Dx12DxcCompilerInternal.cpp
         Dx12/Dx12Pipeline.cpp
         Dx12/Dx12Shader.cpp
+        Dx12/Dx12ShaderModelInternal.cpp
         Dx12/Dx12Swapchain.cpp
         Dx12/Dx12Texture.cpp
     )
@@ -144,6 +152,7 @@ if(ACS_RENDER_DX12_RAW)
         dxgi
         d3dcompiler
         dxguid
+        acs_third_party::dxc
     )
 endif()
 if(ACS_RENDER_DILIGENT)

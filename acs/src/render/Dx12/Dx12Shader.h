@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// DX12 シェーダ実装（D3DCompile による HLSL コンパイル）
 #pragma once
 
 #include "render/IRhiShader.h"
@@ -11,11 +10,11 @@
 namespace acs {
 
 /**
- * D3DCompile で HLSL をコンパイルして保持する DX12 版シェーダ。
+ * 指定した形式でHLSLを作成し、命令を単独所有するDX12版シェーダ。
  *
  * @details
- * Init で desc.hlsl_source を D3DCompile に通し、結果のバイトコード ID3DBlob を
- * 単独所有する。target 未指定時は stage から vs_5_1 / ps_5_1 / cs_5_1 を自動選択する。
+ * target未指定時は従来の5.1を使い、明示した6.0〜6.9は同梱DXCで作成する。
+ * 結果は検証後にID3DBlobへ格納し、DXCの一時所有者やDLLの寿命から切り離す。
  * Bytecode / BytecodeSize で blob の中身を返し、パイプライン作成時にバックエンドが
  * 内部参照する。IRhiShader を実装する final クラス。
  */
@@ -33,8 +32,11 @@ public:
      * @details
      * desc.target が null なら desc.stage から vs_5_1 / ps_5_1 / cs_5_1 を自動選択する。
      * デバッグビルドでは最適化なし + デバッグ情報付き、リリースでは最適化レベル3 で
-     * コンパイルする。hlsl_source が null なら E_INVALIDARG、コンパイル失敗時は
-     * エラーメッセージをログ出力する。
+     * コンパイルする。明示SM6ではこの実装を収録したexeまたはDLLの横に
+     * dxcompiler.dllとdxil.dllが必要。欠落・作成失敗・検証失敗はエラーを返す。
+     * DXCと検証器のDLL本体は初回利用後からプロセス終了まで保持する。
+     * ソースや関数名の欠落、記述と命令の段階不一致はE_INVALIDARGとなる。
+     * 失敗時に以前の命令を残さず、別形式への暗黙の切替は行わない。
      * @param desc コンパイル対象の HLSL ソース・エントリポイント等の生成パラメータ。
      * @return 成功なら正常な FHrResult、失敗なら HRESULT を含むエラー。
      */

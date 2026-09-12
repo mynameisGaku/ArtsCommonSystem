@@ -1650,12 +1650,14 @@ public static partial class ProjectManager
             $"acs_apply_compiler_options({ident})\n" +
             $"target_link_libraries({ident} PRIVATE ACS::GameFramework ACS::AssetPack)\n" +
             $"target_include_directories({ident} PRIVATE \"${{ACS_SOURCE_ROOT}}\")\n" +
+            $"acs_dxc_runtime({ident})\n" +
             $"set_target_properties({ident} PROPERTIES RUNTIME_OUTPUT_DIRECTORY \"{binDir}\")\n\n" +
             "# リフレクション DLL: ユーザー定義型をエディタへ公開する (editor が LoadLibrary する)。\n" +
             $"add_library({ident}_reflect SHARED ${{ACS_PROJ_SOURCES}} \"${{ACS_SOURCE_ROOT}}/editor_abi/GameReflectShim.cpp\")\n" +
             $"acs_apply_compiler_options({ident}_reflect)\n" +
             $"target_link_libraries({ident}_reflect PRIVATE ACS::GameFramework ACS::AssetPack)\n" +
             $"target_include_directories({ident}_reflect PRIVATE \"${{ACS_SOURCE_ROOT}}\")\n" +
+            $"acs_dxc_runtime({ident}_reflect)\n" +
             "# <IDENT>_API でエクスポートするユーザークラスの DLL インターフェース警告を抑制 (リフレクション用途のため無害)。\n" +
             $"target_compile_options({ident}_reflect PRIVATE /wd4275 /wd4251)\n" +
             $"set_target_properties({ident}_reflect PROPERTIES RUNTIME_OUTPUT_DIRECTORY \"{binDir}\")\n";

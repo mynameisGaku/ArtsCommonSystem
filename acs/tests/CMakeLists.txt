@@ -14,6 +14,28 @@ set_target_properties(acs_sky_ground_tests PROPERTIES FOLDER "Engine/Tests" RUNT
 add_test(NAME ACS.SkyGroundGpu COMMAND acs_sky_ground_tests)
 set_tests_properties(ACS.SkyGroundGpu PROPERTIES LABELS "Render;Gpu" RUN_SERIAL TRUE TIMEOUT 60)
 
+if(ACS_RENDER_DX12_RAW)
+    acs_dxc_runtime(acs_cloud_render_probe)
+    acs_dxc_runtime(acs_sky_ground_tests)
+    # 描画デバイスなしで作成・検証・所有権を確認する小さい製品入口。
+    add_executable(acs_dxc_shader_compiler_tests DxcCompilerRuntimeProbe.cpp dx12_shader_compiler_tests.cpp)
+    acs_apply_compiler_options(acs_dxc_shader_compiler_tests)
+    target_link_libraries(acs_dxc_shader_compiler_tests PRIVATE ACS::Render ACS::Test ACS::Memory ACS::Threading)
+    set_target_properties(acs_dxc_shader_compiler_tests PROPERTIES FOLDER "Engine/Tests" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dxc_compiler/$<CONFIG>/bin")
+    acs_dxc_runtime(acs_dxc_shader_compiler_tests)
+    add_test(NAME ACS.DxcShaderCompiler COMMAND acs_dxc_shader_compiler_tests)
+    set_tests_properties(ACS.DxcShaderCompiler PROPERTIES LABELS "Render;Compiler" TIMEOUT 60)
+    add_test(NAME ACS.DxcRuntimeIsolation COMMAND "${CMAKE_COMMAND}" "-DPROBE=$<TARGET_FILE:acs_dxc_shader_compiler_tests>" "-DARTIFACT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/dxc_compiler/$<CONFIG>/isolation" -P "${CMAKE_CURRENT_SOURCE_DIR}/dxc_runtime_isolation.cmake")
+    set_tests_properties(ACS.DxcRuntimeIsolation PROPERTIES LABELS "Render;Compiler;Distribution" RUN_SERIAL TRUE TIMEOUT 120)
+    # 対応版の照会だけを差し替え、事前作成された命令の版取得と拒否条件を検査する。
+    add_executable(acs_dx12_shader_model_tests main.cpp dx12_shader_model_tests.cpp)
+    acs_apply_compiler_options(acs_dx12_shader_model_tests)
+    target_link_libraries(acs_dx12_shader_model_tests PRIVATE ACS::Render ACS::Test)
+    set_target_properties(acs_dx12_shader_model_tests PROPERTIES FOLDER "Engine/Tests" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dxc_compiler/$<CONFIG>/model")
+    add_test(NAME ACS.Dx12ShaderModel COMMAND acs_dx12_shader_model_tests)
+    set_tests_properties(ACS.Dx12ShaderModel PROPERTIES LABELS "Render;Compiler" TIMEOUT 30)
+endif()
+
 if(WIN32)
     find_program(ACS_PROJECT_OPERATIONS_POWERSHELL NAMES powershell.exe powershell)
     if(ACS_PROJECT_OPERATIONS_POWERSHELL)
@@ -227,6 +249,10 @@ add_executable(acs_unit_tests
     network_socket_io_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
+if(ACS_RENDER_DX12_RAW)
+    target_sources(acs_unit_tests PRIVATE dx12_shader_compiler_tests.cpp dx12_shader_model_tests.cpp)
+    acs_dxc_runtime(acs_unit_tests)
+endif()
 
 acs_apply_compiler_options(acs_unit_tests)
 

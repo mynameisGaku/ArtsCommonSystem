@@ -5,6 +5,7 @@
 # 内で `#define <LIB>_IMPLEMENTATION` してインクルードする。
 include_guard(GLOBAL)
 include(FetchContent)
+include("${CMAKE_CURRENT_LIST_DIR}/ACSDxc.cmake")
 
 # 配布対象のlicenseを固有名で登録し、取得物の欠落をconfigure時に検出する。
 function(_acs_install_runtime_license source_file output_name)

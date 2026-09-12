@@ -2,6 +2,7 @@
 // DX12 グラフィックスパイプライン実装
 #include "render/Dx12/Dx12Pipeline.h"
 #include "render/Dx12/Dx12Device.h"
+#include "render/Dx12/Dx12ShaderModelInternal.h"
 #include "render/ShaderParameterLayoutMetadata.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Log.h"
@@ -9,6 +10,12 @@
 namespace acs {
 
 namespace {
+
+// 検査済みのデバイスを借用して要求SMを照会し、HRESULTをそのまま返す。
+HRESULT QueryShaderModel(void* context, D3D12_FEATURE_DATA_SHADER_MODEL& model) noexcept
+{
+    return static_cast<ID3D12Device*>(context)->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model));
+}
 
 /**
  * EPrimitiveTopology を DX12 のトポロジ種別へ変換する。
@@ -308,6 +315,10 @@ FHrResult FDx12Pipeline::Init(CDx12Device& device, const FPipelineDesc& desc) no
         return r;
     }
 
+    // 記述検査後、メンバー更新とキャッシュ参照前に事前コンパイル済みの要求SMも確認する。
+    r.hr = CheckDx12ShaderModel_Internal(*desc.vs, desc.ps, QueryShaderModel, device.D3DDevice());
+    if (r.IsErr()) return r;
+
     m_Topology = desc.topology;
     m_CbufferSlots = desc.cbuffer_slots;
     m_TextureSlots = desc.texture_slots;
@@ -470,6 +481,10 @@ FHrResult FDx12Pipeline::InitCompute(CDx12Device& device,
         r.hr = E_INVALIDARG;
         return r;
     }
+
+    // 記述検査後、メンバー更新とキャッシュ参照前にCSの要求SMを確認する。
+    r.hr = CheckDx12ShaderModel_Internal(*desc.cs, nullptr, QueryShaderModel, device.D3DDevice());
+    if (r.IsErr()) return r;
 
     m_IsCompute = true;
     m_CbufferSlots = desc.cbuffer_slots;

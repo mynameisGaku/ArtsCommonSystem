@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// DX12 シェーダ実装（D3DCompile による HLSL コンパイル）
+// 指定形式に応じて作成器を選び、命令の所有権を一つのblobへ統一する。
 #include "foundation/Log.h"            // Win32 ヘッダ前に読む（マクロ衝突回避）
 #include "memory/UniquePtr.h"
 #include "render/Dx12/Dx12Shader.h"
 #include "render/Dx12/Dx12Device.h"
+#include "render/Dx12/Dx12DxcCompilerInternal.h"
 
 namespace acs {
 
@@ -18,7 +19,7 @@ void FDx12Shader::Reset() noexcept
     m_Stage = EShaderStage::Vertex;
 }
 
-/** HLSL ソースを D3DCompile でステージ対応ターゲットへコンパイルし blob を保持する。 */
+/** HLSLを指定した形式で作成する。失敗時は古い命令を残さない。 */
 FHrResult FDx12Shader::Init(const FShaderDesc& desc) noexcept {
     FHrResult r{};
     Reset();
@@ -39,8 +40,20 @@ FHrResult FDx12Shader::Init(const FShaderDesc& desc) noexcept {
                 break;
             }
     }
-    if (!target || target[0] == '\0') {
+    /** 記述上の段階と実際の命令の段階を一致させる先頭文字。 */
+    const char stage_prefix = desc.stage == EShaderStage::Vertex ? 'v' : desc.stage == EShaderStage::Pixel ? 'p' : desc.stage == EShaderStage::Compute ? 'c' : '\0';
+    if (!stage_prefix || !target || target[0] != stage_prefix || target[1] != 's' || target[2] != '_') {
         r.hr = E_INVALIDARG;
+        return r;
+    }
+
+    if (target[3] == '6') {
+        if (target[4] != '_' || target[5] < '0' || target[5] > '9' || target[6] != '\0') {
+            r.hr = E_INVALIDARG;
+            return r;
+        }
+        r.hr = render_internal::CompileDxilShader_Internal(desc, target, m_Blob);
+        if (r.IsOk()) m_Stage = desc.stage;
         return r;
     }
 

@@ -1003,7 +1003,8 @@ ACS_TEST(Atmosphere, CpuEnvironmentBakeUsesObserverAltitude) {
 // 同じ標本位置での光路積分へ接続することだけを確認し、精度は実CPU/GPUの解析解試験で調べる。
 ACS_TEST(Atmosphere, CpuSingleScatterBindsPointwisePathTransmittance) {
     const std::string source = ReadAtmosphereSource();
-    const std::size_t begin = source.find("FVec3 ViewDensityScattering_Internal(");
+    // 標本ごとの透過率は推定器へ分離されているため、適応分割の入口だけでなく呼出先も検査する。
+    const std::size_t begin = source.find("FVec3 ViewDensityScatteringEstimate_Internal(");
     const std::size_t end = source.find("FVec3 SingleScatter(", begin);
     EXPECT_TRUE(begin != std::string::npos);
     EXPECT_TRUE(end != std::string::npos);
@@ -1014,6 +1015,7 @@ ACS_TEST(Atmosphere, CpuSingleScatterBindsPointwisePathTransmittance) {
     EXPECT_TRUE(Contains(function, "AtmospherePathTransmittance_Internal(origin,direction,view_distance,sun_steps)"));
     EXPECT_TRUE(Contains(function, "AtmospherePathTransmittance_Internal(sample_position,sun_direction,sun_distance,sun_steps)"));
     EXPECT_TRUE(Contains(function, "weight*static_cast<f64>(view_t.x)*sun_t.x"));
+    EXPECT_TRUE(Contains(function, "ViewDensityScatteringEstimate_Internal(origin,direction,sun_direction,direction_length,segment_begin,segment_nearest,segment_height,segment_distance,traversal_sign,scale_height,steps,sun_steps)"));
 }
 
 ACS_TEST(Atmosphere, MultiScatteringUsesUniformSolidAngleDirections) {

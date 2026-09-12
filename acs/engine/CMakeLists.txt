@@ -185,6 +185,8 @@ if(ACS_RENDER_DX12_RAW AND EXISTS "${ACS_SOURCE_ROOT}/editor_abi/EditorAbi.cpp")
         ACS::Game ACS::GameFramework ACS::Collision)
     target_include_directories(acs_editor_abi PRIVATE "${ACS_SOURCE_ROOT}")
     set_target_properties(acs_editor_abi PROPERTIES FOLDER "Game")
+    # DLL自身の隣から同じ版の作成器と検証器を読めるように配置する。
+    acs_dxc_runtime(acs_editor_abi)
 endif()
 
 # ---- 4c. 外部projectの取り込み ---------------------------------------------

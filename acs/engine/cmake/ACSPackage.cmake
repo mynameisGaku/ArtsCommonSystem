@@ -4,6 +4,7 @@
 # acs_enable_packagingは登録済みtargetをCPack ZIPへ束縛する。
 
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ACSDxc.cmake")
 
 # Per-target install + DLL コピー + asset コピー + CPack 登録ヘルパ。
 #   target            : 対象の実行ファイルターゲット名 (add_executable の名前)
@@ -14,6 +15,10 @@ function(acs_package_game target)
     if(NOT ACS_P_DEST_PREFIX)
         set(ACS_P_DEST_PREFIX "${target}")
     endif()
+
+    # 明示SM6用の動的読込DLLはTARGET_RUNTIME_DLLSに現れないため必須登録する。
+    acs_dxc_runtime(${target})
+    acs_dxc_install_runtime("${ACS_P_DEST_PREFIX}")
 
     # 1. exe 本体
     install(TARGETS ${target}
