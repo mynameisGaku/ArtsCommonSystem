@@ -532,6 +532,105 @@ void CSSumProbe(uint3 id : SV_DispatchThreadID) {
     }
 }
 
+// 分割予算を配る製品HLSLの計算を直接呼び、CPU側の反例と照合する。
+ACS_TEST(Atmosphere, GpuAdaptivePriorityIgnoresConvergedColors)
+{
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> priorityOutput : register(u0);
+[numthreads(1,1,1)]
+void CSAdaptivePriorityProbe(uint3 id : SV_DispatchThreadID) {
+    float first = PhysicalAdaptiveErrorPriority(sun_color.xyz,camera_pos.xyz,sun_dir.xyz,physical_params.x);
+    float second = PhysicalAdaptiveErrorPriority(sun_params.xyz,camera_pos.xyz,sun_dir.xyz,physical_params.x);
+    float selected = second > first ? 1.0 : (first > 0.0 ? 0.0 : 2.0);
+    priorityOutput[uint2(0,0)] = float4(first,second,selected,1.0);
+}
+)");
+    // GPUがない場合を合格にしない。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 現在の共通シェーダーと同じSM5.1で検査する。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSAdaptivePriorityProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 入力の配置は製品のまま、検査出力だけを結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "priorityOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 二候補の優先度と選択結果を、実際のGPUから読む。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 1u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 総量、全体誤差、二候補の誤差、許容値を明示的な入力にする。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 条件ごとに提出・完了・読戻しを確認する。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 許容内のRを無視する反例、全色許容内、総量0の同率、色別の相対順位。
+    const FVec4 totals[4] = {{1.0f,1.0f,1.0f,0.0f},{1.0f,1.0f,1.0f,0.0f},{1.0f,0.0f,1.0f,0.0f},{10.0f,1.0f,1.0f,0.0f}};
+    const FVec4 total_errors[4] = {{9.0e-5f,2.0e-4f,0.0f,0.0f},{9.0e-5f,1.0e-4f,0.0f,0.0f},{0.0f,1.0e-8f,0.0f,0.0f},{2.0e-3f,3.0e-4f,1.0e-4f,0.0f}};
+    const FVec4 first_errors[4] = {{9.0e-5f,0.0f,0.0f,0.0f},{9.0e-5f,0.0f,0.0f,0.0f},{0.0f,1.0e-8f,0.0f,0.0f},{2.0e-3f,0.0f,1.0e-4f,0.0f}};
+    const FVec4 second_errors[4] = {{0.0f,1.0e-5f,0.0f,0.0f},{0.0f,1.0e-5f,0.0f,0.0f},{0.0f,1.0e-8f,0.0f,0.0f},{0.0f,3.0e-4f,0.0f,0.0f}};
+    // 各二候補の期待優先度と、候補なしを2で表す選択結果。
+    constexpr f32 expected[4][3] = {{0.0f,1.0e-5f,1.0f},{0.0f,0.0f,2.0f},{1.0f,1.0f,0.0f},{2.0e-4f,3.0e-4f,1.0f}};
+    for (u32 sample = 0u; sample < 4u; ++sample) {
+        constants[4] = totals[sample];
+        constants[5] = total_errors[sample];
+        constants[6] = first_errors[sample];
+        constants[7] = second_errors[sample];
+        constants[13].x = 1.0e-4f;
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(1u,1u,1u);
+        command.Value()->End();
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        f32 values[4]{};
+        const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        test::RecordInfo(FSourceLoc::Current(),"adaptive_priority_gpu sample=%u first=%.12g second=%.12g selected=%.12g",sample,values[0],values[1],values[2]);
+        for (u32 index = 0u; index < 4u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+        EXPECT_NEAR(values[0],expected[sample][0],1.0e-9);
+        EXPECT_NEAR(values[1],expected[sample][1],1.0e-9);
+        EXPECT_EQ(values[2],expected[sample][2]);
+        EXPECT_EQ(values[3],1.0f);
+    }
+}
+
 // 通常C++の標準設定も独立した薄明の絶対値と比較し、高度ペアの共通偏りを検出する。
 ACS_TEST(Atmosphere, CpuTwilightMatchesIndependentIntegrals)
 {

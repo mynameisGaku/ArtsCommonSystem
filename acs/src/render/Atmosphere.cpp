@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Physical atmospheric scattering 実装
 #include "render/Atmosphere.h"
+#include "render/AtmosphereAdaptiveIntegrationInternal.h"
 #include "math/Math.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -537,21 +538,7 @@ FVec3 ViewDensityScattering_Internal(FVec3 origin, FVec3 direction, FVec3 sun_di
             for (u32 channel = 0u; channel < 3u; ++channel) total_error[channel] += errors[index][channel];
         }
         // 推定誤差内か、分割上限へ達したかを区別する。真の精度は独立参照試験で確認する。
-        const bool converged = total_error[0] <= integration_tolerance*total[0] && total_error[1] <= integration_tolerance*total[1] && total_error[2] <= integration_tolerance*total[2];
-        selected = leaf_count;
-        f64 largest_error = 0.0;
-        if (!converged && leaf_count < maximum_intervals) {
-            for (u32 index = 0u; index < leaf_count; ++index) {
-                if (split_positions[index] <= intervals[index][0]) continue;
-                for (u32 channel = 0u; channel < 3u; ++channel) {
-                    const f64 priority = total[channel] > 0.0 ? errors[index][channel]/total[channel] : (errors[index][channel] > 0.0 ? 1.0 : 0.0);
-                    if (priority > largest_error) {
-                        largest_error = priority;
-                        selected = index;
-                    }
-                }
-            }
-        }
+        selected = render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,leaf_count,maximum_intervals,integration_tolerance);
         if (selected == leaf_count) return FVec3{static_cast<f32>(total[0]),static_cast<f32>(total[1]),static_cast<f32>(total[2])};
         // 親の位置へ左の子を置き、右の子を末尾へ追加する。上限判定後なので配列を越えない。
         const f64 middle = split_positions[selected];

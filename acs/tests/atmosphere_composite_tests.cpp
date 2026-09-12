@@ -2,6 +2,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "render/Atmosphere.h"
+#include "render/AtmosphereAdaptiveIntegrationInternal.h"
 #include "render/IRhiDevice.h"
 #include "render/Sky.h"
 #include "math/Camera.h"
@@ -101,6 +102,184 @@ std::size_t CountOccurrences(
 }
 
 } // namespace
+
+/** Gだけが許容外の21区間では、許容内のR誤差が大きくてもGの区間を選ぶ。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorPrioritizesUnconvergedColor) {
+    // 指定反例のRGB総量と、色別に合計した推定誤差。
+    const f64 total[3]{1.0,1.0,1.0};
+    const f64 total_error[3]{9.0e-5,2.0e-4,0.0};
+    // 21区間の境界、RGB推定誤差、二分位置。
+    f64 intervals[21][2]{};
+    f64 errors[21][3]{};
+    f64 split_positions[21]{};
+    // 先頭だけにR誤差を置き、残り20区間へG誤差を分散する。
+    for (u32 index = 0u; index < 21u; ++index) {
+        intervals[index][0] = static_cast<f64>(index);
+        intervals[index][1] = static_cast<f64>(index)+1.0;
+        split_positions[index] = static_cast<f64>(index)+0.5;
+        errors[index][index == 0u ? 0u : 1u] = index == 0u ? 9.0e-5 : 1.0e-5;
+    }
+    // 製品の積分処理が呼ぶ選択器を、そのまま反例へ適用する。
+    const u32 selected = render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,21u,64u,1.0e-4);
+    test::RecordInfo(FSourceLoc::Current(), "counterexample selected=%u expected=1", selected);
+    EXPECT_EQ(selected, 1u);
+}
+
+/** Rの二つの子が親と同じ誤差でも、残り43分割をGの改善へ使って許容内へ到達する。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorSpendsRemainingBudgetOnUnconvergedColor) {
+    // 製品と同じ最大区間数と、反例のRGB総量。
+    constexpr u32 maximum_intervals = 64u;
+    const f64 total[3]{1.0,1.0,1.0};
+    // 親を左の子で置換し、右の子を末尾へ追加するための区間状態。
+    f64 intervals[maximum_intervals][2]{};
+    f64 errors[maximum_intervals][3]{};
+    f64 split_positions[maximum_intervals]{};
+    // 先頭Rと残り20区間のGを指定反例どおりに置く。
+    for (u32 index = 0u; index < 21u; ++index) {
+        intervals[index][0] = static_cast<f64>(index);
+        intervals[index][1] = static_cast<f64>(index)+1.0;
+        split_positions[index] = static_cast<f64>(index)+0.5;
+        errors[index][index == 0u ? 0u : 1u] = index == 0u ? 9.0e-5 : 1.0e-5;
+    }
+    // 現在の区間数、色別の分割回数、毎回再集計する推定誤差。
+    u32 leaf_count = 21u;
+    u32 red_splits = 0u;
+    u32 green_splits = 0u;
+    f64 total_error[3]{};
+    for (;;) {
+        total_error[0] = total_error[1] = total_error[2] = 0.0;
+        // 選択式を複製せず、模擬求積で得た各区間の誤差だけを集計する。
+        for (u32 index = 0u; index < leaf_count; ++index) {
+            // 集計中のRGB成分。
+            for (u32 channel = 0u; channel < 3u; ++channel) total_error[channel] += errors[index][channel];
+        }
+        // 各分割のたびに、製品の選択器へ現在の誤差と残り予算を渡す。
+        const u32 selected = render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,leaf_count,maximum_intervals,1.0e-4);
+        if (selected == leaf_count) break;
+        EXPECT_TRUE(selected < leaf_count && leaf_count < maximum_intervals);
+        if (selected >= leaf_count || leaf_count >= maximum_intervals) return;
+        if (errors[selected][0] > 0.0) ++red_splits;
+        if (errors[selected][1] > 0.0) ++green_splits;
+        // Rは各子が親の誤差を保ち、Gは各子が親の1/4へ改善する模擬求積。
+        errors[leaf_count][0] = errors[selected][0];
+        errors[selected][1] *= 0.25;
+        errors[leaf_count][1] = errors[selected][1];
+        // 分割後も各区間の内部に次の二分位置を用意する。
+        const f64 middle = split_positions[selected];
+        intervals[leaf_count][0] = middle;
+        intervals[leaf_count][1] = intervals[selected][1];
+        intervals[selected][1] = middle;
+        split_positions[selected] = 0.5*(intervals[selected][0]+middle);
+        split_positions[leaf_count] = 0.5*(middle+intervals[leaf_count][1]);
+        ++leaf_count;
+    }
+    test::RecordInfo(FSourceLoc::Current(), "budget R_splits=%u G_splits=%u leaves=%u G_error=%.17g", red_splits, green_splits, leaf_count, total_error[1]);
+    EXPECT_EQ(red_splits, 0u);
+    EXPECT_TRUE(green_splits > 0u);
+    EXPECT_TRUE(total_error[1] <= 1.0e-4);
+    EXPECT_TRUE(leaf_count < maximum_intervals);
+}
+
+/** 色ごとの総量で正規化し、許容境界ちょうどの色を候補から除く。RGBを順に入れ替えて調べる。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorHandlesEveryColorAndRelativePriority) {
+    // 異なる二つの色が未達で、区間0より区間1の相対誤差が大きい配置。
+    const f64 intervals[3][2]{{0.0,1.0},{1.0,2.0},{2.0,3.0}};
+    const f64 split_positions[3]{0.5,1.5,2.5};
+    // 許容境界へ置く色を順に変え、特定のRGB成分への依存を検出する。
+    for (u32 converged_channel = 0u; converged_channel < 3u; ++converged_channel) {
+        // 他の二色は異なる総量を持ち、未達となる。
+        const u32 first_channel = (converged_channel+1u)%3u;
+        const u32 second_channel = (converged_channel+2u)%3u;
+        f64 total[3]{1.0,1.0,1.0};
+        f64 total_error[3]{};
+        f64 errors[3][3]{};
+        total[first_channel] = 10.0;
+        errors[0][first_channel] = 2.0e-3;
+        errors[1][second_channel] = 3.0e-4;
+        errors[2][converged_channel] = 1.0e-4;
+        total_error[first_channel] = 2.0e-3;
+        total_error[second_channel] = 3.0e-4;
+        total_error[converged_channel] = 1.0e-4;
+        EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,3u,64u,1.0e-4), 1u);
+        // 未達色の誤差を20区間へ分散し、先頭には許容境界ちょうどの色を置く。
+        f64 distributed_intervals[21][2]{};
+        f64 distributed_errors[21][3]{};
+        f64 distributed_splits[21]{};
+        total_error[first_channel] = 4.0e-4;
+        total_error[second_channel] = 6.0e-4;
+        // 後ろ20区間の小さな誤差の総和が、指定した色別誤差と一致する配置。
+        for (u32 index = 0u; index < 21u; ++index) {
+            distributed_intervals[index][0] = static_cast<f64>(index);
+            distributed_intervals[index][1] = static_cast<f64>(index)+1.0;
+            distributed_splits[index] = static_cast<f64>(index)+0.5;
+            if (index == 0u) distributed_errors[index][converged_channel] = 1.0e-4;
+            else {
+                distributed_errors[index][first_channel] = 2.0e-5;
+                distributed_errors[index][second_channel] = 3.0e-5;
+            }
+        }
+        EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,distributed_intervals,distributed_errors,distributed_splits,21u,64u,1.0e-4), 1u);
+    }
+}
+
+/** 区間数・予算・許容値0と、全色許容内での終了値を確認する。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorHandlesZeroArgumentsAndConvergence) {
+    // 正の総量、誤差0、ちょうど許容境界、許容外を使い分ける。
+    const f64 total[3]{1.0,1.0,1.0};
+    const f64 zero_error[3]{};
+    const f64 boundary_error[3]{1.0e-4,1.0e-4,1.0e-4};
+    const f64 unmet_error[3]{2.0e-4,0.0,0.0};
+    // 一つの分割可能な区間。
+    const f64 intervals[1][2]{{0.0,1.0}};
+    const f64 errors[1][3]{{2.0e-4,0.0,0.0}};
+    const f64 boundary_errors[1][3]{{1.0e-4,1.0e-4,1.0e-4}};
+    const f64 zero_errors[1][3]{};
+    const f64 split_positions[1]{0.5};
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(nullptr,nullptr,nullptr,nullptr,nullptr,0u,64u,1.0e-4), 0u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(nullptr,nullptr,nullptr,nullptr,nullptr,0u,0u,0.0), 0u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,unmet_error,intervals,errors,split_positions,1u,0u,1.0e-4), 1u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,unmet_error,intervals,errors,split_positions,1u,1u,1.0e-4), 1u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,boundary_error,intervals,boundary_errors,split_positions,1u,64u,1.0e-4), 1u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,zero_error,intervals,zero_errors,split_positions,1u,64u,0.0), 1u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,unmet_error,intervals,errors,split_positions,1u,64u,0.0), 0u);
+}
+
+/** RGB総量0でも正の誤差を見失わず、総量と誤差がともに0なら終了する。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorHandlesZeroRgb) {
+    // 一つ目にG、二つ目にBの誤差を置く分割可能な区間。
+    const f64 intervals[2][2]{{0.0,1.0},{1.0,2.0}};
+    const f64 split_positions[2]{0.5,1.5};
+    const f64 errors[2][3]{{0.0,1.0e-8,0.0},{0.0,0.0,1.0e-8}};
+    const f64 total_error[3]{0.0,1.0e-8,1.0e-8};
+    // G総量だけ0、全RGB総量0、全RGB誤差0の入力。
+    const f64 mixed_total[3]{1.0,0.0,1.0};
+    const f64 zero_rgb[3]{};
+    const f64 zero_errors[2][3]{};
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(mixed_total,total_error,intervals,errors,split_positions,2u,64u,1.0e-4), 0u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(zero_rgb,total_error,intervals,errors,split_positions,2u,64u,1.0e-4), 0u);
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(zero_rgb,zero_rgb,intervals,zero_errors,split_positions,2u,64u,1.0e-4), 2u);
+}
+
+/** 最大誤差が分割不能なら次の候補を選び、同率は先頭、全区間分割不能なら終了する。 */
+ACS_TEST(Atmosphere, CpuAdaptiveSelectorHandlesUnsplittableIntervalsAndTies) {
+    // 先頭を最大誤差、後ろ二つを同率にした未達のG。
+    const f64 total[3]{1.0,1.0,1.0};
+    const f64 total_error[3]{0.0,1.4e-3,0.0};
+    const f64 intervals[3][2]{{0.0,1.0},{1.0,2.0},{2.0,3.0}};
+    const f64 errors[3][3]{{0.0,1.0e-3,0.0},{0.0,2.0e-4,0.0},{0.0,2.0e-4,0.0}};
+    // 製品が分割不能を表す始点へ、順番に二分位置を戻す。
+    f64 split_positions[3]{0.0,1.5,2.5};
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,3u,64u,1.0e-4), 1u);
+    split_positions[1] = 1.0;
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,3u,64u,1.0e-4), 2u);
+    split_positions[2] = 2.0;
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,total_error,intervals,errors,split_positions,3u,64u,1.0e-4), 3u);
+    // 未達のGを分割できず、分割可能なRが許容内なら予算を浪費せず終了する。
+    const f64 blocked_error[3]{9.0e-5,2.0e-4,0.0};
+    const f64 blocked_errors[2][3]{{9.0e-5,0.0,0.0},{0.0,2.0e-4,0.0}};
+    const f64 blocked_splits[2]{0.5,1.0};
+    EXPECT_EQ(render_internal::SelectAtmosphereAdaptiveInterval_Internal(total,blocked_error,intervals,blocked_errors,blocked_splits,2u,64u,1.0e-4), 2u);
+}
 
 ACS_TEST(Atmosphere, CompositeSeparatesLongRangeAtmosphereFromLocalFog) {
     const std::string source = ReadAtmosphereSource();

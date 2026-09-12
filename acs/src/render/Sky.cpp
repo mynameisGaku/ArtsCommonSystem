@@ -837,6 +837,19 @@ float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun,
     return weight_sum > 0.0 ? transmission_sum/weight_sum : float3(0.0,0.0,0.0);
 }
 
+// 一つの区間の誤差を、まだ許容値へ達していない色の総量に対する相対値として比較する。
+float PhysicalAdaptiveErrorPriority(float3 error, float3 total, float3 total_error, float integration_tolerance) {
+    // 総量0で正の誤差が残る色も、0除算せず候補に保つ。
+    float error_r = total.x > 0.0 ? error.x/total.x : (error.x > 0.0 ? 1.0 : 0.0);
+    float error_g = total.y > 0.0 ? error.y/total.y : (error.y > 0.0 ? 1.0 : 0.0);
+    float error_b = total.z > 0.0 ? error.z/total.z : (error.z > 0.0 ? 1.0 : 0.0);
+    // 許容内の色の局所誤差が大きくても、未達の色から残り分割予算を奪わせない。
+    if (total_error.x <= integration_tolerance*total.x) error_r = 0.0;
+    if (total_error.y <= integration_tolerance*total.y) error_g = 0.0;
+    if (total_error.z <= integration_tolerance*total.z) error_b = 0.0;
+    return max(error_r,max(error_g,error_b));
+}
+
 // 密度総量を保存しつつ、透過率の変化が大きい部分だけ二分する。推定誤差も返し、上限打切りを合格と偽らない。
 float3 PhysicalViewDensityIntegral(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, out float3 absolute_error, out uint interval_count) {
     absolute_error = float3(0.0,0.0,0.0);
@@ -911,17 +924,13 @@ float3 PhysicalViewDensityIntegral(float3 origin, float3 direction, float3 sun, 
         }
         if (all(total_error <= integration_tolerance*total) || leaf_count >= 64u) break;
 
-        // RGBのどれかに最も大きく影響する誤差を先に減らし、後半の難しい区間を取り残さない。
+        // 未達のRGBへ最も大きく影響する誤差を先に減らし、許容内の色へ予算を費やさない。
         float largest_error = 0.0;
         selected = leaf_count;
         [loop]
         for (uint index = 0u; index < leaf_count; ++index) {
             if (split_positions[index] <= intervals[index].x) continue;
-            float3 error = errors[index];
-            float error_r = total.x > 0.0 ? error.x/total.x : (error.x > 0.0 ? 1.0 : 0.0);
-            float error_g = total.y > 0.0 ? error.y/total.y : (error.y > 0.0 ? 1.0 : 0.0);
-            float error_b = total.z > 0.0 ? error.z/total.z : (error.z > 0.0 ? 1.0 : 0.0);
-            float priority = max(error_r,max(error_g,error_b));
+            float priority = PhysicalAdaptiveErrorPriority(errors[index],total,total_error,integration_tolerance);
             if (priority > largest_error) {
                 largest_error = priority;
                 selected = index;
