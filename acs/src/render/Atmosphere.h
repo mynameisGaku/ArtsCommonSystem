@@ -45,13 +45,13 @@ struct FAtmosphereParams {
     /** 太陽方角 (天頂方向 +Y、正規化前提だが内部で再正規化される)。 */
     FVec3 sun_dir       = FVec3{0.4f, 0.7f, 0.4f};
 
-    /** 太陽のピーク輝度 (W/m²/sr 相当)。 */
+    /** 大気圏外で光に垂直な面へ入る太陽の放射照度（W/m²相当）。円盤の単位立体角当たりの輝度とは異なる。 */
     FVec3 sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
 
     /** Lambert ground と ground bounce に使う RGB アルベド。 */
     FVec3 ground_albedo = FVec3{0.10f, 0.12f, 0.10f};
 
-    /** 半径が一方向に変わる視線区間ごとの評価点数の目安。二密度・四つの固定高度帯へ配り、影の両側は別々に評価するため上限ではない。各有効帯・密度は最低1点、0は1として扱い、空の帯の点を移し替えない。 */
+    /** 半径が一方向に変わる視線区間へ配る初期評価点数の目安。二密度・四つの固定高度帯へ配り、影の両側は別々に評価する。各帯が2点以上なら推定誤差に応じ最大64区間へ細分するため総評価数の上限ではない。各帯は最低1点、0は1へ補正し、空の帯の点を移し替えない。 */
     u32  ray_steps     = 32;
 
     /** 太陽・視線の透過光路で高度が一方向に変化する区間ごとに、各指数密度を評価する点数（0は1へ補正）。オゾンは密度帯ごとの2点則を使う。 */
@@ -195,7 +195,7 @@ public:
      * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
      * @param cam_pos カメラ world position (scene 単位)。
      * @param sun_dir 太陽方角 (+Y up)。
-     * @param sun_intensity 太陽ピーク輝度。
+     * @param sun_intensity 大気圏外の太陽放射照度（光に垂直な面への入射量）。
      * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
      * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
      * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。

@@ -225,7 +225,7 @@ public:
      * 評価する。入力は描画時だけに渡し、CSky本体の公開レイアウトを変えない。
      * @param cl 描画コマンドを積むコマンドリスト。
      * @param camera 視線復元に使うカメラ。
-     * @param sun_intensity 太陽の線形HDR放射輝度。
+     * @param sun_intensity 大気圏外の太陽放射照度（光に垂直な面への線形HDR入射量）。円盤の輝度ではない。
      * @param altitude_meters 視点の地表からの高度 (m)。
      * @param ground_albedo 地表のRGBアルベド。負値は0へ丸める。
      */

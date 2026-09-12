@@ -57,6 +57,13 @@ static FString ReadRenderSource_Internal(const wchar_t* suffix)
     return FString(source.Value().GetData());
 }
 
+// 独立した複合Gaussと適応Simpsonで照合した薄明の高度kmと太陽俯角度。高度は製品入力と同じfloat丸め。
+static constexpr f32 kTwilightHeights[8] = {9.999f,10.001f,24.999f,25.001f,39.999f,40.001f,0.0f,0.0f};
+// 太陽方向は角度から計算した後にfloatへ丸める。
+static constexpr f64 kTwilightDepressions[8] = {4.5,4.5,6.0,6.0,7.0,7.0,1.15,1.17};
+// 入射量(1,0.8f,0.6f)、鉛直上向き視線、地表反射なしの線形RGB。導出と収束記録はAtmosphereViewIntegralResearch.md。
+static constexpr f64 kTwilightRadiance[8][3] = {{5.06155276567e-5,2.40263419402e-5,3.91648261205e-5},{5.06156961097e-5,2.40265287261e-5,3.91655693352e-5},{7.27381226837e-6,3.51013732328e-6,6.00519899557e-6},{7.27382542530e-6,3.51015470043e-6,6.00521747316e-6},{1.48402430398e-6,7.11428840054e-7,1.20477405915e-6},{1.48402441998e-6,7.11428970009e-7,1.20477459626e-6},{7.11539208024e-4,4.17741485401e-4,4.56221077879e-4},{7.04672328299e-4,4.12748453855e-4,4.51433589626e-4}};
+
 // 製品HLSLを直接読み、検査入口だけを追加する。読取り不能や宣言欠落なら空文字列を返す。
 static FString ReadPhysicalSkyShader_Internal()
 {
@@ -329,7 +336,223 @@ ACS_TEST(Atmosphere, CpuGroundSurfaceDoesNotIntegrateThroughPlanet)
     EXPECT_EQ(actual.z,0.0f);
 }
 
-// 太陽円盤の合成を含めず、現在の製品HLSLが返す単散乱を実GPUから解析解へ照合する。
+// 最適化の影響を大気の求積から切り離し、製品の影判定を短いGPU検査で先に実行する。
+ACS_TEST(Atmosphere, GpuShadowCoefficientsPreserveGrazingInterval)
+{
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> shadowCoefficientsOutput : register(u0);
+[numthreads(1,1,1)]
+void CSShadowCoefficientsProbe(uint3 id : SV_DispatchThreadID) {
+    float4 coefficients = float4(0.0,0.0,0.0,0.0);
+    float2 interval = PhysicalViewShadowIntervalWithCoefficients(physical_params.y,camera_pos.xyz,sun_dir.xyz,physical_params.w,coefficients);
+    shadowCoefficientsOutput[uint2(0,0)] = float4(interval,0.0,1.0);
+    shadowCoefficientsOutput[uint2(1,0)] = coefficients;
+    shadowCoefficientsOutput[uint2(2,0)] = camera_pos;
+    shadowCoefficientsOutput[uint2(3,0)] = sun_dir;
+    shadowCoefficientsOutput[uint2(4,0)] = physical_params;
+}
+)");
+    // GPUがない場合を合格にしない。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 現在の共通シェーダーと同じSM5.1で検査する。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSShadowCoefficientsProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 入力の配置は製品のまま、検査出力だけを結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "shadowCoefficientsOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 区間・係数・実際の入力を別画素へ出し、半精度や表示変換を挟まない。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 5u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 行5が太陽方向、行13が高度、行14が入射量。
+    FVec4 constants[16]{};
+    constants[4] = FVec4{0.0f,1.0f,0.0f,0.0f};
+    constants[5] = FVec4{0.0f,1.0f,0.0f,0.0f};
+    constants[14] = FVec4{1.0f,0.8f,0.6f,0.0f};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 条件ごとに提出・完了・読戻しを確認する。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 隣接する二入力の真の判別式は正と負。丸めで符号が反転する反例を保持する。
+    constexpr f32 heights[2] = {97.52274322509766f,97.52275848388672f};
+    constexpr f32 sunY[2] = {-0.07742907106876373f,-0.07742909342050552f};
+    constants[4] = FVec4{-0.012026628479361534f,-0.15485814213752747f,0.9878634810447693f,0.0f};
+    constants[13].w = 2000.0f;
+    for (u32 sample = 0u; sample < 2u; ++sample) {
+        constants[5] = FVec4{0.9969978332519531f,sunY[sample],0.0f,0.0f};
+        constants[13].y = heights[sample];
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(1u,1u,1u);
+        command.Value()->End();
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        f32 values[20]{};
+        const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        test::RecordInfo(FSourceLoc::Current(),"shadow_isolated_gpu sample=%u begin=%.12g end=%.12g a=%.12g b=%.12g c=%.12g D=%.12g",sample,values[0],values[1],values[4],values[5],values[6],values[7]);
+        test::RecordInfo(FSourceLoc::Current(),"shadow_inputs_gpu camera=(%.17g,%.17g,%.17g,%.17g) sun=(%.17g,%.17g,%.17g,%.17g) physical=(%.17g,%.17g,%.17g,%.17g)",values[8],values[9],values[10],values[11],values[12],values[13],values[14],values[15],values[16],values[17],values[18],values[19]);
+        EXPECT_EQ(values[3],1.0f);
+        for (u32 index = 0u; index < 8u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+        if (sample == 0u) {
+            EXPECT_TRUE(values[7] > 0.0f);
+            EXPECT_TRUE(::fabs(static_cast<f64>(values[0])-999.821317034506) <= 0.001);
+            EXPECT_TRUE(::fabs(static_cast<f64>(values[1])-1000.17875073943) <= 0.001);
+        } else {
+            EXPECT_TRUE(values[7] < 0.0f);
+            EXPECT_EQ(values[0],values[1]);
+        }
+    }
+}
+
+
+// 加算の残差をGPUが保持するかを、空や影の式から切り離して確認する。
+ACS_TEST(Atmosphere, GpuCompensatedSumPreservesDynamicResiduals)
+{
+    FString source = ReadPhysicalSkyShader_Internal();
+    EXPECT_TRUE(source.Size() > 0u);
+    if (source.Size() == 0u) return;
+    source.Append(R"(
+RWTexture2D<float4> sumOutput : register(u0);
+[numthreads(1,1,1)]
+void CSSumProbe(uint3 id : SV_DispatchThreadID) {
+    precise float2 forward = PhysicalCompensatedSum(camera_pos.x,camera_pos.y);
+    precise float2 backward = PhysicalCompensatedSum(camera_pos.y,camera_pos.x);
+    sumOutput[uint2(0,0)] = float4(forward,backward);
+}
+)");
+    // GPUがない場合を合格にしない。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    // 現在の共通シェーダーと同じSM5.1で検査する。
+    FShaderDesc shaderDescription{};
+    shaderDescription.stage = EShaderStage::Compute;
+    shaderDescription.hlsl_source = source.Data();
+    shaderDescription.entry_point = "CSSumProbe";
+    shaderDescription.target = "cs_5_1";
+    auto shader = CreateRhiShader(*device.Value(),shaderDescription);
+    EXPECT_TRUE(shader.IsOk());
+    if (shader.IsErr()) return;
+    // 入力の配置は製品のまま、検査出力だけを結び付ける。
+    FComputePipelineDesc pipelineDescription{};
+    pipelineDescription.cs = shader.Value().Get();
+    pipelineDescription.cbuffer_slots = 1u;
+    pipelineDescription.cbuffer_names[0] = "CSky";
+    pipelineDescription.uav_slots = 1u;
+    pipelineDescription.uav_names[0] = "sumOutput";
+    auto pipeline = CreateRhiComputePipeline(*device.Value(),pipelineDescription);
+    EXPECT_TRUE(pipeline.IsOk());
+    if (pipeline.IsErr()) return;
+    // 主値と残差を両入力順で読み、途中値の出力によって最適化条件を変えない。
+    FTextureDesc textureDescription{};
+    textureDescription.width = 1u;
+    textureDescription.height = 1u;
+    textureDescription.format = EFormat::R32G32B32A32_Float;
+    textureDescription.is_uav = true;
+    auto texture = CreateRhiTexture(*device.Value(),textureDescription);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+    // 行4の二成分だけを動的な加算入力として使う。
+    FVec4 constants[16]{};
+    FBufferDesc bufferDescription{};
+    bufferDescription.size = sizeof(constants);
+    bufferDescription.usage = EBufferUsage::Uniform;
+    bufferDescription.cpu_writable = true;
+    auto buffer = CreateRhiBuffer(*device.Value(),bufferDescription);
+    EXPECT_TRUE(buffer.IsOk());
+    if (buffer.IsErr()) return;
+    // 条件ごとに提出・完了・読戻しを確認する。
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    // 影の反例を構成する和と、符号反転・大きさの差・完全な相殺を含める。定数畳込みで代用しない。
+    constexpr f32 inputs[10][2] = {{9510.685546875f,1240489.25f},{-0.07648935168981552f,9.763745367763477e-12f},{0.0009312106994912028f,0.15439322590827942f},{1.0f,2.98023223876953125e-8f},{-1.0f,-2.98023223876953125e-8f},{1.0e10f,1.0f},{-1.0e10f,1.0f},{1.0f,-1.0f},{0.0f,0.25f},{-9510.685546875f,-1240489.25f}};
+    for (u32 sample = 0u; sample < 10u; ++sample) {
+        constants[4] = FVec4{inputs[sample][0],inputs[sample][1],0.0f,0.0f};
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(1u,1u,1u);
+        command.Value()->End();
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        f32 values[4]{};
+        const bool read = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        // 非零の期待残差は倍精度の分解能より十分大きい。主値と残差の組を入力二項の倍精度加算と照合する。
+        const f64 expected = static_cast<f64>(inputs[sample][0])+static_cast<f64>(inputs[sample][1]);
+        test::RecordInfo(FSourceLoc::Current(),"sum_gpu sample=%u forward=(%.17g,%.17g) backward=(%.17g,%.17g)",sample,values[0],values[1],values[2],values[3]);
+        for (u32 index = 0u; index < 4u; ++index) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[index]));
+        EXPECT_EQ(static_cast<f64>(values[0])+static_cast<f64>(values[1]),expected);
+        EXPECT_EQ(static_cast<f64>(values[2])+static_cast<f64>(values[3]),expected);
+    }
+}
+
+// 通常C++の標準設定も独立した薄明の絶対値と比較し、高度ペアの共通偏りを検出する。
+ACS_TEST(Atmosphere, CpuTwilightMatchesIndependentIntegrals)
+{
+    FAtmosphereParams parameters{};
+    parameters.sun_intensity = FVec3{1.0f,0.8f,0.6f};
+    parameters.ground_albedo = FVec3{};
+    for (u32 sample = 0u; sample < 8u; ++sample) {
+        const f64 angle = kTwilightDepressions[sample]*(3.14159265358979323846/180.0);
+        parameters.sun_dir = FVec3{static_cast<f32>(::cos(angle)),static_cast<f32>(-::sin(angle)),0.0f};
+        const FVec3 radiance = CAtmosphere::EvaluateSkyRadiance(kTwilightHeights[sample]*1000.0f,FVec3{0.0f,1.0f,0.0f},parameters);
+        const f32 values[3] = {radiance.x,radiance.y,radiance.z};
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            const f64 expected = kTwilightRadiance[sample][channel];
+            test::RecordInfo(FSourceLoc::Current(),"twilight_absolute_cpu sample=%u channel=%u actual=%.12g expected=%.12g",sample,channel,values[channel],expected);
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(values[channel]));
+            EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 1.0e-3*expected);
+        }
+    }
+}
+
+// 製品のGPU入口を独立した解析形・積分値・連続性の条件で検査する。
 ACS_TEST(Atmosphere, GpuViewScatteringMatchesIndependentIntegrals)
 {
     // 実装を複製せず、検査入口だけを加える。
@@ -340,6 +563,20 @@ ACS_TEST(Atmosphere, GpuViewScatteringMatchesIndependentIntegrals)
 RWTexture2D<float4> viewIntegralOutput : register(u0);
 [numthreads(1,1,1)]
 void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
+    if (physical_params.z == 5.0) {
+        float4 coefficients = float4(0.0,0.0,0.0,0.0);
+        PhysicalViewShadowIntervalWithCoefficients(physical_params.y,camera_pos.xyz,sun_dir.xyz,physical_params.w,coefficients);
+        viewIntegralOutput[uint2(0,0)] = coefficients;
+        return;
+    }
+    if (physical_params.z >= 2.0) {
+        // 特定の可視帯を切り出し、分割上限と残る絶対誤差を観測する。
+        float3 error = float3(0.0,0.0,0.0);
+        uint intervals = 0u;
+        float3 integral = PhysicalViewDensityIntegral(float3(0.0,physical_params.y,0.0),camera_pos.xyz,sun_dir.xyz,1.0,sun_color.x,1.0,sun_color.y,sun_color.z,sun_color.w,sun_params.x,error,intervals);
+        viewIntegralOutput[uint2(0,0)] = float4(physical_params.z >= 3.0 ? error : integral,float(intervals));
+        return;
+    }
     if (physical_params.z > 0.0) {
         viewIntegralOutput[uint2(0,0)] = float4(PhysicalViewShadowInterval(physical_params.y,camera_pos.xyz,sun_dir.xyz,physical_params.w),0.0,1.0);
         return;
@@ -464,6 +701,9 @@ void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
         EXPECT_TRUE(values[3] >= 1.0f && values[3] <= 1.0f+1.0e-4f);
         for (u32 channel = 0u; channel < 3u; ++channel) {
             boundaryRadiance[sample][channel] = values[channel];
+            const f64 expected = kTwilightRadiance[sample][channel];
+            test::RecordInfo(FSourceLoc::Current(),"twilight_absolute_gpu sample=%u channel=%u actual=%.12g expected=%.12g",sample,channel,values[channel],expected);
+            EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 1.0e-3*expected);
             EXPECT_TRUE(IsFiniteProbeValue_Internal(values[channel]));
             EXPECT_TRUE(values[channel] > 0.0f);
         }
@@ -479,6 +719,50 @@ void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
             EXPECT_TRUE(::fabs(static_cast<f64>(boundaryRadiance[low][channel])-expected) <= 1.0e-3*expected);
         }
     }
+    // 薄明の各可視帯を単独評価し、細分上限に達している場所を数値で残す。
+    for (u32 pair = 1u; pair < 3u; ++pair) {
+        const f32 height = boundaryHeights[pair*2u];
+        const f64 angle = (pair == 1u ? 6.0 : 7.0)*(3.14159265358979323846/180.0);
+        constants[5] = FVec4{static_cast<f32>(::cos(angle)),static_cast<f32>(-::sin(angle)),0.0f,0.0f};
+        constants[13].y = height;
+        // 地球影を抜ける鉛直高度。float入力の太陽方向を倍精度で規格化して求める。
+        const f64 sunLength = ::sqrt(static_cast<f64>(constants[5].x)*constants[5].x+static_cast<f64>(constants[5].y)*constants[5].y);
+        const f64 shadowHeight = 6360.0*(sunLength/constants[5].x-1.0);
+        for (u32 species = 0u; species < 2u; ++species) {
+            constants[7].x = species == 0u ? 8.0f : 1.2f;
+            for (u32 band = 0u; band < 2u; ++band) {
+                const f32 begin = static_cast<f32>(Max(shadowHeight,band == 0u ? 25.0 : 40.0));
+                const f32 end = band == 0u ? 40.0f : 100.0f;
+                if (end <= begin) continue;
+                constants[6] = FVec4{begin-height,begin,6360.0f+begin,end-begin};
+                // 同じ区間の値と誤差を別々に読み、零に近い密度の相対値も隠さない。
+                f32 diagnostic[2][4]{};
+                for (u32 mode = 0u; mode < 2u; ++mode) {
+                    constants[13].z = static_cast<f32>(mode+2u);
+                    buffer.Value()->Update(constants,sizeof(constants));
+                    command.Value()->Begin();
+                    command.Value()->SetComputePipeline(*pipeline.Value());
+                    command.Value()->SetConstantBuffer(0u,*buffer.Value());
+                    command.Value()->BindUav(0u,*texture.Value());
+                    command.Value()->Dispatch(1u,1u,1u);
+                    command.Value()->End();
+                    const bool submitted = command.Value()->Submit();
+                    EXPECT_TRUE(submitted);
+                    if (!submitted) return;
+                    device.Value()->WaitIdle();
+                    const bool read = device.Value()->ReadTexture(*texture.Value(),diagnostic[mode],sizeof(diagnostic[mode]));
+                    EXPECT_TRUE(read);
+                    if (!read) return;
+                    EXPECT_TRUE(diagnostic[mode][3] >= 1.0f && diagnostic[mode][3] <= 64.0f);
+                }
+                for (u32 channel = 0u; channel < 3u; ++channel) {
+                    test::RecordInfo(FSourceLoc::Current(),"view_band_budget_gpu pair=%u species=%u band=%u channel=%u value=%.12g error=%.12g leaves=%.0f",pair,species,band,channel,diagnostic[0][channel],diagnostic[1][channel],diagnostic[0][3]);
+                    EXPECT_TRUE(IsFiniteProbeValue_Internal(diagnostic[0][channel]) && IsFiniteProbeValue_Internal(diagnostic[1][channel]));
+                }
+            }
+        }
+    }
+    constants[13].z = 0.0f;
     // 最初の分子標本を地球影の境界が横切る角度を掃引し、一標本の点灯・消灯による跳びを検出する。
     f32 previousRadiance[3]{};
     f64 largestJump[3]{};
@@ -516,6 +800,11 @@ void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
                     largestJump[channel] = jump;
                     jumpAngle[channel] = degrees;
                 }
+            }
+            if (sample == 0u || sample == 200u) {
+                const f64 expected = kTwilightRadiance[sample == 0u ? 6u : 7u][channel];
+                test::RecordInfo(FSourceLoc::Current(),"twilight_sweep_absolute_gpu sample=%u channel=%u actual=%.12g expected=%.12g",sample,channel,values[channel],expected);
+                EXPECT_TRUE(::fabs(static_cast<f64>(values[channel])-expected) <= 1.0e-3*expected);
             }
             previousRadiance[channel] = values[channel];
         }
@@ -608,6 +897,27 @@ void CSViewIntegralProbe(uint3 id : SV_DispatchThreadID) {
             // 真の判別式は負。影なしの分割点自体は自由だが、誤った正の幅は許さない。
             EXPECT_EQ(values[0],values[1]);
         }
+        // 最適化後に誤る中間値を、同じ製品関数の演算結果として取得する。
+        constants[13].z = 5.0f;
+        buffer.Value()->Update(constants,sizeof(constants));
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetConstantBuffer(0u,*buffer.Value());
+        command.Value()->BindUav(0u,*texture.Value());
+        command.Value()->Dispatch(1u,1u,1u);
+        command.Value()->End();
+        const bool coefficientsSubmitted = command.Value()->Submit();
+        EXPECT_TRUE(coefficientsSubmitted);
+        if (!coefficientsSubmitted) return;
+        device.Value()->WaitIdle();
+        const bool coefficientsRead = device.Value()->ReadTexture(*texture.Value(),values,sizeof(values));
+        EXPECT_TRUE(coefficientsRead);
+        if (!coefficientsRead) return;
+        test::RecordInfo(FSourceLoc::Current(),"shadow_coefficients_gpu sample=%u a=%.12g b=%.12g c=%.12g D=%.12g",sample,values[0],values[1],values[2],values[3]);
+        for (u32 coefficient = 0u; coefficient < 4u; ++coefficient) EXPECT_TRUE(IsFiniteProbeValue_Internal(values[coefficient]));
+        if (sample == 0u) EXPECT_TRUE(values[3] > 0.0f);
+        if (sample == 1u) EXPECT_TRUE(values[3] < 0.0f);
+        constants[13].z = 1.0f;
     }
     // 影を通らない視線を太陽の反対向きへ近づける。零幅の影分割が消えるだけで光を跳ばさない。
     constexpr f64 perturbations[] = {0.0,0.0001,0.0003,0.001};

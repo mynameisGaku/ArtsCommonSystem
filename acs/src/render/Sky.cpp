@@ -43,7 +43,7 @@ cbuffer CSky : register(b0) {
     float4   cloud_params0;       // x=coverage(0..1), y=density(sharpness), z=time, w=enabled(0/1)
     float4   cloud_params1;       // xyz=cloud_color, w=wind_speed
     float4   physical_params;     // x=有効状態, y=視点高度(km), z/w=予約
-    float4   physical_sun_intensity; // xyz=太陽放射輝度, w=予約
+    float4   physical_sun_intensity; // xyz=大気圏外の太陽放射照度, w=予約
     float4   physical_ground_albedo; // xyz=地表アルベド, w=予約
 };
 
@@ -724,7 +724,9 @@ float PhysicalSegmentTransfer(float optical_depth) {
 }
 
 // 地表直上の視点から、地表外の有限視線に重なる地球の影を求める。距離はkm、影なしは幅0の分割位置。
-float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, float distance) {
+float2 PhysicalViewShadowIntervalWithCoefficients(float height, float3 direction, float3 sun, float distance, out float4 coefficients) {
+    // 実機の演算途中を観測するためのa,b,c,D。通常描画では読み取らない。
+    coefficients = float4(0.0,0.0,0.0,0.0);
     // 平行光の影は太陽軸の円柱と、その背面の半空間の共通部分。
     // 外積の差を単精度へ丸めてから補償しても失った桁は戻らない。成分の積から上下位を保持する。
     precise float2 cross_x = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(direction.y,sun.z),-PhysicalCompensatedProduct(direction.z,sun.y));
@@ -739,11 +741,12 @@ float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, fl
     precise float2 a_pair = PhysicalCompensatedPairSum(horizontal,vertical);
     precise float2 b_pair = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(float2(sun.z,0.0),cross_x),-PhysicalCompensatedPairProduct(float2(sun.x,0.0),cross_z));
     b_pair = PhysicalCompensatedPairProduct(PhysicalCompensatedSum(kPhysicalGroundRadiusKm,height),b_pair);
-    float a = a_pair.x+a_pair.y;
-    float b = b_pair.x+b_pair.y;
+    precise float a = a_pair.x+a_pair.y;
+    precise float b = b_pair.x+b_pair.y;
     // 球への太陽光路の判別式は、円柱二次式の定数項と符号だけ異なる。
     float2 sphere_discriminant = PhysicalGroundPolynomial(float3(0.0,height,0.0),sun,0.0,2u);
     float c = -sphere_discriminant.x;
+    coefficients = float4(a,b,c,0.0);
     // 最接近位置は先に有限区間へ収める。無限遠の頂点と幅を足して相殺させない。
     float split = a > 0.0 ? clamp(-b/a,0.0,distance) : 0.0;
     float empty_split = distance;
@@ -758,7 +761,9 @@ float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, fl
         precise float2 radius_squared = PhysicalCompensatedProduct(kPhysicalGroundRadiusKm,kPhysicalGroundRadiusKm);
         precise float2 height_squared = PhysicalCompensatedPairSum(PhysicalCompensatedProduct(height,height),PhysicalCompensatedProduct(2.0*kPhysicalGroundRadiusKm,height));
         precise float2 difference = PhysicalCompensatedPairSum(PhysicalCompensatedPairProduct(radius_squared,horizontal),-PhysicalCompensatedPairProduct(height_squared,vertical));
-        float discriminant = dot(sun,sun)*(difference.x+difference.y);
+        // 最後の和と倍率まで順序を保つ。ここを通常のfloatへ戻すと最適化で補償項が再結合され得る。
+        precise float discriminant = dot(sun,sun)*(difference.x+difference.y);
+        coefficients.w = discriminant;
         // 実際の影が接触して生まれる場合は隔たり0、平行で影がない場合は端点へ収束する。
         float cylinder_gap = max(b >= 0.0 ? c : -discriminant/a,0.0);
         float plane_gap = max(plane_origin+plane_direction*split,0.0);
@@ -787,6 +792,12 @@ float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, fl
     return end > begin ? float2(begin,end) : float2(empty_split,empty_split);
 }
 
+// 通常描画は影の区間だけを使う。検証では係数付き入口から中間値も読み戻す。
+float2 PhysicalViewShadowInterval(float height, float3 direction, float3 sun, float distance) {
+    float4 coefficients = float4(0.0,0.0,0.0,0.0);
+    return PhysicalViewShadowIntervalWithCoefficients(height,direction,sun,distance,coefficients);
+}
+
 // 一つの可視区間の透過率を密度重みで平均する。orderは2か4、距離はkm。
 float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, uint order) {
     // 密度の累積座標の上端。評価点は物理距離の等間隔には置かない。
@@ -806,9 +817,8 @@ float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun,
     [loop]
     for (uint index = 0u; index < order; ++index) {
         // 累積密度座標から標本までの実距離を復元する。
-        // 高高度端で急変する太陽透過率も、二次変換で有限幅へ広げて評価する。
-        float v = 0.5+0.5*nodes[first+index];
-        float u = upper*v*(2.0-v);
+        // 透過率の求積ではuを線形に割り当て、細分後も2点則の局所的な次数を保つ。
+        float u = upper*(0.5+0.5*nodes[first+index]);
         float w = mass > 0.0 ? u*(u+2.0*nearest)/(2.0*radius*scale_height) : 0.0;
         float radial_rise = scale_height*PhysicalDensityLog(w);
         float radial_distance = sqrt(nearest*nearest+radial_rise*(2.0*radius+radial_rise));
@@ -820,7 +830,7 @@ float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun,
         float sun_distance = PhysicalRaySphereOuter(position,sun,kPhysicalTopRadiusKm);
         float3 sun_t = PhysicalTransmittance(position,sun,sun_distance);
         float3 view_t = PhysicalUnoccludedTransmittance(origin,direction,view_distance);
-        float weight = weights[first+index]*jacobian*(2.0*(1.0-v));
+        float weight = weights[first+index]*jacobian;
         weight_sum += weight;
         transmission_sum += sun_t*view_t*weight;
     }
@@ -828,78 +838,106 @@ float3 PhysicalViewTransmissionMean(float3 origin, float3 direction, float3 sun,
 }
 
 // 密度総量を保存しつつ、透過率の変化が大きい部分だけ二分する。推定誤差も返し、上限打切りを合格と偽らない。
-float3 PhysicalViewDensityIntegral(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, out float3 absolute_error) {
+float3 PhysicalViewDensityIntegral(float3 origin, float3 direction, float3 sun, float direction_length, float view_begin, float traversal_sign, float height, float nearest, float distance, float scale_height, out float3 absolute_error, out uint interval_count) {
     absolute_error = float3(0.0,0.0,0.0);
-    // 同区間の密度列。相対誤差の配分を、散乱標本の重みの総和に依存させない。
+    interval_count = 0u;
+    // 同区間の密度列が0へ丸まる場合は、密度を掛ける前の平均だけを計算しない。
     float full_column = PhysicalExponentialColumn(height,nearest,distance,scale_height);
     if (full_column <= 0.0) return float3(0.0,0.0,0.0);
-    float3 initial_estimate = float3(0.0,0.0,0.0);
     // 独立参照との受入誤差0.1%の1/10を、この求積の推定誤差へ割り当てる。物理係数ではない。
     const float integration_tolerance = 0.0001;
-    // 最終的な区間数64を上限にする。深さだけで止めず、必要な枝へ同じ最大127回の区間評価を配る。
-    float2 pending[64];
-    pending[0] = float2(0.0,distance);
-    uint count = 1u;
+    // 最大64区間を保持し、左からの順番ではなく残る推定誤差へ最大127回の評価を配る。
+    float2 intervals[64];
+    float3 values[64];
+    float3 errors[64];
+    float split_positions[64];
+    intervals[0] = float2(0.0,distance);
     uint leaf_count = 1u;
-    uint evaluated = 0u;
+    // 初回は全区間、その後は選択した親を置き換える左右の子だけを評価する。
+    uint selected = 0u;
+    uint evaluation_count = 1u;
     float3 total = float3(0.0,0.0,0.0);
     float3 total_error = float3(0.0,0.0,0.0);
     float radius = kPhysicalGroundRadiusKm+height;
     [loop]
     [fastopt]
-    while (count > 0u) {
-        // 保留区間を取り出し、この低高度端から密度座標を作る。
-        --count;
-        float2 interval = pending[count];
-        ++evaluated;
-        float segment_distance = interval.y-interval.x;
-        float segment_height = height+PhysicalRadialRise(radius,nearest,interval.x);
-        float segment_nearest = nearest+interval.x;
-        float segment_begin = view_begin+traversal_sign*interval.x;
-        float column = PhysicalExponentialColumn(segment_height,segment_nearest,segment_distance,scale_height);
-        float3 coarse = float3(0.0,0.0,0.0);
-        float3 fine = float3(0.0,0.0,0.0);
-        // 太陽・視線透過の本体を呼出し箇所ごとに複製させず、一つの呼出しで二つの則を切り替える。
+    while (true) {
         [loop]
-        for (uint estimate = 0u; estimate < 2u; ++estimate) {
-            uint order = estimate == 0u ? 2u : 4u;
-            float3 value = PhysicalViewTransmissionMean(origin,direction,sun,direction_length,segment_begin,traversal_sign,segment_height,segment_nearest,segment_distance,scale_height,order)*column;
-            if (estimate == 0u) coarse = value;
-            else fine = value;
+        for (uint evaluation = 0u; evaluation < evaluation_count; ++evaluation) {
+            // 左の子は親の位置、右の子は末尾へ置き、他の区間を再評価しない。
+            uint target = evaluation == 0u ? selected : leaf_count-1u;
+            float2 interval = intervals[target];
+            float segment_distance = interval.y-interval.x;
+            float segment_height = height+PhysicalRadialRise(radius,nearest,interval.x);
+            float segment_nearest = nearest+interval.x;
+            float segment_begin = view_begin+traversal_sign*interval.x;
+            float column = PhysicalExponentialColumn(segment_height,segment_nearest,segment_distance,scale_height);
+            float3 coarse = float3(0.0,0.0,0.0);
+            float3 fine = float3(0.0,0.0,0.0);
+            // 太陽・視線透過の本体を呼出し箇所ごとに複製させず、一つの呼出しで二つの則を切り替える。
+            [loop]
+            for (uint estimate = 0u; estimate < 2u; ++estimate) {
+                uint order = estimate == 0u ? 2u : 4u;
+                float3 value = PhysicalViewTransmissionMean(origin,direction,sun,direction_length,segment_begin,traversal_sign,segment_height,segment_nearest,segment_distance,scale_height,order)*column;
+                if (estimate == 0u) coarse = value;
+                else fine = value;
+            }
+            values[target] = fine;
+            errors[target] = abs(fine-coarse);
+            // 密度座標の中央で分け、濃い低高度だけを距離の二分で取り残さない。
+            float segment_radius = kPhysicalGroundRadiusKm+segment_height;
+            float rise = PhysicalRadialRise(segment_radius,segment_nearest,segment_distance);
+            float scaled_rise = rise/scale_height;
+            float mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
+            float offset = 2.0*segment_radius*scale_height*mass;
+            float upper = mass > 0.0 ? offset/(sqrt(segment_nearest*segment_nearest+offset)+segment_nearest) : segment_distance;
+            // 累積密度座標uの中央で配分する。片側に毎回75%を残して最大区間が細分されないことを避ける。
+            float u = 0.5*upper;
+            float w = mass > 0.0 ? u*(u+2.0*segment_nearest)/(2.0*segment_radius*scale_height) : 0.0;
+            float split_distance = mass > 0.0 ? PhysicalDistanceToRise(segment_radius,segment_nearest,scale_height*PhysicalDensityLog(w)) : 0.5*segment_distance;
+            float middle = interval.x+split_distance;
+            // 非有限値も比較で拒否する。分割不能でも、この区間の値と誤差は総和に残す。
+            bool finite_middle = (asuint(middle)&0x7f800000u) != 0x7f800000u;
+            split_positions[target] = finite_middle && interval.x < middle && middle < interval.y ? middle : interval.x;
         }
-        if (evaluated == 1u) initial_estimate = fine;
-        float3 error = abs(fine-coarse);
-        // 微小寄与へ無制限に点を費やさず、区間全体の誤差予算を密度列の割合で配る。
-        float3 allowance = initial_estimate*(integration_tolerance*(column/full_column));
-        if (all(error <= allowance) || leaf_count >= 64u) {
-            total += fine;
-            total_error += error;
-            continue;
+
+        // 親を引いて子を足す更新の桁落ちを避け、現在の区間から正値の総和を作り直す。
+        total = float3(0.0,0.0,0.0);
+        total_error = float3(0.0,0.0,0.0);
+        [loop]
+        for (uint index = 0u; index < leaf_count; ++index) {
+            total += values[index];
+            total_error += errors[index];
         }
-        // 密度座標の中央で分け、濃い低高度だけを距離の二分で取り残さない。
-        float segment_radius = kPhysicalGroundRadiusKm+segment_height;
-        float rise = PhysicalRadialRise(segment_radius,segment_nearest,segment_distance);
-        float scaled_rise = rise/scale_height;
-        float mass = scaled_rise*PhysicalSegmentTransfer(scaled_rise);
-        float offset = 2.0*segment_radius*scale_height*mass;
-        float upper = mass > 0.0 ? offset/(sqrt(segment_nearest*segment_nearest+offset)+segment_nearest) : segment_distance;
-        // 累積密度座標uの中央で配分する。片側に毎回75%を残して最大区間が細分されないことを避ける。
-        float u = 0.5*upper;
-        float w = mass > 0.0 ? u*(u+2.0*segment_nearest)/(2.0*segment_radius*scale_height) : 0.0;
-        float split_distance = mass > 0.0 ? PhysicalDistanceToRise(segment_radius,segment_nearest,scale_height*PhysicalDensityLog(w)) : 0.5*segment_distance;
-        float middle = interval.x+split_distance;
-        if (middle <= interval.x || middle >= interval.y) {
-            total += fine;
-            total_error += error;
-            continue;
+        if (all(total_error <= integration_tolerance*total) || leaf_count >= 64u) break;
+
+        // RGBのどれかに最も大きく影響する誤差を先に減らし、後半の難しい区間を取り残さない。
+        float largest_error = 0.0;
+        selected = leaf_count;
+        [loop]
+        for (uint index = 0u; index < leaf_count; ++index) {
+            if (split_positions[index] <= intervals[index].x) continue;
+            float3 error = errors[index];
+            float error_r = total.x > 0.0 ? error.x/total.x : (error.x > 0.0 ? 1.0 : 0.0);
+            float error_g = total.y > 0.0 ? error.y/total.y : (error.y > 0.0 ? 1.0 : 0.0);
+            float error_b = total.z > 0.0 ? error.z/total.z : (error.z > 0.0 ? 1.0 : 0.0);
+            float priority = max(error_r,max(error_g,error_b));
+            if (priority > largest_error) {
+                largest_error = priority;
+                selected = index;
+            }
         }
-        // 分割1回で最終区間数は1だけ増える。保留数は最終区間数以下なので配列を越えない。
+        // 全区間が単精度の分割限界なら、未収束の推定誤差を保持したまま返す。
+        if (selected == leaf_count) break;
+        float middle = split_positions[selected];
+        intervals[leaf_count] = float2(middle,intervals[selected].y);
+        intervals[selected].y = middle;
         ++leaf_count;
-        pending[count++] = float2(middle,interval.y);
-        pending[count++] = float2(interval.x,middle);
+        evaluation_count = 2u;
     }
     // 微小な帯の相対値だけで判定せず、呼出し側で散乱係数を掛けた絶対誤差をRGB別に合計する。
     absolute_error = total_error;
+    interval_count = leaf_count;
     return total;
 }
 
@@ -977,7 +1015,8 @@ float3 EvaluatePhysicalSkyWithIntegrationError(float3 view_direction, float3 sun
                     float band_begin = closest+traversal_sign*begin;
                     // 推定誤差で必要な区間だけを細分し、打切り時もその誤差を上位へ残す。
                     float3 estimated_error = float3(0.0,0.0,0.0);
-                    float3 integral = PhysicalViewDensityIntegral(origin,view_direction,sun_direction,direction_length,band_begin,traversal_sign,band_height,band_nearest,band_distance,scale_height,estimated_error);
+                    uint interval_count = 0u;
+                    float3 integral = PhysicalViewDensityIntegral(origin,view_direction,sun_direction,direction_length,band_begin,traversal_sign,band_height,band_nearest,band_distance,scale_height,estimated_error,interval_count);
                     radiance_error += abs(sun_intensity*scattering)*estimated_error;
                     radiance += sun_intensity*scattering*integral;
                 }
@@ -1152,7 +1191,7 @@ struct FSkyCb {
     /** 物理大気切替と視点高度 (km)。 */
     FVec4 physical;
 
-    /** 物理大気へ渡す太陽放射輝度。 */
+    /** 物理大気へ渡す、大気圏外の太陽放射照度。 */
     FVec4 physical_sun;
 
     /** 物理大気へ渡す地表アルベド。 */
