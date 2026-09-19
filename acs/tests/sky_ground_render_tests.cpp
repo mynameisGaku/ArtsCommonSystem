@@ -3172,3 +3172,4 @@ ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
 
 // 非遮蔽領域の透過率表を、生成座標を差し替えずに真空と一定媒質の解析解へ照合する。
 #include "atmosphere_transmittance_boundary_tests.inl"
+#include "atmosphere_bake_record_gpu_tests.inl"

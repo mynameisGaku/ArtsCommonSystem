@@ -2,6 +2,7 @@
 // Physical atmospheric scattering 実装
 #include "render/Atmosphere.h"
 #include "render/AtmosphereAdaptiveIntegrationInternal.h"
+#include "container/StringView.h"
 #include "math/Math.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -12,6 +13,17 @@
 namespace acs {
 
 namespace {
+
+/** RGBA32F画像の転送バイト数を返す。無効寸法やu32の転送上限超過では0を返す。 */
+u32 AtmosphereImageBytes_Internal(u32 width, u32 height) noexcept {
+    if (width == 0u || height == 0u) return 0u;
+    // 成分数を掛ける前に、画像形式と転送口から導いた上限を検査する。
+    constexpr u64 bytesPerPixel = 4u * sizeof(f32);
+    // 最大のu32同士でも、この積はu64へ収まる。
+    const u64 pixelCount = static_cast<u64>(width) * static_cast<u64>(height);
+    if (pixelCount > static_cast<u64>(~u32{0}) / bytesPerPixel) return 0u;
+    return static_cast<u32>(pixelCount * bytesPerPixel);
+}
 
 /** 地表半径 (m、Earth)。 */
 constexpr f32 kGroundRadius = kSkyAtmosphereGroundRadiusMeters;
@@ -1909,6 +1921,10 @@ void CSkyAtmosphere::CompositeLocalFogCameraRelative(IRhiCommandList& cl, IRhiTe
     cl.Draw(3, 0);
 }
 
+IRhiTexture* CSkyAtmosphere::RecordEquirectAtAltitude(IRhiDevice& device, IRhiCommandList& cl, const FAtmosphereParams& params, u32 width, u32 height, f32 altitude) noexcept {
+    return RecordEquirectAtAltitude_Internal(device, cl, params, width, height, altitude, false);
+}
+
 bool CSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                                   const FAtmosphereParams& params,
                                   u32 width, u32 height, TArray<f32>& out) noexcept {
@@ -1920,16 +1936,43 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
     IRhiDevice& device, IRhiCommandList& cl,
     const FAtmosphereParams& params, u32 width, u32 height,
     f32 altitude, TArray<f32>& out) noexcept {
-    if (!m_Ready || width == 0u || height == 0u) return false;
-    // RGBA32Fの1画素に必要な転送バイト数。画像形式から導き、寸法上限を別途決め打ちしない。
-    constexpr u64 bytesPerPixel = 4u * sizeof(f32);
-    // u32同士の積はu64へ広げてから計算する。成分数を掛ける前に転送口の上限を検査する。
-    const u64 pixelCount = static_cast<u64>(width) * static_cast<u64>(height);
-    if (pixelCount > static_cast<u64>(~u32{0}) / bytesPerPixel) return false;
-    // 上限検査後は32bitのusizeにも収まる、RGBA全成分の要素数。
-    const usize elementCount = static_cast<usize>(pixelCount * 4u);
-    // u32の読み戻し口へ、切り詰めなしで渡せるバイト数。
-    const u32 readbackBytes = static_cast<u32>(pixelCount * bytesPerPixel);
+    // 即時コンテキスト上の生成と読戻しが同じ順で進む、従来の対応方式だけを許可する。
+    // 名前は対応契約の判定だけに使い、具象デバイスへの型変換には使わない。
+    const FStringView backend(device.BackendName());
+    if (backend != FStringView("Diligent") && backend != FStringView("Diligent-D3D12") && backend != FStringView("Diligent-Vulkan")) return false;
+    // 命令記録前に転送口の範囲を検査する。
+    const u32 readbackBytes = AtmosphereImageBytes_Internal(width, height);
+    if (!m_Ready || readbackBytes == 0u) return false;
+    // 借用画像へ生成を記録する。従来の即時経路だけは既存の参照表を再利用できる。
+    IRhiTexture* const image = RecordEquirectAtAltitude_Internal(device, cl, params, width, height, altitude, true);
+    if (image == nullptr) return false;
+    // 一部の読み戻し失敗でも、利用者の出力は変更しない。
+    TArray<f32> readback;
+    if (!readback.TrySetNum(static_cast<usize>(readbackBytes) / sizeof(f32))) return false;
+    if (!device.ReadTexture(*image, readback.GetData(), readbackBytes)) return false;
+    if (!out.TrySetNum(readback.Num())) return false;
+    MemCopy(out.GetData(), readback.GetData(), readbackBytes);
+    return true;
+}
+
+IRhiTexture* CSkyAtmosphere::RecordEquirectAtAltitude_Internal(IRhiDevice& device, IRhiCommandList& cl, const FAtmosphereParams& params, u32 width, u32 height, f32 altitude, bool reuse_luts) noexcept {
+    if (!m_Ready || AtmosphereImageBytes_Internal(width, height) == 0u) return nullptr;
+    // 確保に失敗した場合は定数更新や命令記録へ進まない。
+    if (m_EqW != width || m_EqH != height || !m_Equirect) {
+        // 読み戻しと後続のGPU処理に使う、全成分単精度の出力画像。
+        FTextureDesc description{};
+        description.width = width;
+        description.height = height;
+        description.format = EFormat::R32G32B32A32_Float;
+        description.is_uav = true;
+        // 既存画像は作成に成功するまで保持する。
+        auto result = CreateRhiTexture(device, description);
+        if (result.IsErr()) return nullptr;
+        m_Equirect = Move(result.Value());
+        m_EqW = width;
+        m_EqH = height;
+    }
+    // 太陽方向を正規化して画像生成用の定数へ格納する。
     FVec3 sd = params.sun_dir;
     {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
         if (l2 < 1e-12f) sd = FVec3{0, 1, 0};
@@ -1943,8 +1986,9 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
         SanitizeBakeAltitude(altitude) * 0.001f};
     m_Cb->Update(&cb, sizeof(cb));
 
-    // 1) 大気 LUT は定数なので初回だけ焼く。AP と equirect bake のどちらが先でも共有する。
-    if (!m_LutsReady) {
+    // 記録専用の入口は完了状態を持たないため、必要な参照表も毎回同じ命令列へ記録する。
+    // これにより、別の未提出記録を完成済みと扱って省略することを避ける。
+    if (!reuse_luts || !m_LutsReady) {
         cl.SetComputePipeline(*m_TransPipe);
         cl.BindUav(0, *m_TransLut);
         cl.Dispatch(32, 8, 1);
@@ -1952,17 +1996,10 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
         cl.SetTexture(0, *m_TransLut);
         cl.BindUav(0, *m_MultiLut);
         cl.Dispatch(4, 4, 1);
-        m_LutsReady = true;
+        if (reuse_luts) m_LutsReady = true;
     }
 
-    // 2) equirect texture を (再) 確保 (RGBA32F、readback 用)。
-    if (m_EqW != width || m_EqH != height || !m_Equirect) {
-        FTextureDesc td{}; td.width = width; td.height = height;
-        td.format = EFormat::R32G32B32A32_Float; td.is_uav = true;
-        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return false;
-        m_Equirect = Move(r.Value()); m_EqW = width; m_EqH = height;
-    }
-    // 3) equirect bake (transLut SRV を読みつつ)。
+    // 参照表を読んで画像を生成する。提出・完了確認は命令口の所有者に任せる。
     cl.SetComputePipeline(*m_BakePipe);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_TransLut);
@@ -1970,15 +2007,7 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
     cl.BindUav(0, *m_Equirect);
     cl.Dispatch((width + 7) / 8, (height + 7) / 8, 1);
 
-    // 4) 途中まで読み戻して失敗しても、利用者が持つ画像は変更しない。
-    // 未提出の生成命令をReadTextureが実行する保証はない。提出順は描画所有者側の別課題。
-    TArray<f32> readback;
-    if (!readback.TrySetNum(elementCount)) return false;
-    if (!device.ReadTexture(*m_Equirect, readback.GetData(), readbackBytes)) return false;
-    // 読み戻し成功後だけ出力を確保する。拡張失敗でも値・サイズ・確保元は維持される。
-    if (!out.TrySetNum(readback.Num())) return false;
-    MemCopy(out.GetData(), readback.GetData(), readbackBytes);
-    return true;
+    return m_Equirect.Get();
 }
 
 void CSkyAtmosphere::Shutdown() noexcept {

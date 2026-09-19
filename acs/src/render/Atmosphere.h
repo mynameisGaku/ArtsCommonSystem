@@ -147,8 +147,9 @@ using FAtmosphere = CAtmosphere;
  * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
  * 結果を CImageBasedLighting::LoadEquirectHdrFromMemory に通せば既存の
  * env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
- * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * compute コア + CDiligentDevice::ReadTexture が必要。Diligent backend 専用。
+ * オゾン吸収と近似多重散乱を含むモデルであり、CPU版との一致や実大気への適合を保証するものではない。
+ * 同期BakeEquirectはDiligent専用。遅延実行型ではRecordEquirectAtAltitudeで生成を記録し、
+ * 呼出側が提出・完了確認後にIRhiDevice::ReadTextureを使う。
  */
 class CSkyAtmosphere {
 public:
@@ -161,6 +162,7 @@ public:
 
     /**
      * GPU で大気 equirect を焼き CPU の RGBA float 配列へ読み戻す (LoadEquirectHdrFromMemory 互換)。
+     * Diligent専用。その他の方式は命令記録前にfalseを返す。命令口を勝手に開始・終了・提出しない。
      *
      * @param device RHI デバイス。
      * @param cl コマンドリスト。
@@ -185,6 +187,17 @@ public:
         IRhiDevice& device, IRhiCommandList& cl,
         const FAtmosphereParams& params, u32 width, u32 height,
         f32 altitude, TArray<f32>& out) noexcept;
+
+    /**
+     * 指定高度の空をRGBA32F画像へ生成する命令だけを記録する。提出・完了待ち・読み戻しは行わない。
+     * この大気の先行処理を完了させた後、記録中の命令口を渡す。呼出側が提出と完了確認を担当する。
+     * 返値は本体所有の画像。次の画像生成・Shutdown・破棄まで借用でき、それらの前に全参照命令を完了させる。
+     * 記録を捨てる場合は全ての未提出の参照命令を破棄し、先行処理の完了確認後にShutdown→Initで資源を作り直す。
+     * Initだけでは既存の出力画像を再利用するため、記録時に変わった資源状態は復元できない。
+     * 提出後の完了が不明なら参照資源を保持する。失敗を未実行とみなして破棄してはならない。
+     * 寸法条件はBakeEquirectと同じ。未初期化・無効寸法・画像確保失敗ではnullptrを返す。
+     */
+    IRhiTexture* RecordEquirectAtAltitude(IRhiDevice& device, IRhiCommandList& cl, const FAtmosphereParams& params, u32 width, u32 height, f32 altitude) noexcept;
 
     /**
      * Aerial perspective の camera-volume LUT を焼いて返す。
@@ -310,6 +323,9 @@ public:
     void Shutdown() noexcept;
 
 private:
+    /** 寸法を検査して画像生成を記録する。reuse_lutsは従来の即時経路だけで使い、失敗時はnullptrを返す。 */
+    IRhiTexture* RecordEquirectAtAltitude_Internal(IRhiDevice& device, IRhiCommandList& cl, const FAtmosphereParams& params, u32 width, u32 height, f32 altitude, bool reuse_luts) noexcept;
+
     struct FVolumeCacheKey {
         FMat4 invViewProj{};
         FVec4 camPos{};

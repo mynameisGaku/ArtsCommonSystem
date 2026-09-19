@@ -10,7 +10,7 @@
 // 製品Atmosphere.cppを直接リンクし、下の生成関数で実GPUを完全に置き換える専用試験。
 // ACS::Renderや実バックエンドの生成関数とは同じ実行ファイルへリンクしない。
 // Dispatchの呼び出し中に画像を書く即時実行型で、出力配列の契約だけを検証する。
-// 提出順、完了待ち、参照表の正しさ、遅延実行型GPUの同期生成を保証する試験ではない。
+// 追加inlでは別の遅延型を使い、命令記録と提出・完了の分離を検査する。実GPUや参照表の計算は検証しない。
 
 namespace acs {
 namespace {
@@ -127,10 +127,10 @@ private:
 };
 
 /** 即時実行された試験画像だけを読み戻す偽デバイス。実GPUへは一切接続しない。 */
-class ABakeContractDevice final : public IRhiDevice {
+class ABakeContractDevice : public IRhiDevice {
 public:
-    /** 実バックエンドの型変換に誤って通さない専用名を返す。 */
-    const char* BackendName() const noexcept override { return "AtmosphereBakeImmediateTest"; }
+    /** 同期口の対応契約を模擬する名前。生成関数も偽物なので、実Diligentへの型変換は行われない。 */
+    const char* BackendName() const noexcept override { return "Diligent"; }
     /** 実GPUを使用していないことを識別できる名前を返す。 */
     const char* AdapterName() const noexcept override { return "CPUOnly"; }
     /** Dispatch内で書込みが終わるため、待機による画像生成は行わない。 */
@@ -308,7 +308,7 @@ private:
 };
 
 /** 呼出時に画像を書く即時型の最小命令口。未提出命令やGPU同期は模擬しない。 */
-class ABakeContractCommand final : public IRhiCommandList {
+class ABakeContractCommand : public IRhiCommandList {
 public:
     /** 世代を共有するデバイスを借用する。デバイスを先に破棄してはならない。 */
     explicit ABakeContractCommand(ABakeContractDevice& device) noexcept : m_Device(device) {}
@@ -879,5 +879,6 @@ ACS_TEST(AtmosphereBakeContract, TrackedAllocationsCoverExistingOutputAndTempora
 }
 
 #include "atmosphere_bake_size_tests.inl"
+#include "atmosphere_bake_execution_tests.inl"
 
 } // namespace acs
