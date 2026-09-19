@@ -1107,7 +1107,8 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "    return blocked;\n" \
 "}\n" \
 "float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
-"void TransUvToParams(float2 uv,out float r,out float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); }\n"
+"// 閉区間の表座標から非遮蔽光路の半径・余弦・長さkmを返す。接線を丸めた方向から再分類しない。\n" \
+"void TransUvToParams(float2 uv,out float r,out float mu,out float pathLength){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); pathLength=d; }\n"
 
 // Transmittance LUT (256x64)。各 texel = (viewHeight, cosZenith) → 大気上端への透過率。
 const char* kTransCS =
@@ -1116,13 +1117,12 @@ ATMO_COMMON_HLSL
 "[numthreads(8,8,1)]\n"
 "void CSTrans(uint3 id : SV_DispatchThreadID){\n"
 "  const uint W=256,H=64; if(id.x>=W||id.y>=H) return;\n"
-"  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
-"  float r,mu; TransUvToParams(uv,r,mu);\n"
+"  // 手動補間が参照する閉区間へ生成点を揃え、地表・上端・接線の端点を含める。\n"
+"  float2 uv=float2(id.xy)/float2(W-1,H-1);\n"
+"  float r,mu,tTop; TransUvToParams(uv,r,mu,tTop);\n"
 "  float3 P=float3(0,r,0); float3 dir=float3(sqrt(saturate(1.0-mu*mu)),mu,0);\n"
-"  float tTop=RaySphere(P,dir,kTop);\n"
-"  float tGround=RaySphereNear(P,dir,kBottom);\n"
-"  // 大気殻内で交差不成立と地球遮蔽を除き、上端の距離0は厚さ0の透過率1にする。\n"
-"  if(tTop<0 || (tGround>=0.0 && tGround<tTop)){ transOut[id.xy]=float4(0,0,0,1); return; }\n"
+"  // 生成域は非遮蔽側の接線を含む。元の距離を積分へ渡し、実位置の遮蔽はSampleTransに任せる。\n"
+"  if(tTop<0){ transOut[id.xy]=float4(0,0,0,1); return; }\n"
 "  if(tTop==0){ transOut[id.xy]=float4(1,1,1,1); return; }\n"
 "  const int N=40; float dt=tTop/N; float3 tau=0;\n"
 "  [loop] for(int i=0;i<N;i++){ float3 sp=P+dir*(dt*(i+0.5)); float alt=length(sp)-kBottom; float3 sR; float sM; float3 ext; SampleMedium(max(alt,0.0),sR,sM,ext); tau+=ext*dt; }\n"

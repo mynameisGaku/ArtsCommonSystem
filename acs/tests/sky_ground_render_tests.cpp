@@ -270,7 +270,7 @@ static FString ReadAtmosphereCommonShader_Internal()
     return ReadAtmosphereCommonShader_Internal(ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp"));
 }
 
-// 製品CSTransの入力生成2行だけをテクスチャ読みに替える。一致が一つでなければ失敗する。
+// 製品CSTransの入力生成2行だけを非遮蔽の物理入力r,mu,dへ替える。一致が一つでなければ失敗する。
 static FString BuildAtmosphereTransmittanceProbe_Internal(const FString& source)
 {
     // 一度読んだ製品ソースを共有し、途中の変更で共通部と入口を混在させない。
@@ -278,14 +278,14 @@ static FString BuildAtmosphereTransmittanceProbe_Internal(const FString& source)
     // 共通部に続く製品入口の全体。
     const FString body = RestoreAtmosphereShaderSource_Internal(source, true);
     if (result.Size() == 0u || body.Size() == 0u) return {};
-    // 境界や積分には触れず、製品入口のUV生成とr,muへの変換だけを置換する。
-    constexpr const char* input = "  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n  float r,mu; TransUvToParams(uv,r,mu);\n";
+    // 距離0の処理や積分には触れず、UVから物理量を得る入力生成だけを置換する。
+    constexpr const char* input = "  float2 uv=float2(id.xy)/float2(W-1,H-1);\n  float r,mu,tTop; TransUvToParams(uv,r,mu,tTop);\n";
     // 唯一の入力生成位置。欠落と重複は追従せず試験失敗にする。
     const char* begin = ::strstr(body.Data(), input);
     if (!begin || ::strstr(begin + ::strlen(input), input)) return {};
-    result.Append("// 試験で指定する半径kmと天頂角の余弦。画素ごとに製品の光路を評価する。\nTexture2D<float4> transProbeInput : register(t0);\n");
+    result.Append("// 試験で指定する半径km、天頂角の余弦、独立幾何の距離km。非遮蔽光路だけを与える。\nTexture2D<float4> transProbeInput : register(t0);\n");
     result.Append(FStringView(body.Data(), static_cast<usize>(begin - body.Data())));
-    result.Append("  float2 uv=transProbeInput.Load(int3(id.xy,0)).xy;\n  float r=uv.x,mu=uv.y;\n");
+    result.Append("  float3 physicalInput=transProbeInput.Load(int3(id.xy,0)).xyz;\n  float r=physicalInput.x,mu=physicalInput.y,tTop=physicalInput.z;\n");
     result.Append(begin + ::strlen(input));
     return result;
 }
@@ -470,10 +470,10 @@ ACS_TEST(Atmosphere, ActualTransmittanceConsumersRejectPlanetOcclusion)
     const FVec4 cases[] = {{6360.0f,-1.0f,1.0f,0.0f}, {6360.0f,-0.0001f,1.0f,0.0f}, {6360.0f,0.0f,0.0f,0.0f}, {6360.0f,-0.0f,0.0f,0.0f}, {6360.0f,0.0001f,0.0f,0.0f}, {6360.0f,1.0f,0.0f,0.0f}, {6360.00048828125f,-0.0005f,1.0f,0.0f}, {6360.00048828125f,-0.0003f,0.0f,0.0f}, {6385.0f,-0.09f,1.0f,0.0f}, {6385.0f,-0.08f,0.0f,0.0f}, {6385.0f,0.0f,0.0f,0.0f}, {6385.0f,1.0f,0.0f,0.0f}, {6410.0f,-0.13f,1.0f,0.0f}, {6410.0f,-0.12f,0.0f,0.0f}, {6460.0f,-0.18f,1.0f,0.0f}, {6460.0f,-0.17f,0.0f,0.0f}};
     // 前半は半径・余弦から3D入力を作る。後半は元の位置を保たないと判定を誤る接線周辺。
     constexpr u32 radialCaseCount = sizeof(cases) / sizeof(cases[0]);
-    // 厳密な接線、直近の内外、地中・地表から外向き、3:4:5の接線と軸交換。wは期待する遮蔽。
-    const FVec4 positionCases[] = {{564.46881103515625f,6360.0f,0,0}, {564.46881103515625f,6360.00048828125f,0,0}, {564.46881103515625f,6359.99951171875f,0,1}, {0,6359.0f,0,1}, {0,6360.0f,0,0}, {564.46881103515625f,5088.0f,3816.0f,0}, {3816.0f,5088.0f,564.46881103515625f,0}, {1.0f,6360.0f,6.0f,0}};
+    // 厳密な接線、直近の内外、地中・地表から外向き、3:4:5の接線と軸交換、上端から真下。wは期待する遮蔽。
+    const FVec4 positionCases[] = {{564.46881103515625f,6360.0f,0,0}, {564.46881103515625f,6360.00048828125f,0,0}, {564.46881103515625f,6359.99951171875f,0,1}, {0,6359.0f,0,1}, {0,6360.0f,0,0}, {564.46881103515625f,5088.0f,3816.0f,0}, {3816.0f,5088.0f,564.46881103515625f,0}, {1.0f,6360.0f,6.0f,0}, {0,6460.0f,0,1}};
     // 対応する光の向き。軸方向なので余弦や正規化の丸めで接線そのものを動かさない。
-    constexpr FVec4 directionCases[] = {{-1,0,0,0},{-1,0,0,0},{-1,0,0,0},{0,1,0,0},{0,1,0,0},{-1,0,0,0},{0,0,-1,0},{-0.16439898312091827f,0,-0.986393928527832f,0}};
+    constexpr FVec4 directionCases[] = {{-1,0,0,0},{-1,0,0,0},{-1,0,0,0},{0,1,0,0},{0,1,0,0},{-1,0,0,0},{0,0,-1,0},{-0.16439898312091827f,0,-0.986393928527832f,0},{0,-1,0,0}};
     // 異なる物理入力数。画素反復数は条件数として数えない。
     constexpr u32 caseCount = radialCaseCount + sizeof(positionCases) / sizeof(positionCases[0]);
     constexpr u32 width = 64u;
@@ -786,8 +786,8 @@ float4 EncodeReferenceBits(uint x,uint y){ return float4(x&65535,x>>16,y&65535,y
     }
 }
 
-// 製品の交差・遮蔽・40点積分を実行する。GPU未利用、未書込、全画素の境界違反を失敗にする。
-ACS_TEST(Atmosphere, ActualTransmittanceLutGpuKeepsBoundaryAndVerticalIntegral)
+// 非遮蔽の物理入力を注入し、製品の距離0処理と40点積分を実行する。生成座標と遮蔽は別の実GPU試験が検査する。
+ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVerticalIntegral)
 {
     // 一回の読み取りから製品の共通部とCSTransを復元する。
     const FString product = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
@@ -801,8 +801,6 @@ ACS_TEST(Atmosphere, ActualTransmittanceLutGpuKeepsBoundaryAndVerticalIntegral)
         Unit,
         // 地表に遮られない有限の接線光路は、消散を受けて0より大きく1より小さい。
         Positive,
-        // 惑星内部を通る光路は厳密に0。
-        Zero,
         // 鉛直の指数密度とオゾンを独立解析積分で照合する。
         Vertical,
         // 上端直下の最短光路は1の近傍。
@@ -820,8 +818,8 @@ ACS_TEST(Atmosphere, ActualTransmittanceLutGpuKeepsBoundaryAndVerticalIntegral)
         ETransmissionExpectation expectation;
     };
     // 隣接floatの差は2^-11 km。ground+ULPでも局所水平(mu=0)の正の透過を保つ。
-    const FTransmissionCase cases[] = {{"top_up", 6460.0f, 1.0f, ETransmissionExpectation::Unit}, {"top_half", 6460.0f, 0.5f, ETransmissionExpectation::Unit}, {"top_tangent", 6460.0f, 0.0f, ETransmissionExpectation::Unit}, {"ground_tangent", 6360.0f, 0.0f, ETransmissionExpectation::Positive}, {"ground_up_epsilon", 6360.0f, 1.0e-4f, ETransmissionExpectation::Positive}, {"ground_plus_ulp_tangent", ProbeFloatFromBits_Internal(0x45c6c001u), 0.0f, ETransmissionExpectation::Positive}, {"ground_down", 6360.0f, -1.0f, ETransmissionExpectation::Zero}, {"ground_down_epsilon", 6360.0f, -1.0e-4f, ETransmissionExpectation::Zero}, {"top_down", 6460.0f, -1.0f, ETransmissionExpectation::Zero}, {"vertical_0km", 6360.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_25km", 6385.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_50km", 6410.0f, 1.0f, ETransmissionExpectation::Vertical}, {"top_minus_ulp_up", ProbeFloatFromBits_Internal(0x45c9dfffu), 1.0f, ETransmissionExpectation::NearUnit}};
-    // 製品の入口寸法とスレッド寸法を維持し、13条件を各行に繰り返す。
+    const FTransmissionCase cases[] = {{"top_up", 6460.0f, 1.0f, ETransmissionExpectation::Unit}, {"top_half", 6460.0f, 0.5f, ETransmissionExpectation::Unit}, {"top_tangent", 6460.0f, 0.0f, ETransmissionExpectation::Unit}, {"ground_tangent", 6360.0f, 0.0f, ETransmissionExpectation::Positive}, {"ground_up_epsilon", 6360.0f, 1.0e-4f, ETransmissionExpectation::Positive}, {"ground_plus_ulp_tangent", ProbeFloatFromBits_Internal(0x45c6c001u), 0.0f, ETransmissionExpectation::Positive}, {"vertical_0km", 6360.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_25km", 6385.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_50km", 6410.0f, 1.0f, ETransmissionExpectation::Vertical}, {"top_minus_ulp_up", ProbeFloatFromBits_Internal(0x45c9dfffu), 1.0f, ETransmissionExpectation::NearUnit}};
+    // 遮蔽の三条件は三利用者のActualTransmittanceConsumersRejectPlanetOcclusionへ集約し、非遮蔽10条件を維持する。
     constexpr u32 width = 256u;
     // 製品と同じ出力行数。
     constexpr u32 height = 64u;
@@ -853,7 +851,14 @@ ACS_TEST(Atmosphere, ActualTransmittanceLutGpuKeepsBoundaryAndVerticalIntegral)
     for (u32 pixel = 0u; pixel < width * height; ++pixel) {
         // 横方向だけで条件を割り当て、全行が同じ境界群を通る。
         const FTransmissionCase& input = cases[(pixel % width) % caseCount];
-        inputs[pixel] = FVec4{input.radius, input.cosine, 0.0f, 0.0f};
+        // 全入力は外向き半球。倍精度の球の幾何から距離を与え、製品の逆写像や交差関数を呼ばない。
+        const f64 projectedRadius = static_cast<f64>(input.radius) * input.cosine;
+        // 半径の二乗同士の減算と、近い二根の減算を避けて上端直下の短い距離も保つ。
+        const f64 radiusDifference = (6460.0 - input.radius) * (6460.0 + input.radius);
+        // 上端の水平では分母も0になるため、既知の距離0を先に扱う。
+        const f64 pathLength = radiusDifference == 0.0 ? 0.0 : radiusDifference / (::sqrt(projectedRadius * projectedRadius + radiusDifference) + projectedRadius);
+        EXPECT_TRUE(IsFiniteProbeValue_Internal(pathLength) && pathLength >= 0.0);
+        inputs[pixel] = FVec4{input.radius, input.cosine, static_cast<f32>(pathLength), 0.0f};
     }
     for (u32 component = 0u; component < componentCount; ++component) unwritten[component] = nan;
     // GPUが利用できない環境を未実行の成功にはしない。
@@ -3164,3 +3169,6 @@ ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
 
 // 表の生成座標と空・空気遠近の参照を同じGPU資源で結び、高度と太陽方向を個別に検査する。
 #include "atmosphere_multi_coordinates_tests.inl"
+
+// 非遮蔽領域の透過率表を、生成座標を差し替えずに真空と一定媒質の解析解へ照合する。
+#include "atmosphere_transmittance_boundary_tests.inl"

@@ -896,31 +896,6 @@ ACS_TEST(Atmosphere, CpuAndGpuUseTheSamePhysicalShell) {
     EXPECT_FALSE(Contains(source, "地表から 60 km"));
 }
 
-ACS_TEST(Atmosphere, GpuTransmittanceLutRejectsGroundOccludedSunPaths) {
-    const std::string source = ReadAtmosphereSource();
-    const auto begin = source.find("const char* kTransCS");
-    const auto end = source.find("// Multi-scattering LUT", begin);
-    EXPECT_TRUE(begin != source.npos);
-    EXPECT_TRUE(end != source.npos);
-    if (begin == source.npos || end == source.npos) return;
-
-    const std::string shader = source.substr(begin, end - begin);
-    // CPU積分と同じく、地面へ入る太陽光線を大気透過率表へ焼き込まない。
-    EXPECT_TRUE(Contains(shader, "float tGround=RaySphereNear(P,dir,kBottom);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "(tGround>=0.0 && tGround<tTop)"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "float4(0,0,0,1); return;"));
-    EXPECT_FALSE(Contains(
-        shader,
-        "tTop<=0){ transOut[id.xy]=float4(1,1,1,1); return;"));
-    // 交差不成立と距離0を同一視しない。数値上の成立は別の製品GPU境界試験で確認する。
-    EXPECT_TRUE(Contains(shader, "if(tTop<0 || (tGround>=0.0 && tGround<tTop))"));
-    EXPECT_TRUE(Contains(shader, "if(tTop==0){ transOut[id.xy]=float4(1,1,1,1); return; }"));
-}
-
 ACS_TEST(Atmosphere, CpuSkyRadianceUsesRayleighAndMiePhaseResponse) {
     FAtmosphereParams params{};
     params.sun_dir = FVec3{0.0f, 1.0f, 0.0f};
