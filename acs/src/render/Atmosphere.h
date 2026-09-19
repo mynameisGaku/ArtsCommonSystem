@@ -165,8 +165,8 @@ public:
      * @param device RHI デバイス。
      * @param cl コマンドリスト。
      * @param params 太陽方向・強度。
-     * @param width  equirect 幅。
-     * @param height equirect 高さ。
+     * @param width  1以上の画像幅。幅×高さ×RGBA4成分×sizeof(f32)がu32の上限を超える場合は拒否する。
+     * @param height 1以上の画像高さ。実際に対応する寸法は描画方式にも依存する。
      * @param out    成功時はwidth*height*4個のf32へ更新する。利用者が指定した確保元は変えない。
      * @return 成功でtrue。失敗時はoutの値・サイズ・確保元を維持する。
      */
@@ -177,6 +177,7 @@ public:
     /**
      * 指定高度の観測者位置から GPU で大気 equirect を焼く。
      *
+     * 寸法の条件と失敗時の出力保持は、高度を省略するBakeEquirectと同じ。
      * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
      * @param out 成功時に画像全体を更新する。失敗時は値・サイズ・確保元を維持する。
      */

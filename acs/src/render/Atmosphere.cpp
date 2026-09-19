@@ -1920,7 +1920,16 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
     IRhiDevice& device, IRhiCommandList& cl,
     const FAtmosphereParams& params, u32 width, u32 height,
     f32 altitude, TArray<f32>& out) noexcept {
-    if (!m_Ready) return false;
+    if (!m_Ready || width == 0u || height == 0u) return false;
+    // RGBA32Fの1画素に必要な転送バイト数。画像形式から導き、寸法上限を別途決め打ちしない。
+    constexpr u64 bytesPerPixel = 4u * sizeof(f32);
+    // u32同士の積はu64へ広げてから計算する。成分数を掛ける前に転送口の上限を検査する。
+    const u64 pixelCount = static_cast<u64>(width) * static_cast<u64>(height);
+    if (pixelCount > static_cast<u64>(~u32{0}) / bytesPerPixel) return false;
+    // 上限検査後は32bitのusizeにも収まる、RGBA全成分の要素数。
+    const usize elementCount = static_cast<usize>(pixelCount * 4u);
+    // u32の読み戻し口へ、切り詰めなしで渡せるバイト数。
+    const u32 readbackBytes = static_cast<u32>(pixelCount * bytesPerPixel);
     FVec3 sd = params.sun_dir;
     {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
         if (l2 < 1e-12f) sd = FVec3{0, 1, 0};
@@ -1964,11 +1973,11 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
     // 4) 途中まで読み戻して失敗しても、利用者が持つ画像は変更しない。
     // 未提出の生成命令をReadTextureが実行する保証はない。提出順は描画所有者側の別課題。
     TArray<f32> readback;
-    if (!readback.TrySetNum(static_cast<usize>(width) * height * 4u)) return false;
-    if (!device.ReadTexture(*m_Equirect, readback.GetData(), static_cast<u32>(readback.Num() * sizeof(f32)))) return false;
+    if (!readback.TrySetNum(elementCount)) return false;
+    if (!device.ReadTexture(*m_Equirect, readback.GetData(), readbackBytes)) return false;
     // 読み戻し成功後だけ出力を確保する。拡張失敗でも値・サイズ・確保元は維持される。
     if (!out.TrySetNum(readback.Num())) return false;
-    MemCopy(out.GetData(), readback.GetData(), readback.Num() * sizeof(f32));
+    MemCopy(out.GetData(), readback.GetData(), readbackBytes);
     return true;
 }
 

@@ -69,20 +69,22 @@ private:
 /** 初期化が要求するバッファの寸法と用途だけを保持する。 */
 class ABakeContractBuffer final : public IRhiBuffer {
 public:
-    /** 製品の指定値を保存する。実GPU用領域は作らない。 */
-    explicit ABakeContractBuffer(const FBufferDesc& description) noexcept : m_Size(description.size), m_Usage(description.usage) {}
+    /** 製品の指定値と、資源より長く生きるデバイスの更新回数を借用する。 */
+    ABakeContractBuffer(const FBufferDesc& description, u32& updates) noexcept : m_Size(description.size), m_Usage(description.usage), m_Updates(updates) {}
     /** 指定されたバイト数を返す。 */
     usize Size() const noexcept override { return m_Size; }
     /** 指定された用途を返す。 */
     EBufferUsage Usage() const noexcept override { return m_Usage; }
-    /** 定数の物理的な意味は今回の対象外なので、更新内容は使わない。 */
-    void Update(const void*, usize, usize) noexcept override {}
+    /** 定数値は使わず、無効入力でも更新してしまう不備を回数で検査する。 */
+    void Update(const void*, usize, usize) noexcept override { ++m_Updates; }
 
 private:
     /** 初期化時のバッファ寸法。 */
     usize m_Size;
     /** 初期化時の用途。 */
     EBufferUsage m_Usage;
+    /** この資源より長く生きる更新回数。 */
+    u32& m_Updates;
 };
 
 /** 小さい試験画像だけを実体として持つ。大気表と3D体積は寸法のみ保持する。 */
@@ -171,6 +173,14 @@ public:
     u32 SuccessfulReads = 0u;
     /** 偽画像の生成関数へ入った回数。準備後の再確保も検出する。 */
     u32 TextureFactoryCalls = 0u;
+    /** 無効な寸法の先行試験でも、画像や出力領域の巨大確保へ到達させない。 */
+    bool RejectTextureCreation = false;
+    /** 直前の画像生成要求の幅。丸めず渡したことも確認する。 */
+    u32 LastTextureWidth = 0u;
+    /** 直前の画像生成要求の高さ。 */
+    u32 LastTextureHeight = 0u;
+    /** 全定数バッファへの更新回数。 */
+    u32 BufferUpdates = 0u;
 };
 
 /** この直列CPU試験だけで使う、許可回数を超えた確保を拒否する確保元。 */
@@ -459,10 +469,10 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice&, const FPipeline
 }
 
 /** 初期化用の偽バッファを作る。大きな実バッファは確保しない。 */
-TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice&, const FBufferDesc& description) noexcept
+TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& description) noexcept
 {
     // 製品のバッファ寸法と用途だけを保持する。
-    auto resource = MakeUnique<ABakeContractBuffer>(description);
+    auto resource = MakeUnique<ABakeContractBuffer>(description, static_cast<ABakeContractDevice&>(device).BufferUpdates);
     if (!resource) return ACS_ERR(Memory, 994, "bake contract buffer allocation failed");
     // 確保元を保持して所有権を製品へ渡す。
     TUniquePtr<IRhiBuffer> base(resource.Release(), resource.GetAllocator());
@@ -472,8 +482,14 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice&, const FBufferDesc& 
 /** 小さい試験画像の保存先を持つ偽画像を作る。大気の体積画像は実確保しない。 */
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device, const FTextureDesc& description) noexcept
 {
+    // この専用実行ファイルだけで使う偽デバイス。
+    auto& test_device = static_cast<ABakeContractDevice&>(device);
     // 確保に失敗しても生成要求を数え、一時配列の失敗との取り違えを防ぐ。
-    ++static_cast<ABakeContractDevice&>(device).TextureFactoryCalls;
+    ++test_device.TextureFactoryCalls;
+    test_device.LastTextureWidth = description.width;
+    test_device.LastTextureHeight = description.height;
+    // 製品の事前検査が欠けていても、先行試験はここで止まり巨大領域を確保しない。
+    if (test_device.RejectTextureCreation) return ACS_ERR(Render, 996, "bake contract texture creation rejected");
     // 生成直後は世代0であり、ReadTextureから成功画像を得ることはできない。
     auto resource = MakeUnique<ABakeContractTexture>(description);
     if (!resource) return ACS_ERR(Memory, 995, "bake contract texture allocation failed");
@@ -861,5 +877,7 @@ ACS_TEST(AtmosphereBakeContract, TrackedAllocationsCoverExistingOutputAndTempora
         }
     }
 }
+
+#include "atmosphere_bake_size_tests.inl"
 
 } // namespace acs
