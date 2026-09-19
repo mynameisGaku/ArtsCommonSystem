@@ -641,7 +641,7 @@ ACS_TEST(Atmosphere, ActualTransmittanceConsumersRejectPlanetOcclusion)
     }
 }
 
-// 桁演算を複製しない独立整数参照と実シェーダーを比較する。入出力のビット保持も全成分で確認する。
+// 独立整数参照と厳密・簡易・選択後の三つの判定を照合し、入力ビット保持も全成分で確認する。
 ACS_TEST(Atmosphere, PlanetShadowMatchesIndependentIntegerReference)
 {
     // 同じ読み取りから製品の判定関数を含む共通部全体を復元する。
@@ -658,8 +658,10 @@ float4 EncodeReferenceBits(uint x,uint y){ return float4(x&65535,x>>16,y&65535,y
 [numthreads(8,8,1)] void CSPlanetReference(uint3 id : SV_DispatchThreadID){
   uint3 p=asuint(referencePosition.Load(int3(id.xy,0)).xyz);
   uint3 d=asuint(referenceDirection.Load(int3(id.xy,0)).xyz);
+  bool exactBlocked=RayEntersPlanetExact(asfloat(p),asfloat(d));
   bool blocked=RayEntersPlanet(asfloat(p),asfloat(d));
-  referenceOutput[uint2(id.x,id.y*4)]=float4(blocked?1:0,1234,0,1);
+  int fast=PlanetShadowFastClassification(asfloat(p),asfloat(d));
+  referenceOutput[uint2(id.x,id.y*4)]=float4(exactBlocked?1:0,blocked?1:0,fast,1);
   referenceOutput[uint2(id.x,id.y*4+1)]=EncodeReferenceBits(p.x,p.y);
   referenceOutput[uint2(id.x,id.y*4+2)]=EncodeReferenceBits(p.z,d.x);
   referenceOutput[uint2(id.x,id.y*4+3)]=EncodeReferenceBits(d.y,d.z);
@@ -754,21 +756,32 @@ float4 EncodeReferenceBits(uint x,uint y){ return float4(x&65535,x>>16,y&65535,y
         EXPECT_TRUE(read);
         if (!read) return;
         u32 failures = 0u;
+        // 簡易判定が常に不確定を返す退行も検出し、反復画素を除いて集計する。
+        u32 resolvedCases = 0u;
         for (u32 pixel = 0u; pixel < width * height; ++pixel) {
             // 判定の期待値と全6入力成分をCPUの固定データだけから照合する。
-            const u32* bits = kPlanetShadowReferenceBits[pixel % caseCount];
+            const u32 caseIndex = pixel % caseCount;
+            // 反復配置でも元の条件に対する確定・不確定の要求を省かない。
+            const u32* bits = kPlanetShadowReferenceBits[caseIndex];
             const u32 row = pixel / width;
             const u32 column = pixel % width;
             const FVec4 predicate = values[row * width * 4u + column];
-            bool valid = predicate.x == static_cast<f32>(bits[6]) && predicate.y == 1234.0f && predicate.z == 0.0f && predicate.w == 1.0f;
+            const f32 expected = static_cast<f32>(bits[6]);
+            const f32 expectedFast = bits[6] != 0u ? 1.0f : -1.0f;
+            bool valid = predicate.x == expected && predicate.y == expected && (predicate.z == 0.0f || predicate.z == expectedFast) && predicate.w == 1.0f;
+            if (pixel < caseCount && predicate.z != 0.0f) ++resolvedCases;
+            // 中心・内側・高度1kmの基本方向は境界から離れており、簡易判定で確定させる。
+            if (caseIndex == 0u || caseIndex == 1u || caseIndex == 10u || caseIndex == 11u || caseIndex == 12u) valid = valid && predicate.z == expectedFast;
+            // 非正規化数を含む旧形式の反例は、ゼロ化される前に厳密判定へ戻す。
+            if (caseIndex == 7u || caseIndex == 23u || caseIndex == 33u) valid = valid && predicate.z == 0.0f;
             for (u32 pair = 0u; pair < 3u; ++pair) {
                 const FVec4 echo = values[(row * 4u + pair + 1u) * width + column];
                 valid = valid && echo.x == static_cast<f32>(bits[pair * 2u] & 65535u) && echo.y == static_cast<f32>(bits[pair * 2u] >> 16u) && echo.z == static_cast<f32>(bits[pair * 2u + 1u] & 65535u) && echo.w == static_cast<f32>(bits[pair * 2u + 1u] >> 16u);
             }
             if (!valid) ++failures;
-            if (pixel < caseCount) test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference variant=%u case=%u expected=%u actual=%.9g input_bits_and_output_valid=%u", variant, pixel, bits[6], predicate.x, valid ? 1u : 0u);
+            if (pixel < caseCount) test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference variant=%u case=%u expected=%u exact=%.9g selected=%.9g fast=%.9g input_bits_and_output_valid=%u", variant, pixel, bits[6], predicate.x, predicate.y, predicate.z, valid ? 1u : 0u);
         }
-        test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference_result variant=%u cases=%u submitted=1 readback=1 failed_pixels=%u", variant, caseCount, failures);
+        test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference_result variant=%u cases=%u resolved_cases=%u submitted=1 readback=1 failed_pixels=%u", variant, caseCount, resolvedCases, failures);
         EXPECT_EQ(failures, 0u);
     }
 }

@@ -890,8 +890,113 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "float RaySphere(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ result=-b+sqrt(disc); } return result; }\n" \
 "// 距離0は球へ向かう入口だけ採用し、地表から外向き・接線方向への光を遮らない。\n" \
 "float RaySphereNear(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ float nearT=-b-sqrt(disc); if(nearT>0.0 || (nearT==0.0 && b<0.0)) result=nearT; } return result; }\n" \
+"// 未採用の高速判定案。戻り値を初期化し、旧形式の早期returnによる警告も避ける。\n" \
+"// 浮動演算結果を包む区間。非有限結果は全実数へ広げる。\n" \
+"float2 PlanetRoundedInterval(float value)\n" \
+"{\n" \
+"    // 入力値を丸め直さずに保持するビット列。\n" \
+"    uint bits = asuint(value);\n" \
+"    // 符号を除き、通常値・極小値・非有限値を識別する。\n" \
+"    uint magnitude = bits & 0x7fffffff;\n" \
+"    // 有界な範囲を証明できない場合の区間端。\n" \
+"    float infinity = asfloat(0x7f800000);\n" \
+"    // 計算の各分岐で狭める、初期化済みの区間。\n" \
+"    float2 result = float2(-infinity,infinity);\n" \
+"    if (magnitude < 0x00800000)\n" \
+"    {\n" \
+"        // ゼロ化される可能性のある結果を最小正規化数で包む。\n" \
+"        result = float2(asfloat(0x80800000),asfloat(0x00800000));\n" \
+"    }\n" \
+"    else if (magnitude < 0x7f800000)\n" \
+"    {\n" \
+"        // 半ULP以内の丸め誤差を隣接値まで外側へ広げる。\n" \
+"        uint lower = (bits >> 31) != 0 ? bits + 1 : bits - 1;\n" \
+"        // 大きい側の隣接値のビット列。\n" \
+"        uint upper = (bits >> 31) != 0 ? bits - 1 : bits + 1;\n" \
+"        // 後続の演算で区間端がゼロ化されても内側へ縮まない端点を選ぶ。\n" \
+"        if ((lower & 0x7fffffff) < 0x00800000) lower = 0;\n" \
+"        if ((upper & 0x7fffffff) < 0x00800000) upper = 0;\n" \
+"        result = float2(asfloat(lower),asfloat(upper));\n" \
+"    }\n" \
+"    return result;\n" \
+"}\n" \
+"\n" \
+"// 下端同士・上端同士を加算し、それぞれの丸め誤差を外側へ含める。\n" \
+"float2 PlanetIntervalAdd(float2 left,float2 right)\n" \
+"{\n" \
+"    precise float lower = left.x + right.x;\n" \
+"    // 上端の和を下端と融合せず計算する。\n" \
+"    precise float upper = left.y + right.y;\n" \
+"    return float2(PlanetRoundedInterval(lower).x,PlanetRoundedInterval(upper).y);\n" \
+"}\n" \
+"\n" \
+"// 四つの端点積を包む。非有限の区間は不確定のまま維持する。\n" \
+"float2 PlanetIntervalMultiply(float2 left,float2 right)\n" \
+"{\n" \
+"    // 有界な範囲を証明できない場合の区間端。\n" \
+"    float infinity = asfloat(0x7f800000);\n" \
+"    // 計算の各分岐で狭める、初期化済みの区間。\n" \
+"    float2 result = float2(-infinity,infinity);\n" \
+"    if (!any((asuint(left)&0x7fffffff)>=0x7f800000) && !any((asuint(right)&0x7fffffff)>=0x7f800000))\n" \
+"    {\n" \
+"        // 四つの端点の組合せを個別に乗算する。\n" \
+"        precise float4 products = left.xxyy * right.xyxy;\n" \
+"        // 各積を外向きに広げた四つの区間。\n" \
+"        float2 a = PlanetRoundedInterval(products.x);\n" \
+"        float2 b = PlanetRoundedInterval(products.y);\n" \
+"        float2 c = PlanetRoundedInterval(products.z);\n" \
+"        float2 d = PlanetRoundedInterval(products.w);\n" \
+"        result = float2(min(min(a.x,b.x),min(c.x,d.x)),max(max(a.y,b.y),max(c.y,d.y)));\n" \
+"    }\n" \
+"    return result;\n" \
+"}\n" \
+"\n" \
+"// 融合積和を使わず、積と和の誤差を各段階で含める。\n" \
+"float2 PlanetIntervalDot(float3 left,float3 right)\n" \
+"{\n" \
+"    // 三成分の積を独立に丸める。\n" \
+"    precise float3 products = left * right;\n" \
+"    return PlanetIntervalAdd(PlanetIntervalAdd(PlanetRoundedInterval(products.x),PlanetRoundedInterval(products.y)),PlanetRoundedInterval(products.z));\n" \
+"}\n" \
+"\n" \
+"// 0は不確定、-1は非遮蔽、1は遮蔽。確定できない場合は整数判定へ戻す。\n" \
+"int PlanetShadowFastClassification(float3 P,float3 dir)\n" \
+"{\n" \
+"    // 浮動演算の前に入力成分の種類を整数で識別する。\n" \
+"    uint3 pMagnitude=asuint(P)&0x7fffffff,dMagnitude=asuint(dir)&0x7fffffff;\n" \
+"    // 証明できる符号がなければ不確定のまま返す。\n" \
+"    int result = 0;\n" \
+"    // NaNと無限値は簡易判定の対象外。\n" \
+"    bool finiteInput = !any(pMagnitude>=0x7f800000) && !any(dMagnitude>=0x7f800000);\n" \
+"    // 入力のゼロ化を避けるため非正規化数も対象外。\n" \
+"    bool tinyInput = any((pMagnitude>0)&(pMagnitude<0x00800000)) || any((dMagnitude>0)&(dMagnitude<0x00800000));\n" \
+"    if (finiteInput && !tinyInput)\n" \
+"    {\n" \
+"        // 半径6360kmの二乗は正確に表せる。誤差を避けるために半径を変えない。\n" \
+"        float2 c=PlanetIntervalAdd(PlanetIntervalDot(P,P),float2(-40449600.0,-40449600.0));\n" \
+"        if (c.y<0) result = 1;\n" \
+"        else if (c.x>=0)\n" \
+"        {\n" \
+"            // 位置と方向の内積を含む区間。\n" \
+"            float2 b=PlanetIntervalDot(P,dir);\n" \
+"            if (b.x>=0) result = -1;\n" \
+"            else\n" \
+"            {\n" \
+"                // 方向の長さの二乗を含む区間。\n" \
+"                float2 a=PlanetIntervalDot(dir,dir);\n" \
+"                // 二次方程式の定数項と二次係数の積。\n" \
+"                float2 ac=PlanetIntervalMultiply(a,c);\n" \
+"                // 判別式全体を包み、零を跨ぐ場合は確定させない。\n" \
+"                float2 discriminant=PlanetIntervalAdd(PlanetIntervalMultiply(b,b),-ac.yx);\n" \
+"                if (discriminant.y<=0) result = -1;\n" \
+"                else if (b.y<0 && discriminant.x>0) result = 1;\n" \
+"            }\n" \
+"        }\n" \
+"    }\n" \
+"    return result;\n" \
+"}\n" \
 "// 入力floatのビット値だけで球内部への進入を求める、配列複製を避けた未採用の検証用実装。\n" \
-"bool RayEntersPlanet(float3 P, float3 dir)\n" \
+"bool RayEntersPlanetExact(float3 P, float3 dir)\n" \
 "{\n" \
 "    // 旧コンパイラーはfloatベクトルの可変添字を内積にするため、添字を使う前に整数へ写す。\n" \
 "    uint3 positionBits=asuint(P),directionBits=asuint(dir);\n" \
@@ -989,6 +1094,16 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "        }\n" \
 "    }\n" \
 "    }\n" \
+"    return blocked;\n" \
+"}\n" \
+"// 誤差範囲から符号が確定する場合だけ整数計算を省き、境界では入力ビットに対する厳密判定へ戻す。\n" \
+"bool RayEntersPlanet(float3 P,float3 dir)\n" \
+"{\n" \
+"    // 0は不確定。値の小ささを理由に接線や非遮蔽へ丸めない。\n" \
+"    int classification=PlanetShadowFastClassification(P,dir);\n" \
+"    // 単純な条件式の両辺評価を避け、必要な場合だけ整数判定を実行する。\n" \
+"    bool blocked=classification>0;\n" \
+"    [branch] if(classification==0) blocked=RayEntersPlanetExact(P,dir);\n" \
 "    return blocked;\n" \
 "}\n" \
 "float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
