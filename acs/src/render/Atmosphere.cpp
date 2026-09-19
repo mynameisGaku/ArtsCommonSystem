@@ -897,6 +897,67 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "  float dO=saturate(1.0-abs(altKm-25.0)/15.0);\n" \
 "  sR=kRayS*dR; sM=kMieS*dM; ext=sR + (kMieE*dM) + (kOzoneA*dO);\n" \
 "}\n" \
+"// 高度が単調に増える光路の消散積分。高度・長さはkm、結果は無次元。\n" \
+"// nearestDistanceは球中心への最接近点から始点までの光路方向距離。\n" \
+"float3 TransMonotonicOpticalDepth(float height,float nearestDistance,float distance){\n" \
+"  if(distance<=0.0) return float3(0.0,0.0,0.0);\n" \
+"  // [-1,1]の8点Gauss-Legendre則。標本は8次多項式の根、重みの合計は2。\n" \
+"  const float nodes[8]={-0.9602898565,-0.7966664774,-0.5255324099,-0.1834346425,0.1834346425,0.5255324099,0.7966664774,0.9602898565};\n" \
+"  // 正の積分重み。画像の明るさへ合わせて変更しない。\n" \
+"  const float weights[8]={0.1012285363,0.2223810345,0.3137066459,0.3626837834,0.3626837834,0.3137066459,0.2223810345,0.1012285363};\n" \
+"  // SampleMediumのオゾン密度が折れる高度。非滑らかな点を求積区間の内部へ残さない。\n" \
+"  const float boundaries[3]={10.0,25.0,40.0};\n" \
+"  // 最低高度点の地心半径。\n" \
+"  float radius=kBottom+height;\n" \
+"  // 次に積む区間の始点と、ここまでの光学的厚さ。\n" \
+"  float begin=0.0; float3 opticalDepth=0.0;\n" \
+"  [loop] for(int band=0;band<4;++band){\n" \
+"    // 最後は元の終端まで残し、上端の丸めで経路を切り詰めない。\n" \
+"    float end=distance;\n" \
+"    if(band<3){\n" \
+"      // 始点以下の折点を飛ばし、接線のrise=0による0/0を防ぐ。\n" \
+"      float rise=boundaries[band]-height;\n" \
+"      if(rise<=0.0) continue;\n" \
+"      // 半径の二乗差と近い平方根同士の減算を避けて交点距離を求める。\n" \
+"      float offset=rise*(2.0*radius+rise);\n" \
+"      end=min(distance,offset/(sqrt(nearestDistance*nearestDistance+offset)+nearestDistance));\n" \
+"    }\n" \
+"    if(end<=begin) continue;\n" \
+"    // 正規化区間から実際の距離へ写す半幅と中心。\n" \
+"    float halfWidth=0.5*(end-begin); float middle=begin+halfWidth;\n" \
+"    [unroll] for(int nodeIndex=0;nodeIndex<8;++nodeIndex){\n" \
+"      // 最低高度点からの標本距離。\n" \
+"      float sampleDistance=middle+halfWidth*nodes[nodeIndex];\n" \
+"      // 微小な高度差を巨大な地心半径同士の減算から作らない。\n" \
+"      float offset=sampleDistance*(2.0*nearestDistance+sampleDistance);\n" \
+"      float sampleHeight=height+offset/(sqrt(radius*radius+offset)+radius);\n" \
+"      // 全標本が同じ媒質関数を使う。試験用の真空・一定媒質もこの経路へ作用する。\n" \
+"      float3 scatteringR; float scatteringM; float3 extinction;\n" \
+"      SampleMedium(sampleHeight,scatteringR,scatteringM,extinction);\n" \
+"      opticalDepth+=extinction*(halfWidth*weights[nodeIndex]);\n" \
+"    }\n" \
+"    begin=end;\n" \
+"    if(begin>=distance) break;\n" \
+"  }\n" \
+"  return opticalDepth;\n" \
+"}\n" \
+"// 非遮蔽と確定した球面光路を最低高度で二分する。rと距離はkm、muは単位方向の余弦。\n" \
+"float3 TransOpticalDepth(float r,float mu,float distance){\n" \
+"  // 始点の高度と、球中心の光路方向への射影。\n" \
+"  float height=r-kBottom; float projection=r*mu;\n" \
+"  // 光路内へ収めた最低点の位置。下降だけの有限光路でも終端を保存する。\n" \
+"  float closest=clamp(-projection,0.0,distance);\n" \
+"  // 最低点の半径の二乗から地表半径の二乗を引いた量。\n" \
+"  float offset=height*(2.0*kBottom+height)+closest*(2.0*projection+closest);\n" \
+"  // 既知の非遮蔽接線を丸めで地中へ再分類せず、最低高度だけ地表へ収める。\n" \
+"  float lowestHeight=max(0.0,offset/(sqrt(kBottom*kBottom+offset)+kBottom));\n" \
+"  // 球中心への最接近点から最低点までの光路方向距離。\n" \
+"  float nearestDistance=abs(projection+closest);\n" \
+"  // 両側は一般に非対称なので、それぞれの実際の長さを積分する。\n" \
+"  float3 opticalDepth=TransMonotonicOpticalDepth(lowestHeight,nearestDistance,closest);\n" \
+"  if(closest<distance) opticalDepth+=TransMonotonicOpticalDepth(lowestHeight,nearestDistance,distance-closest);\n" \
+"  return opticalDepth;\n" \
+"}\n" \
 "float RayleighPhase(float c){ return 3.0/(16.0*PI)*(1.0+c*c); }\n" \
 "float HgPhase(float c,float g){ float g2=g*g; float d=1.0+g2-2.0*g*c; return (1.0-g2)/(4.0*PI*max(pow(max(d,1e-4),1.5),1e-6)); }\n" \
 "float RaySphere(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ result=-b+sqrt(disc); } return result; }\n" \
@@ -1132,12 +1193,10 @@ ATMO_COMMON_HLSL
 "  // 手動補間が参照する閉区間へ生成点を揃え、地表・上端・接線の端点を含める。\n"
 "  float2 uv=float2(id.xy)/float2(W-1,H-1);\n"
 "  float r,mu,tTop; TransUvToParams(uv,r,mu,tTop);\n"
-"  float3 P=float3(0,r,0); float3 dir=float3(sqrt(saturate(1.0-mu*mu)),mu,0);\n"
 "  // 生成域は非遮蔽側の接線を含む。元の距離を積分へ渡し、実位置の遮蔽はSampleTransに任せる。\n"
 "  if(tTop<0){ transOut[id.xy]=float4(0,0,0,1); return; }\n"
 "  if(tTop==0){ transOut[id.xy]=float4(1,1,1,1); return; }\n"
-"  const int N=40; float dt=tTop/N; float3 tau=0;\n"
-"  [loop] for(int i=0;i<N;i++){ float3 sp=P+dir*(dt*(i+0.5)); float alt=length(sp)-kBottom; float3 sR; float sM; float3 ext; SampleMedium(max(alt,0.0),sR,sM,ext); tau+=ext*dt; }\n"
+"  float3 tau=TransOpticalDepth(r,mu,tTop);\n"
 "  transOut[id.xy]=float4(exp(-tau),1.0);\n"
 "}\n";
 

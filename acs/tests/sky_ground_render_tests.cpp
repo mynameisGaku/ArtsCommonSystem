@@ -786,7 +786,10 @@ float4 EncodeReferenceBits(uint x,uint y){ return float4(x&65535,x>>16,y&65535,y
     }
 }
 
-// 非遮蔽の物理入力を注入し、製品の距離0処理と40点積分を実行する。生成座標と遮蔽は別の実GPU試験が検査する。
+// 球中心座標を直接標本化する独立参照。定義は後続のCPU光路試験と共有し、製品の区間分割を使わない。
+static f64 ReferenceCurvedTransmittance_Internal(f64 height, f64 horizontal, f64 vertical, f64 distance, u32 channel, u32 steps, f64 horizontalOrigin, f64 forwardOrigin, f64 forward);
+
+// 非遮蔽の物理入力を注入し、製品の距離0処理と積分を実行する。生成座標と遮蔽は別の実GPU試験が検査する。
 ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVerticalIntegral)
 {
     // 一回の読み取りから製品の共通部とCSTransを復元する。
@@ -799,10 +802,10 @@ ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVer
     enum class ETransmissionExpectation {
         // 空気へ入らない上端の光路は厳密に1。
         Unit,
-        // 地表に遮られない有限の接線光路は、消散を受けて0より大きく1より小さい。
-        Positive,
         // 鉛直の指数密度とオゾンを独立解析積分で照合する。
         Vertical,
+        // 斜め・接線・下降上昇は、独立な倍精度の細分積分を収束確認して照合する。
+        Curved,
         // 上端直下の最短光路は1の近傍。
         NearUnit
     };
@@ -818,8 +821,9 @@ ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVer
         ETransmissionExpectation expectation;
     };
     // 隣接floatの差は2^-11 km。ground+ULPでも局所水平(mu=0)の正の透過を保つ。
-    const FTransmissionCase cases[] = {{"top_up", 6460.0f, 1.0f, ETransmissionExpectation::Unit}, {"top_half", 6460.0f, 0.5f, ETransmissionExpectation::Unit}, {"top_tangent", 6460.0f, 0.0f, ETransmissionExpectation::Unit}, {"ground_tangent", 6360.0f, 0.0f, ETransmissionExpectation::Positive}, {"ground_up_epsilon", 6360.0f, 1.0e-4f, ETransmissionExpectation::Positive}, {"ground_plus_ulp_tangent", ProbeFloatFromBits_Internal(0x45c6c001u), 0.0f, ETransmissionExpectation::Positive}, {"vertical_0km", 6360.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_25km", 6385.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_50km", 6410.0f, 1.0f, ETransmissionExpectation::Vertical}, {"top_minus_ulp_up", ProbeFloatFromBits_Internal(0x45c9dfffu), 1.0f, ETransmissionExpectation::NearUnit}};
-    // 遮蔽の三条件は三利用者のActualTransmittanceConsumersRejectPlanetOcclusionへ集約し、非遮蔽10条件を維持する。
+    // 折点10/25/40kmの接線と前後の隣接半径も含め、長さ0の分割区間を検査する。
+    const FTransmissionCase cases[] = {{"top_up", 6460.0f, 1.0f, ETransmissionExpectation::Unit}, {"top_half", 6460.0f, 0.5f, ETransmissionExpectation::Unit}, {"top_tangent", 6460.0f, 0.0f, ETransmissionExpectation::Unit}, {"ground_tangent", 6360.0f, 0.0f, ETransmissionExpectation::Curved}, {"ground_up_epsilon", 6360.0f, 1.0e-4f, ETransmissionExpectation::Curved}, {"ground_plus_ulp_tangent", ProbeFloatFromBits_Internal(0x45c6c001u), 0.0f, ETransmissionExpectation::Curved}, {"vertical_0km", 6360.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_25km", 6385.0f, 1.0f, ETransmissionExpectation::Vertical}, {"vertical_50km", 6410.0f, 1.0f, ETransmissionExpectation::Vertical}, {"top_minus_ulp_up", ProbeFloatFromBits_Internal(0x45c9dfffu), 1.0f, ETransmissionExpectation::NearUnit}, {"ground_oblique", 6360.0f, 0.1f, ETransmissionExpectation::Curved}, {"height_20km_down", 6380.0f, -0.03f, ETransmissionExpectation::Curved}, {"height_70km_down", 6430.0f, -0.14f, ETransmissionExpectation::Curved}, {"height_99km_down", 6459.0f, -0.17f, ETransmissionExpectation::Curved}, {"top_down", 6460.0f, -0.17f, ETransmissionExpectation::Curved}, {"ozone_10km_below", ProbeFloatFromBits_Internal(0x45c70fffu), 0.0f, ETransmissionExpectation::Curved}, {"ozone_10km", 6370.0f, 0.0f, ETransmissionExpectation::Curved}, {"ozone_10km_above", ProbeFloatFromBits_Internal(0x45c71001u), 0.0f, ETransmissionExpectation::Curved}, {"ozone_25km_below", ProbeFloatFromBits_Internal(0x45c787ffu), 0.0f, ETransmissionExpectation::Curved}, {"ozone_25km", 6385.0f, 0.0f, ETransmissionExpectation::Curved}, {"ozone_25km_above", ProbeFloatFromBits_Internal(0x45c78801u), 0.0f, ETransmissionExpectation::Curved}, {"ozone_40km_below", ProbeFloatFromBits_Internal(0x45c7ffffu), 0.0f, ETransmissionExpectation::Curved}, {"ozone_40km", 6400.0f, 0.0f, ETransmissionExpectation::Curved}, {"ozone_40km_above", ProbeFloatFromBits_Internal(0x45c80001u), 0.0f, ETransmissionExpectation::Curved}};
+    // 遮蔽の三条件は三利用者のActualTransmittanceConsumersRejectPlanetOcclusionへ集約し、ここでは非遮蔽だけを積分する。
     constexpr u32 width = 256u;
     // 製品と同じ出力行数。
     constexpr u32 height = 64u;
@@ -842,23 +846,39 @@ ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVer
     defaultValues.SetNum(componentCount);
     // 積分の期待値は各条件・色につき一度だけ独立に計算する。
     f64 expected[caseCount][3]{};
-    for (u32 sample = 0u; sample < caseCount; ++sample) {
-        for (u32 channel = 0u; channel < 3u; ++channel) {
-            expected[sample][channel] = cases[sample].expectation == ETransmissionExpectation::Unit || cases[sample].expectation == ETransmissionExpectation::NearUnit ? 1.0 : (cases[sample].expectation == ETransmissionExpectation::Vertical ? ReferenceVerticalExactTransmittance_Internal(static_cast<f64>(cases[sample].radius) - 6360.0, 6460.0 - static_cast<f64>(cases[sample].radius), channel) : 0.0);
-            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected[sample][channel]));
-        }
-    }
+    // 32ビット出力の光路積分に要求する絶対誤差。半精度への保存誤差は含めない。
+    // 鉛直では係数丸め2e-8、演算2e-6、参照計算2e-12を別に見込み、残りを積分へ配分する。
+    // 全GPUの誤差上界ではなく受入予算であり、逸脱時は許容差を広げず原因を調べる。
+    constexpr f64 opticalAbsoluteTolerance = 1.0 / 65536.0;
+    static_assert(2.0e-8 + 2.0e-6 + 2.0e-12 < opticalAbsoluteTolerance, "積分以外の誤差予算を分離する");
     for (u32 pixel = 0u; pixel < width * height; ++pixel) {
         // 横方向だけで条件を割り当て、全行が同じ境界群を通る。
         const FTransmissionCase& input = cases[(pixel % width) % caseCount];
-        // 全入力は外向き半球。倍精度の球の幾何から距離を与え、製品の逆写像や交差関数を呼ばない。
+        // 倍精度の球の幾何から距離を与え、製品の逆写像や交差関数を呼ばない。
         const f64 projectedRadius = static_cast<f64>(input.radius) * input.cosine;
         // 半径の二乗同士の減算と、近い二根の減算を避けて上端直下の短い距離も保つ。
         const f64 radiusDifference = (6460.0 - input.radius) * (6460.0 + input.radius);
-        // 上端の水平では分母も0になるため、既知の距離0を先に扱う。
-        const f64 pathLength = radiusDifference == 0.0 ? 0.0 : radiusDifference / (::sqrt(projectedRadius * projectedRadius + radiusDifference) + projectedRadius);
+        // 下向きは遠い交点を採用する。上端でも下向き光路を0へ縮めてはならない。
+        const f64 pathLength = projectedRadius < 0.0 ? -projectedRadius + ::sqrt(projectedRadius * projectedRadius + radiusDifference) : (radiusDifference == 0.0 ? 0.0 : radiusDifference / (::sqrt(projectedRadius * projectedRadius + radiusDifference) + projectedRadius));
         EXPECT_TRUE(IsFiniteProbeValue_Internal(pathLength) && pathLength >= 0.0);
         inputs[pixel] = FVec4{input.radius, input.cosine, static_cast<f32>(pathLength), 0.0f};
+    }
+    for (u32 sample = 0u; sample < caseCount; ++sample) {
+        for (u32 channel = 0u; channel < 3u; ++channel) {
+            if (cases[sample].expectation == ETransmissionExpectation::Curved) {
+                // 余弦から定まる単位方向を倍精度で構成し、GPUへ渡した距離自体の丸めは参照にも反映する。
+                const f64 vertical = cases[sample].cosine;
+                // 二乗の補数が小さいときも単位方向を保つ。
+                const f64 horizontal = ::sqrt((1.0 - vertical) * (1.0 + vertical));
+                // 区間分割なしの参照を倍の標本数で再計算して、未収束の参照を正解にしない。
+                const f64 coarse = ReferenceCurvedTransmittance_Internal(static_cast<f64>(cases[sample].radius) - 6360.0, horizontal, vertical, inputs[sample].z, channel, 32768u, 0.0, 0.0, 0.0);
+                expected[sample][channel] = ReferenceCurvedTransmittance_Internal(static_cast<f64>(cases[sample].radius) - 6360.0, horizontal, vertical, inputs[sample].z, channel, 65536u, 0.0, 0.0, 0.0);
+                EXPECT_NEAR(coarse, expected[sample][channel], opticalAbsoluteTolerance / 1024.0);
+            } else {
+                expected[sample][channel] = cases[sample].expectation == ETransmissionExpectation::Unit || cases[sample].expectation == ETransmissionExpectation::NearUnit ? 1.0 : (cases[sample].expectation == ETransmissionExpectation::Vertical ? ReferenceVerticalExactTransmittance_Internal(static_cast<f64>(cases[sample].radius) - 6360.0, 6460.0 - static_cast<f64>(cases[sample].radius), channel) : 0.0);
+            }
+            EXPECT_TRUE(IsFiniteProbeValue_Internal(expected[sample][channel]));
+        }
     }
     for (u32 component = 0u; component < componentCount; ++component) unwritten[component] = nan;
     // GPUが利用できない環境を未実行の成功にはしない。
@@ -962,8 +982,8 @@ ACS_TEST(Atmosphere, ActualTransmittanceIntegrationKeepsUnoccludedBoundaryAndVer
                 // 基本的な値域と、条件ごとの物理比較の両方を満たすか。
                 bool valid = IsFiniteProbeValue_Internal(value) && value >= 0.0 && value <= 1.0;
                 switch (cases[sample].expectation) {
-                case ETransmissionExpectation::Positive: valid = valid && value > 0.0 && value < 1.0; break;
-                case ETransmissionExpectation::Vertical: valid = valid && ::fabs(value - expected[sample][channel]) <= 0.003; break;
+                case ETransmissionExpectation::Vertical:
+                case ETransmissionExpectation::Curved: valid = valid && ::fabs(value - expected[sample][channel]) <= opticalAbsoluteTolerance; break;
                 case ETransmissionExpectation::NearUnit: valid = valid && ::fabs(value - 1.0) <= 1.0e-6; break;
                 default: valid = valid && value == expected[sample][channel]; break;
                 }
