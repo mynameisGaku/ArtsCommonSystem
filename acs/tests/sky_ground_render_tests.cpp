@@ -3161,3 +3161,6 @@ ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
 
 // 表の生成点を地表へ置く前に、距離0の地表反射を実際の多重散乱入口で検査する。
 #include "atmosphere_multiscattering_boundary_tests.inl"
+
+// 表の生成座標と空・空気遠近の参照を同じGPU資源で結び、高度と太陽方向を個別に検査する。
+#include "atmosphere_multi_coordinates_tests.inl"

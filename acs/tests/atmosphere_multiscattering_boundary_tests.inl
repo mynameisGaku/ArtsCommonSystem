@@ -17,8 +17,8 @@ static bool ReplaceMultiBoundaryOnce_Internal(FString& source, const char* needl
     return true;
 }
 
-// 同じ製品スナップショットから真空・地表入力のCSMultiを作る。設定箇所の形式変更は失敗にする。
-static FString BuildMultiBoundaryVacuumShader_Internal(const FString& product)
+// 真空のCSMultiを作る。keepGeneratedInputなら製品の生成座標を保持し、それ以外は地表入力へ差し替える。
+static FString BuildMultiBoundaryVacuumShader_Internal(const FString& product, bool keepGeneratedInput = false)
 {
     // 媒質の係数だけを0にする。密度分布、交差判定、積分処理は製品の本文を使う。
     FString common = ReadAtmosphereCommonShader_Internal(product);
@@ -29,12 +29,14 @@ static FString BuildMultiBoundaryVacuumShader_Internal(const FString& product)
     if (!ReplaceMultiBoundaryOnce_Internal(common, "static const float  kMieS  = 3.996 * 0.001;\n", "static const float  kMieS  = 0.0;\n")) return {};
     if (!ReplaceMultiBoundaryOnce_Internal(common, "static const float  kMieE  = 4.4 * 0.001;\n", "static const float  kMieE  = 0.0;\n")) return {};
     if (!ReplaceMultiBoundaryOnce_Internal(common, "static const float3 kOzoneA = float3(0.650, 1.881, 0.085) * 0.001;\n", "static const float3 kOzoneA = float3(0.0,0.0,0.0);\n")) return {};
-    // 表の配置には依存せず、全画素を地表半径に固定し、太陽の余弦だけ入力画像から受け取る。
-    constexpr const char* input = "  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n  float cosSun=uv.x*2.0-1.0;\n  float r=kBottom + uv.y*(kTop-kBottom);\n";
-    // yは地表反射を無効にする対照専用。通常側の入口はyを参照しない。
-    constexpr const char* replacement = "  float4 boundaryCase=multiBoundaryInput.Load(int3(id.xy,0));\n  float cosSun=boundaryCase.x;\n  float r=kBottom;\n";
-    if (!ReplaceMultiBoundaryOnce_Internal(body, input, replacement)) return {};
-    common.Append("// xは太陽天頂角の余弦、yは地表反射の対照用許可値。\nTexture2D<float4> multiBoundaryInput : register(t1);\n");
+    if (!keepGeneratedInput) {
+        // UVの生成式には触れず、物理条件を指定する二文だけを差し替える。
+        constexpr const char* input = "  float cosSun=uv.x*2.0-1.0;\n  float r=kBottom + uv.y*(kTop-kBottom);\n";
+        // yは地表反射を無効にする対照専用。通常側の入口はyを参照しない。
+        constexpr const char* replacement = "  float4 boundaryCase=multiBoundaryInput.Load(int3(id.xy,0));\n  float cosSun=boundaryCase.x;\n  float r=kBottom;\n";
+        if (!ReplaceMultiBoundaryOnce_Internal(body, input, replacement)) return {};
+        common.Append("// xは太陽天頂角の余弦、yは地表反射の対照用許可値。\nTexture2D<float4> multiBoundaryInput : register(t1);\n");
+    }
     common.Append(body.View());
     return common;
 }
@@ -79,6 +81,10 @@ ACS_TEST(Atmosphere, WholeMultiEntryKeepsZeroDistanceGroundReflection)
     const bool mutationReady = ReplaceMultiBoundaryOnce_Internal(noGroundSource, "    if(hitGround){", "    if(hitGround && boundaryCase.y>0.0){");
     EXPECT_TRUE(mutationReady);
     if (!mutationReady) return;
+    // 媒質係数以外は入口全体を保持し、実際の生成座標から地表の解析値へ到達することも確認する。
+    const FString generatedSource = BuildMultiBoundaryVacuumShader_Internal(product, true);
+    EXPECT_TRUE(!generatedSource.IsEmpty());
+    if (generatedSource.IsEmpty()) return;
 
     // 製品の固定寸法をすべて実行し、端や未書込み画素を検査から除外しない。
     constexpr u32 width = 32u;
@@ -151,13 +157,13 @@ ACS_TEST(Atmosphere, WholeMultiEntryKeepsZeroDistanceGroundReflection)
     for (u32 variant = 0u; variant < variantCount; ++variant) {
         // 既定形式は既存試験に合わせ、targetをnullptrのまま渡す。
         const char* targetName = variant == 0u ? "default(cs_5_1)" : "cs_6_0";
-        for (u32 mutation = 0u; mutation < 2u; ++mutation) {
+        for (u32 mutation = 0u; mutation < 3u; ++mutation) {
             // 計算本文を保持した製品入口をコンパイルする。
             FShaderDesc shaderDescription{};
             shaderDescription.stage = EShaderStage::Compute;
-            shaderDescription.hlsl_source = mutation == 0u ? source.Data() : noGroundSource.Data();
+            shaderDescription.hlsl_source = mutation == 0u ? source.Data() : (mutation == 1u ? noGroundSource.Data() : generatedSource.Data());
             shaderDescription.entry_point = "CSMulti";
-            shaderDescription.debug_name = mutation == 0u ? "Atmo.MultiBoundaryVacuum" : "Atmo.MultiBoundaryNoGround";
+            shaderDescription.debug_name = mutation == 0u ? "Atmo.MultiBoundaryVacuum" : (mutation == 1u ? "Atmo.MultiBoundaryNoGround" : "Atmo.MultiGeneratedBoundary");
             if (variant != 0u) shaderDescription.target = "cs_6_0";
             test::RecordInfo(FSourceLoc::Current(), "multi_boundary_compile target=%s mutation=%u entry=CSMulti", targetName, mutation);
             // 一方の形式が失敗しても記録し、もう一方の診断は続ける。
@@ -167,7 +173,7 @@ ACS_TEST(Atmosphere, WholeMultiEntryKeepsZeroDistanceGroundReflection)
             // t0/u0は製品と同じ名前。t1だけが明示入力用の追加資源。
             FComputePipelineDesc pipelineDescription{};
             pipelineDescription.cs = shader.Value().Get();
-            pipelineDescription.srv_slots = 2u;
+            pipelineDescription.srv_slots = mutation == 2u ? 1u : 2u;
             pipelineDescription.srv_names[0] = "transLut";
             pipelineDescription.srv_names[1] = "multiBoundaryInput";
             pipelineDescription.uav_slots = 1u;
@@ -195,7 +201,7 @@ ACS_TEST(Atmosphere, WholeMultiEntryKeepsZeroDistanceGroundReflection)
             command.Value()->Begin();
             command.Value()->SetComputePipeline(*pipeline.Value());
             command.Value()->SetTexture(0u, *transTexture.Value());
-            command.Value()->SetTexture(1u, *inputTexture.Value());
+            if (mutation != 2u) command.Value()->SetTexture(1u, *inputTexture.Value());
             command.Value()->BindUav(0u, *outputTexture.Value());
             command.Value()->Dispatch(width / 8u, height / 8u, 1u);
             command.Value()->End();
@@ -223,30 +229,34 @@ ACS_TEST(Atmosphere, WholeMultiEntryKeepsZeroDistanceGroundReflection)
             // 不一致の詳細を全画素で重複出力しない。
             bool reportedFailure = false;
             for (u32 pixel = 0u; pixel < width * height; ++pixel) {
-                // 地表なし対照では昼夜とも0、それ以外は入力と同じ交互配置。
-                const bool day = mutation == 0u && pixel % 2u == 0u;
+                // 実生成では最下行だけが地表。明示入力では昼夜を交互配置する。
+                const bool day = mutation == 0u ? pixel % 2u == 0u : (mutation == 2u && pixel < width && pixel >= width / 2u);
+                // 地表なし対照、夜の明示入力、実生成の地表夜側と真下の太陽列は厳密に0。
+                const bool zeroExpected = mutation == 1u || (mutation == 0u ? pixel % 2u != 0u : (pixel % width == 0u || (pixel < width / 2u)));
+                // 地表では入射の余弦に比例する。期待値は出力や製品のUV式から逆算しない。
+                const f64 expectedValue = mutation == 2u ? expectedDay * (-1.0 + 2.0 * static_cast<f64>(pixel % width) / static_cast<f64>(width - 1u)) : expectedDay;
                 // 検査対象のRGBA。有限性は全画素・全成分で必須とする。
                 const FVec4 value = values[pixel];
                 // NaNが近似比較をすり抜けないよう、先に有限性とアルファを検査する。
-                const bool valid = IsFiniteProbeValue_Internal(value.x) && IsFiniteProbeValue_Internal(value.y) && IsFiniteProbeValue_Internal(value.z) && IsFiniteProbeValue_Internal(value.w) && value.x >= 0.0f && value.y >= 0.0f && value.z >= 0.0f && value.w == 1.0f;
+                const bool valid = IsFiniteProbeValue_Internal(value.x) && IsFiniteProbeValue_Internal(value.y) && IsFiniteProbeValue_Internal(value.z) && IsFiniteProbeValue_Internal(value.w) && value.x >= 0.0f && value.y >= 0.0f && value.z >= 0.0f && value.x <= 2.0 * expectedDay + tolerance && value.y <= 2.0 * expectedDay + tolerance && value.z <= 2.0 * expectedDay + tolerance && value.w == 1.0f;
                 // 昼は全色が解析値へ一致し、夜と対照は微小な漏れも認めない。
-                const bool matches = valid && (day ? (::fabs(static_cast<f64>(value.x) - expectedDay) <= tolerance && ::fabs(static_cast<f64>(value.y) - expectedDay) <= tolerance && ::fabs(static_cast<f64>(value.z) - expectedDay) <= tolerance) : (value.x == 0.0f && value.y == 0.0f && value.z == 0.0f));
+                const bool matches = valid && (day ? (::fabs(static_cast<f64>(value.x) - expectedValue) <= tolerance && ::fabs(static_cast<f64>(value.y) - expectedValue) <= tolerance && ::fabs(static_cast<f64>(value.z) - expectedValue) <= tolerance) : (!zeroExpected || (value.x == 0.0f && value.y == 0.0f && value.z == 0.0f)));
                 if (!valid) ++invalidPixels;
                 if (matches && day) ++matchedDayPixels;
-                if (matches && !day) ++matchedZeroPixels;
+                if (matches && zeroExpected) ++matchedZeroPixels;
                 if (!matches && !reportedFailure) {
-                    test::RecordInfo(FSourceLoc::Current(), "multi_boundary_pixel target=%s mutation=%u xy=(%u,%u) expected=%.12g rgba=(%.9g,%.9g,%.9g,%.9g)", targetName, mutation, pixel % width, pixel / width, day ? expectedDay : 0.0, value.x, value.y, value.z, value.w);
+                    test::RecordInfo(FSourceLoc::Current(), "multi_boundary_pixel target=%s mutation=%u xy=(%u,%u) expected=%.12g rgba=(%.9g,%.9g,%.9g,%.9g)", targetName, mutation, pixel % width, pixel / width, day ? expectedValue : 0.0, value.x, value.y, value.z, value.w);
                     reportedFailure = true;
                 }
             }
             test::RecordInfo(FSourceLoc::Current(), "multi_boundary_result target=%s mutation=%u submitted=1 readback=1 invalid_pixels=%u matched_day_pixels=%u matched_zero_pixels=%u", targetName, mutation, invalidPixels, matchedDayPixels, matchedZeroPixels);
             EXPECT_EQ(invalidPixels, 0u);
-            EXPECT_EQ(matchedDayPixels, mutation == 0u ? width * height / 2u : 0u);
-            EXPECT_EQ(matchedZeroPixels, mutation == 0u ? width * height / 2u : width * height);
+            EXPECT_EQ(matchedDayPixels, mutation == 0u ? width * height / 2u : (mutation == 2u ? width / 2u : 0u));
+            EXPECT_EQ(matchedZeroPixels, mutation == 0u ? width * height / 2u : (mutation == 1u ? width * height : height + width / 2u - 1u));
         }
     }
-    // 各形式で通常側と対照側の両方が提出・読戻しまで到達したことを要求する。
-    for (u32 variant = 0u; variant < variantCount; ++variant) EXPECT_EQ(completed[variant], 2u);
+    // 明示地表・反射なし対照・製品の実生成の三つが提出と読戻しまで到達したことを要求する。
+    for (u32 variant = 0u; variant < variantCount; ++variant) EXPECT_EQ(completed[variant], 3u);
 }
 
 #endif
