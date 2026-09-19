@@ -309,6 +309,24 @@ target_link_libraries(acs_debug_draw_3d_safety_tests PRIVATE
 add_test(NAME ACS.DebugDraw3DSafety COMMAND acs_debug_draw_3d_safety_tests)
 set_tests_properties(ACS.DebugDraw3DSafety PROPERTIES LABELS "Render;Safety;Compatibility" TIMEOUT 60)
 
+# 大気画像の読み戻し失敗を即時実行の代替RHIで注入し、呼び出し側の出力を検査する。
+add_executable(acs_atmosphere_bake_contract_tests
+    main.cpp
+    atmosphere_bake_contract_tests.cpp
+    "${ACS_SOURCE_ROOT}/render/Atmosphere.cpp"
+)
+set_target_properties(acs_atmosphere_bake_contract_tests PROPERTIES FOLDER "Engine/Tests" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/atmosphere_bake/$<CONFIG>/bin")
+acs_apply_compiler_options(acs_atmosphere_bake_contract_tests)
+target_link_libraries(acs_atmosphere_bake_contract_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Math
+    ACS::Test
+)
+add_test(NAME ACS.AtmosphereBakeContract COMMAND acs_atmosphere_bake_contract_tests)
+set_tests_properties(ACS.AtmosphereBakeContract PROPERTIES LABELS "Render;Safety;Compatibility" TIMEOUT 60)
+
 # Randomの既存列、layout、snapshot、検査済み一括APIを独立して反復する。
 add_executable(acs_random_compatibility_tests
     main.cpp

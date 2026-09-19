@@ -167,8 +167,8 @@ public:
      * @param params 太陽方向・強度。
      * @param width  equirect 幅。
      * @param height equirect 高さ。
-     * @param out    出力 (width*height*4 個の f32、move せず resize して埋める)。
-     * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
+     * @param out    成功時はwidth*height*4個のf32へ更新する。利用者が指定した確保元は変えない。
+     * @return 成功でtrue。失敗時はoutの値・サイズ・確保元を維持する。
      */
     bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                       const FAtmosphereParams& params,
@@ -178,6 +178,7 @@ public:
      * 指定高度の観測者位置から GPU で大気 equirect を焼く。
      *
      * @param altitude 地表から観測者までの高さ (m)。大気上端を超える値は丸める。
+     * @param out 成功時に画像全体を更新する。失敗時は値・サイズ・確保元を維持する。
      */
     bool BakeEquirectAtAltitude(
         IRhiDevice& device, IRhiCommandList& cl,

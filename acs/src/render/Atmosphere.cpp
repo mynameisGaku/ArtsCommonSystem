@@ -1961,10 +1961,15 @@ bool CSkyAtmosphere::BakeEquirectAtAltitude(
     cl.BindUav(0, *m_Equirect);
     cl.Dispatch((width + 7) / 8, (height + 7) / 8, 1);
 
-    // 4) CPU へ読み戻す (ReadTexture が Flush+WaitIdle → 上の dispatch を実行してから copy)。
-    out.SetNum(static_cast<usize>(width) * height * 4u);
-    return device.ReadTexture(*m_Equirect, out.GetData(),
-                              static_cast<u32>(out.Num() * sizeof(f32)));
+    // 4) 途中まで読み戻して失敗しても、利用者が持つ画像は変更しない。
+    // 未提出の生成命令をReadTextureが実行する保証はない。提出順は描画所有者側の別課題。
+    TArray<f32> readback;
+    if (!readback.TrySetNum(static_cast<usize>(width) * height * 4u)) return false;
+    if (!device.ReadTexture(*m_Equirect, readback.GetData(), static_cast<u32>(readback.Num() * sizeof(f32)))) return false;
+    // 読み戻し成功後だけ出力を確保する。拡張失敗でも値・サイズ・確保元は維持される。
+    if (!out.TrySetNum(readback.Num())) return false;
+    MemCopy(out.GetData(), readback.GetData(), readback.Num() * sizeof(f32));
+    return true;
 }
 
 void CSkyAtmosphere::Shutdown() noexcept {
