@@ -10,6 +10,7 @@
 #include "platform/Time.h"
 #include "container/Array.h"
 #include "container/String.h"
+#include "planet_shadow_reference_cases.inl"
 #include <cstring>
 #include <cmath>
 
@@ -166,8 +167,8 @@ static bool AppendAtmosphereLiteral_Internal(FStringView token, FString& result)
     return true;
 }
 
-// 共通マクロまたはkTransCSの連結リテラルを厳密に復元する。再定義・条件分岐・別の式は拒否する。
-static FString RestoreAtmosphereShaderSource_Internal(const FString& original, bool transmittance)
+// 共通マクロまたは指定した入口のリテラルを復元する。生文字列は指定した試験だけで許可する。
+static FString RestoreAtmosphereShaderSource_Internal(const FString& original, bool transmittance, const char* bodyName = "kTransCS", bool allowRawLiteral = false)
 {
     // C++と同じくコメント判定より先にLF/CRLFの行継続を除く。
     FString source;
@@ -187,12 +188,12 @@ static FString RestoreAtmosphereShaderSource_Internal(const FString& original, b
     // 直前まで一致した宣言の長さ。
     usize matched = 0u;
     // 空白・改行・コメントを挟める宣言。名前が似ただけの別変数を対象にしない。
-    constexpr const char* declaration[] = {"const", "char", "*", "kTransCS", "="};
+    const char* declaration[] = {"const", "char", "*", bodyName, "="};
     // マクロの開始を認める行頭か。
     bool lineStart = true;
     // 共通部より前の使用と二重定義を拒否するための記録。
     bool foundCommon = false;
-    // kTransCSの二重定義を拒否するための記録。
+    // 指定した入口の二重定義を拒否するための記録。
     bool foundBody = false;
     // 現在の一字句。元文字列が生存している間だけ参照する。
     FStringView token;
@@ -242,7 +243,15 @@ static FString RestoreAtmosphereShaderSource_Internal(const FString& original, b
             if (!ReadAtmosphereSourceToken_Internal(cursor, token)) return {};
             if (token == FStringView(";")) break;
             if (token == FStringView("\n")) continue;
-            if (!AppendAtmosphereLiteral_Internal(token, body)) return {};
+            if (allowRawLiteral && token.Size() >= 5u && token[0] == 'R' && token[1] == '"') {
+                // 字句処理で終端の区切り一致を確認済み。本文内のエスケープは解釈しない。
+                usize opening = 2u;
+                while (opening < token.Size() && token[opening] != '(') ++opening;
+                // 開始のR、引用符、区切りと、末尾の閉じ括弧、区切り、引用符を除く。
+                const usize endingLength = opening;
+                if (opening + 1u + endingLength > token.Size()) return {};
+                body.Append(FStringView(token.Data() + opening + 1u, token.Size() - opening - 1u - endingLength));
+            } else if (!AppendAtmosphereLiteral_Internal(token, body)) return {};
         }
         if (body.Size() == 0u) return {};
     }
@@ -278,6 +287,77 @@ static FString BuildAtmosphereTransmittanceProbe_Internal(const FString& source)
     result.Append(FStringView(body.Data(), static_cast<usize>(begin - body.Data())));
     result.Append("  float2 uv=transProbeInput.Load(int3(id.xy,0)).xy;\n  float r=uv.x,mu=uv.y;\n");
     result.Append(begin + ::strlen(input));
+    return result;
+}
+
+// 復元済みHLSLから指定したfloat3関数を変更せず取り出す。欠落、重複、未終端は拒否する。
+static FString ExtractAtmosphereLookup_Internal(const FString& body, const char* functionName)
+{
+    // コメントや別の文字列中の偽宣言を無視して、戻り値と関数名を字句で照合する。
+    const char* signature[] = {"float3", functionName, "("};
+    // 読取り位置と、現在照合中の宣言先頭。
+    const char* cursor = body.Data();
+    const char* begin = nullptr;
+    // 宣言の一致数。引数以降は元の文字範囲のまま保持する。
+    u32 matched = 0u;
+    // 未対応の不正な字句は空文字列にしてコンパイル前に失敗させる。
+    FStringView token;
+    // 関数本体に入った後の入れ子深さ。
+    u32 depth = 0u;
+    // 一つ見つかった後も終端まで読み、同名宣言が再度出たら拒否する。
+    FString result;
+    while (ReadAtmosphereSourceToken_Internal(cursor, token) && !token.IsEmpty()) {
+        if (matched < 3u) {
+            if (token == FStringView("\n")) continue;
+            if (token == FStringView(signature[matched])) {
+                if (matched == 0u) begin = cursor-token.Size();
+                ++matched;
+                if (matched == 3u && !result.IsEmpty()) return {};
+            } else {
+                matched = token == FStringView("float3") ? 1u : 0u;
+                if (matched == 1u) begin = cursor-token.Size();
+            }
+            continue;
+        }
+        if (token == FStringView("{")) ++depth;
+        else if (token == FStringView("}")) {
+            if (depth == 0u) return {};
+            if (--depth == 0u) {
+                result = FString(FStringView(begin, static_cast<usize>(cursor - begin)));
+                matched = 0u;
+            }
+        } else if (depth == 0u && token == FStringView(";")) return {};
+    }
+    return depth == 0u && token.IsEmpty() ? result : FString{};
+}
+
+// 各利用者の実参照関数を実行する。参照表と物理入力だけを独立に与え、生成側の不具合を混ぜない。
+static FString BuildAtmosphereShadowLookupProbe_Internal(const FString& product, const char* consumer)
+{
+    // 共通媒質・座標変換も同じ読み取りから復元する。
+    FString result = ReadAtmosphereCommonShader_Internal(product);
+    // 空気遠近法だけが生文字列。他の入口の形式変更は自動的に許容しない。
+    const bool aerial = ::strcmp(consumer, "kApCS") == 0;
+    // 対象の入口全体を復元し、その中に存在する参照関数を使う。
+    const FString body = RestoreAtmosphereShaderSource_Internal(product, true, consumer, aerial);
+    // 地球遮蔽を含めて試験する、変更していない実関数。
+    const FString lookup = ExtractAtmosphereLookup_Internal(body, "SampleTrans");
+    if (result.IsEmpty() || body.IsEmpty() || lookup.IsEmpty()) return {};
+    result.Append("\nTexture2D<float4> transLut : register(t0);\nTexture2D<float4> shadowInput : register(t1);\nTexture2D<float4> shadowDirection : register(t2);\nRWTexture2D<float4> shadowOutput : register(u0);\n");
+    if (aerial) {
+        // 空気遠近法が使う補間も製品のまま保持する。
+        const FString load = ExtractAtmosphereLookup_Internal(body, "LoadTransBilinear");
+        if (load.IsEmpty()) return {};
+        result.Append(load.View());
+        result.Append('\n');
+    }
+    // 遮蔽済み方向とは別の、既知非遮蔽側の表参照も本文を変更せず使う。
+    const FString unoccluded = ExtractAtmosphereLookup_Internal(body, "SampleTransUnoccluded");
+    if (unoccluded.IsEmpty()) return {};
+    result.Append(unoccluded.View());
+    result.Append('\n');
+    result.Append(lookup.View());
+    result.Append("\n[numthreads(8,8,1)] void CSShadowProbe(uint3 id : SV_DispatchThreadID){ float3 P=shadowInput.Load(int3(id.xy,0)).xyz; float3 sd=shadowDirection.Load(int3(id.xy,0)).xyz; shadowOutput[id.xy]=float4(SampleTrans(P,sd),1.0); }\n");
     return result;
 }
 
@@ -350,6 +430,347 @@ ACS_TEST(Atmosphere, TransmittanceShaderRecoveryReadsCurrentProduct)
     EXPECT_TRUE(probe.Size() > common.Size());
     if (probe.Size() > common.Size()) EXPECT_EQ(::memcmp(probe.Data(), common.Data(), common.Size()), 0);
     test::RecordInfo(FSourceLoc::Current(), "trans_literal_current source_bytes=%zu common_bytes=%zu body_bytes=%zu probe_bytes=%zu", source.Size(), common.Size(), body.Size(), probe.Size());
+}
+
+// 生文字列の復元を個別に検査し、別の入口を選んだ場合にも指定本文だけを採用する。
+ACS_TEST(Atmosphere, ConsumerShaderRecoveryKeepsRawBodyAndRejectsAmbiguity)
+{
+    // 区切り付き生文字列は本文の引用符とバックスラッシュをそのまま保持する。
+    const FString source("#define ATMO_COMMON_HLSL \"common\\n\"\nconst char* kApCS = ATMO_COMMON_HLSL R\"tag(float3 SampleTrans(float r,float mu){ /* } */ if(r<0){return 0;} return 1; }\\n\"kept\")tag\";\nconst char* kMultiCS = ATMO_COMMON_HLSL \"other\";\n");
+    // 本文の境界がC++コンパイラーの生文字列と同じになることを期待する。
+    const FString body = RestoreAtmosphereShaderSource_Internal(source, true, "kApCS", true);
+    EXPECT_TRUE(body == FStringView(R"expected(float3 SampleTrans(float r,float mu){ /* } */ if(r<0){return 0;} return 1; }\n"kept")expected"));
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(source, true, "kMultiCS") == FStringView("other"));
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(source, true, "kApCS").IsEmpty());
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(source, true, "missing", true).IsEmpty());
+    EXPECT_TRUE(ExtractAtmosphereLookup_Internal(body, "SampleTrans") == FStringView("float3 SampleTrans(float r,float mu){ /* } */ if(r<0){return 0;} return 1; }"));
+    EXPECT_TRUE(ExtractAtmosphereLookup_Internal(FString("float3 SampleTrans(float r,float mu){"), "SampleTrans").IsEmpty());
+    EXPECT_TRUE(ExtractAtmosphereLookup_Internal(FString("float3 SampleTrans(float r,float mu);"), "SampleTrans").IsEmpty());
+    EXPECT_TRUE(ExtractAtmosphereLookup_Internal(FString("/* float3 SampleTrans(float r,float mu){return 1;} */"), "SampleTrans").IsEmpty());
+    EXPECT_TRUE(ExtractAtmosphereLookup_Internal(FString("float3 SampleTrans(float r,float mu){return 1;} float3 SampleTrans(float r,float mu){return 0;}"), "SampleTrans").IsEmpty());
+    // 同名宣言が複数ある場合は先頭を都合よく採用しない。
+    FString duplicate(source);
+    duplicate.Append("const char* kApCS = ATMO_COMMON_HLSL R\"(duplicate)\";\n");
+    EXPECT_TRUE(RestoreAtmosphereShaderSource_Internal(duplicate, true, "kApCS", true).IsEmpty());
+    // 実ソースの三つの利用者が復元できることも、GPU試験から独立に確認する。
+    const FString product = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    EXPECT_TRUE(!BuildAtmosphereShadowLookupProbe_Internal(product, "kMultiCS").IsEmpty());
+    EXPECT_TRUE(!BuildAtmosphereShadowLookupProbe_Internal(product, "kBakeCS").IsEmpty());
+    EXPECT_TRUE(!BuildAtmosphereShadowLookupProbe_Internal(product, "kApCS").IsEmpty());
+}
+
+// 地球に遮られた照会だけを0にする。非遮蔽側の表を黒くして済ませる修正を二つの色表で拒否する。
+ACS_TEST(Atmosphere, ActualTransmittanceConsumersRejectPlanetOcclusion)
+{
+    // 現在の三つの製品関数を同一スナップショットから実行する。
+    const FString product = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    // 参照表の利用者。空気遠近法は別実装の補間を持つため省略しない。
+    constexpr const char* consumers[] = {"kMultiCS", "kBakeCS", "kApCS"};
+    // 半径km、鉛直方向の余弦、遮蔽の既知値。接線に近いだけの点を数学上の接線と呼ばない。
+    const FVec4 cases[] = {{6360.0f,-1.0f,1.0f,0.0f}, {6360.0f,-0.0001f,1.0f,0.0f}, {6360.0f,0.0f,0.0f,0.0f}, {6360.0f,-0.0f,0.0f,0.0f}, {6360.0f,0.0001f,0.0f,0.0f}, {6360.0f,1.0f,0.0f,0.0f}, {6360.00048828125f,-0.0005f,1.0f,0.0f}, {6360.00048828125f,-0.0003f,0.0f,0.0f}, {6385.0f,-0.09f,1.0f,0.0f}, {6385.0f,-0.08f,0.0f,0.0f}, {6385.0f,0.0f,0.0f,0.0f}, {6385.0f,1.0f,0.0f,0.0f}, {6410.0f,-0.13f,1.0f,0.0f}, {6410.0f,-0.12f,0.0f,0.0f}, {6460.0f,-0.18f,1.0f,0.0f}, {6460.0f,-0.17f,0.0f,0.0f}};
+    // 前半は半径・余弦から3D入力を作る。後半は元の位置を保たないと判定を誤る接線周辺。
+    constexpr u32 radialCaseCount = sizeof(cases) / sizeof(cases[0]);
+    // 厳密な接線、直近の内外、地中・地表から外向き、3:4:5の接線と軸交換。wは期待する遮蔽。
+    const FVec4 positionCases[] = {{564.46881103515625f,6360.0f,0,0}, {564.46881103515625f,6360.00048828125f,0,0}, {564.46881103515625f,6359.99951171875f,0,1}, {0,6359.0f,0,1}, {0,6360.0f,0,0}, {564.46881103515625f,5088.0f,3816.0f,0}, {3816.0f,5088.0f,564.46881103515625f,0}, {1.0f,6360.0f,6.0f,0}};
+    // 対応する光の向き。軸方向なので余弦や正規化の丸めで接線そのものを動かさない。
+    constexpr FVec4 directionCases[] = {{-1,0,0,0},{-1,0,0,0},{-1,0,0,0},{0,1,0,0},{0,1,0,0},{-1,0,0,0},{0,0,-1,0},{-0.16439898312091827f,0,-0.986393928527832f,0}};
+    // 異なる物理入力数。画素反復数は条件数として数えない。
+    constexpr u32 caseCount = radialCaseCount + sizeof(positionCases) / sizeof(positionCases[0]);
+    constexpr u32 width = 64u;
+    constexpr u32 height = 8u;
+    // 二進数で厳密に表せる既知の二色。太陽透過の積分値ではなく参照・遮蔽を分離する入力である。
+    constexpr f32 colors[2][3] = {{0.25f,0.5f,0.75f},{0.625f,0.375f,0.125f}};
+    // 全GPU入力と、GPU/CPU両方の未書込検出用初期値。
+    TArray<FVec4> inputs;
+    TArray<FVec4> directions;
+    TArray<FVec4> unwritten;
+    inputs.SetNum(width * height);
+    directions.SetNum(width * height);
+    unwritten.SetNum(width * height);
+    // NaNは値域検査と等値検査の両方で明示的に拒否する。
+    const f32 nan = ProbeFloatFromBits_Internal(0x7fc00000u);
+    for (u32 sample = 0u; sample < radialCaseCount; ++sample) {
+        // 既知の符号を、倍精度の最近接点の球半径比較でも確認する。製品の判定式は複製しない。
+        const f64 radius = cases[sample].x;
+        const f64 projection = radius * static_cast<f64>(cases[sample].y);
+        const bool intersects = projection < 0.0 && radius * radius - projection * projection < 6360.0 * 6360.0;
+        EXPECT_EQ(intersects, cases[sample].z == 1.0f);
+    }
+    for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+        // 期待する遮蔽はwに保存し、GPUで算出した半径・余弦から導かない。
+        const u32 sample = pixel % caseCount;
+        if (sample < radialCaseCount) {
+            inputs[pixel] = FVec4{0,cases[sample].x,0,cases[sample].z};
+            directions[pixel] = FVec4{static_cast<f32>(::sqrt(1.0-static_cast<f64>(cases[sample].y)*cases[sample].y)),cases[sample].y,0,0};
+        } else {
+            inputs[pixel] = positionCases[sample-radialCaseCount];
+            directions[pixel] = directionCases[sample-radialCaseCount];
+        }
+        unwritten[pixel] = FVec4{nan,nan,nan,nan};
+    }
+    // 既存の描画器が資源を所有し、全提出を直列化する。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    test::RecordInfo(FSourceLoc::Current(), "shadow_lookup_gpu backend=%s adapter=%s cases=%u", device.Value()->BackendName(), device.Value()->AdapterName(), caseCount);
+    // 実行時の物理入力を全利用者・全形式で共有する。
+    FTextureDesc inputDescription{};
+    inputDescription.width = width;
+    inputDescription.height = height;
+    inputDescription.format = EFormat::R32G32B32A32_Float;
+    inputDescription.initial_data = inputs.GetData();
+    inputDescription.initial_data_size = inputs.Num() * sizeof(FVec4);
+    auto inputTexture = CreateRhiTexture(*device.Value(), inputDescription);
+    EXPECT_TRUE(inputTexture.IsOk());
+    if (inputTexture.IsErr()) return;
+    // 太陽方向も実行時画像から読み、コンパイラーの定数評価に置き換わることを防ぐ。
+    FTextureDesc directionDescription = inputDescription;
+    directionDescription.initial_data = directions.GetData();
+    auto directionTexture = CreateRhiTexture(*device.Value(), directionDescription);
+    EXPECT_TRUE(directionTexture.IsOk());
+    if (directionTexture.IsErr()) return;
+#if !WITH_RENDER_DILIGENT
+    // 製品既定形式とSM6で同じ遮蔽入力を評価する。
+    constexpr u32 variantCount = 2u;
+#else
+    // 他の描画基盤は既存の製品形式を維持する。
+    constexpr u32 variantCount = 1u;
+#endif
+    for (const char* consumer : consumers) {
+        // 参照関数の内部を置換しない診断入口。
+        const FString source = BuildAtmosphereShadowLookupProbe_Internal(product, consumer);
+        EXPECT_TRUE(!source.IsEmpty());
+        if (source.IsEmpty()) return;
+        // 呼び出し元も含む製品入口全体。診断で使わない関数の引数不整合も別途検出する。
+        FString fullSource = ReadAtmosphereCommonShader_Internal(product);
+        fullSource.Append(RestoreAtmosphereShaderSource_Internal(product, true, consumer, ::strcmp(consumer, "kApCS") == 0).View());
+        for (u32 variant = 0u; variant < variantCount; ++variant) {
+            // 同じ実HLSLを各形式へコンパイルする。
+            FShaderDesc shaderDescription{};
+            shaderDescription.stage = EShaderStage::Compute;
+            shaderDescription.hlsl_source = source.Data();
+            shaderDescription.entry_point = "CSShadowProbe";
+            shaderDescription.debug_name = "Atmo.ShadowLookupProbe";
+            if (variant != 0u) shaderDescription.target = "cs_6_0";
+            // 診断用に抜き出した関数だけでなく、実際の全入口も同じ形式でコンパイルする。
+            FShaderDesc fullDescription = shaderDescription;
+            fullDescription.hlsl_source = fullSource.Data();
+            fullDescription.entry_point = ::strcmp(consumer, "kMultiCS") == 0 ? "CSMulti" : (::strcmp(consumer, "kBakeCS") == 0 ? "CSBake" : "CSAp");
+            test::RecordInfo(FSourceLoc::Current(), "shadow_lookup_compile consumer=%s variant=%u", consumer, variant);
+            auto fullShader = CreateRhiShader(*device.Value(), fullDescription);
+            EXPECT_TRUE(fullShader.IsOk());
+            // 失敗は記録済み。別形式も評価するが、未実行分を成功へ数えない。
+            if (fullShader.IsErr()) continue;
+            auto shader = CreateRhiShader(*device.Value(), shaderDescription);
+            EXPECT_TRUE(shader.IsOk());
+            if (shader.IsErr()) return;
+            // 製品の参照表t0と、診断の入力t1・出力u0だけを結合する。
+            FComputePipelineDesc pipelineDescription{};
+            pipelineDescription.cs = shader.Value().Get();
+            pipelineDescription.srv_slots = 3u;
+            pipelineDescription.srv_names[0] = "transLut";
+            pipelineDescription.srv_names[1] = "shadowInput";
+            pipelineDescription.srv_names[2] = "shadowDirection";
+            pipelineDescription.uav_slots = 1u;
+            pipelineDescription.uav_names[0] = "shadowOutput";
+            auto pipeline = CreateRhiComputePipeline(*device.Value(), pipelineDescription);
+            EXPECT_TRUE(pipeline.IsOk());
+            if (pipeline.IsErr()) return;
+            for (u32 color = 0u; color < 2u; ++color) {
+                // 参照表は製品と同寸法。全要素へ既知値を設定し、表の端だけ黒い修正を前提にしない。
+                TArray<FVec4> table;
+                table.SetNum(256u * 64u);
+                for (FVec4& pixel : table) pixel = FVec4{colors[color][0],colors[color][1],colors[color][2],1.0f};
+                FTextureDesc tableDescription{};
+                tableDescription.width = 256u;
+                tableDescription.height = 64u;
+                tableDescription.format = EFormat::R32G32B32A32_Float;
+                tableDescription.initial_data = table.GetData();
+                tableDescription.initial_data_size = table.Num() * sizeof(FVec4);
+                auto tableTexture = CreateRhiTexture(*device.Value(), tableDescription);
+                EXPECT_TRUE(tableTexture.IsOk());
+                if (tableTexture.IsErr()) return;
+                // 出力は毎回新規NaN画像。前の形式・利用者の値で未提出を隠さない。
+                FTextureDesc outputDescription = inputDescription;
+                outputDescription.is_uav = true;
+                outputDescription.initial_data = unwritten.GetData();
+                auto outputTexture = CreateRhiTexture(*device.Value(), outputDescription);
+                EXPECT_TRUE(outputTexture.IsOk());
+                if (outputTexture.IsErr()) return;
+                command.Value()->Begin();
+                command.Value()->SetComputePipeline(*pipeline.Value());
+                command.Value()->SetTexture(0u, *tableTexture.Value());
+                command.Value()->SetTexture(1u, *inputTexture.Value());
+                command.Value()->SetTexture(2u, *directionTexture.Value());
+                command.Value()->BindUav(0u, *outputTexture.Value());
+                command.Value()->Dispatch(width / 8u, height / 8u, 1u);
+                command.Value()->End();
+                // 記録しただけでは合格にせず、提出完了後に全画素を読む。
+                const bool submitted = command.Value()->Submit();
+                EXPECT_TRUE(submitted);
+                if (!submitted) return;
+                device.Value()->WaitIdle();
+                // 部分的なCPU読戻しにもNaNを残す。
+                TArray<FVec4> values;
+                values.SetNum(unwritten.Num());
+                ::memcpy(values.GetData(), unwritten.GetData(), unwritten.Num() * sizeof(FVec4));
+                const bool read = device.Value()->ReadTexture(*outputTexture.Value(), values.GetData(), values.Num() * sizeof(FVec4));
+                EXPECT_TRUE(read);
+                if (!read) return;
+                // 条件ごとに集約し、失敗画素を大量出力しない。
+                u32 failures[caseCount]{};
+                for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+                    // 入力と期待色はGPUの判定結果から逆算しない。
+                    const u32 sample = pixel % caseCount;
+                    const FVec4 expected = inputs[pixel].w == 1.0f ? FVec4{0,0,0,1} : FVec4{colors[color][0],colors[color][1],colors[color][2],1};
+                    const FVec4 value = values[pixel];
+                    const bool valid = IsFiniteProbeValue_Internal(value.x) && IsFiniteProbeValue_Internal(value.y) && IsFiniteProbeValue_Internal(value.z) && IsFiniteProbeValue_Internal(value.w) && value.x == expected.x && value.y == expected.y && value.z == expected.z && value.w == expected.w;
+                    if (!valid) ++failures[sample];
+                    if (pixel < caseCount) test::RecordInfo(FSourceLoc::Current(), "shadow_lookup_pixel consumer=%s variant=%u table=%u case=%u P=(%.9g,%.9g,%.9g) sun=(%.9g,%.9g,%.9g) blocked=%.0f rgba=(%.9g,%.9g,%.9g,%.9g) valid=%u", consumer, variant, color, sample, inputs[pixel].x, inputs[pixel].y, inputs[pixel].z, directions[pixel].x, directions[pixel].y, directions[pixel].z, inputs[pixel].w, value.x, value.y, value.z, value.w, valid ? 1u : 0u);
+                }
+                for (u32 sample = 0u; sample < caseCount; ++sample) {
+                    test::RecordInfo(FSourceLoc::Current(), "shadow_lookup_result consumer=%s variant=%u table=%u case=%u submitted=1 readback=1 failed_pixels=%u", consumer, variant, color, sample, failures[sample]);
+                    EXPECT_EQ(failures[sample], 0u);
+                }
+            }
+        }
+    }
+}
+
+// 桁演算を複製しない独立整数参照と実シェーダーを比較する。入出力のビット保持も全成分で確認する。
+ACS_TEST(Atmosphere, PlanetShadowMatchesIndependentIntegerReference)
+{
+    // 同じ読み取りから製品の判定関数を含む共通部全体を復元する。
+    const FString product = ReadRenderSource_Internal(L"../src/render/Atmosphere.cpp");
+    FString source = ReadAtmosphereCommonShader_Internal(product);
+    EXPECT_TRUE(!source.IsEmpty());
+    if (source.IsEmpty()) return;
+    source.Append(R"probe(
+Texture2D<float4> referencePosition : register(t0);
+Texture2D<float4> referenceDirection : register(t1);
+RWTexture2D<float4> referenceOutput : register(u0);
+// 16ビットずつ数値として返せば、非正規化数を出力の浮動演算へ通さず全入力ビットを検査できる。
+float4 EncodeReferenceBits(uint x,uint y){ return float4(x&65535,x>>16,y&65535,y>>16); }
+[numthreads(8,8,1)] void CSPlanetReference(uint3 id : SV_DispatchThreadID){
+  uint3 p=asuint(referencePosition.Load(int3(id.xy,0)).xyz);
+  uint3 d=asuint(referenceDirection.Load(int3(id.xy,0)).xyz);
+  bool blocked=RayEntersPlanet(asfloat(p),asfloat(d));
+  referenceOutput[uint2(id.x,id.y*4)]=float4(blocked?1:0,1234,0,1);
+  referenceOutput[uint2(id.x,id.y*4+1)]=EncodeReferenceBits(p.x,p.y);
+  referenceOutput[uint2(id.x,id.y*4+2)]=EncodeReferenceBits(p.z,d.x);
+  referenceOutput[uint2(id.x,id.y*4+3)]=EncodeReferenceBits(d.y,d.z);
+}
+)probe");
+    // 120条件を128画素へ配置する。繰返しを条件数の増加として数えない。
+    constexpr u32 caseCount = sizeof(kPlanetShadowReferenceBits) / sizeof(kPlanetShadowReferenceBits[0]);
+    constexpr u32 width = 16u;
+    constexpr u32 height = 8u;
+    static_assert(caseCount <= width * height, "全参照条件を実行する領域が必要");
+    // 入力を数値変換せず、テクスチャへビットのまま渡す。
+    FVec4 positions[width * height]{};
+    FVec4 directions[width * height]{};
+    for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+        const u32* bits = kPlanetShadowReferenceBits[pixel % caseCount];
+        ::memcpy(&positions[pixel], bits, 3u * sizeof(u32));
+        ::memcpy(&directions[pixel], bits + 3u, 3u * sizeof(u32));
+    }
+    // GPUとCPUの両方で未書込みを検出する初期値。
+    const f32 nan = ProbeFloatFromBits_Internal(0x7fc00000u);
+    FVec4 unwritten[width * height * 4u];
+    for (FVec4& value : unwritten) value = FVec4{nan,nan,nan,nan};
+    // 既存の描画基盤だけを使い、資源の寿命と提出順を一か所で管理する。
+    FDeviceConfig configuration{};
+    auto device = CreateRhiDevice(configuration);
+    EXPECT_TRUE(device.IsOk());
+    if (device.IsErr()) return;
+    auto command = CreateRhiCommandList(*device.Value());
+    EXPECT_TRUE(command.IsOk());
+    if (command.IsErr()) return;
+    FTextureDesc inputDescription{};
+    inputDescription.width = width;
+    inputDescription.height = height;
+    inputDescription.format = EFormat::R32G32B32A32_Float;
+    inputDescription.initial_data = positions;
+    inputDescription.initial_data_size = sizeof(positions);
+    auto positionTexture = CreateRhiTexture(*device.Value(), inputDescription);
+    EXPECT_TRUE(positionTexture.IsOk());
+    if (positionTexture.IsErr()) return;
+    inputDescription.initial_data = directions;
+    auto directionTexture = CreateRhiTexture(*device.Value(), inputDescription);
+    EXPECT_TRUE(directionTexture.IsOk());
+    if (directionTexture.IsErr()) return;
+#if !WITH_RENDER_DILIGENT
+    // 旧形式と新形式を両方実行する。片方の失敗を他方の成功で覆わない。
+    constexpr u32 variantCount = 2u;
+#else
+    constexpr u32 variantCount = 1u;
+#endif
+    for (u32 variant = 0u; variant < variantCount; ++variant) {
+        FShaderDesc shaderDescription{};
+        shaderDescription.stage = EShaderStage::Compute;
+        shaderDescription.hlsl_source = source.Data();
+        shaderDescription.entry_point = "CSPlanetReference";
+        shaderDescription.debug_name = "Atmo.PlanetReference";
+        if (variant != 0u) shaderDescription.target = "cs_6_0";
+        auto shader = CreateRhiShader(*device.Value(), shaderDescription);
+        EXPECT_TRUE(shader.IsOk());
+        if (shader.IsErr()) continue;
+        FComputePipelineDesc pipelineDescription{};
+        pipelineDescription.cs = shader.Value().Get();
+        pipelineDescription.srv_slots = 2u;
+        pipelineDescription.srv_names[0] = "referencePosition";
+        pipelineDescription.srv_names[1] = "referenceDirection";
+        pipelineDescription.uav_slots = 1u;
+        pipelineDescription.uav_names[0] = "referenceOutput";
+        auto pipeline = CreateRhiComputePipeline(*device.Value(), pipelineDescription);
+        EXPECT_TRUE(pipeline.IsOk());
+        if (pipeline.IsErr()) return;
+        FTextureDesc outputDescription = inputDescription;
+        outputDescription.height = height * 4u;
+        outputDescription.is_uav = true;
+        outputDescription.initial_data = unwritten;
+        outputDescription.initial_data_size = sizeof(unwritten);
+        auto outputTexture = CreateRhiTexture(*device.Value(), outputDescription);
+        EXPECT_TRUE(outputTexture.IsOk());
+        if (outputTexture.IsErr()) return;
+        command.Value()->Begin();
+        command.Value()->SetComputePipeline(*pipeline.Value());
+        command.Value()->SetTexture(0u, *positionTexture.Value());
+        command.Value()->SetTexture(1u, *directionTexture.Value());
+        command.Value()->BindUav(0u, *outputTexture.Value());
+        command.Value()->Dispatch(width / 8u, height / 8u, 1u);
+        command.Value()->End();
+        const bool submitted = command.Value()->Submit();
+        EXPECT_TRUE(submitted);
+        if (!submitted) return;
+        device.Value()->WaitIdle();
+        FVec4 values[width * height * 4u];
+        ::memcpy(values, unwritten, sizeof(values));
+        const bool read = device.Value()->ReadTexture(*outputTexture.Value(), values, sizeof(values));
+        EXPECT_TRUE(read);
+        if (!read) return;
+        u32 failures = 0u;
+        for (u32 pixel = 0u; pixel < width * height; ++pixel) {
+            // 判定の期待値と全6入力成分をCPUの固定データだけから照合する。
+            const u32* bits = kPlanetShadowReferenceBits[pixel % caseCount];
+            const u32 row = pixel / width;
+            const u32 column = pixel % width;
+            const FVec4 predicate = values[row * width * 4u + column];
+            bool valid = predicate.x == static_cast<f32>(bits[6]) && predicate.y == 1234.0f && predicate.z == 0.0f && predicate.w == 1.0f;
+            for (u32 pair = 0u; pair < 3u; ++pair) {
+                const FVec4 echo = values[(row * 4u + pair + 1u) * width + column];
+                valid = valid && echo.x == static_cast<f32>(bits[pair * 2u] & 65535u) && echo.y == static_cast<f32>(bits[pair * 2u] >> 16u) && echo.z == static_cast<f32>(bits[pair * 2u + 1u] & 65535u) && echo.w == static_cast<f32>(bits[pair * 2u + 1u] >> 16u);
+            }
+            if (!valid) ++failures;
+            if (pixel < caseCount) test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference variant=%u case=%u expected=%u actual=%.9g input_bits_and_output_valid=%u", variant, pixel, bits[6], predicate.x, valid ? 1u : 0u);
+        }
+        test::RecordInfo(FSourceLoc::Current(), "planet_integer_reference_result variant=%u cases=%u submitted=1 readback=1 failed_pixels=%u", variant, caseCount, failures);
+        EXPECT_EQ(failures, 0u);
+    }
 }
 
 // 製品の交差・遮蔽・40点積分を実行する。GPU未利用、未書込、全画素の境界違反を失敗にする。
@@ -2721,3 +3142,6 @@ ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
     EXPECT_NEAR(results[12][2], artGround.z, 1.0e-6f);
     sky.Shutdown();
 }
+
+// 参照関数だけでなく、製品の空画像生成入口からの光漏れも検査する。
+#include "atmosphere_planet_shadow_integration_tests.inl"

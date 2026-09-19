@@ -890,6 +890,107 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "float RaySphere(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ result=-b+sqrt(disc); } return result; }\n" \
 "// 距離0は球へ向かう入口だけ採用し、地表から外向き・接線方向への光を遮らない。\n" \
 "float RaySphereNear(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ float nearT=-b-sqrt(disc); if(nearT>0.0 || (nearT==0.0 && b<0.0)) result=nearT; } return result; }\n" \
+"// 入力floatのビット値だけで球内部への進入を求める、配列複製を避けた未採用の検証用実装。\n" \
+"bool RayEntersPlanet(float3 P, float3 dir)\n" \
+"{\n" \
+"    // 旧コンパイラーはfloatベクトルの可変添字を内積にするため、添字を使う前に整数へ写す。\n" \
+"    uint3 positionBits=asuint(P),directionBits=asuint(dir);\n" \
+"    // 指数255は有限入力という契約の対象外。この関数のfalseを入力の有効性保証には使わない。\n" \
+"    bool blocked = false;\n" \
+"    if (!any((positionBits & 0x7f800000) == 0x7f800000) && !any((directionBits & 0x7f800000) == 0x7f800000))\n" \
+"    {\n" \
+"    // 2の補数を基数256の144桁で保持する。全中間和の絶対値は2^1113より小さい。\n" \
+"    uint accumulator[144];\n" \
+"    // 四つの24ビット仮数の積は96ビットなので、12桁で保持できる。\n" \
+"    uint product[12];\n" \
+"    // c=P.P-B²、b=P.d、D=B²(d.d)-|P×d|²の順に符号だけを計算する。\n" \
+"    [loop] for (uint stage = 0; stage < 3; stage++)\n" \
+"    {\n" \
+"        [loop] for (uint clearDigit = 0; clearDigit < 144; clearDigit++) accumulator[clearDigit] = 0;\n" \
+"        uint termCount = stage == 0 ? 4 : (stage == 1 ? 3 : 12);\n" \
+"        [loop] for (uint term = 0; term < termCount; term++)\n" \
+"        {\n" \
+"            // 各項は入力ビット最大四個と、係数の符号・2倍の有無だけで指定する。\n" \
+"            uint4 factors = 0;\n" \
+"            uint factorCount = stage == 2 ? 4 : 2;\n" \
+"            uint shift = 0;\n" \
+"            bool negative = false;\n" \
+"            if (stage == 0)\n" \
+"            {\n" \
+"                uint value = asuint(6360.0);\n" \
+"                if (term < 3) value = positionBits[term];\n" \
+"                factors.xy = uint2(value, value);\n" \
+"                negative = term == 3;\n" \
+"            }\n" \
+"            else if (stage == 1) factors.xy = uint2(positionBits[term], directionBits[term]);\n" \
+"            else if (term < 3) factors = uint4(asuint(6360.0), asuint(6360.0), directionBits[term], directionBits[term]);\n" \
+"            else if (term < 9)\n" \
+"            {\n" \
+"                // -P_i² d_j²をi!=jの六組について加える。\n" \
+"                uint axis = (term - 3) / 2;\n" \
+"                uint other = (axis + 1 + (term - 3) % 2) % 3;\n" \
+"                factors = uint4(positionBits[axis], positionBits[axis], directionBits[other], directionBits[other]);\n" \
+"                negative = true;\n" \
+"            }\n" \
+"            else\n" \
+"            {\n" \
+"                // +2 P_i P_j d_i d_jを三つの組について加える。\n" \
+"                uint axis = term - 9;\n" \
+"                uint other = (axis + 1) % 3;\n" \
+"                factors = uint4(positionBits[axis], positionBits[other], directionBits[axis], directionBits[other]);\n" \
+"                shift = 1;\n" \
+"            }\n" \
+"            [loop] for (uint initialDigit = 0; initialDigit < 12; initialDigit++) product[initialDigit] = initialDigit == 0 ? 1 : 0;\n" \
+"            // uintの積和は最大255*(2^24-1)+(2^24-2)=2^32-257で収まる。\n" \
+"            [loop] for (uint factor = 0; factor < factorCount; factor++)\n" \
+"            {\n" \
+"                uint bits = factors[factor];\n" \
+"                uint exponent = (bits >> 23) & 255;\n" \
+"                uint mantissa = bits & 0x7fffff;\n" \
+"                if (exponent != 0) mantissa |= 0x800000;\n" \
+"                shift += exponent == 0 ? 0 : exponent - 1;\n" \
+"                negative = negative != ((bits >> 31) != 0);\n" \
+"                uint carry = 0;\n" \
+"                [loop] for (uint productDigit = 0; productDigit < 12; productDigit++)\n" \
+"                {\n" \
+"                    uint sum = product[productDigit] * mantissa + carry;\n" \
+"                    product[productDigit] = sum & 255;\n" \
+"                    carry = sum >> 8;\n" \
+"                }\n" \
+"            }\n" \
+"            uint first = shift / 8;\n" \
+"            uint offset = shift % 8;\n" \
+"            uint carry = negative ? 1 : 0;\n" \
+"            [loop] for (uint digit = first; digit < 144; digit++)\n" \
+"            {\n" \
+"                // 短絡評価に頼らず、配列の範囲内と判明してから添字を使う。\n" \
+"                uint relative = digit - first;\n" \
+"                uint value = 0;\n" \
+"                if (relative < 12) value = product[relative] << offset;\n" \
+"                if (relative > 0) { if (relative <= 12) value |= product[relative - 1] >> (8 - offset); }\n" \
+"                value &= 255;\n" \
+"                if (negative) value ^= 255;\n" \
+"                uint sum = accumulator[digit] + value + carry;\n" \
+"                accumulator[digit] = sum & 255;\n" \
+"                carry = sum >> 8;\n" \
+"                // 項の終端後、符号拡張が残りの桁を変えなくなれば終了する。\n" \
+"                if (relative >= 12) { if (carry == (negative ? 1 : 0)) break; }\n" \
+"            }\n" \
+"        }\n" \
+"        bool isNegative = (accumulator[143] & 128) != 0;\n" \
+"        if (stage == 0) { if (isNegative) { blocked = true; break; } }\n" \
+"        else if (stage == 1) { if (!isNegative) break; }\n" \
+"        else if (!isNegative)\n" \
+"        {\n" \
+"            // D=0は接線。正の値だけが惑星内部を通る。\n" \
+"            uint combined = 0;\n" \
+"            [loop] for (uint finalDigit = 0; finalDigit < 144; finalDigit++) combined |= accumulator[finalDigit];\n" \
+"            blocked = combined != 0;\n" \
+"        }\n" \
+"    }\n" \
+"    }\n" \
+"    return blocked;\n" \
+"}\n" \
 "float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
 "void TransUvToParams(float2 uv,out float r,out float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); }\n"
 
@@ -923,13 +1024,16 @@ const char* kMultiCS =
 ATMO_COMMON_HLSL
 "Texture2D<float4> transLut : register(t0);\n"
 "RWTexture2D<float4> msOut : register(u0);\n"
-"float3 SampleTrans(float r,float mu){\n"
+"// 地球に遮られないことが既知の光路だけで使う表参照。地表反射もこの契約を満たす。\n"
+"float3 SampleTransUnoccluded(float r,float mu){\n"
 "  float2 p=saturate(TransParamsToUv(r,mu))*float2(255.0,63.0);\n"
 "  int2 p0=int2(floor(p)); int2 p1=min(p0+1,int2(255,63)); float2 f=frac(p);\n"
 "  float3 a=lerp(transLut.Load(int3(p0.x,p0.y,0)).rgb,transLut.Load(int3(p1.x,p0.y,0)).rgb,f.x);\n"
 "  float3 b=lerp(transLut.Load(int3(p0.x,p1.y,0)).rgb,transLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);\n"
 "  return lerp(a,b,f.y);\n"
 "}\n"
+"// 直射光の遮蔽判定には積分点の3D位置を保持し、地球の裏側を表の端へ丸め込まない。\n"
+"float3 SampleTrans(float3 P,float3 sun){ float3 result=0; if(!RayEntersPlanet(P,sun)){ float r=length(P); result=SampleTransUnoccluded(r,dot(P/r,sun)); } return result; }\n"
 "[numthreads(8,8,1)]\n"
 "void CSMulti(uint3 id : SV_DispatchThreadID){\n"
 "  const uint W=32,H=32; if(id.x>=W||id.y>=H) return;\n"
@@ -954,7 +1058,7 @@ ATMO_COMMON_HLSL
 "    [loop] for(int i=0;i<N;i++){\n"
 "      float3 P=P0+dir*(dt*(float(i)+0.5)); float rr=length(P); float alt=rr-kBottom; if(alt<0.0) break;\n"
 "      float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext); float3 scat=sR+sM;\n"
-"      float muSun=dot(P/rr,sun); float3 Tsun=SampleTrans(rr,muSun);\n"
+"      float3 Tsun=SampleTrans(P,sun);\n"
 "      float3 sampleT=exp(-ext*dt);\n"
 "      float3 S=Tsun*(sR*phR+sM*phM);\n"                  // globalL=1, MS=0 (1次のみ)
 "      float3 Sint=(S - S*sampleT)/max(ext,1e-7); L+=Tput*Sint;\n"
@@ -963,7 +1067,7 @@ ATMO_COMMON_HLSL
 "      Tput*=sampleT;\n"
 "    }\n"
 "    if(hitGround){ float3 Pg=P0+dir*tMax; float rg=length(Pg); float3 ng=Pg/rg; float muG=dot(ng,sun);\n"
-"      if(muG>0.0){ float3 TsunG=SampleTrans(rg,muG); L += Tput * TsunG * float3(0.3,0.3,0.3) * (muG/PI); } }\n"
+"      if(muG>0.0){ float3 TsunG=SampleTransUnoccluded(rg,muG); L += Tput * TsunG * float3(0.3,0.3,0.3) * (muG/PI); } }\n"
 "    Lsum+=L; MSsum+=ms;\n"
 "  }\n"
 "  float3 InScat=Lsum/64.0; float3 MultiScatAs1=MSsum/64.0;\n"
@@ -978,13 +1082,16 @@ ATMO_COMMON_HLSL
 "Texture2D<float4> transLut : register(t0);\n"
 "Texture2D<float4> multiLut : register(t1);\n"
 "RWTexture2D<float4> bakeOut : register(u0);\n"
-"float3 SampleTrans(float r,float mu){\n"
+"// 地球遮蔽を除外済みの光路を参照する。非遮蔽側の端画素を遮蔽の代用にしない。\n"
+"float3 SampleTransUnoccluded(float r,float mu){\n"
 "  float2 p=saturate(TransParamsToUv(r,mu))*float2(255.0,63.0);\n"
 "  int2 p0=int2(floor(p)); int2 p1=min(p0+1,int2(255,63)); float2 f=frac(p);\n"
 "  float3 a=lerp(transLut.Load(int3(p0.x,p0.y,0)).rgb,transLut.Load(int3(p1.x,p0.y,0)).rgb,f.x);\n"
 "  float3 b=lerp(transLut.Load(int3(p0.x,p1.y,0)).rgb,transLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);\n"
 "  return lerp(a,b,f.y);\n"
 "}\n"
+"// 空画像にも多重散乱表の生成と同じ3D位置による直射遮蔽を適用する。\n"
+"float3 SampleTrans(float3 P,float3 sun){ float3 result=0; if(!RayEntersPlanet(P,sun)){ float r=length(P); result=SampleTransUnoccluded(r,dot(P/r,sun)); } return result; }\n"
 "float3 SampleMulti(float r,float mu){\n"
 "  float2 uv=float2(mu*0.5+0.5,saturate((r-kBottom)/(kTop-kBottom)));\n"
 "  float2 p=saturate(uv)*31.0; int2 p0=int2(floor(p)); int2 p1=min(p0+1,int2(31,31)); float2 f=frac(p);\n"
@@ -1009,7 +1116,7 @@ ATMO_COMMON_HLSL
 "    [loop] for(int i=0;i<N;i++){\n"
 "      float3 P=P0+dir*(dt*(i+0.5)); float r=length(P); float alt=r-kBottom; if(alt<0) break;\n"
 "      float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext);\n"
-"      float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun);\n"
+"      float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(P,sd);\n"
 "      float3 MS=SampleMulti(r,muSun);\n"                 // 多重散乱 LUT (WE GetMultipleScattering)
 "      float3 Sdir=sR*phR + sM*phM;\n"
 "      float3 sampleScatter=Sdir*Tsun + MS*(sR+sM);\n"    // WE: S=Tsun*phaseScat + MS*scattering
@@ -1019,7 +1126,7 @@ ATMO_COMMON_HLSL
 "    }\n"
 "    if(hitGround){\n"
 "      float3 Pg=P0+dir*tGround; float rg=max(length(Pg),kBottom); float3 ng=Pg/rg;\n"
-"      float muG=max(dot(ng,sd),0.0); float3 TsunG=muG>0.0?SampleTrans(rg,muG):float3(0,0,0);\n"
+"      float muG=max(dot(ng,sd),0.0); float3 TsunG=muG>0.0?SampleTransUnoccluded(rg,muG):float3(0,0,0);\n"
 "      float3 skyIrradiance=max(SampleMulti(rg,muG),0.0)*0.25;\n"
 "      float3 groundUnit=max(groundAlbedo.xyz,0.0)*(TsunG*(muG/PI)+skyIrradiance);\n"
 "      L+=Tview*groundUnit;\n"
@@ -1070,8 +1177,18 @@ float3 LoadMultiBilinear(float2 uv) {
                 multiLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);
   return lerp(a,b,f.y);
 }
-float3 SampleTrans(float r,float mu) {
+// 地球遮蔽のない物理点だけを既存の補間へ渡す下位参照。
+float3 SampleTransUnoccluded(float r,float mu) {
   return LoadTransBilinear(TransParamsToUv(r,mu));
+}
+// 空気遠近法でも実際の3D位置から直射光の遮蔽を判定する。
+float3 SampleTrans(float3 P,float3 sun) {
+  float3 result=0;
+  if(!RayEntersPlanet(P,sun)) {
+    float r=length(P);
+    result=SampleTransUnoccluded(r,dot(P/r,sun));
+  }
+  return result;
 }
 float3 SampleMulti(float r,float mu) {
   return LoadMultiBilinear(float2(mu*0.5+0.5,saturate((r-kBottom)/(kTop-kBottom))));
@@ -1137,7 +1254,7 @@ void IntegrateAp(uint3 id,uint W,uint H,uint D,
       float r=length(P), alt=max(r-kBottom,0.0);
       float3 sR; float sM; float3 extKm; SampleMedium(alt,sR,sM,extKm);
       float muSun=dot(P/max(r,1e-5),sd);
-      float3 Tsun=SampleTrans(r,muSun), MS=SampleMulti(r,muSun);
+      float3 Tsun=SampleTrans(P,sd), MS=SampleMulti(r,muSun);
       atmosphereExtinction=extKm*apParams.x;
       atmosphereScatter=((sR*phR+sM*phM)*Tsun+MS*(sR+sM))*sunInt.xyz*apParams.x;
     }
