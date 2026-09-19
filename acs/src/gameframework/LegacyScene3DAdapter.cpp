@@ -1102,6 +1102,14 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiTexture* depth = renderer.DepthBuffer();
     if (device == nullptr || swapchain == nullptr) return;
 
+    // 空気遠近法は環境光の生成可否に依存しない。必要な場面だけ、描画命令を積む前に資源を準備する。
+    const bool perspective_camera = m_UseAuthoredCamera
+        ? m_AuthoredCamera.Projection == EScene3DCameraProjection::Perspective
+        : m_Projection == ESceneProjectionMode::Perspective;
+    if (m_AerialPerspectiveEnabled && perspective_camera && depth != nullptr) {
+        (void)EnsureAtmosphere_Internal(*device);
+    }
+
     // graph更新後、現在frameの描画命令を積む前にだけ同期する。変更が無いframeは
     // node/image同一性の確認だけで、texture uploadやvertex buffer再生成を行わない。
     (void)SynchronizeGraphSprites_Internal(*device);
@@ -1159,9 +1167,6 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     IRhiCommandList& command_list = context.Cmd();
     IRhiTexture* aerial_volume = nullptr;
     IRhiTexture* aerial_transmittance = nullptr;
-    const bool perspective_camera = m_UseAuthoredCamera
-        ? m_AuthoredCamera.Projection == EScene3DCameraProjection::Perspective
-        : m_Projection == ESceneProjectionMode::Perspective;
     if (m_AerialPerspectiveEnabled && perspective_camera
         && depth != nullptr && m_Atmosphere.Ready()) {
         const FVec3 eye = m_Camera.Eye();
@@ -1679,6 +1684,19 @@ void ALegacyScene3DAdapter::RenderSky(
     }
 }
 
+bool ALegacyScene3DAdapter::EnsureAtmosphere_Internal(IRhiDevice& device) noexcept {
+    if (m_Atmosphere.Ready()) return true;
+    if (m_AtmosphereTried) return false;
+    m_AtmosphereTried = true;
+    // 初期化の成否だけを返し、GPU生成完了とは扱わない。既存資源の描画途中の再初期化も行わない。
+    const auto initialized = m_Atmosphere.Init(device);
+    if (initialized.IsErr()) {
+        ACS_LOG_WARN("Scene3D: 大気資源の初期化に失敗したため、空気遠近法なしで描画を継続します");
+        return false;
+    }
+    return true;
+}
+
 bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
     IRhiDevice& device, IRhiCommandList& command_list) noexcept {
     const FVec3 sun = SunDirection();
@@ -1730,10 +1748,7 @@ bool ALegacyScene3DAdapter::EnsureEnvironmentLighting(
 
         // 物理ベースの大気から焼く。太陽の高さで空の色が変わるので、夕暮れの赤みが
         // 何も設定しなくても環境光に乗る。だめなら見えている空 (CSky) から焼く。
-        if (!m_AtmosphereTried) {
-            m_AtmosphereTried = true;
-            (void)m_Atmosphere.Init(device);
-        }
+        (void)EnsureAtmosphere_Internal(device);
 
         // 太陽だけは毎回いまの光から作る。残り (地面の色など) は場面が決めたものを使う。
         FAtmosphereParams atmosphere = m_AtmosphereParams;

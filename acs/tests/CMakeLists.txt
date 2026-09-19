@@ -327,6 +327,17 @@ target_link_libraries(acs_atmosphere_bake_contract_tests PRIVATE
 add_test(NAME ACS.AtmosphereBakeContract COMMAND acs_atmosphere_bake_contract_tests)
 set_tests_properties(ACS.AtmosphereBakeContract PROPERTIES LABELS "Render;Safety;Compatibility" TIMEOUT 60)
 
+if(ACS_RENDER_DX12_RAW)
+    # 通常C++の大気初期化を、非表示の実ウィンドウと実GPUで検証する。
+    add_executable(acs_legacy_atmosphere_runtime_tests main.cpp legacy_atmosphere_runtime_tests.cpp)
+    acs_apply_compiler_options(acs_legacy_atmosphere_runtime_tests)
+    target_link_libraries(acs_legacy_atmosphere_runtime_tests PRIVATE ACS::GameFramework ACS::Test)
+    set_target_properties(acs_legacy_atmosphere_runtime_tests PROPERTIES FOLDER "Engine/Tests" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/legacy_atmosphere/$<CONFIG>/bin")
+    acs_dxc_runtime(acs_legacy_atmosphere_runtime_tests)
+    add_test(NAME ACS.LegacyAtmosphereRuntime COMMAND acs_legacy_atmosphere_runtime_tests)
+    set_tests_properties(ACS.LegacyAtmosphereRuntime PROPERTIES LABELS "GameFramework;Render;Gpu;Compatibility" RUN_SERIAL TRUE TIMEOUT 240)
+endif()
+
 # Randomの既存列、layout、snapshot、検査済み一括APIを独立して反復する。
 add_executable(acs_random_compatibility_tests
     main.cpp

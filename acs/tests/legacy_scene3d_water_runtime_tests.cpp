@@ -485,10 +485,10 @@ ACS_TEST(LegacyScene3DAerialPerspective,
     const std::size_t transmittance_default = source.find(
         "IRhiTexture* aerial_transmittance = nullptr;", volume_defaults);
     const std::size_t projection_check = source.find(
-        "const bool perspective_camera =", transmittance_default);
+        "const bool perspective_camera =", render);
     const std::size_t aerial_condition = source.find(
         "if (m_AerialPerspectiveEnabled && perspective_camera",
-        projection_check);
+        transmittance_default);
     const std::size_t build = source.find(
         "aerial_volume = m_Atmosphere.BuildAerialPerspective(", render);
     const std::size_t incomplete_volume_fallback = source.find(
@@ -517,7 +517,9 @@ ACS_TEST(LegacyScene3DAerialPerspective,
     EXPECT_TRUE(transparent != std::string::npos);
     EXPECT_TRUE(post != std::string::npos);
     EXPECT_TRUE(volume_defaults < transmittance_default);
-    EXPECT_TRUE(transmittance_default < projection_check);
+    // 初期化にも使う投影判定は先行し、生成直前の条件と水面・雲の合成順は維持する。
+    EXPECT_TRUE(projection_check < volume_defaults);
+    EXPECT_TRUE(transmittance_default < aerial_condition);
     EXPECT_TRUE(projection_check < aerial_condition);
     EXPECT_TRUE(aerial_condition < build);
     EXPECT_TRUE(build < incomplete_volume_fallback);

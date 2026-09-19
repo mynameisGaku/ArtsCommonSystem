@@ -537,6 +537,12 @@ public:
         return m_AerialPerspectiveEnabled;
     }
 
+    /** 大気の描画資源が初期化済みかを返す。参照表のGPU生成完了や、その画面への適用を意味しない。 */
+    bool AtmosphereResourcesReady() const noexcept { return m_Atmosphere.Ready(); }
+
+    /** 空気遠近法の体積生成を記録した累積回数。GPU完了回数ではなく、描画資源の解放で0へ戻る。 */
+    u64 AerialPerspectiveDispatchCount() const noexcept { return m_Atmosphere.PhysicalApDispatchCount(); }
+
     /**
      * 距離で霞ませる霧の設定。
      *
@@ -1213,6 +1219,9 @@ private:
      * @return 使える状態なら true。
      */
     bool EnsureEnvironmentLighting(IRhiDevice& device, IRhiCommandList& command_list) noexcept;
+
+    /** 未準備の大気資源を一度だけ初期化する。失敗後は描画資源を解放するまで再試行せずfalseを返す。 */
+    bool EnsureAtmosphere_Internal(IRhiDevice& device) noexcept;
 
     /**
      * 空を描く。
