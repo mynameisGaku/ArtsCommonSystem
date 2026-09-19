@@ -3158,3 +3158,6 @@ ACS_TEST(Atmosphere, PhysicalSkyPublicDrawKeepsGroundBoundaryContinuous)
 
 // 参照関数だけでなく、製品の空画像生成入口からの光漏れも検査する。
 #include "atmosphere_planet_shadow_integration_tests.inl"
+
+// 表の生成点を地表へ置く前に、距離0の地表反射を実際の多重散乱入口で検査する。
+#include "atmosphere_multiscattering_boundary_tests.inl"
